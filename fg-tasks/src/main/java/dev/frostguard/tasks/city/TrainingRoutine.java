@@ -461,7 +461,7 @@ private boolean attemptSingleTroopPromotionFlow(TemplatesEnum template) {
         }
 
         if (troop.isFound()) {
-            tapPoint(troop.getPoint());
+            tapNear(troop.getPoint());
             sleepTask(300);
 
 
@@ -483,8 +483,8 @@ private boolean attemptSingleTroopPromotionFlow(TemplatesEnum template) {
     }
 
 private void applyForMinistryAppointmentFlow() {
-        tapRandomPoint(MINISTRY_DETAILS_MIN_VALUE, MINISTRY_DETAILS_MAX_VALUE, 1, 300);
-        tapRandomPoint(MINISTRY_MORE_DETAILS_MIN_VALUE, MINISTRY_MORE_DETAILS_MAX_VALUE, 1, 300);
+        tapInside(MINISTRY_DETAILS_MIN_VALUE, MINISTRY_DETAILS_MAX_VALUE, 1, 300);
+        tapInside(MINISTRY_MORE_DETAILS_MIN_VALUE, MINISTRY_MORE_DETAILS_MAX_VALUE, 1, 300);
 
         ImageSearchResultData applyButton = templateSearchHelper.locatePattern(
                 SUNFIRE_MINISTRY_APPLY_BUTTON,
@@ -492,8 +492,8 @@ private void applyForMinistryAppointmentFlow() {
 
         if (applyButton.isFound()) {
             logInfo(routineLogTrainingLine("Applying for ministry appointment"));
-            tapRandomPoint(applyButton.getPoint(), applyButton.getPoint(), 1, 1000);
-            tapRandomPoint(MINISTRY_CONFIRM_MIN_VALUE, MINISTRY_CONFIRM_MAX_VALUE, 1, 2500);
+            tapInside(applyButton.getPoint(), applyButton.getPoint(), 1, 1000);
+            tapInside(MINISTRY_CONFIRM_MIN_VALUE, MINISTRY_CONFIRM_MAX_VALUE, 1, 2500);
         } else {
             logInfo(routineLogTrainingLine("Apply button not detected. May already have active appointment."));
         }
@@ -566,7 +566,7 @@ private boolean seekSunfireCastleWithSwipe() {
                     SearchConfigConstants.DEFAULT_SINGLE);
 
             if (sunfireCastle.isFound()) {
-                tapRandomPoint(sunfireCastle.getPoint(), sunfireCastle.getPoint(), 1, 500);
+                tapInside(sunfireCastle.getPoint(), sunfireCastle.getPoint(), 1, 500);
                 return true;
             }
 
@@ -806,7 +806,7 @@ private boolean openUpTrainingInterface() {
             return false;
         }
 
-        tapRandomPoint(trainingButton.getPoint(), trainingButton.getPoint(), 1, 1000);
+        tapInside(trainingButton.getPoint(), trainingButton.getPoint(), 1, 1000);
         return true;
     }
 
@@ -931,7 +931,7 @@ private TrainingTierSelector.TierState probeTroopTier(TemplatesEnum template) {
             return TrainingTierSelector.TierState.NOT_VISIBLE;
         }
 
-        tapPoint(troop.getPoint());
+        tapNear(troop.getPoint());
         sleepTask(250);
         emuManager.captureScreen(EMULATOR_NUMBER);
         ImageSearchResultData lockedIndicator = templateSearchHelper.locatePattern(
@@ -1091,7 +1091,7 @@ private boolean reachSunfireCastleTab() {
                 SearchConfigConstants.DEFAULT_SINGLE);
 
         if (sunfireCastle.isFound()) {
-            tapRandomPoint(sunfireCastle.getPoint(), sunfireCastle.getPoint(), 1, 500);
+            tapInside(sunfireCastle.getPoint(), sunfireCastle.getPoint(), 1, 500);
             return true;
         }
 
@@ -1171,9 +1171,9 @@ private LocalDateTime trainSingleQueueFlow(QueueSlot queue) {
         AreaData areaToTap = resolvePipelineArea(queue.type());
 
         logInfo(routineLogTrainingLine("Preparing to train " + queue.type().name()));
-        tapRandomPoint(areaToTap.topLeft(), areaToTap.bottomRight(), 1, 500);
+        tapInside(areaToTap.topLeft(), areaToTap.bottomRight(), 1, 500);
 
-        tapRandomPoint(TRAINING_CAMP_TAP_MIN_VALUE, TRAINING_CAMP_TAP_MAX_VALUE, 10, 100);
+        tapInside(TRAINING_CAMP_TAP_MIN_VALUE, TRAINING_CAMP_TAP_MAX_VALUE, 10, 100);
 
         if (!openUpTrainingInterface()) {
             return manageTrainingButtonNotFound(queue);
@@ -1258,7 +1258,7 @@ private void manageNoReadyQueues() {
     }
 
 private void inputTroopCountFlow(int count) {
-        tapRandomPoint(TROOP_COUNT_INPUT_MIN_VALUE, TROOP_COUNT_INPUT_MAX_VALUE, 1, 100);
+        tapInside(TROOP_COUNT_INPUT_MIN_VALUE, TROOP_COUNT_INPUT_MAX_VALUE, 1, 100);
         emuManager.clearText(EMULATOR_NUMBER, 6);
         emuManager.writeText(EMULATOR_NUMBER, count + "\n");
         sleepTask(1000);
@@ -1300,7 +1300,7 @@ private boolean pressEventsButton() {
             return false;
         }
 
-        tapPoint(eventsButton.getPoint());
+        tapNear(eventsButton.getPoint());
         sleepTask(1000);
 
         return true;
@@ -1323,7 +1323,7 @@ private QueueSlot inspectQueueState(AreaData queueArea, TroopTypeShape troopType
     }
 
 private void dismissPopupsFlow() {
-        tapRandomPoint(POPUP_DISMISS_MIN_VALUE, POPUP_DISMISS_MAX_VALUE, 5, 200);
+        tapInside(POPUP_DISMISS_MIN_VALUE, POPUP_DISMISS_MAX_VALUE, 5, 200);
     }
 
 private void pressTrainButton() {
@@ -1332,7 +1332,7 @@ private void pressTrainButton() {
                 SearchConfigConstants.DEFAULT_SINGLE);
 
         if (trainButton.isFound()) {
-            tapRandomPoint(trainButton.getPoint(), trainButton.getPoint(), 1, 500);
+            tapInside(trainButton.getPoint(), trainButton.getPoint(), 1, 500);
 
             emuManager.captureScreen(EMULATOR_NUMBER);
             ImageSearchResultData replenishAll = templateSearchHelper.locatePattern(
@@ -1341,11 +1341,11 @@ private void pressTrainButton() {
 
             if (replenishAll.isFound()) {
                 logInfo(routineLogTrainingLine("Filling resources."));
-                tapRandomPoint(replenishAll.getPoint(), replenishAll.getPoint(), 1, 300);
+                tapInside(replenishAll.getPoint(), replenishAll.getPoint(), 1, 300);
                 sleepTask(300);
                 PointData replenishConfirm = new PointData(442, 1064);
-                tapRandomPoint(replenishConfirm, replenishConfirm, 3, 100);
-                tapRandomPoint(trainButton.getPoint(), trainButton.getPoint(), 1, 500);
+                tapInside(replenishConfirm, replenishConfirm, 3, 100);
+                tapInside(trainButton.getPoint(), trainButton.getPoint(), 1, 500);
             }
         } else {
             logWarning(routineLogTrainingLine("Train button not detected."));
@@ -1356,13 +1356,13 @@ private boolean performPromotion(TemplatesEnum template, ImageSearchResultData p
         logInfo(routineLogTrainingLine("Executing promotion for: " + template.name()));
         isPromotionTraining = true;
 
-        tapRandomPoint(promoteButton.getPoint(), promoteButton.getPoint());
+        tapInside(promoteButton.getPoint(), promoteButton.getPoint());
         sleepTask(300);
 
 
         capturePromotionCompletionTimeFlow();
 
-        tapPoint(PROMOTION_CONFIRM_POINT_VALUE);
+        tapNear(PROMOTION_CONFIRM_POINT_VALUE);
         sleepTask(300);
 
 

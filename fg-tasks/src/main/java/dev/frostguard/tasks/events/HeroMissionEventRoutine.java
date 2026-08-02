@@ -147,9 +147,9 @@ public class HeroMissionEventRoutine extends DelayedTask {
                 return false;
             }
         }
-        tapPoint(button.getPoint());
+        tapNear(button.getPoint());
         sleepTask(3000);
-        tapPoint(new PointData(360, 584)); // Tap on the center of the screen to select the reaper
+        tapNear(new PointData(360, 584)); // Tap on the center of the screen to select the reaper
         sleepTask(300);
 
         // Search for rally button
@@ -165,11 +165,11 @@ public class HeroMissionEventRoutine extends DelayedTask {
             return false;
         }
 
-        tapPoint(rallyButton.getPoint());
+        tapNear(rallyButton.getPoint());
         sleepTask(1000);
 
         // Tap "Hold a Rally" button
-        tapRandomPoint(new PointData(275, 821), new PointData(444, 856), 1, 400);
+        tapInside(new PointData(275, 821), new PointData(444, 856), 1, 400);
         sleepTask(500);
 
         // Select flag if needed
@@ -200,7 +200,7 @@ public class HeroMissionEventRoutine extends DelayedTask {
             return false;
         }
 
-        tapPoint(deploy.getPoint());
+        tapNear(deploy.getPoint());
         sleepTask(2000);
 
         if (deploymentHelper.isSameTargetDialog()) {
@@ -262,7 +262,7 @@ public class HeroMissionEventRoutine extends DelayedTask {
 
         for (ImageSearchResultData chest : chests) {
             if (chest.isFound()) {
-                tapPoint(chest.getPoint());
+                tapNear(chest.getPoint());
                 sleepTask(300);
                 pressBack();
             }

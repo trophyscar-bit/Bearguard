@@ -199,7 +199,7 @@ public class ExpertsAgnesIntelRoutine extends DelayedTask {
         }
 
         logInfo("Agnes icon found - claiming intel");
-        tapPoint(agnesIcon.getPoint());
+        tapNear(agnesIcon.getPoint());
         sleepTask(1000); // Wait for claim animation to complete
 
         return true;

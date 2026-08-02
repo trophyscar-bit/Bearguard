@@ -31,6 +31,7 @@ import dev.frostguard.engine.error.ADBConnectionException;
 import dev.frostguard.engine.error.HomeNotFoundException;
 import dev.frostguard.engine.error.ProfileInReconnectStateException;
 import dev.frostguard.engine.error.StopExecutionException;
+import dev.frostguard.engine.input.TapInteractionService;
 import dev.frostguard.engine.schedule.inject.InjectionRule;
 import dev.frostguard.engine.schedule.preempt.PreemptionRule;
 import dev.frostguard.engine.schedule.priority.DefaultTaskPriorityProvider;
@@ -495,7 +496,7 @@ public class TaskQueue {
     private void attemptReconnect() {
         try {
             ImageSearchResultData r = deviceBridge.locatePattern(profile.getEmulatorNumber(), TemplatesEnum.GAME_HOME_RECONNECT, 90);
-            if (r.isFound()) deviceBridge.touchPoint(profile.getEmulatorNumber(), r.getPoint());
+            if (r.isFound()) new TapInteractionService(deviceBridge, profile.getEmulatorNumber()).tapInside(r);
             enqueue(DelayedTaskRegistry.create(TpDailyTaskEnum.INITIALIZE, profile));
         } catch (Exception ex) { emitError("Reconnect error: " + ex.getMessage()); }
     }

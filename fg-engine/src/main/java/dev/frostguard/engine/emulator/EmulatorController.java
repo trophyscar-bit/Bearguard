@@ -96,22 +96,19 @@ public class EmulatorController {
 
     // --- input dispatch ---
 
+    /**
+     * Dispatches a single physical tap at an exact coordinate.
+     *
+     * <p>Only the shared input layer ({@code dev.frostguard.engine.input})
+     * may call this primitive; every other caller must go through
+     * {@code TapInteractionService} so that coordinates and timing stay
+     * randomized. This is enforced repository-wide by the
+     * {@code TapInputArchitectureTest} ArchUnit rules.
+     */
     public void touchPoint(String idx, PointData pt) {
         requireBackend();
         LOG.info("{} tap ({},{}) dev {}", label(idx), pt.getX(), pt.getY(), idx);
         backend.touchArea(idx, pt, pt);
-    }
-
-    public boolean touchArea(String idx, PointData a, PointData b) {
-        requireBackend();
-        LOG.info("{} area tap dev {}", label(idx), idx);
-        return backend.touchArea(idx, a, b);
-    }
-
-    public boolean touchArea(String idx, PointData a, PointData b, int n, int ms) {
-        requireBackend();
-        LOG.info("{} multi-tap x{} dev {}", label(idx), n, idx);
-        return backend.touchArea(idx, a, b, n, ms);
     }
 
     public void swipeScreen(String idx, PointData from, PointData to) {
