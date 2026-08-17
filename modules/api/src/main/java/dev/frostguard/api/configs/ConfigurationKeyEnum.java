@@ -100,6 +100,11 @@ public enum ConfigurationKeyEnum {
     ARENA_TASK_ACTIVATION_TIME_STRING   ("23:50",   String.class,   ConfigCategory.DAILIES),
     ARENA_TASK_BOOL                     ("false",   Boolean.class,  ConfigCategory.DAILIES),
     ARENA_TASK_EXTRA_ATTEMPTS_INT       ("0",       Integer.class,  ConfigCategory.DAILIES),
+    /** matt, 2026-08-08: Testing-profile-only safety valve — taps the challenge
+     *  button to confirm which opponent was selected, then stops before the
+     *  actual battle so a targeting-logic change can be verified live without
+     *  spending a real attempt. Default false everywhere. */
+    ARENA_TASK_DRY_RUN_BOOL             ("false",   Boolean.class,  ConfigCategory.DAILIES),
     ARENA_TASK_ATTACK_QUICK_DEPLOY_BOOL ("true",    Boolean.class,  ConfigCategory.DAILIES),
     /** Legacy arena state filter key retained only so existing persisted profiles can still be read. */
     ARENA_TASK_PLAYER_STATE_INT         ("0",       Integer.class,  ConfigCategory.DAILIES, true),
