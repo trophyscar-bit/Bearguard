@@ -64,6 +64,7 @@ public enum TpDailyTaskEnum {
     /* ── events ── */
 
     EVENT_BERSERK_CRYPTID  (206, "Manual Rally Join",            ConfigurationKeyEnum.RALLY_ENABLED_BOOL,                     RoutineCategory.EVENT),
+    EVENT_CRYPTID_HOST     (900, "Host Cryptid Rally",           ConfigurationKeyEnum.CRYPTID_HOST_ENABLED_BOOL,              RoutineCategory.EVENT),
     EVENT_HERO_MISSION     (201, "Hero Mission Event",           ConfigurationKeyEnum.HERO_MISSION_EVENT_BOOL,                RoutineCategory.EVENT),
     EVENT_JOURNEY_OF_LIGHT (203, "Journey of Light Event",       ConfigurationKeyEnum.JOURNEY_OF_LIGHT_BOOL,                  RoutineCategory.EVENT),
     EVENT_MYRIAD_BAZAAR    (205, "Myriad Bazaar Event",          ConfigurationKeyEnum.MYRIAD_BAZAAR_EVENT_BOOL,               RoutineCategory.EVENT),

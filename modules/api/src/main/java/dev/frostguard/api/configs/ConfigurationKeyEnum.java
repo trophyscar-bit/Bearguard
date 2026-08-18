@@ -183,6 +183,12 @@ public enum ConfigurationKeyEnum {
     TUNDRA_TRUCK_USE_GEMS_BOOL                  ("false",   Boolean.class,       ConfigCategory.EVENTS),
     TUNDRA_TREK_AUTOMATION_BOOL                 ("false",   Boolean.class,       ConfigCategory.EVENTS),
     TUNDRA_TREK_SUPPLIES_BOOL                   ("false",   Boolean.class,       ConfigCategory.EVENTS),
+    // matt: Berserk Cryptid ("Gina's Revenge") host-and-repeat -- stamina is the real limit,
+    // not Horns, so CRYPTID_HOST_RUNS_INT is a target the routine may not fully reach.
+    CRYPTID_HOST_ENABLED_BOOL           ("false",   Boolean.class,  ConfigCategory.EVENTS),
+    CRYPTID_HOST_RUNS_INT               ("1",       Integer.class,  ConfigCategory.EVENTS),
+    CRYPTID_HOST_USE_STAMINA_ITEMS_BOOL ("false",   Boolean.class,  ConfigCategory.EVENTS),
+    CRYPTID_HOST_FLAG_INT               ("0",       Integer.class,  ConfigCategory.EVENTS),
 
     /* ─────────── intel ─────────── */
 

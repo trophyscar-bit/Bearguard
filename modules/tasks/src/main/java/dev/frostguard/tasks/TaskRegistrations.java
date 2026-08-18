@@ -87,6 +87,7 @@ public class TaskRegistrations {
             case ARENA -> new ArenaRoutine(profile, type);
             case EVENT_POLAR_TERROR -> new PolarTerrorHuntingRoutine(profile, type);
             case EVENT_BERSERK_CRYPTID -> new ManualRallyJoinRoutine(profile, type);
+            case EVENT_CRYPTID_HOST -> new CryptidHostingRoutine(profile, type);
             case BEAR_TRAP -> new BearTrapRoutine(profile, type);
 
             // Alliance
