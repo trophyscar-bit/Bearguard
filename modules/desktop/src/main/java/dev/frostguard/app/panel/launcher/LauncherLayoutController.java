@@ -85,6 +85,7 @@ import dev.frostguard.app.panel.misc.TelegramLayoutController;
 import dev.frostguard.app.bootstrap.ApplicationLifecycle;
 import dev.frostguard.app.bootstrap.WindowsWindowManager;
 import dev.frostguard.app.panel.update.UpdateLayoutController;
+import dev.frostguard.app.panel.social.ChatCaptureLayoutController;
 import dev.frostguard.engine.service.TelegramBotService;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
@@ -660,7 +661,10 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 new ModuleDefinition("SkipTutorialLayout",       "Skip Tutorial",        MaterialDesignS.SKIP_NEXT_OUTLINE,          SkipTutorialLayoutController::new),
                 new ModuleDefinition("CharacterLayout",          "Character",            MaterialDesignA.ACCOUNT_OUTLINE,            CharacterLayoutController::new),
                 new ModuleDefinition("GameAnalyticsLayout",      "Game Data",            MaterialDesignV.VIEW_LIST_OUTLINE,          GameAnalyticsLayoutController::new),
-                new ModuleDefinition("StatisticsLayout",         "Statistics",           MaterialDesignV.VIEW_DASHBOARD_OUTLINE,     StatisticsLayoutController::new)
+                new ModuleDefinition("StatisticsLayout",         "Statistics",           MaterialDesignV.VIEW_DASHBOARD_OUTLINE,     StatisticsLayoutController::new),
+
+                // Bearguard
+                new ModuleDefinition("ChatCaptureLayout",        "Chat",                 MaterialDesignC.CHAT_OUTLINE,               ChatCaptureLayoutController::new)
         );
         //@formatter:on
 

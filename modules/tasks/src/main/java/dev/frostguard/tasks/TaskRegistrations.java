@@ -16,6 +16,7 @@ import dev.frostguard.tasks.exploration.*;
 import dev.frostguard.tasks.heroes.*;
 import dev.frostguard.tasks.lifecycle.*;
 import dev.frostguard.tasks.pets.*;
+import dev.frostguard.tasks.social.*;
 
 /**
  * Registers all task factories with the DelayedTaskRegistry.
@@ -42,6 +43,7 @@ public class TaskRegistrations {
             case NOMADIC_MERCHANT -> new NomadicMerchantRoutine(profile, type);
             case BANK -> new BankRoutine(profile, type);
             case SHOP_MYSTERY -> new MysteryShopRoutine(profile, type);
+            case CHAT_CAPTURE -> new ChatCaptureRoutine(profile, type);
             case GATHER_RESOURCES -> new GatherRoutine(profile, type);
             case GATHER_BOOST -> new GatherSpeedRoutine(profile, type);
             case STOREHOUSE_CHEST -> new StorehouseChestRoutine(profile, type);
