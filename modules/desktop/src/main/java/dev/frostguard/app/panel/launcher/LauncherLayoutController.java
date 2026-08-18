@@ -34,6 +34,7 @@ import dev.frostguard.app.panel.emulator.EmuConfigLayoutController;
 import dev.frostguard.app.panel.dailies.EventsLayoutController;
 import dev.frostguard.app.panel.heroes.ExpertsLayoutController;
 import dev.frostguard.app.panel.misc.FishingLayoutController;
+import dev.frostguard.app.panel.economy.DealsLayoutController;
 import dev.frostguard.app.panel.economy.GatherLayoutController;
 import dev.frostguard.app.panel.misc.GiftcodeLayoutController;
 import dev.frostguard.app.panel.heroes.IntelLayoutController;
@@ -638,6 +639,9 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 new ModuleDefinition("CityEventsExtraLayout",    "Extra City Events",    MaterialDesignC.CALENDAR_PLUS,              CityEventsExtraLayoutController::new),
                 new ModuleDefinition("PolarTerrorLayout",        "Rally",                MaterialDesignF.FLAG_OUTLINE,               PolarTerrorLayoutController::new),
                 new ModuleDefinition("ShopLayout",               "Shop",                 MaterialDesignS.STORE_OUTLINE,              ShopLayoutController::new),
+                // Bearguard: dedicated home for the Deals-menu automations -- Bank (moved
+                // here from Shop) plus the Random Events tab claim routines.
+                new ModuleDefinition("DealsLayout",              "Deals",                MaterialDesignT.TAG_OUTLINE,                 DealsLayoutController::new),
                 new ModuleDefinition("GatherLayout",             "Gather",               MaterialDesignP.PACKAGE_VARIANT,            GatherLayoutController::new),
                 new ModuleDefinition("IntelLayout",              "Intel",                MaterialDesignB.BINOCULARS,                 IntelLayoutController::new),
                 new ModuleDefinition("AllianceLayout",           "Alliance",             MaterialDesignA.ACCOUNT_GROUP_OUTLINE,      AllianceLayoutController::new),
