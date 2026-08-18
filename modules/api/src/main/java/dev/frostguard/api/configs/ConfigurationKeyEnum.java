@@ -316,7 +316,10 @@ public enum ConfigurationKeyEnum {
     TRAIN_MARKSMAN_BOOL                 ("false",   Boolean.class,  ConfigCategory.TRAINING),
     TRAIN_MINISTRY_APPOINTMENT_BOOL     ("false",   Boolean.class,  ConfigCategory.TRAINING),
     TRAIN_MINISTRY_APPOINTMENT_TIME_LONG("0",       Long.class,     ConfigCategory.TRAINING),
-    TRAIN_PRIORITIZE_PROMOTION_BOOL     ("false",   Boolean.class,  ConfigCategory.TRAINING);
+    TRAIN_PRIORITIZE_PROMOTION_BOOL     ("false",   Boolean.class,  ConfigCategory.TRAINING),
+    // matt/2026-08-12: World-map "Heal Injured" panel -- Quick Select + Heal starts the
+    // highest-priority queue, then the same button swaps to Help (alliance-assist).
+    HEAL_INJURED_ENABLED_BOOL           ("false",   Boolean.class,  ConfigCategory.TRAINING);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.

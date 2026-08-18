@@ -53,6 +53,7 @@ public class TaskRegistrations {
             case CITY_UPGRADE_PRIORITISE_FURNACE -> new PrioritiseFurnaceRoutine(profile, type);
             case CITY_SURVIVORS -> new NewSurvivorsRoutine(profile, type);
             case TRAINING_TROOPS -> new TrainingRoutine(profile, type);
+            case HEAL_INJURED_TROOPS -> new HealInjuredRoutine(profile, type);
             case RESEARCH -> new ResearchRoutine(profile, type);
 
             // Dailies
