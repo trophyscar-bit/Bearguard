@@ -111,7 +111,9 @@ public enum TpDailyTaskEnum {
 
     /* ── shop ── */
 
-    SHOP_MYSTERY           (80,  "Shop Mystery",                 ConfigurationKeyEnum.BOOL_MYSTERY_SHOP,                      RoutineCategory.SHOP);
+    SHOP_MYSTERY           (80,  "Shop Mystery",                 ConfigurationKeyEnum.BOOL_MYSTERY_SHOP,                      RoutineCategory.SHOP),
+    SHOP_CUSTOM_ARMAMENT_CHEST (913, "Gem Shop - Custom Armament Chest", ConfigurationKeyEnum.SHOP_CUSTOM_ARMAMENT_CHEST_CLAIM_BOOL, RoutineCategory.MILITARY),
+    SHOP_DAILY_DEALS_FREE_CHEST (914, "Gem Shop - Daily Deals Free Chest", ConfigurationKeyEnum.SHOP_DAILY_DEALS_FREE_CHEST_CLAIM_BOOL, RoutineCategory.MILITARY);
 
     /* ================================================================
      *  Category taxonomy used to group routines in the management UI.

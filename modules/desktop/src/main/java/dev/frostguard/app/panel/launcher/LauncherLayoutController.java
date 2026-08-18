@@ -35,6 +35,7 @@ import dev.frostguard.app.panel.dailies.EventsLayoutController;
 import dev.frostguard.app.panel.heroes.ExpertsLayoutController;
 import dev.frostguard.app.panel.misc.FishingLayoutController;
 import dev.frostguard.app.panel.economy.GatherLayoutController;
+import dev.frostguard.app.panel.economy.GemShopLayoutController;
 import dev.frostguard.app.panel.misc.GiftcodeLayoutController;
 import dev.frostguard.app.panel.heroes.IntelLayoutController;
 import dev.frostguard.app.panel.dailies.MobilizationLayoutController;
@@ -638,6 +639,9 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 new ModuleDefinition("CityEventsExtraLayout",    "Extra City Events",    MaterialDesignC.CALENDAR_PLUS,              CityEventsExtraLayoutController::new),
                 new ModuleDefinition("PolarTerrorLayout",        "Rally",                MaterialDesignF.FLAG_OUTLINE,               PolarTerrorLayoutController::new),
                 new ModuleDefinition("ShopLayout",               "Shop",                 MaterialDesignS.STORE_OUTLINE,              ShopLayoutController::new),
+                // Bearguard: split out of the old combined Shop page -- the top-right
+                // cart-icon panel, never to be confused with this bottom-nav General Shop.
+                new ModuleDefinition("GemShopLayout",            "Gem Shop",             MaterialDesignS.STORE_OUTLINE,              GemShopLayoutController::new),
                 new ModuleDefinition("GatherLayout",             "Gather",               MaterialDesignP.PACKAGE_VARIANT,            GatherLayoutController::new),
                 new ModuleDefinition("IntelLayout",              "Intel",                MaterialDesignB.BINOCULARS,                 IntelLayoutController::new),
                 new ModuleDefinition("AllianceLayout",           "Alliance",             MaterialDesignA.ACCOUNT_GROUP_OUTLINE,      AllianceLayoutController::new),

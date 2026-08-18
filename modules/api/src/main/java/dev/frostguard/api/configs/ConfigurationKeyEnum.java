@@ -267,6 +267,12 @@ public enum ConfigurationKeyEnum {
     BOOL_BANK                               ("false",   Boolean.class,  ConfigCategory.SHOPS),
     INT_BANK_DELAY                          ("1",       Integer.class,  ConfigCategory.SHOPS),
 
+    // matt/2026-08-13: top-right cart-icon Shop panel, built out tab by tab. Custom
+    // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
+    // weeks) -- checked once a day, no-ops when nothing's there.
+    SHOP_CUSTOM_ARMAMENT_CHEST_CLAIM_BOOL ("false",  Boolean.class,  ConfigCategory.SHOPS),
+    SHOP_DAILY_DEALS_FREE_CHEST_CLAIM_BOOL ("false", Boolean.class,  ConfigCategory.SHOPS),
+
     /* ─────────── system ─────────── */
 
     AUTO_START_DELAY_MINUTES_INT        ("5",           Integer.class,  ConfigCategory.SYSTEM),
