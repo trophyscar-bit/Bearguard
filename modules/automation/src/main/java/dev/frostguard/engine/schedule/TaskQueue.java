@@ -106,6 +106,81 @@ public class TaskQueue {
         return hit;
     }
 
+    /**
+     * Pushes a task that is already waiting in the backlog out to a later time.
+     *
+     * <p>matt, 2026-08-09, holding the Chief Order shelf up against the app: <em>"productive day
+     * is kicking off in three minutes. Rush job is kicking off in three minutes. Urgent
+     * mobilization is kicking off in three minutes... it's like you're not even trying."</em> The
+     * sweep had read all three cooldowns correctly and written them to the database — but a
+     * database row is only consulted when a task is <em>enqueued</em>, at startup. The live
+     * objects in the backlog kept the times they were built with, so the screen said ten hours and
+     * the bot went back in three minutes. Reading a timer is worthless unless it moves the queued
+     * task itself, not just its record.</p>
+     *
+     * <p>Only ever defers. A swept timer is authoritative about the earliest a visit could be
+     * worth making, and must never drag a task forward.</p>
+     *
+     * @return {@code true} when a queued task was actually moved
+     */
+    public synchronized boolean deferQueued(TpDailyTaskEnum kind, LocalDateTime until) {
+        if (kind == null || until == null) { return false; }
+        DelayedTask ref = DelayedTaskRegistry.create(kind, profile);
+        if (ref == null) { return false; }
+
+        DelayedTask queued = taskBacklog.stream().filter(t -> t.equals(ref)).findFirst().orElse(null);
+        if (queued == null) { return false; }
+
+        LocalDateTime current = queued.getScheduled();
+        if (current != null && !current.isBefore(until)) { return false; }
+
+        // The backlog is a priority queue keyed on the scheduled time, so the entry has to come
+        // out before that key changes — mutating it in place leaves the heap mis-ordered and the
+        // task can still be handed back at its old position.
+        taskBacklog.remove(queued);
+        queued.rescheduleExact(until);
+        taskBacklog.offer(queued);
+        recordScheduleAdjustment(queued);
+
+        emitInfoTask(queued, "Deferred to " + until.format(TS_FMT) + " from the swept on-screen timer.");
+        return true;
+    }
+
+    /**
+     * Moves a queued task to an on-screen time in <em>either</em> direction.
+     *
+     * <p>The blanket "only ever defer" rule is right for camp/research/order timers, but wrong for
+     * a task whose work is waiting to be collected. matt, 2026-08-09, on Pet Adventure:
+     * <em>"two are done and you're not doing anything about it... you should be pushing out pets on
+     * new adventures if there are allotted times left."</em> Finished adventures sit unclaimed and
+     * daily attempts expire at reset, so when the sweep reads that the soonest adventure is (or is
+     * nearly) done, that task needs to be pulled forward to claim and redeploy — not held behind a
+     * stale two-hour fallback.</p>
+     *
+     * @return {@code true} when the queued task was actually moved
+     */
+    public synchronized boolean requeueAt(TpDailyTaskEnum kind, LocalDateTime when) {
+        if (kind == null || when == null) { return false; }
+        DelayedTask ref = DelayedTaskRegistry.create(kind, profile);
+        if (ref == null) { return false; }
+
+        DelayedTask queued = taskBacklog.stream().filter(t -> t.equals(ref)).findFirst().orElse(null);
+        if (queued == null) { return false; }
+
+        LocalDateTime current = queued.getScheduled();
+        if (current != null && Math.abs(java.time.Duration.between(current, when).toSeconds()) < 30) {
+            return false; // already essentially there — don't churn the heap
+        }
+
+        taskBacklog.remove(queued);
+        queued.rescheduleExact(when);
+        taskBacklog.offer(queued);
+        recordScheduleAdjustment(queued);
+
+        emitInfoTask(queued, "Rescheduled to " + when.format(TS_FMT) + " from the swept on-screen timer.");
+        return true;
+    }
+
     public synchronized boolean dequeueByKey(String distinctKey) {
         boolean hit = taskBacklog.removeIf(t -> {
             Object k = t.getDistinctKey();

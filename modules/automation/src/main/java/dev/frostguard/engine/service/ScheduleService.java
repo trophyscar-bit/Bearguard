@@ -83,7 +83,19 @@ public class ScheduleService {
 		}
 	}
 
-	public synchronized void launchEngine() {
+	public void launchEngine() {
+		launchEngine(true);
+	}
+
+	/**
+	 * Starts every enabled profile's queue.
+	 *
+	 * @param allowStartupRescan whether this start may re-read every task's real in-game timer.
+	 *        Pass {@code false} for automated relaunches that are restoring interrupted state
+	 *        (see {@code --resume-queue}); a rescan there re-runs the entire task list on a
+	 *        schedule that has nothing to do with the game's actual timers.
+	 */
+	public synchronized void launchEngine(boolean allowStartupRescan) {
 		if (dispatcher.hasManagedQueues()) {
 			log(TpMessageSeverityEnum.ERROR, "ScheduleService", "-",
 					"Engine launch blocked because a previous queue shutdown is incomplete");
@@ -106,9 +118,18 @@ public class ScheduleService {
 			return;
 		}
 
+		// matt, 2026-08-08: a real Start means "re-check everything against the live game",
+		// not "replay the numbers we wrote last time". Resolved once here so every profile
+		// in this launch agrees, and logged so it's obvious in the log which mode a run used.
+		boolean fullRescan = allowStartupRescan && resolveStartupFullRescan(globalConfig);
+		if (fullRescan) {
+			log(TpMessageSeverityEnum.INFO, "ScheduleService", "-",
+					"Startup full rescan ON — every task will re-read its real in-game timer on this start");
+		}
+
 		enabled.stream()
 				.sorted(Comparator.comparing(AccountDescriptor::getPriority).reversed())
-				.forEach(account -> prepareQueue(account, globalConfig));
+				.forEach(account -> prepareQueue(account, globalConfig, fullRescan));
 
 		dispatcher.startAll();
 		notifyQueueState(null, false);
@@ -238,6 +259,40 @@ public class ScheduleService {
 
 	public void persistDailyCompletion(AccountDescriptor acct, TpDailyTaskEnum taskType, LocalDateTime nextRun) {
 		persistDailyCompletion(acct, taskType, nextRun, null);
+	}
+
+	/**
+	 * Records a timer read off the screen and moves the live queued task to match it.
+	 *
+	 * <p>Writing the database row alone is not enough: the row is read when a task is enqueued,
+	 * and by the time a sweep runs the task is already in the backlog holding its own copy of the
+	 * schedule. Both have to move together or the app shows a ten-hour cooldown and visits in
+	 * three minutes.</p>
+	 *
+	 * @return {@code true} when the queued task was actually deferred
+	 */
+	public boolean applySweptTimer(AccountDescriptor acct, TpDailyTaskEnum taskType, LocalDateTime nextRun) {
+		return applySweptTimer(acct, taskType, nextRun, false);
+	}
+
+	/**
+	 * @param allowEarlier when {@code true} the queued task may be pulled forward as well as
+	 *        pushed back — used for work that is waiting to be collected (e.g. finished Pet
+	 *        Adventures) where a stale later fallback would leave rewards sitting unclaimed. The
+	 *        default {@code false} keeps the safe defer-only behaviour for camp/research/order
+	 *        timers, which must never be rushed.
+	 */
+	public boolean applySweptTimer(AccountDescriptor acct, TpDailyTaskEnum taskType,
+			LocalDateTime nextRun, boolean allowEarlier) {
+		persistDailyCompletion(acct, taskType, nextRun);
+		if (acct == null || taskType == null || nextRun == null) {
+			return false;
+		}
+		TaskQueue queue = dispatcher.getQueue(acct.getId());
+		if (queue == null) {
+			return false;
+		}
+		return allowEarlier ? queue.requeueAt(taskType, nextRun) : queue.deferQueued(taskType, nextRun);
 	}
 
 	public void persistDailyCompletion(AccountDescriptor acct, TpDailyTaskEnum taskType,
@@ -383,6 +438,65 @@ public class ScheduleService {
 		}
 	}
 
+	/**
+	 * matt/2026-08-16: "if I click a box, like, that task won't come up... it doesn't just
+	 * automatically enable it" -- {@link #prepareQueue} only ever reads each task's enabled-bool
+	 * config ONCE, at engine launch, so toggling a checkbox mid-session persisted the new value
+	 * to the DB (via AbstractProfileController -&gt; notifyProfileChange -&gt; saveProfile) but never
+	 * touched the already-running {@link TaskQueue} -- a restart was genuinely the only thing that
+	 * picked it up. Custom tasks already solve this exact problem live (see
+	 * CustomTasksLayoutController.scheduleTask/unscheduleTask calling
+	 * {@link #scheduleCustomTask} / {@link #evictTask}); this generalizes the same pattern to the
+	 * standard {@link ConfigurationKeyEnum}-bool-gated daily tasks (Labyrinth, City Events, etc.)
+	 * so every settings checkbox applies live the moment it's toggled, no restart, no separate
+	 * "Apply" button needed -- these panels already auto-save per-toggle (see
+	 * AbstractProfileController.setupCheckBoxListener), so the same call site just needs to also
+	 * poke the running queue. Intended caller: ProfileManagerLayoutController.notifyProfileChange,
+	 * right after saveProfile succeeds.
+	 *
+	 * <p>No-op (logged, not an error) if the bot isn't currently running for this profile -- the
+	 * DB write alone is correct in that case; the next launch's {@link #prepareQueue} picks it up
+	 * naturally, same as always.
+	 */
+	public void applyEnabledTaskChange(AccountDescriptor account, ConfigurationKeyEnum configKey, boolean nowEnabled) {
+		if (account == null || configKey == null) {
+			return;
+		}
+		TaskQueue queue = dispatcher.getQueue(account.getId());
+		if (queue == null) {
+			log(TpMessageSeverityEnum.INFO, "ScheduleService", account.getName(),
+					"Config " + configKey.name() + " changed to " + nowEnabled
+							+ ", but the bot isn't running for this profile -- will apply on next launch.");
+			return;
+		}
+
+		List<TpDailyTaskEnum> matchingTypes = Stream.of(TpDailyTaskEnum.values())
+				.filter(type -> configKey.equals(type.getConfigKey()))
+				.collect(Collectors.toList());
+		if (matchingTypes.isEmpty()) {
+			return; // this config key isn't a task-activation toggle (e.g. a formation-ratio field)
+		}
+
+		if (!nowEnabled) {
+			matchingTypes.forEach(type -> evictTask(account.getId(), type));
+			return;
+		}
+
+		Map<Integer, DailyTaskStatusData> progressByType = safeProgress(account.getId()).stream()
+				.filter(row -> row != null)
+				.collect(Collectors.toMap(DailyTaskStatusData::getIdTpDailyTask, row -> row, (first, ignored) -> first));
+
+		matchingTypes.forEach(type -> {
+			if (queue.isTaskQueued(type)) {
+				return; // already running/scheduled -- toggling on again is a no-op, not a duplicate
+			}
+			DelayedTask task = DelayedTaskRegistry.create(type, account);
+			enqueuePlannedTask(account, queue, task, progressByType, false);
+			log(TpMessageSeverityEnum.INFO, "ScheduleService", account.getName(),
+					"Live-enabled " + type.getName() + " (config toggled on, bot already running).");
+		});
+	}
+
 	public void persistEmulatorPath(String settingIdentifier, String path) {
 		Config row = findGlobalRow(settingIdentifier);
 		if (row == null) {
@@ -436,7 +550,7 @@ public class ScheduleService {
 		for (TpDailyTaskEnum type : affectedTasks) {
 			if (queue.isTaskQueued(type) || queue.isExecutingTask(type)) continue;
 			DelayedTask task = DelayedTaskRegistry.create(type, account);
-			if (task != null) enqueuePlannedTask(account, queue, task, progressByType);
+			if (task != null) enqueuePlannedTask(account, queue, task, progressByType, false);
 		}
 	}
 
@@ -458,7 +572,15 @@ public class ScheduleService {
 				: accounts.stream().filter(account -> Boolean.TRUE.equals(account.getEnabled())).collect(Collectors.toList());
 	}
 
-	private void prepareQueue(AccountDescriptor account, Map<String, String> globalConfig) {
+	private boolean resolveStartupFullRescan(Map<String, String> globalConfig) {
+		ConfigurationKeyEnum key = ConfigurationKeyEnum.STARTUP_FULL_RESCAN_BOOL;
+		String raw = globalConfig == null
+				? key.getDefaultValue()
+				: globalConfig.getOrDefault(key.name(), key.getDefaultValue());
+		return Boolean.parseBoolean(raw);
+	}
+
+	private void prepareQueue(AccountDescriptor account, Map<String, String> globalConfig, boolean fullRescan) {
 		account.setGlobalSettings(globalConfig instanceof HashMap
 				? (HashMap<String, String>) globalConfig
 				: new HashMap<>(globalConfig == null ? Map.of() : globalConfig));
@@ -474,7 +596,8 @@ public class ScheduleService {
 
 		configDrivenFactories(account).forEach((configKey, factories) -> {
 			if (Boolean.TRUE.equals(account.getConfig(configKey, Boolean.class))) {
-				factories.stream().map(Supplier::get).forEach(task -> enqueuePlannedTask(account, queue, task, progressByType));
+				factories.stream().map(Supplier::get)
+						.forEach(task -> enqueuePlannedTask(account, queue, task, progressByType, fullRescan));
 			}
 		});
 
@@ -501,9 +624,10 @@ public class ScheduleService {
 	}
 
 	private void enqueuePlannedTask(AccountDescriptor account, TaskQueue queue, DelayedTask task,
-			Map<Integer, DailyTaskStatusData> progressByType) {
+			Map<Integer, DailyTaskStatusData> progressByType, boolean fullRescan) {
 		TaskStateData state = baseScheduledState(account.getId(), task.getTpTask().getId(), null);
 		DailyTaskStatusData saved = progressByType.get(task.getTpDailyTaskId());
+
 		boolean isBearTrap = task.getTpTask() == TpDailyTaskEnum.BEAR_TRAP;
 		Optional<BearTrapParticipationSchedule.Plan> bearPlan = isBearTrap
 				? BearTrapParticipationSchedule.resolve(account)
@@ -516,6 +640,29 @@ public class ScheduleService {
 					"Participation was not queued because the selected UTC timer is incomplete");
 			return;
 		}
+
+		// matt, 2026-08-08: the timer sweep always runs at startup, whatever its stored schedule
+		// says. Its whole job is to establish what is actually due before anything acts, so
+		// honouring an hour-old appointment would start the bot blind — exactly the behaviour he
+		// objected to. Every other task keeps its saved schedule; only these are forced.
+		// matt, 2026-08-10: the Resource Stockpile Scan joins it — matt wants fresh resource/speedup
+		// totals in the stats the moment the bot starts, not an hour into its old 2h appointment.
+		if (task.getTpTask() == TpDailyTaskEnum.TIMER_SWEEP
+				|| task.getTpTask() == TpDailyTaskEnum.RESOURCE_STOCKPILE_SCAN) {
+			LocalDateTime now = LocalDateTime.now();
+			task.reschedule(now);
+			if (saved != null) {
+				task.setLastExecutionTime(saved.getLastExecution());
+				state.setLastExecutionTime(saved.getLastExecution());
+			}
+			state.setNextExecutionTime(now);
+			log(TpMessageSeverityEnum.INFO, task.getTaskName(), account.getName(),
+					task.getTaskName() + " forced to run at startup.");
+			TaskManagementService.shared().recordTaskState(account.getId(), state);
+			queue.enqueue(task);
+			return;
+		}
+
 		if (bearPlan.isPresent()) {
 			BearTrapParticipationSchedule.Plan plan = bearPlan.get();
 			task.reschedule(plan.nextRun());
@@ -531,6 +678,25 @@ public class ScheduleService {
 		} else if (saved == null) {
 			scheduleFreshTask(task, account);
 			state.setNextExecutionTime(task.getScheduled());
+		} else if (fullRescan) {
+			// matt, 2026-08-08: deliberately ignore saved.getNextSchedule() here. Forcing the task
+			// due now makes its own execute() re-open the screen and re-derive the next run from
+			// what it actually reads, which is the whole point of a full rescan. lastExecution and
+			// any stamina deferral are still restored — the deferral is a real resource constraint,
+			// not a stale timer, so overriding it would just make the task fail on arrival.
+			LocalDateTime now = LocalDateTime.now();
+			task.reschedule(now);
+			task.setLastExecutionTime(saved.getLastExecution());
+			if (saved.hasStaminaDeferral()) {
+				task.restoreStaminaDeferral(new StaminaDeferral(
+						saved.getStaminaMinimumRequired(),
+						saved.getStaminaRegenerationTarget(),
+						saved.getStaminaEarliestRunnableAt()));
+			}
+			state.setLastExecutionTime(saved.getLastExecution());
+			state.setNextExecutionTime(now);
+			log(TpMessageSeverityEnum.INFO, task.getTaskName(), account.getName(),
+					"Full rescan: forcing re-check now (was " + formatTime(saved.getNextSchedule()) + ")");
 		} else {
 			task.reschedule(saved.getNextSchedule());
 			task.setLastExecutionTime(saved.getLastExecution());

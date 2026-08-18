@@ -85,6 +85,13 @@ public enum TpDailyTaskEnum {
     /* ── military ── */
 
     TRAINING_TROOPS        (60,  "Training",                     ConfigurationKeyEnum.TRAIN_BOOL,                              RoutineCategory.MILITARY),
+    // matt/2026-08-12: split out of the combined TRAINING_TROOPS above -- one task juggling
+    // all 3 camps rescheduled to the single earliest completion across all of them, which
+    // meant OCR/timing state for one camp could get tangled with another's. Each of these
+    // schedules itself off its own camp only.
+    TRAINING_INFANTRY       (904, "Training: Infantry",           ConfigurationKeyEnum.TRAIN_INFANTRY_BOOL,                    RoutineCategory.MILITARY),
+    TRAINING_LANCER         (905, "Training: Lancer",             ConfigurationKeyEnum.TRAIN_LANCER_BOOL,                      RoutineCategory.MILITARY),
+    TRAINING_MARKSMAN       (906, "Training: Marksman",           ConfigurationKeyEnum.TRAIN_MARKSMAN_BOOL,                    RoutineCategory.MILITARY),
 
     /* ── pet ── */
 
@@ -108,10 +115,15 @@ public enum TpDailyTaskEnum {
     TREK_SUPPLIES          (8,   "Trek Supplies",                ConfigurationKeyEnum.TUNDRA_TREK_SUPPLIES_BOOL,              RoutineCategory.RESOURCE),
     VIP_POINTS             (5,   "VIP Points",                   ConfigurationKeyEnum.BOOL_VIP_POINTS,                        RoutineCategory.RESOURCE),
     WAR_ACADEMY            (3,   "War Academy Shards",           ConfigurationKeyEnum.WAR_ACADEMY_TASK_BOOL,                  RoutineCategory.RESOURCE),
+    RESOURCE_STOCKPILE_SCAN (902, "Resource Stockpile Scan",     ConfigurationKeyEnum.GATHER_SMART_PRIORITY_BOOL,             RoutineCategory.RESOURCE),
 
     /* ── shop ── */
 
-    SHOP_MYSTERY           (80,  "Shop Mystery",                 ConfigurationKeyEnum.BOOL_MYSTERY_SHOP,                      RoutineCategory.SHOP);
+    SHOP_MYSTERY           (80,  "Shop Mystery",                 ConfigurationKeyEnum.BOOL_MYSTERY_SHOP,                      RoutineCategory.SHOP),
+
+    /* ── lifecycle ── */
+
+    TIMER_SWEEP             (903, "Timer Sweep",                  ConfigurationKeyEnum.TIMER_SWEEP_ENABLED_BOOL,               RoutineCategory.LIFECYCLE);
 
     /* ================================================================
      *  Category taxonomy used to group routines in the management UI.

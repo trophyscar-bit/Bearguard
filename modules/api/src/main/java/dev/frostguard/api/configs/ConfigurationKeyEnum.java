@@ -226,6 +226,30 @@ public enum ConfigurationKeyEnum {
     GATHER_LAST_RECALL_TIME_STRING  ("",                    String.class,   ConfigCategory.GATHERING),
     GATHER_SPEED_BOOL               ("false",               Boolean.class,  ConfigCategory.GATHERING),
     GATHER_SPEED_BOOST_TYPE_STRING  ("24h (600 gems)",      String.class,   ConfigCategory.GATHERING),
+    // matt/2026-08-06: when enabled, the rotation pool is ordered by scarcity-relative-to-value
+    // (stockpile / valueWeight, ascending) instead of Collections.shuffle(). See
+    // GatherRoutine.RESOURCE_VALUE_WEIGHT for the sourced value ratio. Off by default so existing
+    // blind-rotation behavior is unchanged unless a user opts in.
+    GATHER_SMART_PRIORITY_BOOL      ("false",               Boolean.class,  ConfigCategory.GATHERING),
+    // matt/2026-08-06: cache written by ResourceStockpileRoutine (runs only when
+    // GATHER_SMART_PRIORITY_BOOL is on - no separate checkbox to find/enable), read back by
+    // GatherRoutine.readCurrentStockpiles(). Source screen: Research Center -> Research -> any
+    // non-maxed tech node's "Research Cost" panel, which shows all 4 resources as current/cost -
+    // verified live 2026-08-06 (see RESOURCE_STOCKPILE_SCREEN comment in ResourceStockpileRoutine).
+    RESOURCE_STOCKPILE_MEAT_LONG        ("0",  Long.class,    ConfigCategory.GATHERING),
+    RESOURCE_STOCKPILE_WOOD_LONG        ("0",  Long.class,    ConfigCategory.GATHERING),
+    RESOURCE_STOCKPILE_COAL_LONG        ("0",  Long.class,    ConfigCategory.GATHERING),
+    RESOURCE_STOCKPILE_IRON_LONG        ("0",  Long.class,    ConfigCategory.GATHERING),
+    // Added 2026-08-10 for the Backpack "Resource & Speedup Summary" reader. Steel is the 5th
+    // resource (no "Total Items" column, so its "Total Resources" value is read instead), and the
+    // five speedup buckets are stored in MINUTES (parsed from the game's "6 day(s)3 hr(s)3 min" form).
+    RESOURCE_STOCKPILE_STEEL_LONG       ("0",  Long.class,    ConfigCategory.GATHERING),
+    SPEEDUP_GENERAL_MIN_LONG            ("0",  Long.class,    ConfigCategory.GATHERING),
+    SPEEDUP_TRAINING_MIN_LONG          ("0",  Long.class,    ConfigCategory.GATHERING),
+    SPEEDUP_CONSTRUCTION_MIN_LONG      ("0",  Long.class,    ConfigCategory.GATHERING),
+    SPEEDUP_RESEARCH_MIN_LONG          ("0",  Long.class,    ConfigCategory.GATHERING),
+    SPEEDUP_HEALING_MIN_LONG           ("0",  Long.class,    ConfigCategory.GATHERING),
+    RESOURCE_STOCKPILE_LAST_READ_STRING ("",   String.class,  ConfigCategory.GATHERING),
     GATHER_TASK_BOOL                ("false",               Boolean.class,  ConfigCategory.GATHERING),
     GATHER_WOOD_BOOL                ("false",               Boolean.class,  ConfigCategory.GATHERING),
     GATHER_WOOD_LEVEL_INT           ("8",                   Integer.class,  ConfigCategory.GATHERING),
@@ -277,6 +301,27 @@ public enum ConfigurationKeyEnum {
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),
+    // matt, 2026-08-08: percentage-with-a-ceiling jitter applied to every reschedule() call --
+    // see DelayedTask.reschedule() for why. Percent of 0 or max-seconds of 0 disables it.
+    // Depends on feature/schedule-jitter-and-quit-dialog-guard -- see that branch for why.
+    SCHEDULE_JITTER_PERCENT_INT         ("15",          Integer.class,  ConfigCategory.SYSTEM),
+    SCHEDULE_JITTER_MAX_SECONDS_INT     ("150",         Integer.class,  ConfigCategory.SYSTEM),
+    /** matt, 2026-08-08: read-only timer sweep at startup and hourly. */
+    TIMER_SWEEP_ENABLED_BOOL            ("true",        Boolean.class,  ConfigCategory.SYSTEM),
+    /** Minutes between timer sweeps once the startup sweep has run. */
+    TIMER_SWEEP_INTERVAL_MINUTES_INT    ("60",          Integer.class,  ConfigCategory.SYSTEM),
+    /** matt, 2026-08-08: DEFAULT OFF, deliberately reversed after matt watched it run.
+     *
+     *  <p>Forcing every task due at startup does re-derive real timers, but it does so by
+     *  running each routine's full workload — navigate, perform the task, then reschedule.
+     *  From the outside that is a bot blindly tearing through every activity it owns the moment
+     *  it starts, which is the opposite of the order of operations matt asked for: read all the
+     *  timers first, record them, then act only on what is genuinely due.</p>
+     *
+     *  <p>Left in place as an escape hatch for the case it was built for — schedules gone badly
+     *  stale after a profile sat disabled — but it is not the startup path. The read-only timer
+     *  sweep is.</p> */
+    STARTUP_FULL_RESCAN_BOOL            ("false",       Boolean.class,  ConfigCategory.SYSTEM),
     // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
