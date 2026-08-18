@@ -98,6 +98,7 @@ public class TaskRegistrations {
             case ALLIANCE_TRIUMPH -> new TriumphRoutine(profile, type);
             case ALLIANCE_MOBILIZATION -> new AllianceMobilizationRoutine(profile, type);
             case ALLIANCE_CHAMPIONSHIP -> new AllianceChampionshipRoutine(profile, type);
+            case MONUMENT -> new MonumentRoutine(profile, type);
 
             // Events
             case EVENT_TUNDRA_TRUCK -> new TundraTruckEventRoutine(profile, type);
