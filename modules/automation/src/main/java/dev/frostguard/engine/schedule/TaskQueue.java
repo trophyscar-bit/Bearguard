@@ -33,6 +33,7 @@ import dev.frostguard.engine.emulator.QueuePositionListener;
 import dev.frostguard.engine.error.ADBConnectionException;
 import dev.frostguard.engine.error.HomeNotFoundException;
 import dev.frostguard.engine.error.ProfileInReconnectStateException;
+import dev.frostguard.engine.error.QuitDialogStuckException;
 import dev.frostguard.engine.error.StopExecutionException;
 import dev.frostguard.engine.input.TapInteractionService;
 import dev.frostguard.engine.schedule.inject.InjectionRule;
@@ -650,6 +651,13 @@ public class TaskQueue {
     private void routeError(DelayedTask task, Exception ex) {
         if (ex instanceof HomeNotFoundException) {
             emitErrorTask(task, "Home not found: " + ex.getMessage());
+            enqueue(DelayedTaskRegistry.create(TpDailyTaskEnum.INITIALIZE, profile));
+        } else if (ex instanceof QuitDialogStuckException) {
+            // #252 round-3 item 5: the quit-game dialog is definitively still up and the guard
+            // gave up dismissing it rather than proceed blind. Same recovery as HomeNotFoundException
+            // -- we don't know what's actually on screen, so re-run INITIALIZE to get back to a
+            // known state instead of letting the next scheduled task run into a stuck dialog too.
+            emitErrorTask(task, "Quit dialog stuck: " + ex.getMessage());
             enqueue(DelayedTaskRegistry.create(TpDailyTaskEnum.INITIALIZE, profile));
         } else if (ex instanceof StopExecutionException) {
             emitErrorTask(task, "Execution stopped: " + ex.getMessage());

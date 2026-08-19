@@ -385,11 +385,16 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
         emuManager.swipeScreen(EMULATOR_NUMBER, start, end);
     }
 
-    // Dave's #252 review: a duration-aware swipe(start, end, durationMs) overload lived here with
-    // zero callers on this branch -- unrelated scope creep for a schedule-jitter/quit-dialog PR.
-    // Removed; it exists independently on Bearguard's own main where it actually has a consumer
-    // (Monument's map-panning navigation), and can be proposed on its own if it's ever needed
-    // upstream.
+    // Round-3 item 8: this overload was removed on Dave's #252 review claiming "zero callers on
+    // this branch" -- that was true at the time, but the branch's rebase onto main afterward
+    // brought in ResearchRoutine.java's three genuine callers (top-reset momentum swipes, the
+    // partially-hidden-row reposition drag, and the down-scroll), which the removal silently broke.
+    // CI's "Build and test on Linux" job caught it as a real compile failure (frostguard-tasks
+    // module) -- restoring the overload, not re-removing the now-real callers.
+    public void swipe(PointData start, PointData end, int durationMs) {
+        checkPreemption();
+        emuManager.swipeScreen(EMULATOR_NUMBER, start, end, durationMs);
+    }
 
     public void pressBack() {
         checkPreemption();

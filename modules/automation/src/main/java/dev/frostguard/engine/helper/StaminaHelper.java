@@ -3,6 +3,7 @@ package dev.frostguard.engine.helper;
 import dev.frostguard.api.configs.TpMessageSeverityEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.engine.emulator.EmulatorController;
+import dev.frostguard.engine.error.QuitDialogStuckException;
 import dev.frostguard.engine.input.TapInteractionService;
 import dev.frostguard.engine.input.TapJitterPolicy;
 import dev.frostguard.engine.nav.CommonGameAreas;
@@ -97,10 +98,16 @@ public class StaminaHelper {
         } catch (Exception ex) {
             emitWarn("Stamina update error: " + ex.getMessage());
         } finally {
-            // Safety navigation back
+            // Safety navigation back. #252 round-3 item 5: QuitDialogStuckException means the
+            // guard confirmed the quit dialog is still up after every dismiss attempt -- that's
+            // not a routine cleanup hiccup to swallow, it's the exact "don't proceed blind" signal
+            // the guard exists to raise. Let it propagate to TaskQueue.routeError() so the profile
+            // re-initializes instead of the next scheduled task walking into a stuck dialog too.
             try {
                 QuitDialogGuard.pressBackSafely(device, deviceSlot);
                 QuitDialogGuard.pressBackSafely(device, deviceSlot);
+            } catch (QuitDialogStuckException stuck) {
+                throw stuck;
             } catch (Exception ex) {
                 emitDebug("Press-back cleanup error: " + ex.getMessage());
             }
