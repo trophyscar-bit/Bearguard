@@ -31,6 +31,15 @@ public class OcrSettingsData {
     private final Color targetColor;
     private final boolean diagnosticMode;
     private final String allowedGlyphs;
+    // Language used to be hardcoded to "eng" in TesseractOcrProvider regardless of what any
+    // caller configured - Whiteout's Alliance/World chat is genuinely multilingual and an
+    // English-only model cannot read non-Latin scripts, it just emits near-random glyph guesses.
+    // Only "eng" and "chi_sim" have trained-data models actually packaged with the app (see
+    // TesseractOcrProvider#SUPPORTED_LANGUAGES); requesting anything else is validated and
+    // falls back to "eng" at the provider boundary. null keeps every existing caller's
+    // behaviour identical (falls back to "eng").
+    private final String language;
+    private final boolean preserveLineBreaks;
 
     /* ---- private: construction via Configurator only ---- */
 
@@ -40,6 +49,8 @@ public class OcrSettingsData {
         this.targetColor       = cfg.targetColor;
         this.diagnosticMode    = cfg.diagnosticMode;
         this.allowedGlyphs    = cfg.allowedGlyphs;
+        this.language           = cfg.language;
+        this.preserveLineBreaks = cfg.preserveLineBreaks;
     }
 
     /* ---- pre-configured presets ---- */
@@ -96,7 +107,9 @@ public class OcrSettingsData {
                 && !isolateForeground
                 && targetColor == null
                 && !diagnosticMode
-                && (allowedGlyphs == null || allowedGlyphs.isEmpty());
+                && (allowedGlyphs == null || allowedGlyphs.isEmpty())
+                && language == null
+                && !preserveLineBreaks;
     }
 
     /**
@@ -111,7 +124,9 @@ public class OcrSettingsData {
                 .isolateForeground(this.isolateForeground)
                 .targetColor(this.targetColor)
                 .diagnosticMode(this.diagnosticMode)
-                .allowedGlyphs(this.allowedGlyphs);
+                .allowedGlyphs(this.allowedGlyphs)
+                .language(this.language)
+                .preserveLineBreaks(this.preserveLineBreaks);
     }
 
     /* ---- primary accessors ---- */
@@ -130,6 +145,12 @@ public class OcrSettingsData {
 
     /** Restricted character set for recognition (whitelist). */
     public String allowedGlyphs()                { return allowedGlyphs; }
+
+    /** Tesseract language code(s), e.g. "eng" or "eng+chi_sim". Null -> caller defaults to "eng". */
+    public String language()                     { return language; }
+
+    /** Whether recognized text should keep its original line breaks (default: flattened to one line). */
+    public boolean preserveLineBreaks()           { return preserveLineBreaks; }
 
     /* ---- presence checks ---- */
 
@@ -166,23 +187,28 @@ public class OcrSettingsData {
         if (!(other instanceof OcrSettingsData that)) return false;
         return isolateForeground == that.isolateForeground
             && diagnosticMode    == that.diagnosticMode
+            && preserveLineBreaks == that.preserveLineBreaks
             && textLayout        == that.textLayout
             && Objects.equals(targetColor,   that.targetColor)
-            && Objects.equals(allowedGlyphs, that.allowedGlyphs);
+            && Objects.equals(allowedGlyphs, that.allowedGlyphs)
+            && Objects.equals(language,      that.language);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
                 textLayout, isolateForeground,
-                targetColor, diagnosticMode, allowedGlyphs);
+                targetColor, diagnosticMode, allowedGlyphs,
+                language, preserveLineBreaks);
     }
 
     @Override
     public String toString() {
         return "OCR{layout=" + textLayout
                 + ", fgIsolation=" + isolateForeground
-                + ", glyphs=" + allowedGlyphs + "}";
+                + ", glyphs=" + allowedGlyphs
+                + ", language=" + language
+                + ", preserveLineBreaks=" + preserveLineBreaks + "}";
     }
 
     /**
@@ -196,6 +222,8 @@ public class OcrSettingsData {
         private Color targetColor;
         private boolean diagnosticMode;
         private String allowedGlyphs;
+        private String language;
+        private boolean preserveLineBreaks = false;
 
         /* ---- primary setters ---- */
 
@@ -221,6 +249,16 @@ public class OcrSettingsData {
 
         public Configurator allowedGlyphs(String glyphs) {
             this.allowedGlyphs = glyphs;
+            return this;
+        }
+
+        public Configurator language(String lang) {
+            this.language = lang;
+            return this;
+        }
+
+        public Configurator preserveLineBreaks(boolean preserve) {
+            this.preserveLineBreaks = preserve;
             return this;
         }
 

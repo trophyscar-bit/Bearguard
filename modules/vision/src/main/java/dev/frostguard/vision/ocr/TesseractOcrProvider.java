@@ -65,7 +65,9 @@ public final class TesseractOcrProvider implements OcrProvider {
         log.debug("Engine config: {} ms", System.currentTimeMillis() - step);
 
         step = System.currentTimeMillis();
-        String recognised = executeRecognition(engine, preparedImage);
+        String recognised = cfg.preserveLineBreaks()
+                ? executeRecognitionMultiline(engine, preparedImage)
+                : executeRecognition(engine, preparedImage);
         log.debug("Engine execution: {} ms", System.currentTimeMillis() - step);
 
         log.debug("=== Recognition Finished === elapsed={} ms, text='{}'",
@@ -87,11 +89,24 @@ public final class TesseractOcrProvider implements OcrProvider {
         return t;
     }
 
-    /** Builds an engine whose behaviour is controlled by {@code cfg}. */
+    /**
+     * Builds an engine whose behaviour is controlled by {@code cfg}.
+     *
+     * <p>Language used to be hardcoded to "eng" here regardless of what any caller configured -
+     * fine for HUD numbers, but silently corrupted anything non-Latin-script (chat is genuinely
+     * multilingual). Honours {@link OcrSettingsData#language()}, falling back to "eng" so every
+     * pre-existing caller is unaffected.
+     *
+     * <p>Dave's #253 review: only "eng" and "chi_sim" trained-data models are actually packaged
+     * with the app (see {@link #SUPPORTED_LANGUAGES}) -- requesting anything else silently ran
+     * Tesseract against a language it has no model for, which fails outright rather than
+     * degrading to garbage text. {@link #resolveSupportedLanguage} validates the request against
+     * what's genuinely available and falls back to "eng" with a warning instead.
+     */
     private static Tesseract configureTesseract(OcrSettingsData cfg) {
         Tesseract t = new Tesseract();
         t.setDatapath(locateTessdata());
-        t.setLanguage("eng");
+        t.setLanguage(resolveSupportedLanguage(cfg.language()));
         t.setConfigs(Collections.singletonList("quiet"));
 
         if (cfg.hasTextLayout()) {
@@ -100,12 +115,43 @@ public final class TesseractOcrProvider implements OcrProvider {
             t.setPageSegMode(3); // AUTO
         }
 
-        t.setOcrEngineMode(1); // Default to LSTM_ONLY for our use cases
+        t.setOcrEngineMode(1); // LSTM_ONLY -- the only mode this app has ever shipped with
 
         if (cfg.hasAllowedChars()) {
             t.setVariable("tessedit_char_whitelist", cfg.getAllowedChars());
         }
         return t;
+    }
+
+    /** Trained-data models actually packaged with the app (see tools/tesseract/*.traineddata).
+     *  "osd" (orientation/script detection) is packaged too but is never a valid recognition
+     *  language on its own, so it's deliberately excluded here. */
+    private static final java.util.Set<String> SUPPORTED_LANGUAGES = java.util.Set.of("eng", "chi_sim");
+
+    /**
+     * Validates a requested Tesseract language string (which may combine multiple languages with
+     * "+", e.g. "eng+chi_sim") against what's actually packaged, falling back to "eng" -- with a
+     * warning -- for any component that isn't. Never returns null or an empty string.
+     */
+    static String resolveSupportedLanguage(String requested) {
+        if (requested == null || requested.isBlank()) {
+            return "eng";
+        }
+        List<String> validated = new ArrayList<>();
+        for (String part : requested.split("\\+")) {
+            String trimmed = part.trim();
+            if (SUPPORTED_LANGUAGES.contains(trimmed)) {
+                validated.add(trimmed);
+            } else {
+                log.warn("Requested OCR language '{}' has no packaged trained-data model "
+                        + "(supported: {}) -- dropping it rather than failing the whole recognition call.",
+                        trimmed, SUPPORTED_LANGUAGES);
+            }
+        }
+        if (validated.isEmpty()) {
+            return "eng";
+        }
+        return String.join("+", validated);
     }
 
     private static int mapTextLayout(TextLayout layout) {
@@ -124,6 +170,22 @@ public final class TesseractOcrProvider implements OcrProvider {
             throws OcrException {
         try {
             return engine.doOCR(img).replace("\n", "").replace("\r", "").trim();
+        } catch (TesseractException e) {
+            throw new OcrException("Tesseract OCR failed", e);
+        }
+    }
+
+    /**
+     * Same as {@link #executeRecognition}, but keeps line breaks intact.
+     *
+     * <p>Multi-message reads (chat) NEED the line structure Tesseract already produces -
+     * flattening was silently destroying it, a real reason chat capture was coming back as one
+     * giant run-on blob instead of one line per message.
+     */
+    private static String executeRecognitionMultiline(Tesseract engine, BufferedImage img)
+            throws OcrException {
+        try {
+            return engine.doOCR(img).replace("\r", "").trim();
         } catch (TesseractException e) {
             throw new OcrException("Tesseract OCR failed", e);
         }
