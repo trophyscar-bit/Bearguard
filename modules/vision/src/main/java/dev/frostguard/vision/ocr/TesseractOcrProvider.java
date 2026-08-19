@@ -61,7 +61,7 @@ public final class TesseractOcrProvider implements OcrProvider {
         requireValidCapture(preparedImage);
 
         long step = System.currentTimeMillis();
-        Tesseract engine = configureTesseract(cfg);
+        Tesseract engine = configureTesseract(cfg); // throws UnsupportedOcrLanguageException for an explicit, unsatisfiable language request
         log.debug("Engine config: {} ms", System.currentTimeMillis() - step);
 
         step = System.currentTimeMillis();
@@ -95,15 +95,21 @@ public final class TesseractOcrProvider implements OcrProvider {
      * <p>Language used to be hardcoded to "eng" here regardless of what any caller configured -
      * fine for HUD numbers, but silently corrupted anything non-Latin-script (chat is genuinely
      * multilingual). Honours {@link OcrSettingsData#language()}, falling back to "eng" so every
-     * pre-existing caller is unaffected.
+     * pre-existing caller (which never sets a language at all) is unaffected.
      *
-     * <p>Dave's #253 review: only "eng" and "chi_sim" trained-data models are actually packaged
-     * with the app (see {@link #SUPPORTED_LANGUAGES}) -- requesting anything else silently ran
-     * Tesseract against a language it has no model for, which fails outright rather than
-     * degrading to garbage text. {@link #resolveSupportedLanguage} validates the request against
-     * what's genuinely available and falls back to "eng" with a warning instead.
+     * <p>Only "eng" and "chi_sim" trained-data models are actually packaged with the app (see
+     * {@link #SUPPORTED_LANGUAGES}). {@link #resolveSupportedLanguage} validates an explicit
+     * request against what's genuinely available and throws {@link UnsupportedOcrLanguageException}
+     * -- via this method's {@code throws OcrException} -- rather than silently substituting "eng":
+     * running an unsupported script through the English model doesn't fail visibly, it produces
+     * plausible-but-wrong glyph guesses, which is worse than an honest error for a caller that
+     * asked for a specific language on purpose.
+     *
+     * <p>Package-private (not {@code private}) specifically so tests can inspect the {@link
+     * Tesseract} instance this method configures -- see {@code TesseractOcrProviderTest} -- rather
+     * than only asserting on {@link #resolveSupportedLanguage}'s return value in isolation.
      */
-    private static Tesseract configureTesseract(OcrSettingsData cfg) {
+    static Tesseract configureTesseract(OcrSettingsData cfg) throws OcrException {
         Tesseract t = new Tesseract();
         t.setDatapath(locateTessdata());
         t.setLanguage(resolveSupportedLanguage(cfg.language()));
@@ -130,25 +136,36 @@ public final class TesseractOcrProvider implements OcrProvider {
 
     /**
      * Validates a requested Tesseract language string (which may combine multiple languages with
-     * "+", e.g. "eng+chi_sim") against what's actually packaged, falling back to "eng" -- with a
-     * warning -- for any component that isn't. Never returns null or an empty string.
+     * "+", e.g. "eng+chi_sim") against what's actually packaged.
+     *
+     * <p>{@code null}/blank means the caller never asked for a language at all -- every
+     * pre-existing call site before multilingual support existed -- and safely defaults to "eng",
+     * unaffected. A non-blank request with ANY unsupported component is a caller explicitly
+     * asking this app to read a script it cannot: that fails loudly via {@link
+     * UnsupportedOcrLanguageException} instead of silently downgrading to English, which would
+     * otherwise return confident-looking garbage for genuinely non-Latin text.
      */
-    static String resolveSupportedLanguage(String requested) {
+    static String resolveSupportedLanguage(String requested) throws UnsupportedOcrLanguageException {
         if (requested == null || requested.isBlank()) {
             return "eng";
         }
         List<String> validated = new ArrayList<>();
+        List<String> unsupported = new ArrayList<>();
         for (String part : requested.split("\\+")) {
             String trimmed = part.trim();
+            if (trimmed.isEmpty()) continue;
             if (SUPPORTED_LANGUAGES.contains(trimmed)) {
                 validated.add(trimmed);
             } else {
-                log.warn("Requested OCR language '{}' has no packaged trained-data model "
-                        + "(supported: {}) -- dropping it rather than failing the whole recognition call.",
-                        trimmed, SUPPORTED_LANGUAGES);
+                unsupported.add(trimmed);
             }
         }
+        if (!unsupported.isEmpty()) {
+            throw new UnsupportedOcrLanguageException(unsupported, SUPPORTED_LANGUAGES);
+        }
         if (validated.isEmpty()) {
+            // Requested something like "+" or all-whitespace components -- not a real language
+            // request either way, so treat it the same as no request at all.
             return "eng";
         }
         return String.join("+", validated);
@@ -169,7 +186,7 @@ public final class TesseractOcrProvider implements OcrProvider {
     private static String executeRecognition(Tesseract engine, BufferedImage img)
             throws OcrException {
         try {
-            return engine.doOCR(img).replace("\n", "").replace("\r", "").trim();
+            return normalizeSingleLine(engine.doOCR(img));
         } catch (TesseractException e) {
             throw new OcrException("Tesseract OCR failed", e);
         }
@@ -185,10 +202,32 @@ public final class TesseractOcrProvider implements OcrProvider {
     private static String executeRecognitionMultiline(Tesseract engine, BufferedImage img)
             throws OcrException {
         try {
-            return engine.doOCR(img).replace("\r", "").trim();
+            return normalizeMultiline(engine.doOCR(img));
         } catch (TesseractException e) {
             throw new OcrException("Tesseract OCR failed", e);
         }
+    }
+
+    /**
+     * Flattens Tesseract's raw output to a single line: both {@code \n} and {@code \r} (so
+     * Windows {@code \r\n}, bare {@code \r}, and bare {@code \n} line endings are all handled
+     * identically) are dropped, then the result is trimmed. Split out from {@link
+     * #executeRecognition} as a pure string transform -- no engine or image needed -- so it's
+     * directly testable with literal strings instead of only reachable through a real OCR run.
+     */
+    static String normalizeSingleLine(String raw) {
+        return raw.replace("\n", "").replace("\r", "").trim();
+    }
+
+    /**
+     * Keeps line breaks but strips {@code \r} so a Windows {@code \r\n} collapses cleanly to the
+     * {@code \n} Tesseract already emits on this platform -- downstream line-splitting (one chat
+     * message per line) never sees a stray {@code \r} riding along with it. Split out from {@link
+     * #executeRecognitionMultiline} for the same testability reason as {@link
+     * #normalizeSingleLine}.
+     */
+    static String normalizeMultiline(String raw) {
+        return raw.replace("\r", "").trim();
     }
 
     // =====================================================================

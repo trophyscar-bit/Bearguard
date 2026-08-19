@@ -35,9 +35,18 @@ public class OcrSettingsData {
     // caller configured - Whiteout's Alliance/World chat is genuinely multilingual and an
     // English-only model cannot read non-Latin scripts, it just emits near-random glyph guesses.
     // Only "eng" and "chi_sim" have trained-data models actually packaged with the app (see
-    // TesseractOcrProvider#SUPPORTED_LANGUAGES); requesting anything else is validated and
-    // falls back to "eng" at the provider boundary. null keeps every existing caller's
-    // behaviour identical (falls back to "eng").
+    // TesseractOcrProvider#SUPPORTED_LANGUAGES). null (every pre-existing caller, since none of
+    // them ever set this field) keeps behaviour identical -- falls back to "eng". A non-null
+    // request for a language with no packaged model fails loudly instead
+    // (UnsupportedOcrLanguageException) rather than silently substituting "eng": a caller that
+    // explicitly asked for a specific script deserves an honest failure, not confident-looking
+    // garbage from running the wrong model against it.
+    //
+    // No production caller sets this field yet -- the multilingual chat-reading feature that
+    // would use it doesn't exist in this codebase as of 2026-08-19 (chat capture today runs
+    // through a separate tool, not this OCR layer). This class/provider pair is real,
+    // independently tested infrastructure with no live consumer wired up yet; that wiring is a
+    // distinct, larger feature to build once chat capture lands here.
     private final String language;
     private final boolean preserveLineBreaks;
 
