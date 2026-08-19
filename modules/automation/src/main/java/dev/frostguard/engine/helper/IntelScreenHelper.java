@@ -127,7 +127,8 @@ public class IntelScreenHelper {
                 return true;
             }
 
-            log.warn("Intel bubble tap did not open the Intel map, pass " + i);
+            log.warn("Tap failed - backing out");
+            QuitDialogGuard.pressBackSafely(emu, dev);
             pause(500);
         }
         return false;

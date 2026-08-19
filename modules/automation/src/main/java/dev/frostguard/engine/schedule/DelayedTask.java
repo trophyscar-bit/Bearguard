@@ -3,6 +3,9 @@ package dev.frostguard.engine.schedule;
 import dev.frostguard.vision.convert.RegexNumberParser;
 import dev.frostguard.vision.ocr.ResilientOcrExecutor;
 import dev.frostguard.data.repository.ProfileRepository;
+import java.util.LinkedHashMap;
+
+import dev.frostguard.engine.service.ConfigService;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TpMessageSeverityEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
@@ -382,14 +385,23 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
         emuManager.swipeScreen(EMULATOR_NUMBER, start, end);
     }
 
-    public void swipe(PointData start, PointData end, int durationMs) {
-        checkPreemption();
-        emuManager.swipeScreen(EMULATOR_NUMBER, start, end, durationMs);
-    }
+    // Dave's #252 review: a duration-aware swipe(start, end, durationMs) overload lived here with
+    // zero callers on this branch -- unrelated scope creep for a schedule-jitter/quit-dialog PR.
+    // Removed; it exists independently on Bearguard's own main where it actually has a consumer
+    // (Monument's map-panning navigation), and can be proposed on its own if it's ever needed
+    // upstream.
 
     public void pressBack() {
         checkPreemption();
         emuManager.pressBack(EMULATOR_NUMBER);
+        // matt/2026-08-14: "quit game screen still happening with intel, anywhere" -- a bare
+        // screen with nothing open responds to this game's own back-button handling by popping a
+        // native "Quit game?" confirmation, one accidental tap from actually exiting mid-run. This
+        // is the single shared pressBack() every routine in the codebase calls, so checking here
+        // covers every call site at once instead of chasing individual back-press chains.
+        if (navigationHelper != null) {
+            navigationHelper.dismissQuitGameDialogIfPresent();
+        }
     }
 
     // ── interruptible sleep with injection ───────────────────────────
@@ -483,6 +495,19 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
 
     // ── scheduling ──────────────────────────────────────────────────
 
+    /**
+     * Schedules the next run at exactly the given time. Every one of this codebase's ~236
+     * existing call sites was written expecting this exact contract, so it stays exact.
+     *
+     * <p>An earlier version of this method jittered every call unconditionally -- silently
+     * adding drift to saved schedules, daily/event reset times, Bear Trap plans, stamina
+     * wake-ups, Telegram schedules, and every custom task, none of which had been audited as
+     * tolerant of that. Some call sites also persisted the original (un-jittered) timestamp
+     * separately while the task itself held the jittered one, so runtime and persisted/UI state
+     * could disagree. Restored to its original exact contract; a scattered-wake-up variant is a
+     * real idea worth proposing separately, scoped to specific audited call sites and with its
+     * own tests, rather than folded into this dialog-safety fix.</p>
+     */
     public void reschedule(LocalDateTime rescheduledTime) {
         long gapMs = Duration.between(LocalDateTime.now(), rescheduledTime).toMillis();
         scheduledTime = LocalDateTime.now().plus(Duration.ofMillis(gapMs));
