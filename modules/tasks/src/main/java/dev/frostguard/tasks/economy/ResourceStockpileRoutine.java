@@ -9,12 +9,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
+import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
-import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
+import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 
@@ -234,17 +236,46 @@ public class ResourceStockpileRoutine extends DelayedTask {
         reschedule(LocalDateTime.now().plus(interval));
     }
 
+    /**
+     * Confirms the fixed-coordinate tap actually landed where it was supposed to, before OCR-ing
+     * anything off the result.
+     *
+     * <p>Round-3 item: every navigation tap in this routine (Overview/Backpack/Summary/Speedup) was
+     * a blind fixed-coordinate tap + a guessed settle delay, with no positive proof the destination
+     * screen was actually reached -- a slow animation, a dialog in the way, or a UI shift would OCR
+     * whatever happened to be on screen instead. Landmarks below were cropped from real, live-
+     * captured frames of each screen (2026-08-19); a bounded retry gives the animation a little
+     * slack before declaring failure and skipping that read rather than guessing.</p>
+     */
+    private boolean verifyLandedOn(TemplatesEnum landmark, String screenLabel) {
+        ImageSearchResultData hit = templateSearchHelper.locatePattern(landmark,
+                SearchConfig.builder().withMaxAttempts(3).withDelay(250L).withThreshold(85).build());
+        if (hit == null || !hit.isFound()) {
+            logWarning("ResourceStockpileRoutine | Could not confirm arrival on " + screenLabel
+                    + " (landmark " + landmark + " not detected) -- skipping this read rather than OCR-ing blind.");
+            return false;
+        }
+        return true;
+    }
+
     /** Opens Backpack → Resource &amp; Speedup Summary, OCRs Steel on the default "Resources" tab,
      *  then switches to the Speedup tab and OCRs the five speedup totals to minutes. */
     private void readAndCacheSpeedups() {
         try {
             tapNear(BACKPACK_NAV);
             sleepTask(1600);
+            if (!verifyLandedOn(TemplatesEnum.RESOURCE_STOCKPILE_BACKPACK_SCREEN_TITLE, "Backpack screen")) {
+                return;
+            }
+
             tapNear(SUMMARY_CHART_BUTTON);
             // matt/2026-08-15: first live pass at 1400ms caught the popup slide-in mid-animation and
             // OCR'd a garbled "117MK" for Steel (correctly rejected as unparseable, but still a wasted
             // cycle) -- the manual calibration pass that measured the crop used ~2s and read cleanly.
             sleepTask(2200);
+            if (!verifyLandedOn(TemplatesEnum.RESOURCE_STOCKPILE_SUMMARY_POPUP_TITLE, "Resource & Speedup Summary popup")) {
+                return;
+            }
 
             // Lands on "Resources" by default -- read Steel here before switching tabs.
             String steelRaw = readStringValue(STEEL_TL, STEEL_BR, STEEL_TEXT_SETTINGS);
@@ -259,6 +290,13 @@ public class ResourceStockpileRoutine extends DelayedTask {
 
             tapNear(SPEEDUP_TAB);
             sleepTask(1000);
+            if (!verifyLandedOn(TemplatesEnum.RESOURCE_STOCKPILE_SPEEDUP_TAB_HEADER, "Speedup tab")) {
+                // Steel was already read successfully above -- still close the popup we opened
+                // rather than leaving it up, but don't attempt the speedup OCR blind.
+                tapNear(SUMMARY_CLOSE_X);
+                sleepTask(300);
+                return;
+            }
 
             Long gen  = readDurationMinutes(SPD_GENERAL_TL, SPD_GENERAL_BR);
             Long tr   = readDurationMinutes(SPD_TRAINING_TL, SPD_TRAINING_BR);
@@ -300,6 +338,9 @@ public class ResourceStockpileRoutine extends DelayedTask {
         // live) — no tab tap needed. One clean tap + settle matches the proven manual flow.
         tapNear(RESOURCE_COUNTER);
         sleepTask(2600); // let the panel fully slide+render before OCR
+        if (!verifyLandedOn(TemplatesEnum.RESOURCE_STOCKPILE_OVERVIEW_PANEL_TITLE, "Overview panel")) {
+            return null;
+        }
 
         Long meat = readOwned(MEAT_TL, MEAT_BR);
         Long wood = readOwned(WOOD_TL, WOOD_BR);

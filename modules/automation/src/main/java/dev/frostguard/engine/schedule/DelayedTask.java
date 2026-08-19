@@ -554,6 +554,10 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
     public LocalDateTime getScheduled() { return scheduledTime; }
     public AccountDescriptor getProfile() { return profile; }
     public void setShouldUpdateConfig(boolean v) { this.shouldUpdateConfig = v; }
+    /** Whether {@link #persistChangedProfileSettings} will run after this pass -- exposed
+     *  (alongside the existing setter) so a routine's own config-persistence bugs, like round-3's
+     *  "setConfig() called but the write silently never reaches the DB", are directly testable. */
+    public boolean isShouldUpdateConfig() { return shouldUpdateConfig; }
     protected boolean writeProfileSetting(ConfigurationKeyEnum key, Object value) {
         return ConfigService.obtain().writeAccountSetting(profile, key, value == null ? "" : value.toString());
     }

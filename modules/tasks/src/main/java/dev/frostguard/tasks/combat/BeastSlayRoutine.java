@@ -205,9 +205,13 @@ public class BeastSlayRoutine extends DelayedTask {
 				updateReschedule(marchReturn);
 
 				// matt/2026-08-09 (troop-slot economy): a beast attack is genuinely out holding a slot.
-				// Publish demand (sized to attacks dispatched this pass) so Gather leaves those slots be
-				// until the marches return; the claim self-expires at the latest return time.
-				TroopSlotPolicy.claim(profile, TpDailyTaskEnum.BEAST_HUNTING, attacksDone, marchReturn);
+				// claimDeployed(), not claim(): these marches are already sent and already reflected
+				// as not-idle by Gather's own live march-queue read (same class of bug flagged on
+				// Intel's identical pattern -- a plain claim() here double-counted an already-occupied
+				// slot on top of that and could recall an extra gather march for nothing). Still
+				// reserves the slot from Gather until the marches return; self-expires at the latest
+				// return time.
+				TroopSlotPolicy.claimDeployed(profile, TpDailyTaskEnum.BEAST_HUNTING, attacksDone, marchReturn);
 
 				logInfo("Beast attacked. March returns in ~" + returnSeconds
 						+ "s. Cost: " + staminaCost + ", remaining stamina: " + currentStamina

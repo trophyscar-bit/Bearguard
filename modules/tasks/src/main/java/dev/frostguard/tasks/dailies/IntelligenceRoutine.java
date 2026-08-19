@@ -156,10 +156,7 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 
 		OptionalInt advertisedGain = intelScreenHelper.enterIntelFromOpenSidebarAndReadGain();
 		boolean intelMissionsDetected = advertisedGain.orElse(0) > 0 || hasVisibleIntelMissionFlow();
-		// GatherRoutine reads INTEL_LAST_RUN_HAD_MISSIONS_BOOL to decide whether to defer/recall
-		// for an imminent Intel pass -- written here, right where the board is actually checked,
-		// so it reflects what this pass genuinely found rather than a stale or default value.
-		profile.setConfig(ConfigurationKeyEnum.INTEL_LAST_RUN_HAD_MISSIONS_BOOL, intelMissionsDetected);
+		updateIntelMissionsAvailableFlag(intelMissionsDetected);
 		if (!intelMissionsDetected) {
 			logInfo(routineLogIntelligenceLine("No intel missions detected. Skipping Intel run for now."));
 			tryRescheduleFromCooldownFlow();
@@ -392,6 +389,26 @@ private LocalDateTime readCooldownFlow(AreaData area, String layout) {
 			logInfo(routineLogIntelligenceLine("Cooldown timer read from " + layout + " layout."));
 		}
 		return cooldown;
+	}
+
+/**
+	 * Writes INTEL_LAST_RUN_HAD_MISSIONS_BOOL, which GatherRoutine reads to decide whether to
+	 * defer/recall for an imminent Intel pass.
+	 *
+	 * <p>Two real bugs fixed here: (1) {@code profile.setConfig(...)} alone only mutates the
+	 * in-memory profile -- {@code DelayedTask.run()} only persists changed settings to the DB when
+	 * {@code shouldUpdateConfig} is set, and this call never set it, so the write was silently lost
+	 * the moment the profile reloaded from DB before the next task. Every write site now goes
+	 * through this method, which sets that flag. (2) The flag used to be written once from the
+	 * INITIAL board scan and never touched again -- if this same pass then drains the board
+	 * (processes every mission down to none), the flag stayed {@code true} from the stale initial
+	 * read, so GatherRoutine kept deferring/recalling for an Intel pass that no longer had anything
+	 * to do. Now also called from {@link #manageRescheduling} the moment a re-scan genuinely finds
+	 * the board empty.</p>
+	 */
+	void updateIntelMissionsAvailableFlag(boolean hasMissions) {
+		profile.setConfig(ConfigurationKeyEnum.INTEL_LAST_RUN_HAD_MISSIONS_BOOL, hasMissions);
+		setShouldUpdateConfig(true);
 	}
 
 private String routineLogIntelligenceLine(String note) {
@@ -934,6 +951,10 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 
 		if (!missionsStillAvailable) {
 			logInfo(routineLogIntelligenceLine("No intel missions found after re-scan. Intel run is complete for now."));
+			// The board is genuinely drained now -- refresh the flag from the stale "true" the
+			// initial scan wrote, so GatherRoutine doesn't keep deferring/recalling for an Intel
+			// pass that has nothing left to do.
+			updateIntelMissionsAvailableFlag(false);
 			tryRescheduleFromCooldownFlow();
 			processingTask = false;
 			return;
@@ -1258,7 +1279,11 @@ private void handleBeast(ImageSearchResultData beast) {
 		// here since the real round-trip travel time isn't OCR'd until a few lines below (and can
 		// itself fail to parse); re-claimed with the real ETA once it's known.
 		intelMarchesSentThisPass++;
-		TroopSlotPolicy.claim(profile, TpDailyTaskEnum.INTEL, intelMarchesSentThisPass,
+		// claimDeployed(), not claim(): this march is already out, already reflected as not-idle by
+		// Gather's own live march-queue read. A plain claim() here double-counted an already-occupied
+		// slot on top of that (round-3: "a surviving Intel claim double-counts already-occupied
+		// march slots") and could recall an extra gather march that was never actually needed.
+		TroopSlotPolicy.claimDeployed(profile, TpDailyTaskEnum.INTEL, intelMarchesSentThisPass,
 				LocalDateTime.now().plusMinutes(10));
 		intelMarchesRemaining = Math.max(0, intelMarchesRemaining - 1);
 		if (intelMarchesRemaining <= 0) {
@@ -1275,11 +1300,13 @@ private void handleBeast(ImageSearchResultData beast) {
 		if (useSmartProcessing) {
 			LocalDateTime rescheduleTime = LocalDateTime.now().plusSeconds(travelTimeSeconds * 2);
 			intelBeastReturnTimes.add(rescheduleTime);
-			// Dave's #254 re-review: the earlier claim() call (right after deployment) had to use a
-			// flat 10-minute guess because the real travel time isn't OCR'd until here. Now that the
-			// actual round-trip ETA is known, re-claim with it -- claim() is documented idempotent
-			// per task, so this simply replaces the earlier estimate with real data.
-			TroopSlotPolicy.claim(profile, TpDailyTaskEnum.INTEL, intelMarchesSentThisPass, rescheduleTime);
+			// The earlier claimDeployed() call (right after deployment) had to use a flat 10-minute
+			// guess because the real travel time isn't OCR'd until here. Now that the actual
+			// round-trip ETA is known, re-claim with it -- claim (and claimDeployed) are documented
+			// idempotent per task, so this simply replaces the earlier estimate with real data. Still
+			// claimDeployed(), not claim(): this march is still the same already-out march, not new
+			// unmet demand.
+			TroopSlotPolicy.claimDeployed(profile, TpDailyTaskEnum.INTEL, intelMarchesSentThisPass, rescheduleTime);
 			if (useFlag) {
 				logInfo(routineLogIntelligenceLine("Intel beast march return ETA: "
 						+ GameTimeUtils.formatCountdown(rescheduleTime)
