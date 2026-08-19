@@ -18,6 +18,7 @@ import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.schedule.TaskQueue;
+import dev.frostguard.engine.schedule.TroopSlotPolicy;
 import dev.frostguard.engine.service.StaminaService;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.engine.service.TaskManagementService;
@@ -109,6 +110,10 @@ private boolean beastMarchSent;
 
 private final List<LocalDateTime> intelBeastReturnTimes = new ArrayList<>();
 
+// Running count of beast/fire-beast marches actually dispatched this pass, so the troop-slot
+// claim below is sized to real demand instead of a guessed constant.
+private int intelMarchesSentThisPass;
+
 private TaskStateData autoJoinTask;
 
 private ResilientOcrExecutor<LocalDateTime> textHelper;
@@ -127,6 +132,7 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 @Override
 	protected void execute() {
 		intelBeastReturnTimes.clear();
+		intelMarchesSentThisPass = 0;
 
 
 		hydrateConfiguration();
@@ -150,6 +156,10 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 
 		OptionalInt advertisedGain = intelScreenHelper.enterIntelFromOpenSidebarAndReadGain();
 		boolean intelMissionsDetected = advertisedGain.orElse(0) > 0 || hasVisibleIntelMissionFlow();
+		// GatherRoutine reads INTEL_LAST_RUN_HAD_MISSIONS_BOOL to decide whether to defer/recall
+		// for an imminent Intel pass -- written here, right where the board is actually checked,
+		// so it reflects what this pass genuinely found rather than a stale or default value.
+		profile.setConfig(ConfigurationKeyEnum.INTEL_LAST_RUN_HAD_MISSIONS_BOOL, intelMissionsDetected);
 		if (!intelMissionsDetected) {
 			logInfo(routineLogIntelligenceLine("No intel missions detected. Skipping Intel run for now."));
 			tryRescheduleFromCooldownFlow();
@@ -531,6 +541,20 @@ private void requeueAutoJoinTaskFlow() {
 	}
 
 private void finalizePostIntelTaskFlow() {
+		// Dave's #254 re-review: this used to release unconditionally at the end of every pass --
+		// but under the real serial per-profile TaskQueue, Gather only ever runs as a SEPARATE task
+		// dispatch after Intel's own execute() has fully returned. Releasing here meant the claim's
+		// entire lifetime was contained within Intel's own execute() call, so Gather could never
+		// actually observe it -- exactly backwards from the point of publishing demand in the first
+		// place, and worse, it released while a beast march the claim was protecting was still
+		// physically traveling (not yet home). Only release when nothing was actually claimed this
+		// pass (a genuine no-op, matching the documented behavior); a real claim is instead left to
+		// expire on its own via the round-trip ETA now-real timestamp set at the claim() call site,
+		// so the slot stays reserved for as long as the march is actually out.
+		if (intelMarchesSentThisPass == 0) {
+			TroopSlotPolicy.release(profile, TpDailyTaskEnum.INTEL);
+		}
+
 		if (shouldRequeueGatherAfterIntel) {
 			requeueGatherTasksFlow();
 		}
@@ -1229,6 +1253,13 @@ private void handleBeast(ImageSearchResultData beast) {
 
 		logInfo(routineLogIntelligenceLine("Beast march deployed finished cleanly."));
 		beastMarchSent = true;
+		// A beast march is genuinely out holding a slot -- publish demand so Gather leaves that
+		// slot alone instead of recalling into it. A fixed 10-minute placeholder expiry is used
+		// here since the real round-trip travel time isn't OCR'd until a few lines below (and can
+		// itself fail to parse); re-claimed with the real ETA once it's known.
+		intelMarchesSentThisPass++;
+		TroopSlotPolicy.claim(profile, TpDailyTaskEnum.INTEL, intelMarchesSentThisPass,
+				LocalDateTime.now().plusMinutes(10));
 		intelMarchesRemaining = Math.max(0, intelMarchesRemaining - 1);
 		if (intelMarchesRemaining <= 0) {
 			marchQueueLimitReached = true;
@@ -1244,6 +1275,11 @@ private void handleBeast(ImageSearchResultData beast) {
 		if (useSmartProcessing) {
 			LocalDateTime rescheduleTime = LocalDateTime.now().plusSeconds(travelTimeSeconds * 2);
 			intelBeastReturnTimes.add(rescheduleTime);
+			// Dave's #254 re-review: the earlier claim() call (right after deployment) had to use a
+			// flat 10-minute guess because the real travel time isn't OCR'd until here. Now that the
+			// actual round-trip ETA is known, re-claim with it -- claim() is documented idempotent
+			// per task, so this simply replaces the earlier estimate with real data.
+			TroopSlotPolicy.claim(profile, TpDailyTaskEnum.INTEL, intelMarchesSentThisPass, rescheduleTime);
 			if (useFlag) {
 				logInfo(routineLogIntelligenceLine("Intel beast march return ETA: "
 						+ GameTimeUtils.formatCountdown(rescheduleTime)
