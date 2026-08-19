@@ -103,7 +103,11 @@ class TelemetryReportTest {
     }
 
     @Test
-    void unchangedMetricIsOmittedFromTheDelta() throws IOException {
+    void unchangedMetricStillProducesAZeroChangeDeltaRatherThanBeingOmitted() throws IOException {
+        // Dave's #250 review, round 3: this test used to assert the metric vanished entirely on a
+        // genuine zero-change measurement -- indistinguishable from "no data ever captured for this
+        // metric". A real start AND end sample both existing (even with equal values) is measured
+        // coverage and must say so; only a genuinely missing pair should produce no Delta at all.
         Files.writeString(historyFile(1L),
                 row("2026-08-18T06:00:00Z", ",\"power\":100") + "\n"
                         + row("2026-08-18T08:00:00Z", ",\"power\":100") + "\n");
@@ -112,7 +116,46 @@ class TelemetryReportTest {
         List<TelemetryReport.Delta> deltas = report.deltaOverWindow(
                 Instant.parse("2026-08-18T00:00:00Z"), Instant.parse("2026-08-18T23:59:59Z"));
 
-        assertTrue(deltas.isEmpty());
+        assertEquals(1, deltas.size());
+        TelemetryReport.Delta d = deltas.get(0);
+        assertEquals("power", d.metric());
+        assertEquals(100L, d.start());
+        assertEquals(100L, d.end());
+        assertEquals(0L, d.change());
+    }
+
+    @Test
+    void metricWithNoUsableSamplePairProducesNoDeltaAtAll() throws IOException {
+        // The genuine "no data" case: a metric that was never captured at all must still be
+        // omitted -- distinct from unchangedMetricStillProducesAZeroChangeDeltaRatherThanBeingOmitted
+        // above, which has real samples that just happen to be equal.
+        Files.writeString(historyFile(1L),
+                row("2026-08-18T06:00:00Z", ",\"power\":100") + "\n");
+
+        TelemetryReport report = TelemetryReport.load(workspace, 1L);
+        List<TelemetryReport.Delta> deltas = report.deltaOverWindow(
+                Instant.parse("2026-08-19T00:00:00Z"), Instant.parse("2026-08-19T23:59:59Z"));
+
+        assertTrue(deltas.isEmpty(), "a metric with no sample inside or before the window has nothing to report");
+    }
+
+    @Test
+    void changedMetricStillProducesTheRealDelta() throws IOException {
+        // Guards against a regression that makes everything look "unchanged" -- a real change must
+        // still come through with its real start/end/change values, not just zero-change coverage.
+        Files.writeString(historyFile(1L),
+                row("2026-08-18T06:00:00Z", ",\"power\":100") + "\n"
+                        + row("2026-08-18T08:00:00Z", ",\"power\":150") + "\n");
+
+        TelemetryReport report = TelemetryReport.load(workspace, 1L);
+        List<TelemetryReport.Delta> deltas = report.deltaOverWindow(
+                Instant.parse("2026-08-18T00:00:00Z"), Instant.parse("2026-08-18T23:59:59Z"));
+
+        assertEquals(1, deltas.size());
+        TelemetryReport.Delta d = deltas.get(0);
+        assertEquals(100L, d.start());
+        assertEquals(150L, d.end());
+        assertEquals(50L, d.change());
     }
 
     @Test
@@ -196,16 +239,49 @@ class TelemetryReportTest {
     }
 
     @Test
-    void coverageForWindowIsNullWhenThereAreNoDeltas() throws IOException {
-        Files.writeString(historyFile(1L),
-                row("2026-08-18T08:10:00Z", ",\"power\":100") + "\n"
-                        + row("2026-08-18T08:50:00Z", ",\"power\":100") + "\n"); // unchanged -> no deltas
+    void coverageForWindowIsNullWhenThereIsNoUsableSamplePair() throws IOException {
+        // The genuine "no data" case -- nothing in or before the window at all.
+        Files.writeString(historyFile(1L), row("2026-08-19T08:10:00Z", ",\"power\":100") + "\n");
 
         TelemetryReport report = TelemetryReport.load(workspace, 1L);
         TelemetryReport.Coverage coverage = report.coverageForWindow(
                 Instant.parse("2026-08-18T08:00:00Z"), Instant.parse("2026-08-18T09:00:00Z"));
 
         assertEquals(null, coverage);
+    }
+
+    @Test
+    void coverageForWindowIsNotNullForAGenuinelyUnchangedButMeasuredWindow() throws IOException {
+        // Dave's #250 review, round 3: coverageForWindow() derives its answer from deltaOverWindow(),
+        // so this used to return null for a window with two real, valid samples that just happened
+        // to carry the same value -- indistinguishable from "not enough data" on the Statistics tab,
+        // exactly the confusion behind matt catching the live "gained 24 million power" bug (a
+        // long-gapped window had genuinely zero measured coverage and the UI's fallback for THAT
+        // case -- showing a raw current value with no delta framing -- fired identically for both).
+        Files.writeString(historyFile(1L),
+                row("2026-08-18T08:10:00Z", ",\"power\":100") + "\n"
+                        + row("2026-08-18T08:50:00Z", ",\"power\":100") + "\n"); // unchanged, but real
+
+        TelemetryReport report = TelemetryReport.load(workspace, 1L);
+        TelemetryReport.Coverage coverage = report.coverageForWindow(
+                Instant.parse("2026-08-18T08:00:00Z"), Instant.parse("2026-08-18T09:00:00Z"));
+
+        assertEquals(Instant.parse("2026-08-18T08:10:00Z"), coverage.actualFrom());
+        assertEquals(Instant.parse("2026-08-18T08:50:00Z"), coverage.actualTo());
+    }
+
+    @Test
+    void coverageForWindowReportsTheRealRangeForAChangedWindow() throws IOException {
+        Files.writeString(historyFile(1L),
+                row("2026-08-18T08:10:00Z", ",\"power\":100") + "\n"
+                        + row("2026-08-18T08:50:00Z", ",\"power\":150") + "\n");
+
+        TelemetryReport report = TelemetryReport.load(workspace, 1L);
+        TelemetryReport.Coverage coverage = report.coverageForWindow(
+                Instant.parse("2026-08-18T08:00:00Z"), Instant.parse("2026-08-18T09:00:00Z"));
+
+        assertEquals(Instant.parse("2026-08-18T08:10:00Z"), coverage.actualFrom());
+        assertEquals(Instant.parse("2026-08-18T08:50:00Z"), coverage.actualTo());
     }
 
     @Test

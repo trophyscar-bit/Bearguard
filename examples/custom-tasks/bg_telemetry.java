@@ -28,6 +28,7 @@ import dev.frostguard.engine.schedule.CustomTaskConfigurable;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.CustomTaskService;
+import dev.frostguard.vision.ocr.PlausibilityBand;
 import dev.frostguard.engine.service.StatisticsService;
 
 /**
@@ -288,9 +289,13 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     /** Fraction outside of which a new power/gems reading is rejected as an implausible OCR
      *  misread rather than a real change -- see the execute() call site's header note. Real
      *  changes between 2-hour samples are gradual; the actual misreads observed live jumped
-     *  ~1.7-1.8x, well outside this band. */
+     *  ~1.7-1.8x, well outside this band.
+     *
+     *  <p>Dave's #250 review: the ratio-band comparison itself now lives in
+     *  {@link PlausibilityBand}, shared with ResourceStockpileRoutine's identical check and
+     *  covered by real JUnit tests -- this class can't unit-test a private method on itself since
+     *  it lives under examples/custom-tasks/, outside the Maven module tree.</p> */
     private static final double SANITY_BAND_MAX_RATIO = 1.5;
-    private static final double SANITY_BAND_MIN_RATIO = 1.0 / SANITY_BAND_MAX_RATIO;
 
     /**
      * Rejects a candidate reading that jumps implausibly far from the last known-good value for
@@ -307,11 +312,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             return candidate;
         }
         long prev = (Long) prevObj;
-        if (prev <= 0) {
-            return candidate;
-        }
-        double ratio = (double) candidate / (double) prev;
-        if (ratio > SANITY_BAND_MAX_RATIO || ratio < SANITY_BAND_MIN_RATIO) {
+        if (!PlausibilityBand.isPlausible(candidate, prev, SANITY_BAND_MAX_RATIO)) {
+            double ratio = (double) candidate / (double) prev;
             logWarning("bg_telemetry | " + field + " reading " + candidate + " is implausibly far from the "
                     + "last known-good " + prev + " (ratio " + String.format("%.2f", ratio) + ") -- rejecting "
                     + "as a likely OCR misread rather than recording a fake swing.");

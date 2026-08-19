@@ -201,7 +201,25 @@ public final class TelemetryReport {
                 }
             }
 
-            if (start == null || start.equals(end)) continue;
+            // Dave's #250 review, round 3: a genuinely zero-change metric (real start AND end
+            // samples, equal values) was being skipped here just like a metric with NO coverage at
+            // all -- coverageForWindow() derives its answer straight from this list, so a window
+            // with real, measured, unchanged samples returned null coverage, indistinguishable from
+            // "not enough data". Caught live the same way in the running app: with telemetry gapped
+            // for two days, EVERY window fell into that same "no coverage" bucket and the caller
+            // fell back to displaying a raw absolute value with no delta framing -- exactly what
+            // read as "gained 24 million power" overnight. Always emit a Delta once both endpoints
+            // are known, even change=0, so callers can render "measured, steady" honestly instead
+            // of treating it identically to "never measured".
+            //
+            // But a single sample used for BOTH start and end (startAt == endAt -- e.g. the only
+            // sample that exists sits before an otherwise-empty window, so the same row satisfies
+            // both searches) is not a measurement of change at all, just one snapshot in time --
+            // that genuinely has no coverage to report and must still be skipped. Comparing
+            // timestamps rather than values is what tells the two cases apart: two distinct samples
+            // that happen to carry equal values are a real zero-change measurement; one sample
+            // matched twice is not a measurement at all.
+            if (start == null || startAt.equals(endAt)) continue;
             deltas.add(new Delta(metric, start, end, end - start, startAt, endAt));
         }
         return deltas;
