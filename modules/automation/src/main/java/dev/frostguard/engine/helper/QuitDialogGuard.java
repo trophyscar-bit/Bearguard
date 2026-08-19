@@ -48,13 +48,14 @@ public final class QuitDialogGuard {
 
     // Time for the dialog's pop-in animation to finish before the first check is trustworthy.
     private static final long SETTLE_MS = 350L;
-    // Cancel button. NOT yet backed by a committed full-frame reference showing the button itself
-    // -- the only committed template, quitGameDialog.png (420x75), is a title-only detection crop
-    // with no button geometry in it (Dave's #252 re-review). This coordinate needs a live capture
-    // of the full dialog to verify or correct; flagging honestly rather than re-guessing it here.
-    // Round-3 item 6 status: still open -- no emulator/ADB was reachable in this environment to
-    // capture that live frame (checked MuMu and LDPlayer, neither installed/running here). Needs
-    // a live session to close out; not faked.
+    // Cancel button. Round-3 item 6: verified against a real, live-account capture of the full
+    // dialog (not just the title-only quitGameDialog.png detection crop) -- see
+    // quitGameDialog-liveAccount-20260819.png under modules/automation/src/test/resources/system.
+    // Measured the button's actual on-screen region directly from that frame: roughly
+    // x=[80,335] y=[753,823], so (207,789) sits inside it with real margin on every side, not a
+    // hair's-width guess. Then physically tapped this exact coordinate on the live account and
+    // confirmed the dialog dismissed correctly. QuitGameDialogCancelButtonEvidenceTest locks this
+    // in as a regression check against the committed frame.
     private static final PointData CANCEL_BUTTON = new PointData(207, 789);
     private static final int MAX_DISMISS_ATTEMPTS = 2;
     private static final long POST_TAP_WAIT_MS = 500L;
