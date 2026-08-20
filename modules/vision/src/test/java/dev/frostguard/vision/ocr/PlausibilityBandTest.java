@@ -2,98 +2,151 @@ package dev.frostguard.vision.ocr;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Dave's #250 review: "the fixed ±50% plausibility rule still has no focused behavioral tests and
- * can reject legitimate changes while accepting smaller OCR errors." Covers the real band used
- * live (maxRatio=1.5, matching bg_telemetry.java's SANITY_BAND_MAX_RATIO), its boundaries, both
- * directions, and the no-previous-value pass-through.
+ * Covers the per-metric bands actually used live, in both directions, plus the boundaries, the
+ * no-previous-value pass-through, and the real misreads observed on a live account.
+ *
+ * <p>The scenarios are deliberately expressed per metric rather than against one shared ratio. A
+ * single symmetric band cannot serve all three: power moves gradually, while coal and gems are
+ * spent in lumps and legitimately fall by most of their value in one step. The earlier shared
+ * {@code maxRatio = 1.5} band was {@code [0.667, 1.5]}, so it rejected any drawdown past 33% —
+ * which is an ordinary building upgrade or shop purchase, not a misread.
  */
 class PlausibilityBandTest {
 
-    private static final double MAX_RATIO = 1.5; // matches bg_telemetry.java's SANITY_BAND_MAX_RATIO
+    // ---------- power: tight both ways ----------
+
+    @Test
+    void powerGradualGrowthIsPlausible() {
+        // Power climbs steadily between samples; +20% over a few hours is ordinary.
+        assertTrue(PlausibilityBand.POWER.isPlausible(24_000_000L, 20_000_000L));
+    }
+
+    @Test
+    void powerModestTroopLossIsPlausible() {
+        // Losing troops dents power, but not catastrophically -- -10% stays believable.
+        assertTrue(PlausibilityBand.POWER.isPlausible(18_000_000L, 20_000_000L));
+    }
+
+    @Test
+    void powerCollapsingByHalfIsRejected() {
+        // Power does not halve between two samples. This is the shape of a misread, not a battle.
+        assertFalse(PlausibilityBand.POWER.isPlausible(10_000_000L, 20_000_000L));
+    }
+
+    // ---------- coal / gems: large legitimate drawdowns ----------
+
+    @Test
+    void coalSpentOnABuildingUpgradeIsPlausible() {
+        // A 40% drawdown is an ordinary upgrade payment, not a misread. Under a shared symmetric
+        // [0.667, 1.5] band this was rejected, because deriving the floor as 1/maxRatio allows only
+        // a 33% decrease -- so the check discarded the very spends the tracker exists to record.
+        assertTrue(PlausibilityBand.COAL.isPlausible(12_000_000L, 20_000_000L));
+    }
+
+    @Test
+    void coalNearlyEmptiedByALargeUpgradeIsPlausible() {
+        // A big Furnace step can take almost the whole stockpile in one go.
+        assertTrue(PlausibilityBand.COAL.isPlausible(1_500_000L, 20_000_000L));
+    }
+
+    @Test
+    void gemsSpentOnASinglePurchaseIsPlausible() {
+        // 55,000 -> 25,000 is one shop purchase, not an OCR error.
+        assertTrue(PlausibilityBand.GEMS.isPlausible(25_000L, 55_000L));
+    }
+
+    @Test
+    void gemsJumpingUpBeyondTheCeilingIsRejected() {
+        // Gems rising 2x between samples is the misread shape; a top-up large enough to do that
+        // legitimately is rare enough to be worth re-reading rather than trusting.
+        assertFalse(PlausibilityBand.GEMS.isPlausible(110_000L, 55_000L));
+    }
+
+    // ---------- boundaries ----------
 
     @Test
     void identicalValueIsAlwaysPlausible() {
-        assertTrue(PlausibilityBand.isPlausible(100, 100, MAX_RATIO));
+        assertTrue(PlausibilityBand.POWER.isPlausible(100, 100));
+        assertTrue(PlausibilityBand.COAL.isPlausible(100, 100));
     }
 
     @Test
-    void gradualIncreaseWithinTheBandIsPlausible() {
-        // +40% -- a real gradual gain between reads, well inside the ±50% band
-        assertTrue(PlausibilityBand.isPlausible(140, 100, MAX_RATIO));
+    void exactBoundariesAreInclusive() {
+        // Exactly 1.5x and exactly the metric's own floor must both pass (<=/>=, not </>).
+        assertTrue(PlausibilityBand.POWER.isPlausible(150, 100));
+        assertTrue(PlausibilityBand.POWER.isPlausible(80, 100));
+        assertTrue(PlausibilityBand.COAL.isPlausible(5, 100));
     }
 
     @Test
-    void gradualDecreaseWithinTheBandIsPlausible() {
-        // -30% -- a real spend/loss between reads
-        assertTrue(PlausibilityBand.isPlausible(70, 100, MAX_RATIO));
+    void justOutsideTheBoundariesIsRejected() {
+        assertFalse(PlausibilityBand.POWER.isPlausible(151, 100));
+        assertFalse(PlausibilityBand.POWER.isPlausible(79, 100));
+        assertFalse(PlausibilityBand.COAL.isPlausible(4, 100));
     }
 
-    @Test
-    void exactUpperBoundaryIsPlausible() {
-        // Exactly 1.5x -- the boundary itself must be inclusive (<=, not <).
-        assertTrue(PlausibilityBand.isPlausible(150, 100, MAX_RATIO));
-    }
-
-    @Test
-    void exactLowerBoundaryIsPlausible() {
-        // Exactly 1/1.5x -- the symmetric lower boundary, also inclusive.
-        assertTrue(PlausibilityBand.isPlausible(667, 1000, MAX_RATIO));
-    }
-
-    @Test
-    void justAboveTheUpperBoundaryIsRejected() {
-        assertFalse(PlausibilityBand.isPlausible(151, 100, MAX_RATIO));
-    }
-
-    @Test
-    void justBelowTheLowerBoundaryIsRejected() {
-        assertFalse(PlausibilityBand.isPlausible(660, 1000, MAX_RATIO));
-    }
+    // ---------- real observed misreads ----------
 
     @Test
     void realLiveObservedMisreadIsRejected() {
         // matt live, 2026-08-19: steel jumped 1,174,000 -> 839,000,000 (ratio ~714.6x), the actual
         // misread that slipped through ResourceStockpileRoutine's unbounded trust-streak escape
-        // hatch. Confirms this band alone would have caught it as implausible on the first read.
-        assertFalse(PlausibilityBand.isPlausible(839_000_000L, 1_174_000L, MAX_RATIO));
+        // hatch. Every band must catch this on the first read.
+        assertFalse(PlausibilityBand.POWER.isPlausible(839_000_000L, 1_174_000L));
+        assertFalse(PlausibilityBand.COAL.isPlausible(839_000_000L, 1_174_000L));
+        assertFalse(PlausibilityBand.GEMS.isPlausible(839_000_000L, 1_174_000L));
     }
 
     @Test
-    void realLiveObservedDroppedDecimalMisreadIsRejected() {
-        // The documented "~1.7-1.8x" misread class from bg_telemetry.java's own header comment --
-        // outside the ±50% band, which is exactly why the band exists at that width.
-        assertFalse(PlausibilityBand.isPlausible(177, 100, MAX_RATIO));
+    void realLiveObservedUpwardMisreadIsRejected() {
+        // The documented "~1.7-1.8x" upward misread class from bg_telemetry.java's own header note.
+        assertFalse(PlausibilityBand.POWER.isPlausible(177, 100));
+        assertFalse(PlausibilityBand.COAL.isPlausible(177, 100));
     }
 
-    @Test
-    void zeroPreviousValueIsAlwaysPlausible() {
-        // Nothing to compare against yet (first-ever sample) -- must pass through, not reject.
-        assertTrue(PlausibilityBand.isPlausible(500, 0, MAX_RATIO));
-    }
+    // ---------- no previous value ----------
 
     @Test
-    void negativePreviousValueIsAlwaysPlausible() {
-        // Defensive: a corrupt/negative stored value has nothing meaningful to compare against.
-        assertTrue(PlausibilityBand.isPlausible(500, -1, MAX_RATIO));
+    void noPreviousValueAlwaysPasses() {
+        // First-ever sample: nothing to compare against, so nothing to reject.
+        assertTrue(PlausibilityBand.POWER.isPlausible(500, 0));
+        assertTrue(PlausibilityBand.COAL.isPlausible(500, -1));
     }
 
     @Test
     void zeroCandidateAgainstAPositivePreviousIsRejected() {
-        // A read of zero against any real positive previous value is always outside a >1.0 band
-        // (ratio 0.0), which is correct -- a stockpile/power reading doesn't actually hit exactly
-        // zero between two normal reads a few hours apart.
-        assertFalse(PlausibilityBand.isPlausible(0, 100, MAX_RATIO));
+        // A read of exactly zero against a real positive previous is outside every band's floor.
+        // Even a fully-spent stockpile does not read as a clean 0 between two normal samples.
+        assertFalse(PlausibilityBand.POWER.isPlausible(0, 100));
+        assertFalse(PlausibilityBand.COAL.isPlausible(0, 100));
+    }
+
+    // ---------- band construction ----------
+
+    @Test
+    void bandsExposeBothBoundsExplicitly() {
+        // The whole point of the change: both bounds are stated, not derived from one another.
+        assertEquals(0.80, PlausibilityBand.POWER.minRatio());
+        assertEquals(1.50, PlausibilityBand.POWER.maxRatio());
     }
 
     @Test
-    void tighterBandRejectsAChangeALooserBandWouldAccept() {
-        // Same candidate/previous pair, different maxRatio -- confirms the band width is genuinely
-        // parameterized rather than hardcoded, and that policy tightness has a real, testable effect.
-        assertFalse(PlausibilityBand.isPlausible(130, 100, 1.2));
-        assertTrue(PlausibilityBand.isPlausible(130, 100, 1.5));
+    void nonsenseBandsAreRejectedAtConstruction() {
+        assertThrows(IllegalArgumentException.class, () -> new PlausibilityBand(0.0, 1.5));
+        assertThrows(IllegalArgumentException.class, () -> new PlausibilityBand(1.2, 1.5));
+        assertThrows(IllegalArgumentException.class, () -> new PlausibilityBand(0.5, 0.9));
+    }
+
+    @Test
+    void aTighterBandRejectsWhatALooserOneAccepts() {
+        // Confirms band width has a real, testable effect rather than being decorative.
+        assertFalse(new PlausibilityBand(0.9, 1.2).isPlausible(130, 100));
+        assertTrue(new PlausibilityBand(0.5, 1.5).isPlausible(130, 100));
     }
 }
