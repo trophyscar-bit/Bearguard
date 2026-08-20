@@ -4,6 +4,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import dev.frostguard.api.domain.TelemetrySnapshotSchedule;
+import java.time.ZoneOffset;
+import java.time.LocalTime;
+import java.time.LocalDate;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -13,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Covers the fixes from Dave's #250 review: workspace-relative loading, per-profile isolation,
- * malformed-line tolerance, and per-metric (not per-sample) delta anchoring.
+ * Covers workspace-relative loading, per-profile isolation, malformed-line tolerance, and
+ * per-metric (not per-sample) delta anchoring.
  */
 class TelemetryReportTest {
 
@@ -104,10 +108,10 @@ class TelemetryReportTest {
 
     @Test
     void unchangedMetricStillProducesAZeroChangeDeltaRatherThanBeingOmitted() throws IOException {
-        // Dave's #250 review, round 3: this test used to assert the metric vanished entirely on a
-        // genuine zero-change measurement -- indistinguishable from "no data ever captured for this
-        // metric". A real start AND end sample both existing (even with equal values) is measured
-        // coverage and must say so; only a genuinely missing pair should produce no Delta at all.
+        // A genuine zero-change measurement must not make the metric vanish -- that is
+        // indistinguishable from "no data ever captured for this metric". A real start AND end
+        // sample both existing, even with equal values, is measured coverage and must say so; only
+        // a genuinely missing pair should produce no Delta at all.
         Files.writeString(historyFile(1L),
                 row("2026-08-18T06:00:00Z", ",\"power\":100") + "\n"
                         + row("2026-08-18T08:00:00Z", ",\"power\":100") + "\n");
@@ -160,11 +164,10 @@ class TelemetryReportTest {
 
     @Test
     void narrowWindowUsesTheLastValueBeforeItOpenedAsBaseline() throws IOException {
-        // Dave's #251 review: "Past Hour" against an hourly writer normally contains exactly one
-        // in-window sample, so the old first-in-window baseline made start==end and the delta
-        // always read as zero -- even though a real earlier sample (just outside the window)
-        // proves the value actually changed. One sample well before the window, one sample
-        // inside a narrow 1-hour window -- this is exactly that shape.
+        // "Past Hour" against an hourly writer normally contains exactly one in-window sample, so
+        // a first-in-window baseline makes start==end and the delta always reads as zero -- even
+        // though a real earlier sample just outside the window proves the value changed. One sample
+        // well before the window plus one inside a narrow 1-hour window is exactly that shape.
         Files.writeString(historyFile(1L),
                 row("2026-08-18T05:00:00Z", ",\"power\":100") + "\n"   // well before the window
                         + row("2026-08-18T08:50:00Z", ",\"power\":140") + "\n"); // the only in-window sample
@@ -252,12 +255,11 @@ class TelemetryReportTest {
 
     @Test
     void coverageForWindowIsNotNullForAGenuinelyUnchangedButMeasuredWindow() throws IOException {
-        // Dave's #250 review, round 3: coverageForWindow() derives its answer from deltaOverWindow(),
-        // so this used to return null for a window with two real, valid samples that just happened
-        // to carry the same value -- indistinguishable from "not enough data" on the Statistics tab,
-        // exactly the confusion behind matt catching the live "gained 24 million power" bug (a
-        // long-gapped window had genuinely zero measured coverage and the UI's fallback for THAT
-        // case -- showing a raw current value with no delta framing -- fired identically for both).
+        // coverageForWindow() derives its answer from deltaOverWindow(), so a window holding two
+        // real, valid samples that happen to carry the same value must not report null coverage --
+        // that is indistinguishable from "not enough data" on the Statistics tab. Both cases then
+        // hit the same UI fallback (a raw current value with no delta framing), which is what reads
+        // as an overnight "gained 24 million power".
         Files.writeString(historyFile(1L),
                 row("2026-08-18T08:10:00Z", ",\"power\":100") + "\n"
                         + row("2026-08-18T08:50:00Z", ",\"power\":100") + "\n"); // unchanged, but real
@@ -326,5 +328,31 @@ class TelemetryReportTest {
     private static TelemetryReport.Delta findMetric(List<TelemetryReport.Delta> deltas, String metric) {
         return deltas.stream().filter(d -> d.metric().equals(metric)).findFirst()
                 .orElseThrow(() -> new AssertionError("No delta for metric " + metric));
+    }
+
+    @Test
+    void theWakeAnchorSnapshotLandsInsideTheLastNightWindow() throws IOException {
+        // The writer takes a snapshot at TelemetrySnapshotSchedule.WAKE_ANCHOR (08:30), but a real
+        // capture was observed landing at 08:30:43 -- past an exact 08:30:00 cutoff. If the
+        // reader's window ended precisely on the anchor, that snapshot would fall outside the very
+        // window it exists to bookend, and "last night" would silently end at the prior hourly
+        // sample instead. That is a wrong answer rather than a visible failure, so it is asserted
+        // behaviourally here rather than by reading the grace constant.
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        String bedtime = today.minusDays(1) + "T23:00:00Z";
+        String wakeCapture = today + "T08:30:43Z";
+
+        Files.writeString(historyFile(1L),
+                row(bedtime, ",\"power\":100") + "\n"
+                        + row(wakeCapture, ",\"power\":160") + "\n");
+
+        TelemetryReport report = TelemetryReport.load(workspace, 1L);
+        List<TelemetryReport.Delta> deltas =
+                report.lastNight(ZoneOffset.UTC, LocalTime.of(23, 0), TelemetrySnapshotSchedule.WAKE_ANCHOR);
+
+        assertEquals(1, deltas.size(),
+                "the 08:30:43 wake snapshot fell outside the last-night window -- the reader's grace "
+                        + "window no longer covers the writer's wake anchor");
+        assertEquals(60L, deltas.get(0).change());
     }
 }
