@@ -226,9 +226,9 @@ public enum ConfigurationKeyEnum {
     GATHER_LAST_RECALL_TIME_STRING  ("",                    String.class,   ConfigCategory.GATHERING),
     GATHER_SPEED_BOOL               ("false",               Boolean.class,  ConfigCategory.GATHERING),
     GATHER_SPEED_BOOST_TYPE_STRING  ("24h (600 gems)",      String.class,   ConfigCategory.GATHERING),
-    // matt/2026-08-06: cache written by ResourceStockpileRoutine, read back by GatherRoutine and
-    // bg_telemetry. Source screen: Research Center -> Research -> any non-maxed tech node's
-    // "Research Cost" panel, which shows all 4 resources as current/cost.
+    // Cache written by ResourceStockpileRoutine and read back by GatherRoutine and bg_telemetry.
+    // Source screen: Research Center -> Research -> any non-maxed tech node's "Research Cost"
+    // panel, which shows all 4 resources as current/cost.
     RESOURCE_STOCKPILE_MEAT_LONG        ("0",  Long.class,    ConfigCategory.GATHERING),
     RESOURCE_STOCKPILE_WOOD_LONG        ("0",  Long.class,    ConfigCategory.GATHERING),
     RESOURCE_STOCKPILE_COAL_LONG        ("0",  Long.class,    ConfigCategory.GATHERING),
