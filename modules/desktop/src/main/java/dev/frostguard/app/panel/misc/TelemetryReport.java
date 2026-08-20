@@ -201,16 +201,15 @@ public final class TelemetryReport {
                 }
             }
 
-            // Dave's #250 review, round 3: a genuinely zero-change metric (real start AND end
-            // samples, equal values) was being skipped here just like a metric with NO coverage at
-            // all -- coverageForWindow() derives its answer straight from this list, so a window
-            // with real, measured, unchanged samples returned null coverage, indistinguishable from
-            // "not enough data". Caught live the same way in the running app: with telemetry gapped
-            // for two days, EVERY window fell into that same "no coverage" bucket and the caller
-            // fell back to displaying a raw absolute value with no delta framing -- exactly what
-            // read as "gained 24 million power" overnight. Always emit a Delta once both endpoints
-            // are known, even change=0, so callers can render "measured, steady" honestly instead
-            // of treating it identically to "never measured".
+            // A genuinely zero-change metric (real start AND end samples, equal values) must not
+            // be skipped like a metric with NO coverage at all. coverageForWindow() derives its
+            // answer straight from this list, so skipping would make a window of real, measured,
+            // unchanged samples return null coverage -- indistinguishable from "not enough data".
+            // The visible consequence: with telemetry gapped, every window falls into the same "no
+            // coverage" bucket and the caller renders a raw absolute value with no delta framing,
+            // which reads as "gained 24 million power" overnight. Always emit a Delta once both
+            // endpoints are known, even change=0, so callers can render "measured, steady" honestly
+            // rather than treating it identically to "never measured".
             //
             // But a single sample used for BOTH start and end (startAt == endAt -- e.g. the only
             // sample that exists sits before an otherwise-empty window, so the same row satisfies
