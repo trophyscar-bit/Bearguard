@@ -18,17 +18,20 @@ import java.util.Map;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
-import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.OcrSettingsData;
-import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
 import dev.frostguard.api.domain.JobMetrics;
 import dev.frostguard.api.domain.ProfilesData;
 import dev.frostguard.api.runtime.WorkspacePaths;
+import dev.frostguard.engine.nav.CommonGameAreas;
+import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.engine.schedule.CustomTaskConfigurable;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.CustomTaskService;
 import dev.frostguard.vision.ocr.PlausibilityBand;
+import dev.frostguard.vision.ocr.HudNumberParser;
+import dev.frostguard.api.domain.TelemetrySnapshotSchedule;
 import dev.frostguard.engine.service.StatisticsService;
 
 /**
@@ -60,45 +63,15 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     // slot (the only one with no icon inside the crop) read correctly first
     // time, while power and gems both had their icon in-frame and OCR folded
     // its edges into the digits - the diamond turned 56,112 into 596,256.
-    private static final PointData POWER_TL = new PointData(130, 48);
-    private static final PointData POWER_BR = new PointData(272, 96);
-    private static final PointData COAL_TL = new PointData(430, 0);
-    private static final PointData COAL_BR = new PointData(515, 40);
     // Measured on a magnified frame: the diamond icon ends at x=572, the digits
     // run 591-667, and the green "+" starts at 688. 578 sits in the clean gap.
     // Both earlier attempts failed by landing on a glyph edge rather than in the
     // gap - 590 clipped the leading "5" (read as 596,256) and 608 cut it off
     // entirely (read as 5,256).
-    private static final PointData GEMS_TL = new PointData(578, 2);
-    private static final PointData GEMS_BR = new PointData(675, 38);
 
-    /**
-     * The HUD renders white text over a busy scene. Whitelisting the separator
-     * and magnitude characters matters: the game abbreviates large values
-     * ("6.7M") but prints others in full ("11,914,539"), and a digits-only
-     * whitelist silently turns the former into 67.
-     */
-    private static final OcrSettingsData HUD_NUMBER_SETTINGS =
-            OcrSettingsData.assembler()
-                    .charWhitelist("0123456789.,KMB")
-                    .textLayout(TextLayout.SINGLE_LINE)
-                    .stripBackground(true)
-                    .setTextColor(new java.awt.Color(255, 255, 255))
-                    .build();
-
-    /**
-     * Digits and comma only, for the slots that always show a full number
-     * (Power, Gems). Allowing K/M/B there costs accuracy for no benefit: with
-     * the letters in the whitelist Tesseract read a clean "56,256" crop as
-     * "596,256", inventing a digit. Only Coal actually abbreviates.
-     */
-    private static final OcrSettingsData HUD_FULL_NUMBER_SETTINGS =
-            OcrSettingsData.assembler()
-                    .charWhitelist("0123456789,")
-                    .textLayout(TextLayout.SINGLE_LINE)
-                    .stripBackground(true)
-                    .setTextColor(new java.awt.Color(255, 255, 255))
-                    .build();
+    /* The HUD crop regions and their OCR presets live in CommonGameAreas and CommonOCRSettings so
+     * they are shared and testable; nothing declared privately in this file can be covered by a
+     * JUnit test, since it sits outside the Maven module tree. */
 
     private Duration interval = DEFAULT_INTERVAL;
 
@@ -170,12 +143,18 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // scan, not read here, so there's no fresh OCR result for this check to validate against)
         // -- limiting it to only power/gems would leave coal's live OCR read unvalidated even
         // though it goes through the exact same misread-prone path.
-        Long power = sanityCheckAgainstLastKnown("power",
-                readScaledNumber(POWER_TL, POWER_BR, HUD_FULL_NUMBER_SETTINGS, "power"), lastKnownGood);
-        Long coal = sanityCheckAgainstLastKnown("coal",
-                readScaledNumber(COAL_TL, COAL_BR, HUD_NUMBER_SETTINGS, "coal"), lastKnownGood);
-        Long gems = sanityCheckAgainstLastKnown("gems",
-                readScaledNumber(GEMS_TL, GEMS_BR, HUD_FULL_NUMBER_SETTINGS, "gems"), lastKnownGood);
+        // Each metric carries its own band: power moves gradually, while coal and gems are spent
+        // in lumps and legitimately fall by most of their value in a single step. See
+        // PlausibilityBand for why a shared, symmetric band suppressed real spends.
+        Long power = sanityCheckAgainstLastKnown("power", PlausibilityBand.POWER,
+                readScaledNumber(CommonGameAreas.TELEMETRY_POWER_OCR_AREA,
+                        CommonOCRSettings.TELEMETRY_FULL_NUMBER_SETTINGS, "power"), lastKnownGood);
+        Long coal = sanityCheckAgainstLastKnown("coal", PlausibilityBand.COAL,
+                readScaledNumber(CommonGameAreas.TELEMETRY_COAL_OCR_AREA,
+                        CommonOCRSettings.TELEMETRY_ABBREVIATED_NUMBER_SETTINGS, "coal"), lastKnownGood);
+        Long gems = sanityCheckAgainstLastKnown("gems", PlausibilityBand.GEMS,
+                readScaledNumber(CommonGameAreas.TELEMETRY_GEMS_OCR_AREA,
+                        CommonOCRSettings.TELEMETRY_FULL_NUMBER_SETTINGS, "gems"), lastKnownGood);
 
         // A frame where nothing at all resolved almost always means we are not
         // actually on the HUD (a popup, an event takeover). Recording that as a
@@ -250,15 +229,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      */
     private void scheduleNext() {
         setRecurring(true);
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        java.time.LocalDateTime next = now.plus(interval);
-        for (java.time.LocalTime anchor : new java.time.LocalTime[]{
-                java.time.LocalTime.of(23, 0), java.time.LocalTime.of(8, 30)}) {
-            java.time.LocalDateTime a = now.with(anchor);
-            if (!a.isAfter(now)) a = a.plusDays(1);
-            if (a.isBefore(next)) next = a;
-        }
-        reschedule(next);
+        reschedule(TelemetrySnapshotSchedule.nextRun(java.time.LocalDateTime.now(), interval));
     }
 
     /**
@@ -272,11 +243,11 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      * Calling {@code stringHelper} directly makes parseability itself the retry acceptor, so a bad
      * read gets the same up-to-5-attempts/200ms retry budget a genuinely empty read already got.
      */
-    private Long readScaledNumber(PointData tl, PointData br, OcrSettingsData settings, String label) {
+    private Long readScaledNumber(AreaData area, OcrSettingsData settings, String label) {
         // stringHelper is typed ResilientOcrExecutor<String>, so the transformer must still return
         // String -- parsing happens right after, but the acceptor below is what actually moves
         // parseability into the retry decision.
-        String raw = stringHelper.attemptRecognition(tl, br, 5, 200L, settings,
+        String raw = stringHelper.attemptRecognition(area.topLeft(), area.bottomRight(), 5, 200L, settings,
                 candidate -> candidate != null && parseScaled(candidate) != null,
                 candidate -> candidate);
         Long parsed = raw == null ? null : parseScaled(raw);
@@ -286,16 +257,10 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         return parsed;
     }
 
-    /** Fraction outside of which a new power/gems reading is rejected as an implausible OCR
-     *  misread rather than a real change -- see the execute() call site's header note. Real
-     *  changes between 2-hour samples are gradual; the actual misreads observed live jumped
-     *  ~1.7-1.8x, well outside this band.
-     *
-     *  <p>Dave's #250 review: the ratio-band comparison itself now lives in
-     *  {@link PlausibilityBand}, shared with ResourceStockpileRoutine's identical check and
-     *  covered by real JUnit tests -- this class can't unit-test a private method on itself since
-     *  it lives under examples/custom-tasks/, outside the Maven module tree.</p> */
-    private static final double SANITY_BAND_MAX_RATIO = 1.5;
+    /* The ratio-band comparison lives in PlausibilityBand, shared with ResourceStockpileRoutine's
+     * identical check and covered by JUnit tests -- this class cannot unit-test a private method on
+     * itself, since it lives under examples/custom-tasks/, outside the Maven module tree. Bands are
+     * selected per metric at the call sites above rather than shared. */
 
     /**
      * Rejects a candidate reading that jumps implausibly far from the last known-good value for
@@ -303,7 +268,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      * through unchanged when there's nothing to compare against (first-ever sample, previous
      * value missing, or the candidate is already null).
      */
-    private Long sanityCheckAgainstLastKnown(String field, Long candidate, Map<String, Object> lastKnownGood) {
+    private Long sanityCheckAgainstLastKnown(String field, PlausibilityBand band, Long candidate,
+                                             Map<String, Object> lastKnownGood) {
         if (candidate == null || lastKnownGood == null) {
             return candidate;
         }
@@ -312,11 +278,12 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             return candidate;
         }
         long prev = (Long) prevObj;
-        if (!PlausibilityBand.isPlausible(candidate, prev, SANITY_BAND_MAX_RATIO)) {
+        if (!band.isPlausible(candidate, prev)) {
             double ratio = (double) candidate / (double) prev;
             logWarning("bg_telemetry | " + field + " reading " + candidate + " is implausibly far from the "
-                    + "last known-good " + prev + " (ratio " + String.format("%.2f", ratio) + ") -- rejecting "
-                    + "as a likely OCR misread rather than recording a fake swing.");
+                    + "last known-good " + prev + " (ratio " + String.format("%.2f", ratio)
+                    + ", believable band for this metric " + band + ") -- rejecting as a likely OCR "
+                    + "misread rather than recording a fake swing.");
             return null;
         }
         return candidate;
@@ -383,37 +350,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      * Package-visible so the parsing rules can be exercised directly.
      */
     static Long parseScaled(String raw) {
-        String s = raw.trim().replace(",", "").replace(" ", "");
-        if (s.isEmpty()) {
-            return null;
-        }
-
-        long multiplier = 1L;
-        char last = s.charAt(s.length() - 1);
-        boolean abbreviated = last == 'K' || last == 'M' || last == 'B';
-        if (abbreviated) {
-            multiplier = last == 'K' ? 1_000L : last == 'M' ? 1_000_000L : 1_000_000_000L;
-            s = s.substring(0, s.length() - 1);
-        } else {
-            // Tesseract frequently reads the HUD's thousands commas as periods
-            // ("12.552.372"). Only the abbreviated form has a real decimal
-            // point, so on an un-abbreviated value a period is always a group
-            // separator and is safe to drop. Without this, every full-precision
-            // Power reading is discarded.
-            s = s.replace(".", "");
-        }
-
-        if (s.isEmpty()) {
-            return null;
-        }
-        try {
-            // Parsed as a double because the abbreviated form carries a decimal
-            // ("6.7M"); the un-abbreviated form never does, so this is lossless
-            // for the values the HUD actually shows.
-            return (long) (Double.parseDouble(s) * multiplier);
-        } catch (NumberFormatException e) {
-            return null;
-        }
+        return HudNumberParser.parseScaled(raw);
     }
 
     /**
