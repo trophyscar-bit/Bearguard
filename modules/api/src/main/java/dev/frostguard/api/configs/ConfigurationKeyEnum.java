@@ -277,9 +277,9 @@ public enum ConfigurationKeyEnum {
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
+    // Allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
+    // Separate Telegram stop behavior from local GUI stop behavior.
     STOP_BEHAVIOR_TELEGRAM_STRING       ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     LDPLAYER_PATH_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     MAX_IDLE_TIME_INT                   ("15",          Integer.class,  ConfigCategory.SYSTEM),
@@ -317,7 +317,7 @@ public enum ConfigurationKeyEnum {
     TRAIN_MINISTRY_APPOINTMENT_BOOL     ("false",   Boolean.class,  ConfigCategory.TRAINING),
     TRAIN_MINISTRY_APPOINTMENT_TIME_LONG("0",       Long.class,     ConfigCategory.TRAINING),
     TRAIN_PRIORITIZE_PROMOTION_BOOL     ("false",   Boolean.class,  ConfigCategory.TRAINING),
-    // matt/2026-08-12: World-map "Heal Injured" panel -- Quick Select + Heal starts the
+    // World-map "Heal Injured" panel -- Quick Select + Heal starts the
     // highest-priority queue, then the same button swaps to Help (alliance-assist).
     HEAL_INJURED_ENABLED_BOOL           ("false",   Boolean.class,  ConfigCategory.TRAINING);
 
