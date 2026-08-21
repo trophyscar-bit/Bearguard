@@ -6,7 +6,7 @@ import java.util.Set;
 /**
  * Thrown when a caller explicitly requests an OCR language with no packaged trained-data model.
  *
- * <p>Round-3 item 4: silently falling back to "eng" for an explicit, unsupported request (e.g.
+ * <p>Silently falling back to "eng" for an explicit, unsupported request (e.g.
  * "ara", "rus") used to look successful -- Tesseract still returned text -- but that text was
  * Latin-model glyph guesses run against a script it cannot read, plausible-looking and wrong. A
  * caller that never asked for a specific language at all (the common case -- {@code null}/blank)
