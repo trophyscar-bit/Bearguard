@@ -263,110 +263,6 @@ public class DailyLabyrinthRoutine extends DelayedTask {
                     .stripBackground(true)
                     .setTextColor(new java.awt.Color(255, 255, 255))
                     .build();
-    // ===================================================================
-    // Pre-fight scouting -- "View Details" 
-    // ===================================================================
-    // The "tale of the tape" request: after losing, read the battle report to see what the
-    // enemy actually ran, then counter it on the retry. Driving the game by hand to find that screen
-    // turned up something strictly better -- the magnifier on the stage screen's enemy portrait opens
-    // a "View Details" panel that shows the enemy's troop counts AND a full per-troop-type stat
-    // comparison BEFORE the fight. So the same decision can be made for ZERO attempts instead of
-    // paying one attempt to learn it.
-    //
-    // All coordinates and the OCR shape below were measured off a real capture of that screen
-    // (Cave of Monsters stage 3-9), not estimated.
-    /**
-     * SHELVED by design -- "put the tale of the tape on the shelf for now
-     * and rewire it so it only listens to whatever is in the app."
-     *
-     * <p>When false (the current setting) the routine does exactly one thing with troop ratios: it
-     * applies the percentages configured in the Bearguard app's Labyrinth panel, via
-     * readSingleRatioFromConfig() / readSquadRatiosFromConfig(). No scouting, no Equalize, no
-     * overriding the configured numbers for any reason.
-     *
-     * <p>Flipping this to true re-enables both halves of the shelved work, which are left intact
-     * below rather than deleted because both were verified working:
-     * <ul>
-     *   <li>the pre-fight scout, which reads the enemy's troop counts and the full per-troop-type
-     *       stat comparison off the "View Details" panel for zero attempts;</li>
-     *   <li>the Equalize shortcut, which replaces ~5 minutes of 1%-per-tap slider work with one tap
-     *       when the opponent presents identically to all three troop types.</li>
-     * </ul>
-     * Verified live on 2026-08-20 before being shelved: a full four-zone pass in 39 seconds, with
-     * Cave of Monsters and Charm Mine both confirming "Troop Ratio now [33, 33, 33]".
-     *
-     * <p>Note the trade being made deliberately: with this off, the configured ratio is applied
-     * through the Balance slider flow, which costs roughly five minutes per zone.
-     */
-    private static final boolean SCOUT_AND_AUTO_RATIO_ENABLED = false;
-
-    /** Magnifier badge on the stage screen's enemy portrait (bottom-left, next to "Stage N-N"). */
-    private static final PointData STAGE_ENEMY_MAGNIFIER = new PointData(122, 1082);
-    /** "View Details" title, top-left of the scouting panel. */
-    private static final PointData SCOUT_ANCHOR_TL = new PointData(88, 20);
-    private static final PointData SCOUT_ANCHOR_BR = new PointData(330, 62);
-    private static final String    SCOUT_ANCHOR_TEXT = "details";
-    /** Back arrow out of the scouting panel. */
-    private static final PointData SCOUT_BACK_BTN = new PointData(40, 40);
-    /** The panel is taller than the screen -- Marksman Health sits below the fold on first open. */
-    private static final PointData SCOUT_SCROLL_FROM = new PointData(360, 1000);
-    private static final PointData SCOUT_SCROLL_TO = new PointData(360, 500);
-    /** A troop type is only comparable when all four of these were read. */
-    private static final java.util.List<String> SCOUT_REQUIRED_STATS =
-            java.util.List.of("Attack", "Defense", "Lethality", "Health");
-    /** Opponent stats this close across all three types count as "the same enemy to everyone". */
-    private static final double OPPONENT_UNIFORM_TOLERANCE = 0.5;
-
-    // -- Equalize  --------------------------------------------------------------
-    // The single-squad deployment screen carries its own "Equalize" button, which sets 33/33/33 in
-    // ONE tap. Confirmed on lab_d0_troop_1787238417242.png alongside Withdraw All / Balance / Deploy,
-    // with the live ratio printed along the bottom as "Troop Ratio: 33% 33% 33%".
-    //
-    // That replaces the Balance slider flow entirely for these zones: flooring three rows at 1% per
-    // tap and refilling them takes about five minutes per zone and is the most fragile code path in
-    // this routine (every Labyrinth bug fixed today lived in it). Used only when the scout says the
-    // opponent presents identically to all three troop types -- see ScoutResult#opponentUniform for
-    // why that is exactly when an even split is right, rather than merely convenient.
-    private static final PointData EQUALIZE_BTN = new PointData(199, 1190);
-    /** "Troop Ratio: 33% 33% 33%" strip along the bottom of the deployment screen. */
-    private static final PointData TROOP_RATIO_LINE_TL = new PointData(60, 1068);
-    private static final PointData TROOP_RATIO_LINE_BR = new PointData(700, 1112);
-    private static final OcrSettingsData TROOP_RATIO_LINE_SETTINGS =
-            OcrSettingsData.assembler()
-                    .charWhitelist("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:% ")
-                    .textLayout(TextLayout.SINGLE_LINE)
-                    .build();
-    // This demanded a literal '%' and so rejected a perfectly good read -- the strip
-    // came back 'Troop Ratio: W 33% GP 33x 33%', where the middle percent sign OCR'd as an 'x'. The
-    // three values were plainly 33/33/33 and Equalize had worked. Requiring the % adds nothing: the
-    // icons between the numbers ('W', 'GP') contain no digits, so pulling every 1-3 digit number in
-    // 0..100 out of the line after the "Troop Ratio:" label is both simpler and more tolerant.
-    // Anchored on the percent sign, allowing the common misreads of it. Validated against every real
-    // strip captured so far:
-    //   "Troop Ratio: W 33% GP 33x 33%"  -> 33,33,33  even   (the middle '%' read as 'x')
-    //   "Troop Ratio: G 33% 8 33% Q 33%" -> 33,33,33  even   (an ICON read as '8' -- anchoring on the
-    //                                                         percent is what keeps it out)
-    //   "Troop Ratio: W 60% GP 20x 20%"  -> 60,20,20  not even
-    //   "Troop Ratio: garbage"           -> none      rejected
-    // Matching bare digits instead would swallow that stray icon '8' and read 33/8/33.
-    private static final java.util.regex.Pattern RATIO_PCT =
-            java.util.regex.Pattern.compile("([0-9]{1,3})\\s*[%xX]");
-    /** The whole panel body: enemy troop counts near the top, then the 12 stat rows. Read as one
-     *  block and parsed BY LABEL rather than by row coordinates, so it survives the panel sitting at
-     *  a different scroll offset (verified: the same parse works scrolled and unscrolled). */
-    private static final PointData SCOUT_BODY_TL = new PointData(28, 170);
-    private static final PointData SCOUT_BODY_BR = new PointData(700, 1275);
-    /** Plain multi-line read -- this panel is dark text on flat light rows and needs no isolation.
-     *  Verified with the bundled tesseract: all 12 rows and the troop counts came back exact. */
-    private static final OcrSettingsData SCOUT_SETTINGS =
-            OcrSettingsData.assembler()
-                    .charWhitelist("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,%+' ")
-                    .textLayout(TextLayout.TEXT_BLOCK)
-                    .build();
-    /** e.g. "+27.7% Infantry Attack +19.8%" -> mine, type, stat, theirs. */
-    private static final java.util.regex.Pattern SCOUT_ROW = java.util.regex.Pattern.compile(
-            "([0-9]+(?:\\.[0-9]+)?)\\s*%?\\s*(Infantry|Lancer|Marksman)\\s+(Attack|Defense|Lethality|Health)\\s*\\+?\\s*([0-9]+(?:\\.[0-9]+)?)\\s*%?",
-            java.util.regex.Pattern.CASE_INSENSITIVE);
 
     /** "The Labyrinth" title on the zone map -- how we confirm we're back on the map between zones. */
     private static final PointData MAP_ANCHOR_TL = new PointData(85, 18);
@@ -919,184 +815,6 @@ public class DailyLabyrinthRoutine extends DelayedTask {
      * Cave of Monsters / Charm Mine (proven live) skip straight from Challenge to a single combined
      * troop-detail screen with ONE Balance button -- no Squad Config, no Quick Deploy, one ratio.
      */
-    /** One troop type's four stats, mine vs the opponent's, as shown on the View Details panel. */
-    private record ScoutLine(double mine, double theirs) {
-        double edge() { return mine - theirs; }
-    }
-
-    /**
-     * What the pre-fight scout saw.
-     *
-     * @param parsed           at least one complete troop type was read
-     * @param opponentUniform  the opponent presents IDENTICALLY to all three of my troop types --
-     *                         every stat the same across Infantry, Lancer and Marksman. This is the
-     *                         precise condition under which an even split is correct: the
-     *                         counter-triangle (Infantry > Lancer > Marksman > Infantry, ~+10%) only
-     *                         pays when the enemy is skewed, so against a uniform enemy whatever you
-     *                         favour meets its counter in equal measure and every ratio is equivalent.
-     *                         Measured live on Cave of Monsters 3-9: opponent 19.8/19.8/26.4/26.4
-     *                         against all three types, and 50,000/50,000/50,000 troops.
-     */
-    private record ScoutResult(boolean parsed, boolean opponentUniform) {
-        static ScoutResult none() { return new ScoutResult(false, false); }
-    }
-
-    /**
-     * Reads the pre-fight "View Details" panel from the stage screen: the enemy's troop counts and
-     * the per-troop-type stat comparison. Pure OBSERVATION for now -- it logs what it finds and
-     * changes no deploy behaviour.
-     *
-     * <p>Deliberately observation-only at this stage. The one stage scouted by hand so far (Cave of
-     * Monsters 3-9) came back perfectly SYMMETRIC -- enemy 50,000/50,000/50,000, and identical stats
-     * against all three of my troop types (+19.8 Atk/Def, +26.4 Leth/Health) -- so there was nothing
-     * to counter there and no way to tell a good weighting rule from a bad one. Building a
-     * counter-picker on a single symmetric sample would be guessing. Collect real readings across
-     * zones and stages first, then wire the decision once there is an asymmetric case to test it on.
-     *
-     * @return true if the panel was read, false if it never opened (caller carries on regardless)
-     */
-    private ScoutResult scoutStageDetails(String tag) {
-        if (!navStep(STAGE_ENEMY_MAGNIFIER, SCOUT_ANCHOR_TL, SCOUT_ANCHOR_BR, SCOUT_ANCHOR_TEXT,
-                tag + " stage->viewDetails")) {
-            logInfo(tag + " scout: View Details didn't open; skipping the scout (costs nothing, "
-                    + "the fight is unaffected).");
-            return ScoutResult.none();
-        }
-        saveLabyrinthFrame("scout", 0);
-
-        // TWO passes, and they matter. The panel doesn't fit on one screen -- the
-        // first live run read Infantry and Lancer complete (4 stats each) but only 3 rows of
-        // Marksman, because Marksman Health sits below the fold. Summing edges over different row
-        // counts then made Marksman look BEST (+5.5) purely because its worst row was missing
-        // (Health 15.8 vs 26.4 = -10.6). Had the decision been live it would have loaded the ratio
-        // onto the weakest troop type. So: read, scroll, read again, merge by (type, stat).
-        java.util.Map<String, java.util.Map<String, ScoutLine>> byType = new java.util.LinkedHashMap<>();
-        StringBuilder seen = new StringBuilder();
-        for (int pass = 0; pass < 2; pass++) {
-            if (pass == 1) {
-                emuManager.swipeScreen(String.valueOf(EMULATOR_NUMBER), SCOUT_SCROLL_FROM, SCOUT_SCROLL_TO, 400);
-                sleepTask(LABYRINTH_LOAD_DELAY);
-            }
-            String body = readStringValue(SCOUT_BODY_TL, SCOUT_BODY_BR, SCOUT_SETTINGS);
-            if (body == null || body.isBlank()) continue;
-            seen.append(body).append('\n');
-            java.util.regex.Matcher m = SCOUT_ROW.matcher(body);
-            while (m.find()) {
-                String type = capitalize(m.group(2));
-                String stat = capitalize(m.group(3));
-                try {
-                    byType.computeIfAbsent(type, k -> new java.util.LinkedHashMap<>())
-                            .put(stat, new ScoutLine(Double.parseDouble(m.group(1)), Double.parseDouble(m.group(4))));
-                } catch (NumberFormatException ignored) { /* skip a mangled row */ }
-            }
-        }
-        String body = seen.toString();
-        if (body.isBlank()) {
-            logWarning(tag + " scout: View Details opened but its body read blank on both passes.");
-            pressBack();
-            sleepTask(LABYRINTH_LOAD_DELAY);
-            return ScoutResult.none();
-        }
-
-        if (byType.isEmpty()) {
-            logWarning(tag + " scout: no stat rows parsed out of View Details. Raw text was: '"
-                    + body.replace("\n", " | ").trim() + "'");
-        } else {
-            for (java.util.Map.Entry<String, java.util.Map<String, ScoutLine>> e : byType.entrySet()) {
-                StringBuilder sb = new StringBuilder(tag + " scout [" + e.getKey() + "]:");
-                double edge = 0;
-                for (java.util.Map.Entry<String, ScoutLine> s : e.getValue().entrySet()) {
-                    sb.append(' ').append(s.getKey()).append('=').append(s.getValue().mine())
-                      .append("/").append(s.getValue().theirs());
-                    edge += s.getValue().edge();
-                }
-                // Only a type with all four stats gets a comparable number. A partial sum is not a
-                // smaller edge, it is a DIFFERENT measurement, and mixing the two is what made
-                // Marksman read as the best type on the first live run. Say "incomplete" instead.
-                if (e.getValue().keySet().containsAll(SCOUT_REQUIRED_STATS)) {
-                    sb.append("  net edge ").append(String.format("%+.1f", edge));
-                } else {
-                    sb.append("  net edge N/A -- only ").append(e.getValue().size())
-                      .append("/4 stats read (have ").append(e.getValue().keySet())
-                      .append("); NOT comparable against a complete type, so not ranked.");
-                }
-                logInfo(sb.toString());
-            }
-            logInfo(tag + " scout: parsed " + byType.size() + " troop type(s). OBSERVATION ONLY -- "
-                    + "the deploy ratio is unchanged. Collecting readings until an asymmetric stage "
-                    + "appears to calibrate a counter-pick against.");
-        }
-
-        pressBack();
-        sleepTask(LABYRINTH_LOAD_DELAY);
-        boolean opponentUniform = false;
-        if (byType.size() == 3) {
-            java.util.List<java.util.Map<String, ScoutLine>> all = new java.util.ArrayList<>(byType.values());
-            opponentUniform = all.stream().allMatch(m2 -> m2.keySet().containsAll(SCOUT_REQUIRED_STATS));
-            if (opponentUniform) {
-                for (String stat : SCOUT_REQUIRED_STATS) {
-                    double ref = all.get(0).get(stat).theirs();
-                    for (java.util.Map<String, ScoutLine> m2 : all) {
-                        if (Math.abs(m2.get(stat).theirs() - ref) > OPPONENT_UNIFORM_TOLERANCE) {
-                            opponentUniform = false;
-                        }
-                    }
-                }
-            }
-            logInfo(tag + " scout: opponent presents "
-                    + (opponentUniform ? "IDENTICALLY to all three troop types -- the counter-triangle "
-                            + "has nothing to bite on here, so an even split is correct"
-                          : "DIFFERENTLY across troop types -- there is a real matchup to exploit")
-                    + ".");
-        }
-        return new ScoutResult(!byType.isEmpty(), opponentUniform);
-    }
-
-    /**
-     * Taps Equalize on the single-squad deployment screen and CONFIRMS the result from the screen's
-     * own "Troop Ratio:" strip. Returns false if the strip doesn't come back as three roughly equal
-     * shares, so the caller can fall through to the slider flow rather than deploy on an assumption.
-     */
-    private boolean tapEqualize(String tag) {
-        tapNear(EQUALIZE_BTN);
-        sleepTask(MENU_NAVIGATION_DELAY);
-
-        String line = readStringValue(TROOP_RATIO_LINE_TL, TROOP_RATIO_LINE_BR, TROOP_RATIO_LINE_SETTINGS);
-        java.util.List<Integer> pcts = new java.util.ArrayList<>();
-        if (line != null) {
-            // Drop the "Troop Ratio:" label first so its own characters can't contribute digits.
-            int colon = line.indexOf(':');
-            String values = colon >= 0 ? line.substring(colon + 1) : line;
-            java.util.regex.Matcher m = RATIO_PCT.matcher(values);
-            while (m.find() && pcts.size() < 3) {
-                try {
-                    int v = Integer.parseInt(m.group(1));
-                    if (v >= 0 && v <= 100) pcts.add(v);
-                } catch (NumberFormatException ignored) { }
-            }
-        }
-        if (pcts.size() != 3) {
-            logWarning(tag + ": tapped Equalize but the Troop Ratio strip didn't read as three values "
-                    + "(read: '" + (line == null ? "<null>" : line.trim()) + "'). Falling back to the "
-                    + "Balance slider flow rather than deploying on an assumption.");
-            return false;
-        }
-        int min = java.util.Collections.min(pcts), max = java.util.Collections.max(pcts);
-        if (max - min > 2) {
-            logWarning(tag + ": tapped Equalize but the ratio came back " + pcts
-                    + " -- not an even split. Falling back to the Balance slider flow.");
-            return false;
-        }
-        logInfo(tag + ": Equalize confirmed -- Troop Ratio now " + pcts + ". Skipped the Balance "
-                + "slider flow entirely (that path is ~5 minutes of 1%-per-tap work; the even split "
-                + "is correct here because the opponent presents identically to all three types).");
-        return true;
-    }
-
-    private static String capitalize(String s) {
-        if (s == null || s.isEmpty()) return s;
-        return Character.toUpperCase(s.charAt(0)) + s.substring(1).toLowerCase(java.util.Locale.ROOT);
-    }
 
     /**
      * Presses back until the Labyrinth map is showing again.
@@ -1176,12 +894,9 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         }
         saveLabyrinthFrame("stage", 0);
 
-        // Shelved -- see SCOUT_AND_AUTO_RATIO_ENABLED. With it off the routine applies the app's
-        // configured percentages and nothing else.
-        ScoutResult scout = SCOUT_AND_AUTO_RATIO_ENABLED ? scoutStageDetails(tag) : ScoutResult.none();
 
         if (zone.singleSquad()) {
-            setupSingleSquadZone(zone, tag, scout);
+            setupSingleSquadZone(zone, tag);
             return;
         }
 
@@ -1232,7 +947,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
      * lands DIRECTLY on the combined troop-detail screen (Infantry/Lancer/Marksman, ONE Balance
      * button) -- no Squad Config, no Quick Deploy, no second squad. Only squad1Keys is used.
      */
-    private void setupSingleSquadZone(ZoneFormation zone, String tag, ScoutResult scout) {
+    private void setupSingleSquadZone(ZoneFormation zone, String tag) {
         // Challenge -> troop-detail screen directly. The screen's own title is the zone's name
         // (e.g. "Cave of Monsters"), so that's the anchor text -- generic across any single-squad zone.
         if (!navStep(LOH_CHALLENGE_BTN, TROOP_ANCHOR_TL, TROOP_ANCHOR_BR, zone.zoneName().toLowerCase(),
@@ -1242,10 +957,6 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         }
         saveLabyrinthFrame("troop", 0);
 
-        if (SCOUT_AND_AUTO_RATIO_ENABLED && scout.opponentUniform() && tapEqualize(tag)) {
-            logInfo(tag + ": configured via Equalize. STOPPING before Deploy (no battle attempt spent).");
-            return;
-        }
 
         int[] ratio = readSingleRatioFromConfig(zone);
         logInfo(tag + ": applying the ratio configured in the app -- " + ratio[0] + "/" + ratio[1]
