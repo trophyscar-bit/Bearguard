@@ -141,7 +141,7 @@ public class MonumentRoutine extends DelayedTask {
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int ACTION_SETTLE_MS = 900;
     /** The reward-reveal animation after Enable runs noticeably longer than a normal
-     *  panel transition -- the operator/2026-08-12, root cause of an earlier stuck-owned-count bug. */
+     *  panel transition -- root cause of an earlier stuck-owned-count bug. */
     private static final int PACK_OPEN_SETTLE_MS = 1800;
 
     private static final OcrSettingsData PANEL_TITLE_OCR_SETTINGS = OcrSettingsData.assembler()
@@ -500,7 +500,7 @@ public class MonumentRoutine extends DelayedTask {
     // this now genuinely runs on the Tundra Albums hub, where ALBUMS_FRAGMENT_BACKPACK_BTN is
     // the real button -- live-verified hand-driven, screenshot-confirmed.
 
-    // the operator/2026-08-13, live-verified by hand, full real clear-out (General Album -> Daybreak Island
+    // Live-verified by hand, full real clear-out (General Album -> Daybreak Island
     // x3 -> The Labyrinth, 5 packs total): the fixed-row model above was wrong on two counts.
     // (1) A row with multiple pack types side by side (e.g. Daybreak Island showing 3 colors at
     // once) RE-CENTERS its remaining icons after each one is opened -- tapping a fixed per-slot X
