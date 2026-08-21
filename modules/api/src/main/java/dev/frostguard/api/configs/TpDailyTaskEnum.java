@@ -25,6 +25,10 @@ public enum TpDailyTaskEnum {
 
     ALLIANCE_AUTOJOIN      (40,  "Alliance Autojoin",            ConfigurationKeyEnum.ALLIANCE_AUTOJOIN_BOOL,                  RoutineCategory.ALLIANCE),
     ALLIANCE_CHAMPIONSHIP  (49,  "Alliance Championship",        ConfigurationKeyEnum.ALLIANCE_CHAMPIONSHIP_BOOL,              RoutineCategory.ALLIANCE),
+
+    // "Explore the World" Atlas/Monument -- claims ready quest rows,
+    // opens owned Scene Fragment Packs, runs daily Alliance Trade requests/sends.
+    MONUMENT               (908, "Monument",                    ConfigurationKeyEnum.MONUMENT_ENABLED_BOOL,                  RoutineCategory.MILITARY),
     ALLIANCE_CHESTS        (44,  "Alliance Chests",              ConfigurationKeyEnum.ALLIANCE_CHESTS_BOOL,                    RoutineCategory.ALLIANCE),
     ALLIANCE_MOBILIZATION  (46,  "Alliance Mobilization",        ConfigurationKeyEnum.ALLIANCE_MOBILIZATION_BOOL,              RoutineCategory.ALLIANCE),
     ALLIANCE_PET_TREASURE  (43,  "Alliance Pet Treasure",        ConfigurationKeyEnum.ALLIANCE_PET_TREASURE_BOOL,              RoutineCategory.ALLIANCE),
