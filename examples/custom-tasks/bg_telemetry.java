@@ -31,7 +31,7 @@ import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.CustomTaskService;
 import dev.frostguard.vision.ocr.PlausibilityBand;
 import dev.frostguard.vision.ocr.HudNumberParser;
-import dev.frostguard.api.domain.TelemetrySnapshotSchedule;
+import dev.frostguard.engine.schedule.TelemetrySnapshotSchedule;
 import dev.frostguard.engine.service.StatisticsService;
 
 /**
