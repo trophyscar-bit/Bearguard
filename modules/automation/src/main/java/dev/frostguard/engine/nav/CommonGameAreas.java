@@ -32,6 +32,7 @@ public final class CommonGameAreas {
     // after every completed Intel reward has been claimed.
     public static final AreaData INTEL_COOLDOWN_WITH_MARKERS_OCR_AREA = region(378, 103, 508, 146);
     public static final AreaData INTEL_COOLDOWN_EMPTY_MAP_OCR_AREA    = region(378, 580, 530, 640);
+    public static final AreaData INTEL_CLAIM_ALL_AREA                 = region(190, 1050, 530, 1200);
 
     // ── side panel navigation ────────────────────────────────────────
 
@@ -55,6 +56,8 @@ public final class CommonGameAreas {
     public static final PointData SIDEBAR_RESET_TO = point(360, 820);
     public static final PointData SIDEBAR_SCROLL_FROM = point(360, 800);
     public static final PointData SIDEBAR_SCROLL_TO = point(360, 350);
+    public static final PointData SIDEBAR_SCROLL_TOWARD_BOTTOM_FROM = point(360, 720);
+    public static final PointData SIDEBAR_SCROLL_TOWARD_BOTTOM_TO = point(360, 600);
 
     public static AreaData sidebarTab(SidebarSection section) {
         return switch (section) {
@@ -154,9 +157,9 @@ public final class CommonGameAreas {
     public static final AreaData STAMINA_DIALOG_ITEM_COUNT  = region(116, 535, 154, 570);
     public static final AreaData STAMINA_DIALOG_USE_BUTTON  = region(490, 480, 670, 565);
     public static final PointData STAMINA_DIALOG_CLOSE      = point(665, 135);
-    // Starts right of the clock icon (its right edge sits at x 505-507): a sliver of the dial reads
-    // as a leading "1" and turns "00:00:39" into an unparsable "100:00:39".
-    public static final AreaData TRAVEL_TIME_OCR_AREA   = region(510, 1134, 622, 1162);
+    // Includes the complete first digit. Starting at x=510 clipped its left half on the Intel
+    // formation layout, turning "00:00:15" into the valid but false ten-hour value "10:00:15".
+    public static final AreaData TRAVEL_TIME_OCR_AREA   = region(500, 1134, 622, 1162);
 
     // ── character identity ───────────────────────────────────────────
 
