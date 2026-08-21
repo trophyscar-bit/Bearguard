@@ -204,7 +204,7 @@ public class BeastSlayRoutine extends DelayedTask {
 				LocalDateTime marchReturn = LocalDateTime.now().plusSeconds(returnSeconds);
 				updateReschedule(marchReturn);
 
-				// matt/2026-08-09 (troop-slot economy): a beast attack is genuinely out holding a slot.
+				// Observed live (troop-slot economy): a beast attack is genuinely out holding a slot.
 				// claimDeployed(), not claim(): these marches are already sent and already reflected
 				// as not-idle by Gather's own live march-queue read (same class of bug flagged on
 				// Intel's identical pattern -- a plain claim() here double-counted an already-occupied

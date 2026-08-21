@@ -172,7 +172,7 @@ public class GatherRoutine extends DelayedTask {
         logInfo(String.format("Active gather marches: %d / %d; idle physical march slots: %d",
                 activeGatherCount, activeQueues, idleSlotCount));
 
-        // Changed by pernerch | Date: 2026-07-02 | Why: when higher-priority tasks are pending,
+        // When higher-priority tasks are pending,
         // defer based on real active-march timing instead of a blind fixed delay.
         List<TpDailyTaskEnum> pendingHigherPriorityTasks = GatherQueuePolicy.getPendingHigherPriorityMarchTasks(profile);
         if (!pendingHigherPriorityTasks.isEmpty()) {
@@ -261,7 +261,7 @@ public class GatherRoutine extends DelayedTask {
     // ================= CONFIGURATION =================
 
     private void loadConfig() {
-        // Changed by pernerch | Date: 2026-07-02 | Why: centralize queue limit via policy for consistent hard-cap behavior.
+        // Centralize queue limit via policy for consistent hard-cap behavior.
         this.activeQueues = GatherQueuePolicy.resolveActiveQueueLimit(
                 get(ConfigurationKeyEnum.GATHER_ACTIVE_MARCH_QUEUE_INT, DEFAULT_QUEUES));
         this.removeHeroes = get(ConfigurationKeyEnum.GATHER_REMOVE_HEROS_BOOL, DEFAULT_REMOVE_HEROES);
@@ -425,7 +425,7 @@ public class GatherRoutine extends DelayedTask {
      * which gives the clean doubling progression Meat:Wood:Coal:Iron = 1:2:4:8 — this
      * also matches the ratio most commonly cited by the WoS player community as a rule
      * of thumb (i.e. "1 Iron is roughly worth 8 Wood", not the naive 1-for-1 or a folk
-     * number like 10 that Matt suspected wasn't quite right).
+     * number like 10 that The operator suspected wasn't quite right).
      *
      * <p><b>Known discrepancy, deliberately not used:</b> both sources agree the exchange
      * is <i>not</i> a single coherent value field — converting back down a tier gives a
@@ -723,7 +723,7 @@ public class GatherRoutine extends DelayedTask {
         };
     }
 
-    // Changed by pernerch | Date: 2026-07-02 | Why: when autojoin is disabled and all gather
+    // When autojoin is disabled and all gather
     // slots are blocked, recall already-recallable marches before falling back to a fixed wait.
     private int recallBlockedMarchesWhenAutojoinOffFlow() {
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.WORLD);
@@ -1292,7 +1292,7 @@ public class GatherRoutine extends DelayedTask {
         return true;
     }
 
-    // matt/2026-08-09 (troop-slot economy): count only physically-idle march slots off the live queue,
+    // Observed live (troop-slot economy): count only physically-idle march slots off the live queue,
     // so the claim ledger can compute how many gatherers actually need recalling to satisfy demand.
     private int countIdlePhysicalMarchSlots() {
         try {
@@ -1305,7 +1305,7 @@ public class GatherRoutine extends DelayedTask {
         }
     }
 
-    // matt/2026-08-09 (troop-slot economy): recall exactly N gather marches, the longest-returning
+    // Observed live (troop-slot economy): recall exactly N gather marches, the longest-returning
     // first (they've earned the most already and are the cheapest to give up). Reuses the same
     // candidate-collection and per-row recall used by overflow correction, and stamps
     // GATHER_LAST_RECALL_TIME so the existing return-wait handshake covers the walk home.
@@ -1353,7 +1353,7 @@ public class GatherRoutine extends DelayedTask {
         try {
             DailyTask t = dailyTaskRepository.findByAccountIdAndTaskType(profile.getId(), task);
             if (t == null || t.getScheduledAt() == null) return false;
-            // matt/2026-08-09 (Part 3): compare in seconds, not truncated whole minutes. With minute
+            // Compare in seconds, not truncated whole minutes. With minute
             // truncation an event 59s out reads as "0 minutes until" and, depending on rounding, could
             // fall outside the window or flap on the boundary; seconds makes the lookahead exact.
             long secondsUntil = ChronoUnit.SECONDS.between(LocalDateTime.now(), t.getScheduledAt());
@@ -1366,7 +1366,7 @@ public class GatherRoutine extends DelayedTask {
     // pernerch/2026-07-02: recalls all active gather marches and records the recall timestamp.
     // Timestamp is stored both as instance field (fast) and in profile config (survives restart).
     private void recallAllGatherMarchesAndTrack() {
-        // matt/2026-08-09: confirm there's actually something out BEFORE stamping the recall time.
+        // Confirm there's actually something out BEFORE stamping the recall time.
         // Stamping unconditionally left a phantom lastRecallTime that burned a whole troop-return-poll
         // cycle (open march screen, scan, clear) for a recall that never happened.
         List<ActiveGatherMarchCandidate> candidates = collectActiveGatherMarchCandidatesFlow();
@@ -1429,7 +1429,7 @@ public class GatherRoutine extends DelayedTask {
             return false;
         }
 
-        // matt, 2026-08-09 (overnight): this used collectActiveGatherMarchCandidatesFlow(), which
+        // Observed live (overnight): this used collectActiveGatherMarchCandidatesFlow(), which
         // filters activityType == GATHER. But a recalled march is reclassified RETURNING with
         // activityType UNKNOWN — so that list counted the marches still *gathering* as "troops
         // returning" and ignored the ones actually heading home. After any recall it therefore
@@ -1455,7 +1455,7 @@ public class GatherRoutine extends DelayedTask {
         LocalDateTime retryAt = soonestHome.plusMinutes(TROOP_RETURN_MARGIN_MINUTES);
         if (retryAt.isBefore(floor)) retryAt = floor;
 
-        // matt/2026-08-09: don't wake gather to re-open the march screen before a still-active troop
+        // Don't wake gather to re-open the march screen before a still-active troop
         // claim would even expire — the borrower (Intel/Cryptid/Polar/Beast) is still holding those
         // slots, so an earlier poll just churns the screen. release() pulls gather forward the instant
         // the borrower actually finishes, so real completion still resumes gathering promptly.
@@ -1477,7 +1477,7 @@ public class GatherRoutine extends DelayedTask {
         writeProfileSetting(ConfigurationKeyEnum.GATHER_LAST_RECALL_TIME_STRING, "");
     }
 
-    // Changed by pernerch | Date: 2026-07-02 | Why: when Gather is blocked by a pending Intel
+    // When Gather is blocked by a pending Intel
     // task, force Intel immediately so it can use free marches now or reschedule itself on low stamina.
     private boolean triggerPendingIntelNowFlow() {
         TaskQueue queue = scheduleService.getCoordinator().getQueue(profile.getId());

@@ -236,7 +236,7 @@ public enum ConfigurationKeyEnum {
     // GatherRoutine.RESOURCE_VALUE_WEIGHT for the sourced value ratio. Off by default so existing
     // blind-rotation behavior is unchanged unless a user opts in.
     GATHER_SMART_PRIORITY_BOOL      ("false",               Boolean.class,  ConfigCategory.GATHERING),
-    // matt/2026-08-06: cache written by ResourceStockpileRoutine, read back by GatherRoutine and
+    // Cache written by ResourceStockpileRoutine, read back by GatherRoutine and
     // bg_telemetry. Source screen: Research Center -> Research -> any non-maxed tech node's
     // "Research Cost" panel, which shows all 4 resources as current/cost.
     RESOURCE_STOCKPILE_MEAT_LONG        ("0",  Long.class,    ConfigCategory.GATHERING),
@@ -312,9 +312,9 @@ public enum ConfigurationKeyEnum {
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
+    // Allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
+    // Separate Telegram stop behavior from local GUI stop behavior.
     STOP_BEHAVIOR_TELEGRAM_STRING       ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     LDPLAYER_PATH_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     MAX_IDLE_TIME_INT                   ("15",          Integer.class,  ConfigCategory.SYSTEM),
