@@ -288,7 +288,7 @@ class TelemetryReportTest {
 
     @Test
     void activityDeltaUsesTheLastActivityBearingSampleAtOrBeforeTheWindowAsBaseline() throws IOException {
-        // Dave's re-review, point 2: activityOverWindow() only ever looked at samples AT OR AFTER
+        // ActivityOverWindow() only ever looked at samples AT OR AFTER
         // `from`, so with the hourly writer, a narrow window (e.g. "Past Hour") normally contains
         // exactly one activity-bearing sample -- start and end are the same row, and every activity
         // count reads as zero even though real activity happened just before the window opened.
