@@ -19,12 +19,20 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Round-3 review of the multilingual OCR support:
- * - item 4: an explicit, unsupported language request (e.g. "ara", "rus") must fail loudly, not
- *   silently downgrade to "eng" and return plausible-but-wrong glyph guesses for non-Latin text.
- * - item 5: real coverage beyond the settings contract -- the resolved language actually reaching
- *   the Tesseract engine, the packaged chi_sim model genuinely being usable, preserveLineBreaks'
- *   real effect on recognition output, and LF/CRLF normalization.
+ * Behavioural contract for multilingual OCR support.
+ *
+ * <p>Two properties matter, and both are here because getting them wrong fails silently rather than
+ * loudly:
+ * <ul>
+ *   <li>An explicitly requested but unsupported language (say "ara" or "rus") must FAIL rather than
+ *       quietly downgrade to "eng". A downgrade does not produce an error; it produces plausible
+ *       Latin guesses at non-Latin glyphs -- output that reads as a successful recognition and is
+ *       simply wrong.</li>
+ *   <li>The contract is exercised end to end rather than against the settings object: the resolved
+ *       language actually reaching the Tesseract engine, the packaged chi_sim model being genuinely
+ *       usable rather than merely present, what preserveLineBreaks does to real recognition output,
+ *       and LF/CRLF normalisation.</li>
+ * </ul>
  */
 class TesseractOcrProviderTest {
 

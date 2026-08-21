@@ -155,10 +155,32 @@ public class OcrSettingsData {
     /** Restricted character set for recognition (whitelist). */
     public String allowedGlyphs()                { return allowedGlyphs; }
 
-    /** Tesseract language code(s), e.g. "eng" or "eng+chi_sim". Null -> caller defaults to "eng". */
+    /**
+     * Tesseract language code(s), e.g. {@code "eng"} or {@code "eng+chi_sim"}. Null means the caller
+     * never asked, and recognition defaults to {@code "eng"}.
+     *
+     * <p><b>No in-tree caller sets this yet.</b> It exists for reading multi-line, mixed-language
+     * player text -- world and alliance chat, where one screen routinely carries Latin, Cyrillic,
+     * Arabic and Chinese at once and an English-only model returns confident nonsense for most of
+     * it. The routine that motivated it archives chat and currently lives only on a downstream fork,
+     * not proposed for upstream. So this pair is deliberately inert here: a null language with
+     * {@code preserveLineBreaks == false} reproduces exactly the behaviour every existing call site
+     * had before these options existed.
+     *
+     * <p>That is a real dependency rather than an oversight, and it is recorded here so the next
+     * reader does not mistake an unused option for dead configuration: until an upstream routine
+     * genuinely needs multi-language or multi-line recognition, this API has no production caller
+     * to justify it.
+     */
     public String language()                     { return language; }
 
-    /** Whether recognized text should keep its original line breaks (default: flattened to one line). */
+    /**
+     * Whether recognised text keeps its original line breaks; the default flattens it to one line.
+     *
+     * <p>Same status as {@link #language()} -- see there for why this has no in-tree caller. It
+     * matters for the same case: a chat panel is inherently multi-line, and flattening it destroys
+     * the message boundaries that make the text usable at all.
+     */
     public boolean preserveLineBreaks()           { return preserveLineBreaks; }
 
     /* ---- presence checks ---- */
