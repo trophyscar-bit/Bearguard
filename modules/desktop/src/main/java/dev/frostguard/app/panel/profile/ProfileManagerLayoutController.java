@@ -1119,7 +1119,7 @@ public class ProfileManagerLayoutController implements IProfileChangeObserver {
 					LoggingService.obtain().emit(TpMessageSeverityEnum.INFO, "Profile Manager",
 							String.valueOf(profileId), key.name() + " was saved and applies after the next bot restart");
 				}
-				// matt/2026-08-16: "if I click a box... it doesn't just automatically enable it" --
+				// "if I click a box... it doesn't just automatically enable it" --
 				// toggling a task's enabled-bool checkbox used to only ever take effect on the NEXT
 				// app launch (ScheduleService.prepareQueue reads config once, at boot). Now that the
 				// save above has genuinely persisted, also poke the already-running queue (if the bot

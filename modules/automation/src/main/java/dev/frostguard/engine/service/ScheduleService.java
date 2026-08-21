@@ -132,12 +132,12 @@ public class ScheduleService {
 		haltEngine(StopBehaviorEnum.DO_NOTHING);
 	}
 
-	// Changed by pernerch | Date: 2026-07-04 | Why: apply GUI-specific stop behavior configured in Instance Settings.
+	// Apply GUI-specific stop behavior configured in Instance Settings.
 	public void haltEngineFromGui() {
 		haltEngine(resolveStopBehavior(ConfigurationKeyEnum.STOP_BEHAVIOR_STRING));
 	}
 
-	// Changed by pernerch | Date: 2026-07-04 | Why: apply Telegram-specific stop behavior configured in Instance Settings.
+	// Apply Telegram-specific stop behavior configured in Instance Settings.
 	public void haltEngineFromTelegram() {
 		haltEngine(resolveStopBehavior(ConfigurationKeyEnum.STOP_BEHAVIOR_TELEGRAM_STRING));
 	}
@@ -170,7 +170,7 @@ public class ScheduleService {
 	}
 
 	private StopBehaviorEnum resolveStopBehavior(ConfigurationKeyEnum key) {
-		// Changed by pernerch | Date: 2026-07-04 | Why: centralize config lookup and default fallback for stop policies.
+		// Centralize config lookup and default fallback for stop policies.
 		if (key == null) {
 			return StopBehaviorEnum.DO_NOTHING;
 		}
@@ -181,7 +181,7 @@ public class ScheduleService {
 	}
 
 	private void closeEnabledEmulators() {
-		// Changed by pernerch | Date: 2026-07-04 | Why: close each enabled profile emulator once when stop policy requests emulator shutdown.
+		// Close each enabled profile emulator once when stop policy requests emulator shutdown.
 		Set<String> emulatorsToClose = ProfileService.obtain().fetchAllAccounts().stream()
 				.filter(account -> Boolean.TRUE.equals(account.getEnabled()))
 				.map(AccountDescriptor::getEmulatorNumber)
@@ -220,7 +220,7 @@ public class ScheduleService {
 		changeAccountPause(accountId, false);
 	}
 
-	// Changed by pernerch | Date: 2026-07-02 | Why: allow runtime profile-switch events
+	// Allow runtime profile-switch events
 	// to refresh UI context (active profile name + stamina title) immediately.
 	public void notifyActiveProfile(Long accountId) {
 		if (accountId == null) {
@@ -384,7 +384,7 @@ public class ScheduleService {
 	}
 
 	/**
-	 * matt/2026-08-16: "if I click a box, like, that task won't come up... it doesn't just
+	 * "if I click a box, like, that task won't come up... it doesn't just
 	 * automatically enable it" -- {@link #prepareQueue} only ever reads each task's enabled-bool
 	 * config ONCE, at engine launch, so toggling a checkbox mid-session persisted the new value
 	 * to the DB (via AbstractProfileController -&gt; notifyProfileChange -&gt; saveProfile) but never
