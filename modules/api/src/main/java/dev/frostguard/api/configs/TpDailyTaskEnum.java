@@ -113,7 +113,7 @@ public enum TpDailyTaskEnum {
 
     SHOP_MYSTERY           (80,  "Shop Mystery",                 ConfigurationKeyEnum.BOOL_MYSTERY_SHOP,                      RoutineCategory.SHOP),
 
-    // matt/2026-08-14: "the new labyrinth" -- Research Center (Tech stats) + Gear Forge (Chief
+    // "the new labyrinth" -- Research Center (Tech stats) + Gear Forge (Chief
     // Gear stats), the stage-ladder raid system distinct from the classic Land of Heroes/Cave of
     // Monsters/Charm Mine zones (LABYRINTH, id 11, above). Raid-claim only -- Challenge (real
     // battle, limited daily attempts) deliberately not automated yet.

@@ -41,7 +41,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final int LABYRINTH_LOAD_DELAY = 2000;
 
     // ===================================================================
-    // Land-of-Heroes formation-setup flow (matt/2026-08-10)
+    // Land-of-Heroes formation-setup flow (the operator/2026-08-10)
     // ===================================================================
     // ALL coordinates below are BEST-ESTIMATE from 720x1280 screenshots and are marked
     // "LIVE-TUNE" — the orchestrator will calibrate each one via ADB before this runs for real.
@@ -57,11 +57,11 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     /** LIVE-TUNE: tap point on the "Land of Heroes" purple banner to enter the zone. */
     private static final PointData LOH_ZONE_BANNER = new PointData(460, 337);
     /** LIVE-TUNE: OCR region over the Land-of-Heroes label (name + timer). A LOCKED zone's line reads
-     *  "Opens in …"; an OPEN zone shows just name + a bare countdown. matt's rule: "Opens in" ⇒ skip. */
+     *  "Opens in …"; an OPEN zone shows just name + a bare countdown. the operator's rule: "Opens in" ⇒ skip. */
     private static final PointData LOH_ZONE_LABEL_TL = new PointData(358, 302);
     private static final PointData LOH_ZONE_LABEL_BR = new PointData(562, 372);
 
-    // matt/2026-08-13: same formation-setup extended to Cave of Monsters and Charm Mine ("we're up
+    // Same formation-setup extended to Cave of Monsters and Charm Mine ("we're up
     // to like three now"). Calibrated live via ADB from the Labyrinth zone map (same map screen as
     // Land of Heroes, different scroll position). Banner = tap point on the zone's structure
     // graphic; label = OCR box over its name+timer banner, same "Opens in" open/locked rule.
@@ -72,7 +72,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final PointData CHARM_ZONE_LABEL_TL = new PointData(390, 595);
     private static final PointData CHARM_ZONE_LABEL_BR = new PointData(640, 655);
 
-    // matt/2026-08-16: Gaia Heart -- live-calibrated via ADB the same day (a Sunday, its actual open
+    // Gaia Heart -- live-calibrated via ADB the same day (a Sunday, its actual open
     // rotation), not guessed. Confirmed it renders on the DEFAULT unscrolled map view (no scroll
     // needed) at the bottom of the frame, at least while open -- unconfirmed whether it still renders
     // here on a day it's closed.
@@ -96,7 +96,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final PointData LOH_EDIT_FORMATION_SQUAD1_BTN = new PointData(360, 357);
 
     // -- Troop-detail screen (post Edit Formation) --
-    /** "Balance" button on the troop-detail screen that opens the troop-ratio popup. matt/2026-08-13:
+    /** "Balance" button on the troop-detail screen that opens the troop-ratio popup. Observed live:
      *  re-calibrated 1195->1183 live via ADB on Cave of Monsters -- 1195 landed on the Backpack nav
      *  icon underneath (a stray Alliance Vote popup had been interfering with earlier attempts and
      *  masked this; confirmed twice clean at 1183 with no popups in the way). */
@@ -135,7 +135,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final PointData LOH_MRK_PCT_BR = new PointData(632, 842);
 
     // ===================================================================
-    // Gaia Heart formation flow (matt/2026-08-16)
+    // Gaia Heart formation flow (the operator/2026-08-16)
     // ===================================================================
     // Live-calibrated the same day Gaia Heart was actually open (a Sunday). Genuinely two-squad, same
     // shape as Land of Heroes -- BUT the commit mechanism is DIFFERENT and was verified live: the
@@ -154,7 +154,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final PointData[] GAIA_SQUAD_EDIT_BTNS = new PointData[] {
             new PointData(360, 357),   // Squad 1
             new PointData(360, 700),   // Squad 2
-            // Squad 3 unlocks at Stage 15-10 -- not live-verified (still locked on matt's account as
+            // Squad 3 unlocks at Stage 15-10 -- not live-verified (still locked on the operator's account as
             // of 2026-08-16), so no coordinate here yet. setupGaiaZone() only ever processes 2 squads
             // until this is added AND verified against the real unlocked screen.
     };
@@ -271,9 +271,9 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     protected void execute() {
 
         try {
-            // TEST GATE (matt/2026-08-10): when LABYRINTH_FORMATION_TEST_BOOL is on, run ONLY the
+            // TEST GATE (Observed live ): when LABYRINTH_FORMATION_TEST_BOOL is on, run ONLY the
             // free Land-of-Heroes formation-setup flow and stop -- skip the normal daily-clear logic
-            // so matt can trigger just this without burning a daily battle attempt.
+            // so the operator can trigger just this without burning a daily battle attempt.
             Boolean formationTestOn =
                     profile.getConfig(ConfigurationKeyEnum.LABYRINTH_FORMATION_TEST_BOOL, Boolean.class);
             if (Boolean.TRUE.equals(formationTestOn)) {
@@ -282,7 +282,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
                     rescheduleOneHourLater("Failed to navigate to the Labyrinth menu (formation test)");
                     return;
                 }
-                // matt/2026-08-13: runs Land of Heroes, THEN Cave of Monsters, THEN Charm Mine, THEN
+                // Runs Land of Heroes, THEN Cave of Monsters, THEN Charm Mine, THEN
                 // Gaia Heart, each independently gated by its own open/locked check.
                 for (ZoneFormation zone : ZONE_FORMATIONS) {
                     setupZoneFormation(zone);
@@ -421,12 +421,12 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     // =================== ZONE FORMATION SETUP ===================
 
     /**
-     * matt/2026-08-13: describes one Labyrinth zone's formation-setup inputs — the map-screen banner
+     * Describes one Labyrinth zone's formation-setup inputs — the map-screen banner
      * tap point + label OCR box (for the open/locked check), and the config keys that drive its
      * troop ratios. {@link #setupZoneFormation} is generic over this.
      *
      * <p>
-     * <b>matt/2026-08-13, caught live via ADB (Cave of Monsters):</b> the original design assumed
+     * <b>Observed live caught live via ADB (Cave of Monsters):</b> the original design assumed
      * every zone shares Land of Heroes' two-squad structure (Challenge -> Squad Config -> Quick
      * Deploy -> per-squad Edit Formation -> Balance). Watching Cave of Monsters live end-to-end
      * proved that wrong: tapping Challenge on Cave of Monsters lands DIRECTLY on a single combined
@@ -455,7 +455,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
                         ConfigurationKeyEnum.LABYRINTH_CHARM_SQUAD1_LANCER_INT, ConfigurationKeyEnum.LABYRINTH_CHARM_SQUAD1_MARKSMAN_INT },
                 new ConfigurationKeyEnum[] { ConfigurationKeyEnum.LABYRINTH_CHARM_SQUAD2_INFANTRY_INT,
                         ConfigurationKeyEnum.LABYRINTH_CHARM_SQUAD2_LANCER_INT, ConfigurationKeyEnum.LABYRINTH_CHARM_SQUAD2_MARKSMAN_INT }),
-        // matt/2026-08-16: Gaia Heart -- two-squad like Land of Heroes, but dispatched to its own
+        // Gaia Heart -- two-squad like Land of Heroes, but dispatched to its own
         // setupGaiaZone() (see the "Gaia Heart formation flow" constants above) because its commit
         // mechanism genuinely differs (direct-commit button, no back-arrow/dialog). The `singleSquad`
         // flag here is unused for Gaia -- routing happens by name in setupZoneFormation() below.
@@ -472,7 +472,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
 
         saveLabyrinthFrame("map", 0); // one-shot: capture the Labyrinth map to calibrate zone-label OCR
 
-        // Enter the zone by reading its map label (matt's rule): a LOCKED zone's line reads
+        // Enter the zone by reading its map label (the operator's rule): a LOCKED zone's line reads
         // "Opens in …"; an OPEN zone shows just name + countdown. Only tap the banner if it's open.
         String zoneLabel = readStringValue(zone.labelTl(), zone.labelBr(), ZONE_LABEL_SETTINGS);
         logInfo(tag + ": label OCR = '" + zoneLabel + "'.");
@@ -536,7 +536,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     }
 
     /**
-     * matt/2026-08-13: Cave of Monsters / Charm Mine's actual flow, proven live via ADB. Challenge
+     * Cave of Monsters / Charm Mine's actual flow, proven live via ADB. Challenge
      * lands DIRECTLY on the combined troop-detail screen (Infantry/Lancer/Marksman, ONE Balance
      * button) -- no Squad Config, no Quick Deploy, no second squad. Only squad1Keys is used.
      */
@@ -559,7 +559,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     }
 
     /**
-     * matt/2026-08-16: Gaia Heart's real flow, proven live via ADB. Two squads like Land of Heroes
+     * Gaia Heart's real flow, proven live via ADB. Two squads like Land of Heroes
      * (Challenge -> Squad Config -> Quick Deploy -> per-squad Edit Formation -> Balance), but the
      * troop-detail screen's OWN "Edit Formation" button commits the ratio directly and returns to
      * Squad Config -- confirmed live that this alone (no back-arrow, no Save-and-Exit dialog) is
@@ -714,7 +714,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         return driveBalanceAndSave(tag, "sq" + squadNumber, TROOP_ANCHOR_TEXT, ratio);
     }
     /**
-     * matt/2026-08-13: extracted from {@code configureSquadRatio} so both the two-squad (Land of
+     * Extracted from {@code configureSquadRatio} so both the two-squad (Land of
      * Heroes) and single-squad (Cave of Monsters / Charm Mine) flows share one implementation.
      * Assumes we're ALREADY on the troop-detail screen (Balance button visible) -- drives
      * Balance → the three sliders → Confirm → back → Save and Exit.
@@ -742,7 +742,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         }
         saveLabyrinthFrame("balance_popup", 0);
 
-        // matt's approach: ZERO all three rows first, THEN fill each to target top-to-bottom. Zeroing
+        // the operator's approach: ZERO all three rows first, THEN fill each to target top-to-bottom. Zeroing
         // everything up front means the running total is 0 when we start adding, so a fill can never be
         // blocked by the 100% cap. 1 tap == 1% (verified live). No mid-drive OCR — the small stroked
         // digits only read reliably on a settled/static frame, so OCR is used ONLY for the correction
@@ -892,7 +892,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     // =========================== UTILITY METHODS ===========================
 
     /**
-     * matt/2026-08-10 (Labyrinth observation phase): dumps the current emulator frame to
+     * Observed live (Labyrinth observation phase): dumps the current emulator frame to
      * labyrinth-debug/ so we can build enemy-type + win/loss detection from real battle
      * screens. Pure observation -- never changes deploy behaviour. The game has NO labyrinth
      * victory/defeat templates yet, so this is how we collect the training data for them.
@@ -918,7 +918,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     }
 
     /**
-     * matt/2026-08-13: "kick Labyrinth off at noon every day" -- reads the picked local start time
+     * "kick Labyrinth off at noon every day" -- reads the picked local start time
      * (LABYRINTH_DAILY_START_TIME_STRING, HH:mm, defaults to noon) instead of always following the
      * game's own 00:00 UTC reset boundary.
      */

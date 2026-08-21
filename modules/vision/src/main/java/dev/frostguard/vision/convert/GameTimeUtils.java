@@ -40,8 +40,8 @@ private static final ZoneId UTC = ZoneId.of("UTC");
     }
 
     /**
-     * matt/2026-08-13: returns the next occurrence of {@code hhmm} ("HH:mm", local JVM time) --
-     * today if that time hasn't passed yet, otherwise tomorrow. Used for tasks matt wants pinned to
+     * Returns the next occurrence of {@code hhmm} ("HH:mm", local JVM time) --
+     * today if that time hasn't passed yet, otherwise tomorrow. Used for tasks the operator wants pinned to
      * a picked local clock time (e.g. "kick Labyrinth off at noon every day") instead of following
      * the game's own UTC reset boundary, which lands at a different local hour depending on DST.
      * Falls back to noon if {@code hhmm} is missing or unparsable.
