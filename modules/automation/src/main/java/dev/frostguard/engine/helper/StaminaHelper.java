@@ -54,7 +54,7 @@ public class StaminaHelper {
     }
 
     // Opens avatar screen, reads stamina via OCR, persists, then navigates back.
-    // Changed by pernerch | Date: 2026-07-02 | Why: add timeout guards to prevent stamina reads from blocking for 1+ seconds when OCR is slow or UI is unresponsive.
+    // Add timeout guards to prevent stamina reads from blocking for 1+ seconds when OCR is slow or UI is unresponsive.
     public void updateStaminaFromProfile() {
         emitDebug("Opening profile to read stamina");
         long startMs = System.currentTimeMillis();
