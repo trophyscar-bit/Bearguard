@@ -6,14 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import dev.frostguard.api.runtime.RuntimeChannel;
 import dev.frostguard.api.runtime.WorkspacePaths;
+import dev.frostguard.engine.telemetry.TelemetryHistoryStore;
 
 /**
  * Where telemetry actually lands for an INSTALLED release, as opposed to a source run.
@@ -34,15 +36,6 @@ class TelemetryInstalledWorkspaceTest {
 
     @TempDir
     Path installedRoot;
-
-    private static Path historyFileUnder(Path root, long profileId) {
-        return root.resolve("data").resolve("telemetry")
-                .resolve("profiles").resolve(String.valueOf(profileId)).resolve("history.jsonl");
-    }
-
-    private static String row(String capturedAt, long power) {
-        return "{\"capturedAt\":\"" + capturedAt + "\",\"profile\":\"Default\",\"power\":" + power + "}";
-    }
 
     @Test
     void stableAndNightlyResolveToSeparateCanonicalInstalledRoots() {
@@ -80,9 +73,8 @@ class TelemetryInstalledWorkspaceTest {
 
     @Test
     void telemetryIsReadBackFromTheInstalledWorkspaceLayout() throws IOException {
-        Path file = historyFileUnder(installedRoot, 1L);
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, row("2026-08-20T08:30:00Z", 12_400_000L) + "\n");
+        new TelemetryHistoryStore(installedRoot, 1L)
+                .append(sample("2026-08-20T08:30:00Z", 12_400_000L));
 
         TelemetryReport report = TelemetryReport.load(installedRoot, 1L);
 
@@ -95,12 +87,10 @@ class TelemetryInstalledWorkspaceTest {
         Path stableRoot = installedRoot.resolve(RuntimeChannel.STABLE.directoryName()).resolve("default");
         Path nightlyRoot = installedRoot.resolve(RuntimeChannel.NIGHTLY.directoryName()).resolve("default");
 
-        Path stableFile = historyFileUnder(stableRoot, 1L);
-        Path nightlyFile = historyFileUnder(nightlyRoot, 1L);
-        Files.createDirectories(stableFile.getParent());
-        Files.createDirectories(nightlyFile.getParent());
-        Files.writeString(stableFile, row("2026-08-20T08:30:00Z", 100L) + "\n");
-        Files.writeString(nightlyFile, row("2026-08-20T08:30:00Z", 999L) + "\n");
+        new TelemetryHistoryStore(stableRoot, 1L)
+                .append(sample("2026-08-20T08:30:00Z", 100L));
+        new TelemetryHistoryStore(nightlyRoot, 1L)
+                .append(sample("2026-08-20T08:30:00Z", 999L));
 
         // Same profile ID, two installed channels: each must see only its own history.
         assertEquals(100L, TelemetryReport.load(stableRoot, 1L).latest().get("power"));
@@ -112,5 +102,13 @@ class TelemetryInstalledWorkspaceTest {
         TelemetryReport report = TelemetryReport.load(installedRoot, 42L);
 
         assertEquals(0, report.size(), "a fresh install has no history and must not fail the dashboard");
+    }
+
+    private static Map<String, Object> sample(String capturedAt, long power) {
+        Map<String, Object> sample = new LinkedHashMap<>();
+        sample.put("capturedAt", capturedAt);
+        sample.put("profile", "Default");
+        sample.put("power", power);
+        return sample;
     }
 }

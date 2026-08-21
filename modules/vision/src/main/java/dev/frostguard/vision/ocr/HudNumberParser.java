@@ -8,9 +8,8 @@ package dev.frostguard.vision.ocr;
  * parseability is used as the OCR retry acceptor, so a malformed-but-non-empty read gets the full
  * retry budget instead of consuming it on one bad frame.
  *
- * <p>Lives here rather than on the collector because
- * {@code examples/custom-tasks/bg_telemetry.java} sits outside the Maven module tree, so nothing
- * declared on it can be covered by a JUnit test.
+ * <p>The telemetry routine delegates here so its parsing rules remain reusable
+ * and independently covered by unit tests.
  */
 public final class HudNumberParser {
 

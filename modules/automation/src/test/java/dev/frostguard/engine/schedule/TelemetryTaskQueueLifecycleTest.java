@@ -24,7 +24,6 @@ class TelemetryTaskQueueLifecycleTest {
         TaskQueue queue = new TaskQueue(profile, stateStore);
         SchedulingTelemetryTask task = new SchedulingTelemetryTask(profile);
         task.setRecurring(true);
-        task.setCustomTaskIdentifier("bg_telemetry");
 
         assertFalse(queue.hasLiveExecutor());
         assertTrue(queue.executeTask(task));
@@ -32,11 +31,10 @@ class TelemetryTaskQueueLifecycleTest {
         assertEquals(List.of(true, false), stateStore.executingStates);
         assertEquals(List.of(true, true), stateStore.scheduledStates);
         assertEquals(task.getScheduled(), stateStore.persistedNextRun);
-        assertEquals("bg_telemetry", stateStore.persistedCustomTaskName);
+        assertEquals(null, stateStore.persistedCustomTaskName);
         assertTrue(task.getScheduled().isAfter(task.captureTime));
-        assertTrue(queue.isTaskQueued("bg_telemetry"));
-        assertEquals(List.of(TpDailyTaskEnum.CUSTOM_TASK), queue.getNextQueuedTaskTypes(10));
-        assertFalse(queue.isExecutingTask(TpDailyTaskEnum.CUSTOM_TASK));
+        assertEquals(List.of(TpDailyTaskEnum.TELEMETRY_SNAPSHOT), queue.getNextQueuedTaskTypes(10));
+        assertFalse(queue.isExecutingTask(TpDailyTaskEnum.TELEMETRY_SNAPSHOT));
         assertFalse(queue.isActive());
         assertFalse(queue.hasLiveExecutor());
     }
@@ -45,7 +43,7 @@ class TelemetryTaskQueueLifecycleTest {
         private LocalDateTime captureTime;
 
         private SchedulingTelemetryTask(AccountDescriptor profile) {
-            super(profile, TpDailyTaskEnum.CUSTOM_TASK);
+            super(profile, TpDailyTaskEnum.TELEMETRY_SNAPSHOT);
             setTaskName("Telemetry");
         }
 
@@ -78,7 +76,7 @@ class TelemetryTaskQueueLifecycleTest {
         public void persistDailyCompletion(AccountDescriptor profile, TpDailyTaskEnum task,
                 LocalDateTime nextRun, String customTaskName, StaminaDeferral staminaDeferral) {
             assertEquals(42L, profile.getId());
-            assertEquals(TpDailyTaskEnum.CUSTOM_TASK, task);
+            assertEquals(TpDailyTaskEnum.TELEMETRY_SNAPSHOT, task);
             assertEquals(null, staminaDeferral);
             persistedNextRun = nextRun;
             persistedCustomTaskName = customTaskName;
