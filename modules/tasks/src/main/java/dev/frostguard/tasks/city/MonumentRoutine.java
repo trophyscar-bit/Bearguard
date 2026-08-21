@@ -80,7 +80,7 @@ public class MonumentRoutine extends DelayedTask {
             new PointData(665, 258),
     };
 
-    // ========== Lancer-relative navigation to Monument (the operator/2026-08-14) ==========
+    // ========== Lancer-relative navigation to Monument ==========
     // Same coordinates as TrainingRoutine.LANCER_AREA_VALUE / TRAINING_CAMP_TAP_MIN/MAX_VALUE --
     // the Lancer row in the left-menu City queue list, then the camp building itself.
     private static final PointData LANCER_AREA_TOP_LEFT = new PointData(161, 636);
@@ -331,7 +331,7 @@ public class MonumentRoutine extends DelayedTask {
                 TemplatesEnum.MONUMENT_BUILDING_ANCHOR, SearchConfigConstants.QUICK_SEARCH).isFound();
     }
 
-    // ========== Camera-pan fallback (the operator/2026-08-13) ==========
+    // ========== Camera-pan fallback ==========
     // Root-caused live, by hand, comparing a real screenshot against what the bot
     // was actually seeing -- ensureCorrectScreenLocation(HOME) only confirms the camera is ZOOMED to
     // the City view (via the Furnace anchor), not that it's PANNED to wherever Monument's building
