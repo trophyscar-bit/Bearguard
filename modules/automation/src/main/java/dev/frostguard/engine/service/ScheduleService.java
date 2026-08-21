@@ -118,7 +118,7 @@ public class ScheduleService {
 			return;
 		}
 
-		// matt, 2026-08-08: a real Start means "re-check everything against the live game",
+		// A real Start means "re-check everything against the live game",
 		// not "replay the numbers we wrote last time". Resolved once here so every profile
 		// in this launch agrees, and logged so it's obvious in the log which mode a run used.
 		boolean fullRescan = allowStartupRescan && resolveStartupFullRescan(globalConfig);
@@ -153,12 +153,12 @@ public class ScheduleService {
 		haltEngine(StopBehaviorEnum.DO_NOTHING);
 	}
 
-	// Changed by pernerch | Date: 2026-07-04 | Why: apply GUI-specific stop behavior configured in Instance Settings.
+	// Apply GUI-specific stop behavior configured in Instance Settings.
 	public void haltEngineFromGui() {
 		haltEngine(resolveStopBehavior(ConfigurationKeyEnum.STOP_BEHAVIOR_STRING));
 	}
 
-	// Changed by pernerch | Date: 2026-07-04 | Why: apply Telegram-specific stop behavior configured in Instance Settings.
+	// Apply Telegram-specific stop behavior configured in Instance Settings.
 	public void haltEngineFromTelegram() {
 		haltEngine(resolveStopBehavior(ConfigurationKeyEnum.STOP_BEHAVIOR_TELEGRAM_STRING));
 	}
@@ -191,7 +191,7 @@ public class ScheduleService {
 	}
 
 	private StopBehaviorEnum resolveStopBehavior(ConfigurationKeyEnum key) {
-		// Changed by pernerch | Date: 2026-07-04 | Why: centralize config lookup and default fallback for stop policies.
+		// Centralize config lookup and default fallback for stop policies.
 		if (key == null) {
 			return StopBehaviorEnum.DO_NOTHING;
 		}
@@ -202,7 +202,7 @@ public class ScheduleService {
 	}
 
 	private void closeEnabledEmulators() {
-		// Changed by pernerch | Date: 2026-07-04 | Why: close each enabled profile emulator once when stop policy requests emulator shutdown.
+		// Close each enabled profile emulator once when stop policy requests emulator shutdown.
 		Set<String> emulatorsToClose = ProfileService.obtain().fetchAllAccounts().stream()
 				.filter(account -> Boolean.TRUE.equals(account.getEnabled()))
 				.map(AccountDescriptor::getEmulatorNumber)
@@ -241,7 +241,7 @@ public class ScheduleService {
 		changeAccountPause(accountId, false);
 	}
 
-	// Changed by pernerch | Date: 2026-07-02 | Why: allow runtime profile-switch events
+	// Allow runtime profile-switch events
 	// to refresh UI context (active profile name + stamina title) immediately.
 	public void notifyActiveProfile(Long accountId) {
 		if (accountId == null) {
@@ -439,7 +439,7 @@ public class ScheduleService {
 	}
 
 	/**
-	 * matt/2026-08-16: "if I click a box, like, that task won't come up... it doesn't just
+	 * "if I click a box, like, that task won't come up... it doesn't just
 	 * automatically enable it" -- {@link #prepareQueue} only ever reads each task's enabled-bool
 	 * config ONCE, at engine launch, so toggling a checkbox mid-session persisted the new value
 	 * to the DB (via AbstractProfileController -&gt; notifyProfileChange -&gt; saveProfile) but never
@@ -641,11 +641,11 @@ public class ScheduleService {
 			return;
 		}
 
-		// matt, 2026-08-08: the timer sweep always runs at startup, whatever its stored schedule
+		// The timer sweep always runs at startup, whatever its stored schedule
 		// says. Its whole job is to establish what is actually due before anything acts, so
 		// honouring an hour-old appointment would start the bot blind — exactly the behaviour he
 		// objected to. Every other task keeps its saved schedule; only these are forced.
-		// matt, 2026-08-10: the Resource Stockpile Scan joins it — matt wants fresh resource/speedup
+		// The Resource Stockpile Scan joins it — the operator wants fresh resource/speedup
 		// totals in the stats the moment the bot starts, not an hour into its old 2h appointment.
 		if (task.getTpTask() == TpDailyTaskEnum.TIMER_SWEEP
 				|| task.getTpTask() == TpDailyTaskEnum.RESOURCE_STOCKPILE_SCAN) {
@@ -679,7 +679,7 @@ public class ScheduleService {
 			scheduleFreshTask(task, account);
 			state.setNextExecutionTime(task.getScheduled());
 		} else if (fullRescan) {
-			// matt, 2026-08-08: deliberately ignore saved.getNextSchedule() here. Forcing the task
+			// Deliberately ignore saved.getNextSchedule() here. Forcing the task
 			// due now makes its own execute() re-open the screen and re-derive the next run from
 			// what it actually reads, which is the whole point of a full rescan. lastExecution and
 			// any stamina deferral are still restored — the deferral is a real resource constraint,

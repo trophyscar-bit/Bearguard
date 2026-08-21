@@ -85,7 +85,7 @@ public enum TpDailyTaskEnum {
     /* ── military ── */
 
     TRAINING_TROOPS        (60,  "Training",                     ConfigurationKeyEnum.TRAIN_BOOL,                              RoutineCategory.MILITARY),
-    // matt/2026-08-12: split out of the combined TRAINING_TROOPS above -- one task juggling
+    // Split out of the combined TRAINING_TROOPS above -- one task juggling
     // all 3 camps rescheduled to the single earliest completion across all of them, which
     // meant OCR/timing state for one camp could get tangled with another's. Each of these
     // schedules itself off its own camp only.

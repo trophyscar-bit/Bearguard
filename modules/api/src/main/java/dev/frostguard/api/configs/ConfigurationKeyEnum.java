@@ -226,12 +226,12 @@ public enum ConfigurationKeyEnum {
     GATHER_LAST_RECALL_TIME_STRING  ("",                    String.class,   ConfigCategory.GATHERING),
     GATHER_SPEED_BOOL               ("false",               Boolean.class,  ConfigCategory.GATHERING),
     GATHER_SPEED_BOOST_TYPE_STRING  ("24h (600 gems)",      String.class,   ConfigCategory.GATHERING),
-    // matt/2026-08-06: when enabled, the rotation pool is ordered by scarcity-relative-to-value
+    // When enabled, the rotation pool is ordered by scarcity-relative-to-value
     // (stockpile / valueWeight, ascending) instead of Collections.shuffle(). See
     // GatherRoutine.RESOURCE_VALUE_WEIGHT for the sourced value ratio. Off by default so existing
     // blind-rotation behavior is unchanged unless a user opts in.
     GATHER_SMART_PRIORITY_BOOL      ("false",               Boolean.class,  ConfigCategory.GATHERING),
-    // matt/2026-08-06: cache written by ResourceStockpileRoutine (runs only when
+    // Cache written by ResourceStockpileRoutine (runs only when
     // GATHER_SMART_PRIORITY_BOOL is on - no separate checkbox to find/enable), read back by
     // GatherRoutine.readCurrentStockpiles(). Source screen: Research Center -> Research -> any
     // non-maxed tech node's "Research Cost" panel, which shows all 4 resources as current/cost -
@@ -301,30 +301,30 @@ public enum ConfigurationKeyEnum {
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),
-    // matt, 2026-08-08: percentage-with-a-ceiling jitter applied to every reschedule() call --
+    // Percentage-with-a-ceiling jitter applied to every reschedule() call --
     // see DelayedTask.reschedule() for why. Percent of 0 or max-seconds of 0 disables it.
     // Depends on feature/schedule-jitter-and-quit-dialog-guard -- see that branch for why.
     SCHEDULE_JITTER_PERCENT_INT         ("15",          Integer.class,  ConfigCategory.SYSTEM),
     SCHEDULE_JITTER_MAX_SECONDS_INT     ("150",         Integer.class,  ConfigCategory.SYSTEM),
-    /** matt, 2026-08-08: read-only timer sweep at startup and hourly. */
+    /** Read-only timer sweep at startup and hourly. */
     TIMER_SWEEP_ENABLED_BOOL            ("true",        Boolean.class,  ConfigCategory.SYSTEM),
     /** Minutes between timer sweeps once the startup sweep has run. */
     TIMER_SWEEP_INTERVAL_MINUTES_INT    ("60",          Integer.class,  ConfigCategory.SYSTEM),
-    /** matt, 2026-08-08: DEFAULT OFF, deliberately reversed after matt watched it run.
+    /** DEFAULT OFF, deliberately reversed after the operator watched it run.
      *
      *  <p>Forcing every task due at startup does re-derive real timers, but it does so by
      *  running each routine's full workload — navigate, perform the task, then reschedule.
      *  From the outside that is a bot blindly tearing through every activity it owns the moment
-     *  it starts, which is the opposite of the order of operations matt asked for: read all the
+     *  it starts, which is the opposite of the order of operations the operator asked for: read all the
      *  timers first, record them, then act only on what is genuinely due.</p>
      *
      *  <p>Left in place as an escape hatch for the case it was built for — schedules gone badly
      *  stale after a profile sat disabled — but it is not the startup path. The read-only timer
      *  sweep is.</p> */
     STARTUP_FULL_RESCAN_BOOL            ("false",       Boolean.class,  ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
+    // Allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
+    // Separate Telegram stop behavior from local GUI stop behavior.
     STOP_BEHAVIOR_TELEGRAM_STRING       ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     LDPLAYER_PATH_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     MAX_IDLE_TIME_INT                   ("15",          Integer.class,  ConfigCategory.SYSTEM),
