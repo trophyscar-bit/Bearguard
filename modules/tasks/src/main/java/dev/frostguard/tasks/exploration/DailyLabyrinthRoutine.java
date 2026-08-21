@@ -41,7 +41,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final int LABYRINTH_LOAD_DELAY = 2000;
 
     // ===================================================================
-    // Land-of-Heroes formation-setup flow (the operator/2026-08-10)
+    // Land-of-Heroes formation-setup flow
     // ===================================================================
     // ALL coordinates below are BEST-ESTIMATE from 720x1280 screenshots and are marked
     // "LIVE-TUNE" — the orchestrator will calibrate each one via ADB before this runs for real.
@@ -135,7 +135,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final PointData LOH_MRK_PCT_BR = new PointData(632, 842);
 
     // ===================================================================
-    // Gaia Heart formation flow (the operator/2026-08-16)
+    // Gaia Heart formation flow
     // ===================================================================
     // Live-calibrated the same day Gaia Heart was actually open (a Sunday). Genuinely two-squad, same
     // shape as Land of Heroes -- BUT the commit mechanism is DIFFERENT and was verified live: the
