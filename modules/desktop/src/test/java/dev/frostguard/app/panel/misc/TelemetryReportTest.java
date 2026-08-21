@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import dev.frostguard.api.domain.TelemetrySnapshotSchedule;
+import dev.frostguard.engine.schedule.TelemetrySnapshotSchedule;
 import java.time.ZoneOffset;
 import java.time.LocalTime;
 import java.time.LocalDate;
