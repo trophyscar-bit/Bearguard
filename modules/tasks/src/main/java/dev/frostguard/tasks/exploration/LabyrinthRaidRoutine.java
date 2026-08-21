@@ -161,7 +161,7 @@ public class LabyrinthRaidRoutine extends DelayedTask {
     }
 
     // ========== Deploy screen -- exact troop-count entry ==========
-    // the operator/2026-08-14, live-verified, the ONLY reliable lever after the "Balance" button turned out
+    // Live-verified, the ONLY reliable lever after the "Balance" button turned out
     // to just instantly Equalize (no adjustable dialog on this screen, unlike the operator's recollection of
     // Gear Forge's own Balance dialog from earlier tonight -- may differ by zone, not assumed here):
     // tapping a type's raw count number opens a real Android EditText + OK button (dumped via
