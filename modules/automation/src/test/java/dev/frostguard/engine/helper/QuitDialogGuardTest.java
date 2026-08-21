@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>{@code QuitDialogGuard.dismissIfPresent(String, Function, Runnable, LongConsumer)} is that
  * seam — plain lambdas standing in for "locate the dialog" and "tap Cancel", with no
  * {@code EmulatorController} or ADB call anywhere in it. These tests drive it directly, covering
- * every outcome the review named plus the round-3 item 5 fix (definitive failure now throws instead of
+ * every outcome the review named, including that a definitive failure now throws instead of
  * returning silently).</p>
  */
 class QuitDialogGuardTest {

@@ -33,10 +33,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class QuitGameDialogCancelButtonEvidenceTest {
 
-    // The literal value of QuitDialogGuard's private CANCEL_BUTTON constant. Not read via
-    // reflection -- duplicating the literal here keeps this test a plain regression check on the
-    // real evidence, and the two are exercised together any time this coordinate ever changes.
-    private static final PointData CANCEL_BUTTON = new PointData(207, 789);
+    /** Read from production rather than copied. This used to keep its own {@code (207, 789)}
+     *  literal, on the reasoning that a duplicate makes the test self-contained -- but a duplicated
+     *  coordinate stops testing the shipped one the moment either side moves, which is the opposite
+     *  of what an evidence test is for. */
+    private static final PointData CANCEL_BUTTON = QuitDialogGuard.CANCEL_BUTTON;
 
     private static final String FRAME_RESOURCE = "/system/quitGameDialog-liveAccount-20260819.png";
 

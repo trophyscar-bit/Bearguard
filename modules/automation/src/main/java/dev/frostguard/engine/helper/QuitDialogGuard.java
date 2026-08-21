@@ -56,7 +56,10 @@ public final class QuitDialogGuard {
     // hair's-width guess. Then physically tapped this exact coordinate on the live account and
     // confirmed the dialog dismissed correctly. QuitGameDialogCancelButtonEvidenceTest locks this
     // in as a regression check against the committed frame.
-    private static final PointData CANCEL_BUTTON = new PointData(207, 789);
+    /** Package-private so the evidence test can assert against THIS value rather than keeping
+     *  its own copy of the numbers -- a duplicated coordinate silently stops testing the real
+     *  one the moment either side moves. */
+    static final PointData CANCEL_BUTTON = new PointData(207, 789);
     private static final int MAX_DISMISS_ATTEMPTS = 2;
     private static final long POST_TAP_WAIT_MS = 500L;
 
@@ -72,7 +75,7 @@ public final class QuitDialogGuard {
      *
      * @throws QuitDialogStuckException if the dialog is still confirmed present after every
      *      dismiss attempt — callers must not treat a normal return as "handled" and proceed;
-     *      that used to happen silently (round-3 item 5) and is now impossible: this method
+     *      that used to happen silently and is now impossible: this method
      *      either returns because the dialog is genuinely gone, or throws.
      */
     public static void dismissIfPresent(EmulatorController emu, String device) {

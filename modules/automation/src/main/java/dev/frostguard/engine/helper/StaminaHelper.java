@@ -17,6 +17,7 @@ import dev.frostguard.vision.logging.ProfileContextLogger;
 import dev.frostguard.vision.ocr.ResilientOcrExecutor;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.CancellationException;
 
 // Orchestrates stamina tracking: OCR reads, regen delay computation,
 // availability gating, item top-ups, and travel time parsing.
@@ -95,10 +96,16 @@ public class StaminaHelper {
                 emitInfo("Stamina read: " + reading);
                 persistence.setStamina(accountKey, reading);
             }
+        } catch (CancellationException cancelled) {
+            // Cancellation is a stop request, not a stamina error. QuitDialogGuard turns an
+            // interrupted sleep into this, and the broad catch below used to log it as an "error"
+            // and carry on -- so a stop landing during a post-tap delay was ignored and the routine
+            // kept driving the emulator. Rethrow so the caller actually stops.
+            throw cancelled;
         } catch (Exception ex) {
             emitWarn("Stamina update error: " + ex.getMessage());
         } finally {
-            // Safety navigation back. #252 round-3 item 5: QuitDialogStuckException means the
+            // Safety navigation back. QuitDialogStuckException means the
             // guard confirmed the quit dialog is still up after every dismiss attempt -- that's
             // not a routine cleanup hiccup to swallow, it's the exact "don't proceed blind" signal
             // the guard exists to raise. Let it propagate to TaskQueue.routeError() so the profile
@@ -108,6 +115,13 @@ public class StaminaHelper {
                 QuitDialogGuard.pressBackSafely(device, deviceSlot);
             } catch (QuitDialogStuckException stuck) {
                 throw stuck;
+            } catch (CancellationException cancelled) {
+                // Same reasoning as the stuck-dialog case above, for the same reason it was easy to
+                // miss: this cleanup runs in a finally, so an interrupt arriving during either
+                // guarded Back landed in the broad catch below and was written off as a "cleanup
+                // error". Cancellation has to reach the caller, or a stop issued while stamina is
+                // being read does nothing at all.
+                throw cancelled;
             } catch (Exception ex) {
                 emitDebug("Press-back cleanup error: " + ex.getMessage());
             }

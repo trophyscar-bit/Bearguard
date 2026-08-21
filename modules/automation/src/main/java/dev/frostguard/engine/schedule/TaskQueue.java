@@ -653,7 +653,7 @@ public class TaskQueue {
             emitErrorTask(task, "Home not found: " + ex.getMessage());
             enqueue(DelayedTaskRegistry.create(TpDailyTaskEnum.INITIALIZE, profile));
         } else if (ex instanceof QuitDialogStuckException) {
-            // #252 round-3 item 5: the quit-game dialog is definitively still up and the guard
+            // The quit-game dialog is definitively still up and the guard
             // gave up dismissing it rather than proceed blind. Same recovery as HomeNotFoundException
             // -- we don't know what's actually on screen, so re-run INITIALIZE to get back to a
             // known state instead of letting the next scheduled task run into a stuck dialog too.

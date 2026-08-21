@@ -100,10 +100,16 @@ public class IntelScreenHelper {
         taps.tapInside(go);
         pause(1_500);
 
-        log.info("Clearing Lighthouse tutorial state with two Android Back presses");
-        emu.pressBack(dev);
+        // Both of these go through the guard rather than straight to the emulator. This path runs
+        // immediately after opening the Lighthouse, which is precisely where a Back can land on a
+        // bare screen and raise the quit-game dialog the guard exists for -- and an unguarded Back
+        // that raises it leaves the dialog sitting open for whatever runs next. The tap-failure
+        // recovery a few lines below already used pressBackSafely; these two were simply missed,
+        // which left a hole in this PR's own coverage claim.
+        log.info("Clearing Lighthouse tutorial state with two guarded Back presses");
+        QuitDialogGuard.pressBackSafely(emu, dev);
         pause(500);
-        emu.pressBack(dev);
+        QuitDialogGuard.pressBackSafely(emu, dev);
         pause(700);
 
         if (tryOpenIntelBubble()) {
