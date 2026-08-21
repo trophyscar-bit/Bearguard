@@ -40,27 +40,41 @@ public final class PlausibilityBand {
      * Coal: spent in lumps by building upgrades. A single upgrade can take most of the stockpile,
      * so the floor allows a 95% drawdown; the ceiling stays tight to catch the observed misreads.
      */
-    public static final PlausibilityBand COAL = new PlausibilityBand(0.05, 1.50);
+    public static final PlausibilityBand COAL = new PlausibilityBand(0.05, 1.50, 1_000_000L);
 
     /** Gems: spent in lumps by purchases; same reasoning as {@link #COAL}. */
     public static final PlausibilityBand GEMS = new PlausibilityBand(0.05, 1.50);
 
     private final double minRatio;
     private final double maxRatio;
+    private final long maxAbsoluteIncrease;
 
     /**
      * @param minRatio lowest believable {@code candidate / previous}; must be in {@code (0.0, 1.0]}
      * @param maxRatio highest believable {@code candidate / previous}; must be {@code >= 1.0}
      */
     public PlausibilityBand(double minRatio, double maxRatio) {
+        this(minRatio, maxRatio, 0L);
+    }
+
+    /**
+     * @param maxAbsoluteIncrease increase accepted regardless of ratio, for low stockpiles where
+     *                            ordinary production makes ratios unstable; must be non-negative
+     */
+    public PlausibilityBand(double minRatio, double maxRatio, long maxAbsoluteIncrease) {
         if (!(minRatio > 0.0) || minRatio > 1.0) {
             throw new IllegalArgumentException("minRatio must be in (0.0, 1.0], got " + minRatio);
         }
         if (maxRatio < 1.0) {
             throw new IllegalArgumentException("maxRatio must be >= 1.0, got " + maxRatio);
         }
+        if (maxAbsoluteIncrease < 0L) {
+            throw new IllegalArgumentException("maxAbsoluteIncrease must be non-negative, got "
+                    + maxAbsoluteIncrease);
+        }
         this.minRatio = minRatio;
         this.maxRatio = maxRatio;
+        this.maxAbsoluteIncrease = maxAbsoluteIncrease;
     }
 
     public double minRatio() {
@@ -69,6 +83,10 @@ public final class PlausibilityBand {
 
     public double maxRatio() {
         return maxRatio;
+    }
+
+    public long maxAbsoluteIncrease() {
+        return maxAbsoluteIncrease;
     }
 
     /**
@@ -81,12 +99,16 @@ public final class PlausibilityBand {
         if (previous <= 0) {
             return true;
         }
+        if (candidate >= previous && candidate - previous <= maxAbsoluteIncrease) {
+            return true;
+        }
         double ratio = (double) candidate / (double) previous;
         return ratio >= minRatio && ratio <= maxRatio;
     }
 
     @Override
     public String toString() {
-        return "[" + minRatio + ", " + maxRatio + "]";
+        return "[" + minRatio + ", " + maxRatio + "; absolute increase <= "
+                + maxAbsoluteIncrease + "]";
     }
 }

@@ -56,6 +56,11 @@ class PlausibilityBandTest {
     }
 
     @Test
+    void coalProductionFromALowBalanceUsesAbsoluteAllowance() {
+        assertTrue(PlausibilityBand.COAL.isPlausible(197_800L, 47_200L));
+    }
+
+    @Test
     void gemsSpentOnASinglePurchaseIsPlausible() {
         // 55,000 -> 25,000 is one shop purchase, not an OCR error.
         assertTrue(PlausibilityBand.GEMS.isPlausible(25_000L, 55_000L));
@@ -105,9 +110,9 @@ class PlausibilityBandTest {
 
     @Test
     void realLiveObservedUpwardMisreadIsRejected() {
-        // The documented "~1.7-1.8x" upward misread class from bg_telemetry.java's own header note.
+        // The documented "~1.7-1.8x" upward misread class from live telemetry evidence.
         assertFalse(PlausibilityBand.POWER.isPlausible(177, 100));
-        assertFalse(PlausibilityBand.COAL.isPlausible(177, 100));
+        assertFalse(PlausibilityBand.COAL.isPlausible(17_700_000L, 10_000_000L));
     }
 
     // ---------- no previous value ----------
@@ -141,6 +146,7 @@ class PlausibilityBandTest {
         assertThrows(IllegalArgumentException.class, () -> new PlausibilityBand(0.0, 1.5));
         assertThrows(IllegalArgumentException.class, () -> new PlausibilityBand(1.2, 1.5));
         assertThrows(IllegalArgumentException.class, () -> new PlausibilityBand(0.5, 0.9));
+        assertThrows(IllegalArgumentException.class, () -> new PlausibilityBand(0.5, 1.5, -1L));
     }
 
     @Test

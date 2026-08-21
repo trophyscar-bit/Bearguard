@@ -30,6 +30,7 @@ public enum ConfigurationKeyEnum {
     ANALYTICS_ID_STRING                 ("",                 String.class,        ConfigCategory.ANALYTICS),
     HIDE_ANALYTICS_LOGS_BOOL            ("true",             Boolean.class,       ConfigCategory.ANALYTICS),
     STATISTICS_JSON_STRING              ("{}",               String.class,        ConfigCategory.ANALYTICS),
+    TELEMETRY_INTERVAL_HOURS_INT        ("6",                Integer.class,       ConfigCategory.ANALYTICS),
 
     /* ─────────── alliance ─────────── */
 
@@ -226,7 +227,7 @@ public enum ConfigurationKeyEnum {
     GATHER_LAST_RECALL_TIME_STRING  ("",                    String.class,   ConfigCategory.GATHERING),
     GATHER_SPEED_BOOL               ("false",               Boolean.class,  ConfigCategory.GATHERING),
     GATHER_SPEED_BOOST_TYPE_STRING  ("24h (600 gems)",      String.class,   ConfigCategory.GATHERING),
-    // Cache written by ResourceStockpileRoutine and read back by GatherRoutine and bg_telemetry.
+    // Cache written by ResourceStockpileRoutine and read by GatherRoutine and telemetry.
     // Source screen: Research Center -> Research -> any non-maxed tech node's "Research Cost"
     // panel, which shows all 4 resources as current/cost.
     RESOURCE_STOCKPILE_MEAT_LONG        ("0",  Long.class,    ConfigCategory.GATHERING),

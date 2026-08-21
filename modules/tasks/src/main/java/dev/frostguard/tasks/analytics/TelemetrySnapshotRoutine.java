@@ -1,17 +1,8 @@
-package dev.frostguard.engine.listener.task.impl;
+package dev.frostguard.tasks.analytics;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
-import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -22,36 +13,29 @@ import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.JobMetrics;
 import dev.frostguard.api.domain.ProfilesData;
-import dev.frostguard.api.runtime.WorkspacePaths;
 import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.engine.nav.CommonOCRSettings;
-import dev.frostguard.engine.schedule.CustomTaskConfigurable;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
-import dev.frostguard.engine.service.CustomTaskService;
-import dev.frostguard.vision.ocr.PlausibilityBand;
-import dev.frostguard.vision.ocr.HudNumberParser;
 import dev.frostguard.engine.schedule.TelemetrySnapshotSchedule;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.engine.telemetry.TelemetryHistoryStore;
+import dev.frostguard.vision.ocr.HudNumberParser;
+import dev.frostguard.vision.ocr.PlausibilityBand;
 
 /**
- * Bearguard telemetry: samples the top HUD on a schedule and appends the result
- * to a JSON history the Whiteout dashboard reads.
+ * Samples the top HUD on a schedule and appends the result to the workspace's
+ * per-profile telemetry history.
  *
  * <p>This exists because the external Node scraper that used to do this drove
  * ADB itself, so it could not run while the bot was running — the two fought
  * over the same device. Running the capture as a task inside the bot's own
  * queue removes that conflict by construction, and inherits the engine's
  * screen-verification and retry behaviour for free.
- *
- * <p>Deliberately additive: a new file under custom_tasks/, no upstream source
- * touched, so merges from Shederator/wosbot stay clean.
  */
-public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable {
+public final class TelemetrySnapshotRoutine extends DelayedTask {
 
-    // Hourly, so "last night" (23:00->08:30) and every window has fine-grained data.
-    private static final Duration DEFAULT_INTERVAL = Duration.ofHours(1);
-    private static final DateTimeFormatter UTC_INPUT_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private final TelemetryHistoryStore historyStore;
 
     /**
      * HUD regions, in the required 720x1280 frame. Measured against live
@@ -69,26 +53,15 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     // gap - 590 clipped the leading "5" (read as 596,256) and 608 cut it off
     // entirely (read as 5,256).
 
-    /* The HUD crop regions and their OCR presets live in CommonGameAreas and CommonOCRSettings so
-     * they are shared and testable; nothing declared privately in this file can be covered by a
-     * JUnit test, since it sits outside the Maven module tree. */
+    /* HUD crop regions and OCR presets are shared so saved-frame tests exercise production data. */
 
-    private Duration interval = DEFAULT_INTERVAL;
-
-    public bg_telemetry(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
+    public TelemetrySnapshotRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
-        // Scheduling is in LOCAL time: TaskQueue compares against
-        // LocalDateTime.now(). Passing a UTC instant here silently pushes the
-        // first run forward by the machine's UTC offset, so the task sits in
-        // the queue looking healthy and simply never becomes due.
-        // (shield.java uses UTC because it targets a fixed UTC window - that is
-        // a different intent from "run now".)
+        if (tpTask != TpDailyTaskEnum.TELEMETRY_SNAPSHOT) {
+            throw new IllegalArgumentException("Unsupported telemetry task: " + tpTask);
+        }
+        historyStore = TelemetryHistoryStore.forCurrentWorkspace(profile.getId());
         reschedule(LocalDateTime.now());
-    }
-
-    @Override
-    protected Object getDistinctKey() {
-        return "bg_telemetry";
     }
 
     @Override
@@ -99,32 +72,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     }
 
     @Override
-    public void applyCustomTaskSettings(CustomTaskService.CustomTaskSettings settings) {
-        if (settings == null) {
-            return;
-        }
-        Integer hours = settings.getFollowUpDelayHours();
-        interval = hours != null && hours > 0 ? Duration.ofHours(hours) : DEFAULT_INTERVAL;
-
-        String first = settings.getFirstExecutionUtc();
-        if (first != null && !first.isBlank()) {
-            try {
-                // The setting is expressed in UTC but the scheduler works in
-                // local time, so convert rather than passing it through.
-                LocalDateTime localStart = LocalDateTime.parse(first, UTC_INPUT_FORMATTER)
-                        .atOffset(ZoneOffset.UTC)
-                        .atZoneSameInstant(ZoneId.systemDefault())
-                        .toLocalDateTime();
-                reschedule(localStart);
-            } catch (RuntimeException e) {
-                logWarning("bg_telemetry | Unparseable first-execution time '" + first + "', starting immediately.");
-            }
-        }
-    }
-
-    @Override
     protected void execute() {
-        logInfo("bg_telemetry | Sampling HUD.");
+        logInfo("Sampling telemetry HUD.");
 
         // Root-caused against real history.jsonl data: gems was intermittently flip-flopping
         // between two distinct bands roughly 40,000 apart sample to sample (e.g. 90,629 then
@@ -161,7 +110,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // row of nulls would poison the history the dashboard graphs, so skip
         // the write and let the next run pick it up.
         if (power == null && coal == null && gems == null) {
-            logWarning("bg_telemetry | No HUD values resolved - not on the expected screen. Skipping this sample.");
+            logWarning("No telemetry HUD values resolved; skipping this sample.");
             scheduleNext();
             return;
         }
@@ -209,10 +158,14 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // snapshots to show "what the bot DID" over a window (27 intel runs, 6 pet adventures, ...).
         appendActivitySnapshot(sample);
 
-        String json = toJson(sample);
-        writeSample(json);
+        try {
+            historyStore.append(sample);
+        } catch (IOException exception) {
+            logError("Could not write telemetry history to " + historyStore.directory() + ": "
+                    + exception.getMessage(), exception);
+        }
 
-        logInfo("bg_telemetry | power=" + power + " gems=" + gems
+        logInfo("Telemetry snapshot: power=" + power + " gems=" + gems
                 + " meat=" + meat + " wood=" + wood + " coal=" + coal + " iron=" + iron
                 + " steel=" + steel + " sp(gen/tr/con/res/heal)=" + spGeneral + "/" + spTraining
                 + "/" + spConstruction + "/" + spResearch + "/" + spHealing);
@@ -229,7 +182,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      */
     private void scheduleNext() {
         setRecurring(true);
-        reschedule(TelemetrySnapshotSchedule.nextRun(java.time.LocalDateTime.now(), interval));
+        reschedule(TelemetrySnapshotSchedule.nextRun(
+                LocalDateTime.now(), TelemetrySnapshotSchedule.configuredInterval(profile)));
     }
 
     /**
@@ -252,15 +206,12 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 candidate -> candidate);
         Long parsed = raw == null ? null : parseScaled(raw);
         if (parsed == null) {
-            logWarning("bg_telemetry | No parseable OCR reading for " + label + " after retries.");
+            logWarning("No parseable telemetry OCR reading for " + label + " after retries.");
         }
         return parsed;
     }
 
-    /* The ratio-band comparison lives in PlausibilityBand, shared with ResourceStockpileRoutine's
-     * identical check and covered by JUnit tests -- this class cannot unit-test a private method on
-     * itself, since it lives under examples/custom-tasks/, outside the Maven module tree. Bands are
-     * selected per metric at the call sites above rather than shared. */
+    /* PlausibilityBand is shared with ResourceStockpileRoutine and selected per metric above. */
 
     /**
      * Rejects a candidate reading that jumps implausibly far from the last known-good value for
@@ -280,7 +231,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         long prev = (Long) prevObj;
         if (!band.isPlausible(candidate, prev)) {
             double ratio = (double) candidate / (double) prev;
-            logWarning("bg_telemetry | " + field + " reading " + candidate + " is implausibly far from the "
+            logWarning("Telemetry " + field + " reading " + candidate + " is implausibly far from the "
                     + "last known-good " + prev + " (ratio " + String.format("%.2f", ratio)
                     + ", believable band for this metric " + band + ") -- rejecting as a likely OCR "
                     + "misread rather than recording a fake swing.");
@@ -289,44 +240,11 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         return candidate;
     }
 
-    /**
-     * Resolves under {@code WorkspacePaths.current().root()} rather than {@code user.dir} (which
-     * breaks the moment this is an installed Stable/Nightly build, since that resolves relative to
-     * the launch directory, not the chosen workspace), and partitions by the profile's stable
-     * numeric ID -- never its name, which is mutable -- rather than sharing one
-     * {@code latest.json}/{@code history.jsonl} across every profile, where profile B's sample
-     * could satisfy profile A's sanity check and concurrent writers on different emulators could
-     * interleave into the same file. Same layout convention as {@code GameAnalyticsHistoryService}
-     * (workspace root -> data/&lt;feature&gt;/profiles/&lt;id&gt;/). Every profile owns its own
-     * pair of files; there is nothing left to filter or race over.
-     */
-    private Path telemetryDir() {
-        return WorkspacePaths.current().root()
-                .resolve("data").resolve("telemetry")
-                .resolve("profiles").resolve(String.valueOf(profile.getId()));
-    }
-
-    /** Reads this profile's latest.json (the previous sample) as a flat field->value map, numbers
-     *  only. Hand-rolled rather than pulling in a JSON library, matching {@link #toJson} below.
-     *  Returns null on any problem -- callers already treat that as "nothing to compare against". */
+    /** Reads this profile's previous numeric fields for plausibility checks. */
     private Map<String, Object> readLatestSample() {
-        Path file = telemetryDir().resolve("latest.json");
         try {
-            if (!Files.exists(file)) {
-                return null;
-            }
-            String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
-            Map<String, Object> result = new LinkedHashMap<>();
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("\"(\\w+)\":(null|-?\\d+)(?!\\.)")
-                    .matcher(content);
-            while (m.find()) {
-                String key = m.group(1);
-                String value = m.group(2);
-                result.put(key, "null".equals(value) ? null : Long.parseLong(value));
-            }
-            return result;
-        } catch (Exception e) {
+            return historyStore.readLatestNumericFields();
+        } catch (IOException exception) {
             return null;
         }
     }
@@ -375,68 +293,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 }
             }
         } catch (Exception e) {
-            logWarning("bg_telemetry | Could not snapshot activity stats: " + e.getMessage());
+            logWarning("Could not snapshot telemetry activity stats: " + e.getMessage());
         }
-    }
-
-    /** One lock per JVM, shared by every profile's writer -- cheap, and removes any doubt about
-     *  two runs (a slow one plus its on-time successor) interleaving the same profile's files. */
-    private static final Object WRITE_LOCK = new Object();
-
-    /**
-     * Appends to a JSON Lines history and atomically replaces the latest-sample file.
-     * JSONL is used for the history so a run can never corrupt earlier samples by rewriting a
-     * whole document, which matters for something appending unattended overnight. latest.json
-     * itself is written to a temp file and moved into place (atomically where the filesystem
-     * supports it) rather than truncate-written in place, so a reader can never observe a
-     * half-written file.
-     */
-    private void writeSample(String json) {
-        Path dir = telemetryDir();
-        synchronized (WRITE_LOCK) {
-            try {
-                Files.createDirectories(dir);
-                Files.write(dir.resolve("history.jsonl"),
-                        (json + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
-                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                writeAtomically(dir.resolve("latest.json"), json.getBytes(StandardCharsets.UTF_8));
-            } catch (IOException e) {
-                logError("bg_telemetry | Could not write telemetry to " + dir + ": " + e.getMessage());
-            }
-        }
-    }
-
-    /** Write-to-temp-then-move, matching {@code GameAnalyticsHistoryService}'s convention --
-     *  falls back to a non-atomic replace only when the filesystem genuinely can't do better. */
-    private static void writeAtomically(Path target, byte[] content) throws IOException {
-        Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
-        Files.write(temporary, content);
-        try {
-            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException unsupported) {
-            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    /** Minimal serializer — the project ships no JSON binding usable from here. */
-    private static String toJson(Map<String, Object> map) {
-        StringBuilder sb = new StringBuilder("{");
-        boolean first = true;
-        for (Map.Entry<String, Object> e : map.entrySet()) {
-            if (!first) {
-                sb.append(',');
-            }
-            first = false;
-            sb.append('"').append(e.getKey()).append("\":");
-            Object v = e.getValue();
-            if (v == null) {
-                sb.append("null");
-            } else if (v instanceof Number) {
-                sb.append(v);
-            } else {
-                sb.append('"').append(String.valueOf(v).replace("\\", "\\\\").replace("\"", "\\\"")).append('"');
-            }
-        }
-        return sb.append('}').toString();
     }
 }

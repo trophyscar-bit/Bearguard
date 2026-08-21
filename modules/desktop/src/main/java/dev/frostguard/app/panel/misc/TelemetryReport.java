@@ -19,7 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.frostguard.api.runtime.WorkspacePaths;
 
 /**
- * Reads the telemetry history that {@code bg_telemetry} appends to
+ * Reads the telemetry history that the built-in telemetry routine appends to
  * {@code data/telemetry/profiles/<id>/history.jsonl} and turns it into the "what did the bot
  * earn" reports the Statistics tab shows.
  *
@@ -117,7 +117,7 @@ public final class TelemetryReport {
 
     private static Instant parseInstant(String raw) {
         if (raw == null || raw.isBlank()) return null;
-        // bg_telemetry writes an ISO local-datetime with a trailing 'Z' already on
+        // The telemetry routine writes an ISO local-datetime with a trailing 'Z' already on
         // a UTC value, occasionally producing "...ZZ". Normalise to a single Z.
         String s = raw.trim();
         while (s.endsWith("ZZ")) s = s.substring(0, s.length() - 1);
@@ -254,7 +254,7 @@ public final class TelemetryReport {
 
     // ---- real recorded coverage -----------------------------------------------------------
     // A window LABEL like "Last night (23:00-08:30)" describes the intended window, not what was
-    // actually captured -- if bg_telemetry was disabled, gapped, or only caught two samples three
+    // actually captured -- if telemetry was gapped or only caught two samples three
     // hours apart, the label alone hides that. This exposes the REAL first/last sample timestamps
     // a window's delta was actually built from, so the UI can show both.
 
