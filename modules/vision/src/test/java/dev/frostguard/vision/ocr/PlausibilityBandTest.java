@@ -95,7 +95,7 @@ class PlausibilityBandTest {
 
     @Test
     void realLiveObservedMisreadIsRejected() {
-        // matt live, 2026-08-19: steel jumped 1,174,000 -> 839,000,000 (ratio ~714.6x), the actual
+        // the operator live, 2026-08-19: steel jumped 1,174,000 -> 839,000,000 (ratio ~714.6x), the actual
         // misread that slipped through ResourceStockpileRoutine's unbounded trust-streak escape
         // hatch. Every band must catch this on the first read.
         assertFalse(PlausibilityBand.POWER.isPlausible(839_000_000L, 1_174_000L));
