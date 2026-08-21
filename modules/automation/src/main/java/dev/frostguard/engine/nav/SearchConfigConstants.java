@@ -36,7 +36,7 @@ public final class SearchConfigConstants {
     public static final SearchConfig MULTIPLE_RESULTS =
             SearchConfig.builder().withMaxAttempts(3).withThreshold(90).withDelay(200L).withMaxResults(3).build();
 
-    // matt, 2026-08-15: Fire Beast's own match score sits well below the app-wide 90 default --
+    // Fire Beast's own match score sits well below the app-wide 90 default --
     // every single scan silently failed regardless of retry count (retrying
     // an unchanging screen against a threshold it can't clear doesn't help).
     // 80 gives a real margin above the observed ~85 while still rejecting a

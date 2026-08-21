@@ -196,18 +196,18 @@ public enum ConfigurationKeyEnum {
     INTEL_FIRE_BEAST_BOOL                       ("false",   Boolean.class,  ConfigCategory.INTEL),
     INTEL_RECALL_GATHER_TROOPS_BOOL             ("false",   Boolean.class,  ConfigCategory.INTEL),
     INTEL_SMART_PROCESSING_BOOL                 ("false",   Boolean.class,  ConfigCategory.INTEL),
-    // matt/2026-08-09: set by IntelligenceRoutine each pass — true when the board actually had a
+    // Set by IntelligenceRoutine each pass — true when the board actually had a
     // mission, false when empty. GatherRoutine reads it so it only defers/recalls for an imminent
     // Intel that will really consume a march slot, never for Intel's idle ~15-min beast-recheck.
     INTEL_LAST_RUN_HAD_MISSIONS_BOOL            ("false",   Boolean.class,  ConfigCategory.INTEL),
-    // matt, 2026-08-06: "if we run on stamina, go ahead and refresh it" - same
+    // "if we run on stamina, go ahead and refresh it" - same
     // Chief Stamina item top-up pattern PolarTerror/Cryptid already use, wired
     // into IntelligenceRoutine's stamina gate so a low-stamina Intel run tops
     // up from the backpack instead of idling until natural regeneration.
     INTEL_USE_STAMINA_ITEMS_BOOL                ("false",   Boolean.class,  ConfigCategory.INTEL),
     INTEL_STAMINA_ITEM_RESERVE_INT              ("0",       Integer.class,  ConfigCategory.INTEL),
     INTEL_USE_FLAG_BOOL                         ("false",   Boolean.class,  ConfigCategory.INTEL),
-    // matt/2026-08-15: "it's reaching a beast that's too hard to defeat, and it's just looping...
+    // "it's reaching a beast that's too hard to defeat, and it's just looping...
     // then it's gonna run in another fifteen minutes and do the same thing." Root cause: the
     // same-run circuit breaker (consecutiveBeastDeploymentFailures/beastStuckThisRun in
     // IntelligenceRoutine) lives on plain instance fields, but DelayedTaskRegistry.create() hands
@@ -298,9 +298,9 @@ public enum ConfigurationKeyEnum {
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
+    // Allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
+    // Separate Telegram stop behavior from local GUI stop behavior.
     STOP_BEHAVIOR_TELEGRAM_STRING       ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     LDPLAYER_PATH_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     MAX_IDLE_TIME_INT                   ("15",          Integer.class,  ConfigCategory.SYSTEM),
