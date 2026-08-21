@@ -100,7 +100,7 @@ public enum ConfigurationKeyEnum {
     ARENA_TASK_ACTIVATION_TIME_STRING   ("23:50",   String.class,   ConfigCategory.DAILIES),
     ARENA_TASK_BOOL                     ("false",   Boolean.class,  ConfigCategory.DAILIES),
     ARENA_TASK_EXTRA_ATTEMPTS_INT       ("0",       Integer.class,  ConfigCategory.DAILIES),
-    /** matt, 2026-08-08: Testing-profile-only safety valve — taps the challenge
+    /** Testing-profile-only safety valve — taps the challenge
      *  button to confirm which opponent was selected, then stops before the
      *  actual battle so a targeting-logic change can be verified live without
      *  spending a real attempt. Default false everywhere. */
@@ -282,9 +282,9 @@ public enum ConfigurationKeyEnum {
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
+    // Allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
+    // Separate Telegram stop behavior from local GUI stop behavior.
     STOP_BEHAVIOR_TELEGRAM_STRING       ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     LDPLAYER_PATH_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     MAX_IDLE_TIME_INT                   ("15",          Integer.class,  ConfigCategory.SYSTEM),
