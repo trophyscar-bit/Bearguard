@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
  * first check, a bounded retry (tap Cancel, re-check, tap again if it's somehow still up), and
  * every Back call site below now routes through here.</p>
  *
- * <p>Round-3 items 5 and 7: the guard used to swallow a definitively-stuck dialog as a logged
+ * <p>The guard used to swallow a definitively-stuck dialog as a logged
  * warning and return normally, letting every caller above proceed as if nothing happened -- into
  * a screen that may still be showing the quit confirmation. It now throws
  * {@link QuitDialogStuckException} in that case (see {@link #dismissIfPresent(EmulatorController,
@@ -48,7 +48,7 @@ public final class QuitDialogGuard {
 
     // Time for the dialog's pop-in animation to finish before the first check is trustworthy.
     private static final long SETTLE_MS = 350L;
-    // Cancel button. Round-3 item 6: verified against a real, live-account capture of the full
+    // Cancel button. Verified against a real, live-account capture of the full
     // dialog (not just the title-only quitGameDialog.png detection crop) -- see
     // quitGameDialog-liveAccount-20260819.png under modules/automation/src/test/resources/system.
     // Measured the button's actual on-screen region directly from that frame: roughly
