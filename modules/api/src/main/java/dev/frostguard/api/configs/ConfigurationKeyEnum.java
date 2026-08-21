@@ -267,7 +267,7 @@ public enum ConfigurationKeyEnum {
     BOOL_BANK                               ("false",   Boolean.class,  ConfigCategory.SHOPS),
     INT_BANK_DELAY                          ("1",       Integer.class,  ConfigCategory.SHOPS),
 
-    // matt/2026-08-13: top-right cart-icon Shop panel, built out tab by tab. Custom
+    // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
     // weeks) -- checked once a day, no-ops when nothing's there.
     SHOP_CUSTOM_ARMAMENT_CHEST_CLAIM_BOOL ("false",  Boolean.class,  ConfigCategory.SHOPS),
@@ -283,9 +283,9 @@ public enum ConfigurationKeyEnum {
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
+    // Allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
+    // Separate Telegram stop behavior from local GUI stop behavior.
     STOP_BEHAVIOR_TELEGRAM_STRING       ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     LDPLAYER_PATH_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     MAX_IDLE_TIME_INT                   ("15",          Integer.class,  ConfigCategory.SYSTEM),
