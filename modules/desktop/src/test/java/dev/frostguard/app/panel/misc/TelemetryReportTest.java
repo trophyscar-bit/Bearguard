@@ -157,7 +157,7 @@ class TelemetryReportTest {
 
     @Test
     void sampleExactlyAtWindowStartIsUsedAsTheBaseline() throws IOException {
-        // Dave's re-review on #250/#251: the baseline used to accept only samples STRICTLY before
+        // The baseline used to accept only samples STRICTLY before
         // `from` (isBefore), so a sample landing exactly on the boundary -- e.g. an hourly writer
         // firing right at the window's start anchor -- was skipped in favour of an older sample,
         // overcounting activity that happened before the window actually opened.

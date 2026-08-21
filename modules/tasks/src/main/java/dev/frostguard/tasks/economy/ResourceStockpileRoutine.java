@@ -240,7 +240,7 @@ public class ResourceStockpileRoutine extends DelayedTask {
      * Confirms the fixed-coordinate tap actually landed where it was supposed to, before OCR-ing
      * anything off the result.
      *
-     * <p>Round-3 item: every navigation tap in this routine (Overview/Backpack/Summary/Speedup) was
+     * <p>Every navigation tap in this routine (Overview/Backpack/Summary/Speedup) was
      * a blind fixed-coordinate tap + a guessed settle delay, with no positive proof the destination
      * screen was actually reached -- a slow animation, a dialog in the way, or a UI shift would OCR
      * whatever happened to be on screen instead. Landmarks below were cropped from real, live-
