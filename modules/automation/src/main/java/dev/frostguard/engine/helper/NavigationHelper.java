@@ -287,11 +287,11 @@ public class NavigationHelper {
         throw new HomeNotFoundException("Home not found after " + budget + " attempts");
     }
 
-    // matt/2026-08-14, caught live watching the app: this "unknown screen -> back" loop is the
+    // Observed live caught live watching the app: this "unknown screen -> back" loop is the
     // MOST common source of a bare-screen back-press across the ENTIRE codebase -- every task
     // routes through ensureCorrectScreenLocation for recovery. On a bare screen with nothing open,
     // this game's own back-button handling is to pop a native "Quit game?" confirmation dialog --
-    // one accidental tap from actually exiting mid-automation. Matt's report: "still happening,
+    // one accidental tap from actually exiting mid-automation. The operator's report: "still happening,
     // anywhere" -- a per-routine fix (Intel's own double-pressBack chains) wasn't enough because
     // this shared recovery path is a second, much more common source. Public so DelayedTask.pressBack()
     // (used directly by every routine) can also call it after every single back press, not just this

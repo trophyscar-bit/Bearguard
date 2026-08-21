@@ -184,8 +184,8 @@ public enum ConfigurationKeyEnum {
     TUNDRA_TREK_AUTOMATION_BOOL                 ("false",   Boolean.class,       ConfigCategory.EVENTS),
     TUNDRA_TREK_SUPPLIES_BOOL                   ("false",   Boolean.class,       ConfigCategory.EVENTS),
 
-    // matt/2026-08-12: "event slop" claim toggles -- rotating limited-time Events-tab
-    // events, one checkbox each so matt can pick which ones the bot bothers with.
+    // "event slop" claim toggles -- rotating limited-time Events-tab
+    // events, one checkbox each so the operator can pick which ones the bot bothers with.
     EVENT_HALL_OF_CHIEFS_CLAIM_BOOL      ("false",   Boolean.class,  ConfigCategory.EVENTS),
     EVENT_DEFEAT_BEASTS_CLAIM_BOOL       ("false",   Boolean.class,  ConfigCategory.EVENTS),
     EVENT_HERO_RALLY_CLAIM_BOOL          ("false",   Boolean.class,  ConfigCategory.EVENTS),
@@ -285,14 +285,14 @@ public enum ConfigurationKeyEnum {
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),
-    // matt, 2026-08-08: percentage-with-a-ceiling jitter applied to every reschedule() call --
+    // Percentage-with-a-ceiling jitter applied to every reschedule() call --
     // see DelayedTask.reschedule() for why. Percent of 0 or max-seconds of 0 disables it.
     // Depends on feature/schedule-jitter-and-quit-dialog-guard -- see that branch for why.
     SCHEDULE_JITTER_PERCENT_INT         ("15",          Integer.class,  ConfigCategory.SYSTEM),
     SCHEDULE_JITTER_MAX_SECONDS_INT     ("150",         Integer.class,  ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
+    // Allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
+    // Separate Telegram stop behavior from local GUI stop behavior.
     STOP_BEHAVIOR_TELEGRAM_STRING       ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     LDPLAYER_PATH_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     MAX_IDLE_TIME_INT                   ("15",          Integer.class,  ConfigCategory.SYSTEM),

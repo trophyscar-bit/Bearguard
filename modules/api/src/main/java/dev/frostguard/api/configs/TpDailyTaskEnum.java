@@ -113,7 +113,7 @@ public enum TpDailyTaskEnum {
 
     SHOP_MYSTERY           (80,  "Shop Mystery",                 ConfigurationKeyEnum.BOOL_MYSTERY_SHOP,                      RoutineCategory.SHOP),
 
-    // matt/2026-08-12: "event slop" -- rotating limited-time Events-tab events where
+    // "event slop" -- rotating limited-time Events-tab events where
     // the bot's only job is finding a ready Claim and hitting it. Twice-a-day recheck.
     EVENT_HALL_OF_CHIEFS    (909, "Event: Hall of Chiefs",        ConfigurationKeyEnum.EVENT_HALL_OF_CHIEFS_CLAIM_BOOL,        RoutineCategory.MILITARY),
     EVENT_DEFEAT_BEASTS     (910, "Event: Defeat Nearby Beasts",  ConfigurationKeyEnum.EVENT_DEFEAT_BEASTS_CLAIM_BOOL,         RoutineCategory.MILITARY),
