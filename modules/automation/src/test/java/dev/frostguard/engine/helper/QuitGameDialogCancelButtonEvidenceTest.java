@@ -15,7 +15,7 @@ import java.util.Objects;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Round-3 item 6: "Cancel-tap coordinate (207,789) has no committed full-frame evidence -- an
+ * "Cancel-tap coordinate (207,789) has no committed full-frame evidence -- an
  * incorrect tap here can exit the game."
  *
  * <p>{@code quitGameDialog-liveAccount-20260819.png} is a real, live-account capture of the actual

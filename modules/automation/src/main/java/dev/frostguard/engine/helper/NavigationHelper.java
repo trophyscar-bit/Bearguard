@@ -297,7 +297,7 @@ public class NavigationHelper {
     // (used directly by every routine) can also call it after every single back press, not just this
     // loop -- genuinely "anywhere" coverage from one fix point instead of chasing individual call sites.
     public void dismissQuitGameDialogIfPresent() {
-        // Dave's #252 review: this used to check immediately with no settle delay and tap once
+        // This used to check immediately with no settle delay and tap once
         // with no verification the dialog actually closed. Delegated to QuitDialogGuard, the
         // single shared implementation every Back call site in the codebase now routes through.
         QuitDialogGuard.dismissIfPresent(emu, device);

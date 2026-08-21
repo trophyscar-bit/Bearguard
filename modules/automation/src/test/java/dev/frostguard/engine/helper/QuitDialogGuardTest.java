@@ -17,13 +17,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Dave's #252 round-3 item 7: "no automated guard tests (absent/delayed/first-attempt/
+ * "no automated guard tests (absent/delayed/first-attempt/
  * persistent-failure/interruption) — needs a mocking seam onto EmulatorController."
  *
  * <p>{@code QuitDialogGuard.dismissIfPresent(String, Function, Runnable, LongConsumer)} is that
  * seam — plain lambdas standing in for "locate the dialog" and "tap Cancel", with no
  * {@code EmulatorController} or ADB call anywhere in it. These tests drive it directly, covering
- * every outcome Dave named plus the round-3 item 5 fix (definitive failure now throws instead of
+ * every outcome the review named plus the round-3 item 5 fix (definitive failure now throws instead of
  * returning silently).</p>
  */
 class QuitDialogGuardTest {
@@ -50,7 +50,7 @@ class QuitDialogGuardTest {
                 ms -> events.add("sleep:" + ms));
 
         // 350ms settle wait happens before the very first check -- a dialog that pops in a beat
-        // late (Dave's original #252 finding) is still caught, not missed by a zero-delay check.
+        // late (the original review finding) is still caught, not missed by a zero-delay check.
         assertEquals(List.of("sleep:350", "locate"), events);
     }
 
@@ -83,7 +83,7 @@ class QuitDialogGuardTest {
 
     @Test
     void persistentFailureThrowsInsteadOfReturningSilently() {
-        // Round-3 item 5: this used to log a warning and return normally, letting the caller
+        // This used to log a warning and return normally, letting the caller
         // proceed as if the dialog had been handled. It must now throw, definitively.
         AtomicInteger taps = new AtomicInteger();
 

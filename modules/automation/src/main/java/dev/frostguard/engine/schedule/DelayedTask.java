@@ -385,7 +385,7 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
         emuManager.swipeScreen(EMULATOR_NUMBER, start, end);
     }
 
-    // Round-3 item 8: this overload was removed on Dave's #252 review claiming "zero callers on
+    // This overload was removed on review claiming "zero callers on
     // this branch" -- that was true at the time, but the branch's rebase onto main afterward
     // brought in ResearchRoutine.java's three genuine callers (top-reset momentum swipes, the
     // partially-hidden-row reposition drag, and the down-scroll), which the removal silently broke.
