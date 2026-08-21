@@ -183,7 +183,7 @@ public enum ConfigurationKeyEnum {
     TUNDRA_TRUCK_USE_GEMS_BOOL                  ("false",   Boolean.class,       ConfigCategory.EVENTS),
     TUNDRA_TREK_AUTOMATION_BOOL                 ("false",   Boolean.class,       ConfigCategory.EVENTS),
     TUNDRA_TREK_SUPPLIES_BOOL                   ("false",   Boolean.class,       ConfigCategory.EVENTS),
-    // matt: Berserk Cryptid ("Gina's Revenge") host-and-repeat -- stamina is the real limit,
+    // the operator: Berserk Cryptid ("Gina's Revenge") host-and-repeat -- stamina is the real limit,
     // not Horns, so CRYPTID_HOST_RUNS_INT is a target the routine may not fully reach.
     CRYPTID_HOST_ENABLED_BOOL           ("false",   Boolean.class,  ConfigCategory.EVENTS),
     CRYPTID_HOST_RUNS_INT               ("1",       Integer.class,  ConfigCategory.EVENTS),
@@ -283,9 +283,9 @@ public enum ConfigurationKeyEnum {
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
+    // Allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
+    // Separate Telegram stop behavior from local GUI stop behavior.
     STOP_BEHAVIOR_TELEGRAM_STRING       ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     LDPLAYER_PATH_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     MAX_IDLE_TIME_INT                   ("15",          Integer.class,  ConfigCategory.SYSTEM),
