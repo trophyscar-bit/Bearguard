@@ -6,6 +6,7 @@ import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.FormationSlots;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.MarchResourceType;
+import dev.frostguard.api.domain.MarchSlotAvailability;
 import dev.frostguard.api.domain.MarchSlotState;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
@@ -84,7 +85,7 @@ public class MarchHelper {
     // line is classified by colour (white "Idle", orange "Unlock", red "Unavailable", nothing at all
     // for stationed troops) and the activity by its icon. Only the countdown needs OCR.
     public List<MarchSlotState> readMarchQueue() {
-        openLeftMenuCitySection(false);
+        openLeftMenuSection(false);
         try {
             return readVisibleMarchQueue();
         } finally {
@@ -97,7 +98,7 @@ public class MarchHelper {
      * for flows that already normalize their world state and do not need legacy multi-tap recovery.
      */
     public List<MarchSlotState> readMarchQueueSinglePass() {
-        openLeftMenuCitySectionOnce(false);
+        openLeftMenuSection(false);
         try {
             return readVisibleMarchQueue();
         } finally {
@@ -106,10 +107,27 @@ public class MarchHelper {
     }
 
     /**
-     * Reads the already-open wilderness March Queue panel without changing its state. This is for
-     * workflows such as Intel recall that must inspect rows and then interact with the same panel.
+     * Reads the already-open wilderness March Queue panel. The section is reopened only when every
+     * row lacks queue evidence, which indicates that the preserved scroll position cannot be trusted.
      */
     public List<MarchSlotState> readVisibleMarchQueue() {
+        List<MarchSlotState> slots = readVisibleMarchQueueOnce();
+        if (hasReliableQueueEvidence(slots)) {
+            return slots;
+        }
+
+        log.warn("March Queue rows were not visible at the preserved position; reopening Wilderness once");
+        if (!sidebar.close() || !sidebar.openSection(SidebarSection.WILDERNESS)) {
+            return List.of();
+        }
+        return readVisibleMarchQueueOnce();
+    }
+
+    static boolean hasReliableQueueEvidence(List<MarchSlotState> slots) {
+        return slots.stream().anyMatch(slot -> slot.availability() != MarchSlotAvailability.UNKNOWN);
+    }
+
+    private List<MarchSlotState> readVisibleMarchQueueOnce() {
         try {
             RawImageData frame = emu.captureScreen(device);
             BufferedImage image = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
@@ -157,7 +175,8 @@ public class MarchHelper {
         boolean garrisoned = matchesActivityIcon(frame, icon, TemplatesEnum.MARCH_QUEUE_GARRISONED_ICON);
         boolean slotFlag = emu.locatePattern(device, frame, TemplatesEnum.MARCH_QUEUE_SLOT_FLAG_ICON,
                 icon.topLeft(), icon.bottomRight(), RETURNING_ICON_THRESHOLD).isFound();
-        boolean idleText = matchesStatus(frame, status, TemplatesEnum.MARCH_QUEUE_STATUS_IDLE);
+        boolean idleText = matchesStatus(frame, status, TemplatesEnum.MARCH_QUEUE_STATUS_IDLE_CURRENT)
+                || matchesStatus(frame, status, TemplatesEnum.MARCH_QUEUE_STATUS_IDLE);
         boolean unlockText = matchesStatus(frame, status, TemplatesEnum.MARCH_QUEUE_STATUS_UNLOCK);
         boolean unavailableText = matchesStatus(frame, status, TemplatesEnum.MARCH_QUEUE_STATUS_UNAVAILABLE);
         boolean goToText = matchesTitle(frame, title, TemplatesEnum.MARCH_QUEUE_TEXT_GO_TO);
@@ -311,8 +330,8 @@ public class MarchHelper {
     }
 
     public void openLeftMenuCitySection(boolean cityTab) {
-        log.debug("Left menu — " + (cityTab ? "city" : "wilderness"));
-        if (!sidebar.openSectionAtTop(cityTab ? SidebarSection.CITY : SidebarSection.WILDERNESS)) {
+        log.debug("Opening left menu section - " + (cityTab ? "city" : "wilderness"));
+        if (!sidebar.openSection(cityTab ? SidebarSection.CITY : SidebarSection.WILDERNESS)) {
             throw new IllegalStateException("Could not open the requested sidebar section");
         }
     }
@@ -322,13 +341,12 @@ public class MarchHelper {
         dismissLeftPanel();
     }
 
-    /**
-     * Compatibility entry point for flows that own the panel lifecycle and guarantee a matching
-     * {@link #closeLeftMenu()} in a finally block. State verification is identical to the normal path.
-     */
-    public void openLeftMenuCitySectionOnce(boolean cityTab) {
-        log.debug("Left menu single-pass - " + (cityTab ? "city" : "wilderness"));
-        openLeftMenuCitySection(cityTab);
+    /** Opens or reuses the requested section without changing its current scroll position. */
+    public void openLeftMenuSection(boolean cityTab) {
+        log.debug("Left menu without scroll reset - " + (cityTab ? "city" : "wilderness"));
+        if (!sidebar.openSection(cityTab ? SidebarSection.CITY : SidebarSection.WILDERNESS)) {
+            throw new IllegalStateException("Could not open the requested sidebar section");
+        }
     }
 
     private void dismissLeftPanel() {
