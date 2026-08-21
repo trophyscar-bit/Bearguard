@@ -24,11 +24,11 @@ import dev.frostguard.engine.service.TaskManagementService;
 import dev.frostguard.vision.convert.GameTimeUtils;
 import dev.frostguard.vision.ocr.ResilientOcrExecutor;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.function.Consumer;
 import java.util.List;
 
@@ -48,7 +48,22 @@ private static final int MIN_INTEL_MARCH_SLOTS = 1;
 
 private static final int SURVIVOR_BATCH_LIMIT = 2;
 
-private static final long SURVIVOR_BATCH_PAUSE_MILLIS = 60_000L;
+static final long SURVIVOR_BATCH_PAUSE_MILLIS = 20_000L;
+
+private static final long JOURNEY_RESULT_TIMEOUT_MILLIS = 30_000L;
+
+private static final long JOURNEY_INITIAL_RESULT_WAIT_MILLIS = 4_000L;
+
+private static final long JOURNEY_RESULT_POLL_MILLIS = 1_000L;
+
+private static final AreaData JOURNEY_VICTORY_CONTINUE_AREA = AreaData.of(400, 990, 658, 1038);
+
+private static final SearchConfig INTEL_CLAIM_ALL_SEARCH = SearchConfig.builder()
+		.withMaxAttempts(2)
+		.withDelay(500L)
+		.withThreshold(88)
+		.withArea(CommonGameAreas.INTEL_CLAIM_ALL_AREA)
+		.build();
 
 private static final PointData MARCH_RECALL_CONFIRM_TOP_LEFT = new PointData(446, 780);
 
@@ -68,8 +83,6 @@ private boolean marchQueueLimitReached;
 private boolean autoJoinDisabledForIntel;
 
 private boolean recallGatherTroopsFlow;
-
-private boolean fcEra;
 
 private boolean useSmartProcessing;
 
@@ -97,6 +110,12 @@ private int intelMarchesRemaining;
 private Integer intelMarchCapacityOverride;
 
 private int survivorMissionsSincePause;
+
+private int consecutiveNoProgressCycles;
+
+private final IntelPatternPreference intelPatternPreference = new IntelPatternPreference();
+
+private final IntelCyclePolicy intelCyclePolicy = new IntelCyclePolicy();
 
 // Changed by pernerch | Date: 2026-07-02 | Why: ensure gather and autojoin can be resumed after Intel priority handling.
 private boolean shouldRequeueGatherAfterIntel;
@@ -139,19 +158,34 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 		shouldRequeueGatherAfterIntel = false;
 		shouldRequeueAutoJoinAfterIntel = false;
 		survivorMissionsSincePause = 0;
+		consecutiveNoProgressCycles = 0;
+		intelPatternPreference.reset();
 
 		try {
 
 		navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
-		marchHelper.openLeftMenuSection(false);
-		List<MarchSlotState> initialMarchSlots = marchHelper.readVisibleMarchQueue();
-		MarchesAvailable marchesAvailable = resolveMarchesAvailable(initialMarchSlots);
-		int initiallyIdleMarches = countIdleMarchesFlow(initialMarchSlots);
+		MarchesAvailable marchesAvailable = new MarchesAvailable(true, null);
+		int initiallyIdleMarches = resolveConfiguredIntelMarchesFlow();
 
-		OptionalInt advertisedGain = intelScreenHelper.enterIntelFromOpenSidebarAndReadGain();
-		boolean intelMissionsDetected = advertisedGain.orElse(0) > 0 || hasVisibleIntelMissionFlow();
+		boolean dailyIntelAvailable = intelScreenHelper.enterIntelFromDailyIfAvailable();
+		IntelCyclePolicy.Decision entryDecision = intelCyclePolicy.evaluateDailyAvailability(
+				dailyIntelAvailable, LocalDateTime.now(), ZoneId.systemDefault());
+		if (entryDecision.action() == IntelCyclePolicy.Action.WAIT_FOR_NEXT_REFRESH) {
+			logInfo(routineLogIntelligenceLine("Daily sidebar has no green Intel availability evidence and no "
+					+ "Intel cycle is active. Planning the next UTC Intel refresh at: "
+					+ entryDecision.nextRun().format(DATETIME_FORMATTER)));
+			reschedule(entryDecision.nextRun());
+			processingTask = false;
+			return;
+		}
+		if (entryDecision.action() == IntelCyclePolicy.Action.RESUME_ACTIVE_CYCLE) {
+			logInfo(routineLogIntelligenceLine("Daily no longer reports new Intel, but the current cycle still "
+					+ "has pending mission completion. Resuming through the Wilderness shortcut."));
+			intelScreenHelper.resumeIntelCycleFromWilderness();
+		}
+		boolean intelMissionsDetected = hasVisibleIntelMissionFlow();
 		if (!intelMissionsDetected) {
-			logInfo(routineLogIntelligenceLine("No intel missions detected. Skipping Intel run for now."));
+			logInfo(routineLogIntelligenceLine("Daily reported Intel, but no enabled mission marker was detected."));
 			tryRescheduleFromCooldownFlow();
 			processingTask = false;
 			return;
@@ -165,9 +199,10 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 			processingTask = false;
 			return;
 		}
-		if (advertisedGain.orElse(0) > 0) {
-			logInfo(routineLogIntelligenceLine("Daily sidebar confirmed " + advertisedGain.getAsInt()
-					+ " available Intel mission(s)."));
+		if (entryDecision.action() == IntelCyclePolicy.Action.START_AVAILABLE_CYCLE) {
+			logInfo(routineLogIntelligenceLine("Daily sidebar visually confirmed available Intel."));
+		} else {
+			logInfo(routineLogIntelligenceLine("Active Intel cycle entry confirmed from Wilderness."));
 		}
 
 		autoJoinTask = TaskManagementService.shared().lookupTaskState(profile.getId(),
@@ -203,6 +238,7 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 			boolean anyIntelProcessed = false;
 			boolean nonBeastIntelProcessed = false;
 
+			releaseElapsedIntelMarchesFlow();
 			marchQueueLimitReached = !marchesAvailable.available() || intelMarchesRemaining <= 0;
 
 
@@ -216,16 +252,20 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 			}
 
 
-			if (beastsEnabled && shouldProcessBeastsFlow()) {
+			if ((beastsEnabled || fireBeastsEnabled) && shouldProcessBeastsFlow()) {
 				if (handleBeastIntel()) {
 					anyIntelProcessed = true;
+				}
+				if (!processingTask) {
+					return;
 				}
 			}
 
 
 			if (survivorCampsEnabled) {
+				waitForSurvivorBatchCooldownFlow();
 				intelScreenHelper.ensureOnIntelScreen();
-				logInfo(routineLogIntelligenceLine("Scanning for survivor camps using grayscale matching."));
+				logDebug(routineLogIntelligenceLine("Scanning for survivor camps using grayscale matching."));
 				for (TemplatesEnum template : survivorTemplates()) {
 					if (seekAndProcessGrayscale(template, this::handleSurvivor)) {
 						anyIntelProcessed = true;
@@ -233,18 +273,24 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 						break;
 					}
 				}
+				if (!processingTask) {
+					return;
+				}
 			}
 
 
 			if (explorationsEnabled) {
 				intelScreenHelper.ensureOnIntelScreen();
-				logInfo(routineLogIntelligenceLine("Scanning for explorations using grayscale matching."));
+				logDebug(routineLogIntelligenceLine("Scanning for explorations using grayscale matching."));
 				for (TemplatesEnum template : journeyTemplates()) {
 					if (seekAndProcessGrayscale(template, this::handleJourney)) {
 						anyIntelProcessed = true;
 						nonBeastIntelProcessed = true;
 						break;
 					}
+				}
+				if (!processingTask) {
+					return;
 				}
 			}
 
@@ -257,28 +303,21 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 
 	}
 
-private boolean hasAnyIntelMissionAvailableFlow() {
-		// Changed by pernerch | Date: 2026-07-02 | Why: lightweight pre-check to avoid unnecessary
-		// gather recalls when Intel has no visible missions to process.
-		intelScreenHelper.ensureOnIntelScreen();
-		return hasVisibleIntelMissionFlow();
-	}
-
 private boolean hasEnabledIntelMissionType() {
 		return beastsEnabled || fireBeastsEnabled || survivorCampsEnabled || explorationsEnabled;
 	}
 
 private boolean hasVisibleIntelMissionFlow() {
 
-		if (fireBeastsEnabled && templateSearchHelper
-				.locatePatternMono(TemplatesEnum.INTEL_FIRE_BEAST, SearchConfigConstants.DEFAULT_SINGLE)
+		if (fireBeastsEnabled && locateIntelPatternMono(
+				TemplatesEnum.INTEL_FIRE_BEAST, SearchConfigConstants.DEFAULT_SINGLE)
 				.isFound()) {
 			return true;
 		}
 
 		if (beastsEnabled) {
 			for (TemplatesEnum template : beastTemplates()) {
-				if (templateSearchHelper.locatePatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
+				if (locateIntelPatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
 					return true;
 				}
 			}
@@ -286,7 +325,7 @@ private boolean hasVisibleIntelMissionFlow() {
 
 		if (survivorCampsEnabled) {
 			for (TemplatesEnum template : survivorTemplates()) {
-				if (templateSearchHelper.locatePatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
+				if (locateIntelPatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
 					return true;
 				}
 			}
@@ -294,7 +333,7 @@ private boolean hasVisibleIntelMissionFlow() {
 
 		if (explorationsEnabled) {
 			for (TemplatesEnum template : journeyTemplates()) {
-				if (templateSearchHelper.locatePatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
+				if (locateIntelPatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
 					return true;
 				}
 			}
@@ -304,27 +343,18 @@ private boolean hasVisibleIntelMissionFlow() {
 	}
 
 private TemplatesEnum[] beastTemplates() {
-		return fcEra
-				? new TemplatesEnum[] { TemplatesEnum.INTEL_BEAST_GRAYSCALE_FC,
-						TemplatesEnum.INTEL_BEAST_GRAYSCALE_FC1, TemplatesEnum.INTEL_BEAST_GRAYSCALE }
-				: new TemplatesEnum[] { TemplatesEnum.INTEL_BEAST_GRAYSCALE,
-						TemplatesEnum.INTEL_BEAST_GRAYSCALE_FC, TemplatesEnum.INTEL_BEAST_GRAYSCALE_FC1 };
+		return intelPatternPreference.order(TemplatesEnum.INTEL_BEAST_GRAYSCALE,
+				TemplatesEnum.INTEL_BEAST_GRAYSCALE_FC, TemplatesEnum.INTEL_BEAST_GRAYSCALE_FC1);
 	}
 
 private TemplatesEnum[] survivorTemplates() {
-		return fcEra
-				? new TemplatesEnum[] { TemplatesEnum.INTEL_SURVIVOR_GRAYSCALE_FC,
-						TemplatesEnum.INTEL_SURVIVOR_GRAYSCALE }
-				: new TemplatesEnum[] { TemplatesEnum.INTEL_SURVIVOR_GRAYSCALE,
-						TemplatesEnum.INTEL_SURVIVOR_GRAYSCALE_FC };
+		return intelPatternPreference.order(TemplatesEnum.INTEL_SURVIVOR_GRAYSCALE,
+				TemplatesEnum.INTEL_SURVIVOR_GRAYSCALE_FC);
 	}
 
 private TemplatesEnum[] journeyTemplates() {
-		return fcEra
-				? new TemplatesEnum[] { TemplatesEnum.INTEL_JOURNEY_GRAYSCALE_FC,
-						TemplatesEnum.INTEL_JOURNEY_GRAYSCALE }
-				: new TemplatesEnum[] { TemplatesEnum.INTEL_JOURNEY_GRAYSCALE,
-						TemplatesEnum.INTEL_JOURNEY_GRAYSCALE_FC };
+		return intelPatternPreference.order(TemplatesEnum.INTEL_JOURNEY_GRAYSCALE,
+				TemplatesEnum.INTEL_JOURNEY_GRAYSCALE_FC);
 	}
 
 @Override
@@ -365,6 +395,7 @@ private void tryRescheduleFromCooldownFlow() {
 		}
 
 		reschedule(cooldown);
+		intelCyclePolicy.completeCycle();
 		pressBack();
 
 		logInfo(routineLogIntelligenceLine("Zero new intel detected. Planning next run task to run at: " + cooldown.format(DATETIME_FORMATTER)));
@@ -416,15 +447,15 @@ private boolean shouldProcessBeastsFlow() {
 	}
 
 private boolean seekAndProcessGrayscale(TemplatesEnum template, Consumer<ImageSearchResultData> processMethod) {
-		logInfo(routineLogIntelligenceLine("Scanning for grayscale template '" + template + "'"));
-		ImageSearchResultData result = templateSearchHelper.locatePatternMono(template, SearchConfigConstants.SINGLE_WITH_RETRIES);
+		logDebug(routineLogIntelligenceLine("Scanning for grayscale template '" + template + "'"));
+		ImageSearchResultData result = locateIntelPatternMono(template, SearchConfigConstants.SINGLE_WITH_RETRIES);
 
 		if (result.isFound()) {
 			logInfo(routineLogIntelligenceLine("Grayscale template detected: " + template));
 			processMethod.accept(result);
 			return true;
 		}
-		logWarning(routineLogIntelligenceLine("Grayscale template not detected: " + template));
+		logDebug(routineLogIntelligenceLine("Grayscale template not detected: " + template));
 		return false;
 	}
 
@@ -464,6 +495,37 @@ private MarchesAvailable resolveMarchesAvailable(List<MarchSlotState> slots) {
 private int redeemCompletedMissions() {
 		intelScreenHelper.ensureOnIntelScreen();
 		logInfo(routineLogIntelligenceLine("Scanning for completed missions to claim."));
+		ImageSearchResultData claimAll = templateSearchHelper.locatePattern(
+				TemplatesEnum.INTEL_CLAIM_ALL, INTEL_CLAIM_ALL_SEARCH);
+		if (claimAll.isFound()) {
+			return redeemAllCompletedMissions(claimAll);
+		}
+		return redeemCompletedMissionsIndividually();
+	}
+
+private int redeemAllCompletedMissions(ImageSearchResultData claimAll) {
+		List<ImageSearchResultData> completed = templateSearchHelper.locateAllPatterns(
+				TemplatesEnum.INTEL_COMPLETED, searchConfigMultiple);
+		logInfo(routineLogIntelligenceLine("Intel Claim All detected. Collecting "
+				+ Math.max(1, completed.size()) + " completed mission(s) with one action."));
+		tapInside(claimAll);
+		sleepTask(1_500);
+		tapInside(new PointData(700, 1270), new PointData(710, 1280), 6, 250);
+		sleepTask(1_000);
+
+		ImageSearchResultData remaining = templateSearchHelper.locatePattern(
+				TemplatesEnum.INTEL_CLAIM_ALL, INTEL_CLAIM_ALL_SEARCH);
+		if (!remaining.isFound()) {
+			logInfo(routineLogIntelligenceLine("Intel Claim All completed and the button disappeared."));
+			return Math.max(1, completed.size());
+		}
+
+		logWarning(routineLogIntelligenceLine(
+				"Intel Claim All remained visible after the tap. Falling back to individual completed markers."));
+		return redeemCompletedMissionsIndividually();
+	}
+
+private int redeemCompletedMissionsIndividually() {
 		int claimedRewards = 0;
 
 		for (int i = 0; i < 2; i++) {
@@ -473,8 +535,8 @@ private int redeemCompletedMissions() {
 					searchConfigMultiple);
 
 			if (completed.isEmpty()) {
-				logInfo(routineLogIntelligenceLine("Zero completed missions detected on attempt " + (i + 1) + "."));
-				continue;
+				logDebug(routineLogIntelligenceLine("Zero completed missions detected on attempt " + (i + 1) + "."));
+				break;
 			}
 
 			logInfo(routineLogIntelligenceLine("Detected " + completed.size() + " completed missions. Collecting them now."));
@@ -859,7 +921,6 @@ private record GatherMarchCandidate(MarchResourceType type, int queueIndex, Loca
 	}
 
 private void hydrateConfiguration() {
-		this.fcEra = profile.getConfig(ConfigurationKeyEnum.INTEL_FC_ERA_BOOL, Boolean.class);
 		this.useSmartProcessing = profile.getConfig(ConfigurationKeyEnum.INTEL_SMART_PROCESSING_BOOL, Boolean.class);
 		this.recallGatherTroopsFlow = profile.getConfig(ConfigurationKeyEnum.INTEL_RECALL_GATHER_TROOPS_BOOL,
 				Boolean.class);
@@ -871,7 +932,7 @@ private void hydrateConfiguration() {
 		this.explorationsEnabled = profile.getConfig(ConfigurationKeyEnum.INTEL_EXPLORATION_BOOL, Boolean.class);
 		this.textHelper = new ResilientOcrExecutor<>(provider);
 
-		logDebug(routineLogIntelligenceLine("Configuration loaded: fcEra=" + fcEra + ", useSmartProcessing=" + useSmartProcessing +
+		logDebug(routineLogIntelligenceLine("Configuration loaded: useSmartProcessing=" + useSmartProcessing +
 				", recallGatherTroopsFlow=" + recallGatherTroopsFlow + ", useFlag=" + useFlag + ", beastsEnabled="
 				+ beastsEnabled));
 	}
@@ -895,8 +956,11 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 			MarchesAvailable marchesAvailable) {
 		sleepTask(500);
 
-		boolean missionsStillAvailable = hasAnyIntelMissionAvailableFlow();
+		intelScreenHelper.ensureOnIntelScreen();
+		releaseElapsedIntelMarchesFlow();
+		marchQueueLimitReached = !marchesAvailable.available() || intelMarchesRemaining <= 0;
 		boolean nonMarchBoundMissionAvailable = hasNonMarchBoundIntelMissionAvailableFlow();
+		boolean missionsStillAvailable = nonMarchBoundMissionAvailable || hasMarchBoundIntelMissionAvailableFlow();
 		boolean onlyMarchBoundMissionsLeft = missionsStillAvailable && !nonMarchBoundMissionAvailable;
 
 		if (onlyMarchBoundMissionsLeft && marchQueueLimitReached) {
@@ -916,7 +980,20 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 		}
 
 		if (!anyIntelProcessed) {
-			logInfo(routineLogIntelligenceLine("Missions still exist but none were processed this cycle. Retrying immediately."));
+			consecutiveNoProgressCycles++;
+			if (consecutiveNoProgressCycles >= 2) {
+				LocalDateTime retryAt = LocalDateTime.now().plusMinutes(5);
+				logWarning(routineLogIntelligenceLine(
+						"Missions still exist but two complete scans made no progress. Stopping the loop and retrying at: "
+								+ retryAt.format(DATETIME_FORMATTER)));
+				reschedule(retryAt);
+				processingTask = false;
+				return;
+			}
+			logInfo(routineLogIntelligenceLine(
+					"Missions still exist but none were processed. Performing one bounded confirmation scan."));
+		} else {
+			consecutiveNoProgressCycles = 0;
 		}
 
 		if (missionsStillAvailable && marchQueueLimitReached && nonMarchBoundMissionAvailable) {
@@ -930,6 +1007,32 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 		LocalDateTime now = LocalDateTime.now();
 		LocalDateTime queueRelease = marchesAvailable == null ? null : marchesAvailable.rescheduleTo();
 		return IntelMarchAvailabilityPolicy.resolveNextRelease(now, queueRelease, intelBeastReturnTimes);
+	}
+
+	private void releaseElapsedIntelMarchesFlow() {
+		LocalDateTime now = LocalDateTime.now();
+		int returned = countElapsedIntelMarches(now, intelBeastReturnTimes);
+		if (returned == 0) {
+			return;
+		}
+
+		intelBeastReturnTimes.removeIf(returnAt -> returnAt == null || !returnAt.isAfter(now));
+		intelMarchesRemaining = Math.min(maxIntelMarches, intelMarchesRemaining + returned);
+		if (useFlag && intelMarchesRemaining > 0) {
+			beastMarchSent = false;
+		}
+		logInfo(routineLogIntelligenceLine("Released " + returned
+				+ " Intel march slot(s) from elapsed travel x2 ETA; available="
+				+ intelMarchesRemaining + "/" + maxIntelMarches + "."));
+	}
+
+	static int countElapsedIntelMarches(LocalDateTime now, List<LocalDateTime> returnTimes) {
+		if (now == null || returnTimes == null) {
+			return 0;
+		}
+		return (int) returnTimes.stream()
+				.filter(returnAt -> returnAt != null && !returnAt.isAfter(now))
+				.count();
 	}
 
 	private void initializeIntelMarchCountersFlow(int idleMarches) {
@@ -981,11 +1084,9 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 	}
 
 	private boolean hasNonMarchBoundIntelMissionAvailableFlow() {
-		intelScreenHelper.ensureOnIntelScreen();
-
 		if (survivorCampsEnabled) {
 			for (TemplatesEnum template : survivorTemplates()) {
-				if (templateSearchHelper.locatePatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
+				if (locateIntelPatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
 					return true;
 				}
 			}
@@ -993,7 +1094,7 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 
 		if (explorationsEnabled) {
 			for (TemplatesEnum template : journeyTemplates()) {
-				if (templateSearchHelper.locatePatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
+				if (locateIntelPatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
 					return true;
 				}
 			}
@@ -1002,13 +1103,39 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 		return false;
 	}
 
+	private boolean hasMarchBoundIntelMissionAvailableFlow() {
+		if (fireBeastsEnabled && locateIntelPatternMono(
+				TemplatesEnum.INTEL_FIRE_BEAST, SearchConfigConstants.DEFAULT_SINGLE)
+				.isFound()) {
+			return true;
+		}
+
+		if (beastsEnabled) {
+			for (TemplatesEnum template : beastTemplates()) {
+				if (locateIntelPatternMono(template, SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private ImageSearchResultData locateIntelPatternMono(TemplatesEnum template, SearchConfig config) {
+		ImageSearchResultData result = templateSearchHelper.locatePatternMono(template, config);
+		if (result.isFound() && intelPatternPreference.recordMatch(template)) {
+			logInfo(routineLogIntelligenceLine("Fire Crystal Intel marker confirmed by " + template
+					+ ". Prioritizing Fire Crystal marker variants for the rest of this run."));
+		}
+		return result;
+	}
+
 	private boolean handleBeastIntel() {
 		intelScreenHelper.ensureOnIntelScreen();
 		boolean beastFound = false;
 
 
 		if (fireBeastsEnabled && !(useFlag && beastMarchSent)) {
-			logInfo(routineLogIntelligenceLine("Scanning for fire beasts."));
+			logDebug(routineLogIntelligenceLine("Scanning for fire beasts."));
 			if (seekAndProcessGrayscale(TemplatesEnum.INTEL_FIRE_BEAST, this::handleBeast)) {
 				beastFound = true;
 				if (useFlag) {
@@ -1020,7 +1147,7 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 
 
 		if (!(useFlag && beastMarchSent)) {
-			logInfo(routineLogIntelligenceLine("Scanning for beasts using grayscale matching."));
+			logDebug(routineLogIntelligenceLine("Scanning for beasts using grayscale matching."));
 			for (TemplatesEnum beast_screening : beastTemplates()) {
 				if (seekAndProcessGrayscale(beast_screening, this::handleBeast)) {
 					beastFound = true;
@@ -1033,13 +1160,6 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 	}
 
 private void handleSurvivor(ImageSearchResultData result) {
-		if (survivorMissionsSincePause >= SURVIVOR_BATCH_LIMIT) {
-			logInfo(routineLogIntelligenceLine("Survivor batch limit reached (" + SURVIVOR_BATCH_LIMIT
-					+ "). Waiting 1 minute before launching more survivor missions."));
-			sleepTask(SURVIVOR_BATCH_PAUSE_MILLIS);
-			survivorMissionsSincePause = 0;
-		}
-
 		tapInside(result);
 		sleepTask(2000);
 
@@ -1063,7 +1183,8 @@ private void handleSurvivor(ImageSearchResultData result) {
 		}
 
 		tapInside(rescue);
-		sleepTask(500);
+		sleepTask(800);
+		intelScreenHelper.returnToIntelFromWilderness();
 		survivorMissionsSincePause++;
 		StaminaService.getServices().subtractStamina(profile.getId(), SURVIVOR_STAMINA_COST_VALUE);
 		StatisticsService.obtain().addToCounter(profile, "Intel Survivor Camps", 1);
@@ -1095,8 +1216,30 @@ private void handleJourney(ImageSearchResultData result) {
 		tapInside(explore);
 		sleepTask(500);
 		tapNear(new PointData(520, 1200));
-		sleepTask(1000);
-		pressBack();
+		long deadline = System.nanoTime() + JOURNEY_RESULT_TIMEOUT_MILLIS * 1_000_000L;
+		sleepTask(JOURNEY_INITIAL_RESULT_WAIT_MILLIS);
+
+		ImageSearchResultData victory = ImageSearchResultData.miss();
+		while (System.nanoTime() < deadline) {
+			victory = templateSearchHelper.locatePattern(
+					TemplatesEnum.EXPLORATION_VICTORY, SearchConfigConstants.DEFAULT_SINGLE);
+			if (victory.isFound()) {
+				break;
+			}
+			sleepTask(JOURNEY_RESULT_POLL_MILLIS);
+		}
+		if (!victory.isFound()) {
+			logWarning(routineLogIntelligenceLine(
+					"Journey victory was not confirmed within 30 seconds. Retrying Intel in 5 minutes."));
+			reschedule(LocalDateTime.now().plusMinutes(5));
+			processingTask = false;
+			return;
+		}
+
+		logInfo(routineLogIntelligenceLine("Journey victory confirmed. Leaving the result screen."));
+		tapInside(JOURNEY_VICTORY_CONTINUE_AREA);
+		sleepTask(800);
+		intelScreenHelper.returnToIntelFromWilderness();
 		StaminaService.getServices().subtractStamina(profile.getId(), JOURNEY_STAMINA_COST_VALUE);
 		StatisticsService.obtain().addToCounter(profile, "Intel Journeys", 1);
 	}
@@ -1134,13 +1277,23 @@ private void handleBeast(ImageSearchResultData beast) {
 		}
 		tapInside(attack);
 		sleepTask(500);
+		if (deploymentHelper.isMarchQueueFull()) {
+			logInfo(routineLogIntelligenceLine(
+					"March Queue popup confirmed that no slot is available. Retrying in 5 minutes."));
+			reschedule(LocalDateTime.now().plusMinutes(5));
+			marchQueueLimitReached = true;
+			processingTask = false;
+			return;
+		}
 
 
 		ImageSearchResultData deployButton = templateSearchHelper.locatePattern(TemplatesEnum.DEPLOY_BUTTON,
 				SearchConfigConstants.SINGLE_WITH_RETRIES);
 		if (!deployButton.isFound()) {
-			logError(routineLogIntelligenceLine("March queue is full. Cannot start a new march."));
-			marchQueueLimitReached = true;
+			logWarning(routineLogIntelligenceLine(
+					"Deploy screen was not confirmed after Attack. No march was sent; retrying in 5 minutes."));
+			reschedule(LocalDateTime.now().plusMinutes(5));
+			processingTask = false;
 			return;
 		}
 
@@ -1164,9 +1317,17 @@ private void handleBeast(ImageSearchResultData beast) {
 		var deployment = deploymentHelper.readScreen(DeploymentHelper.MAX_ATTACK_STAMINA_COST);
 		long travelTimeSeconds = deployment.travelTimeSeconds();
 		int spentStamina = deployment.staminaCost();
-		if (deploymentHelper.hasNoDeployableTroops() || deploymentHelper.isDeployCostRed()) {
+		if (deploymentHelper.hasNoDeployableTroops()) {
 			logWarning(routineLogIntelligenceLine(
-					"Deployment blocked by troops or stamina. No march was sent or deducted; retrying in 5 minutes."));
+					"Deployment has no available troops. No march was sent; retrying in 5 minutes."));
+			pressBack();
+			reschedule(LocalDateTime.now().plusMinutes(5));
+			processingTask = false;
+			return;
+		}
+		if (deploymentHelper.isDeployCostRed()) {
+			logWarning(routineLogIntelligenceLine(
+					"Deployment stamina cost is red. No march was sent or deducted; retrying in 5 minutes."));
 			pressBack();
 			reschedule(LocalDateTime.now().plusMinutes(5));
 			processingTask = false;
@@ -1197,6 +1358,14 @@ private void handleBeast(ImageSearchResultData beast) {
 				+ travelTimeSeconds + ", staminaCost=" + spentStamina + "."));
 		tapInside(deploy);
 		sleepTask(1000);
+		if (deploymentHelper.isMarchQueueFull()) {
+			logInfo(routineLogIntelligenceLine(
+					"March Queue became full before Deploy completed. Retrying in 5 minutes."));
+			reschedule(LocalDateTime.now().plusMinutes(5));
+			marchQueueLimitReached = true;
+			processingTask = false;
+			return;
+		}
 
 
 		ImageSearchResultData confirmDialog = templateSearchHelper.locatePattern(TemplatesEnum.DEPLOY_CONFIRMATION_DIALOG, SearchConfigConstants.SINGLE_WITH_RETRIES);
@@ -1255,5 +1424,20 @@ private void handleBeast(ImageSearchResultData beast) {
 						+ ". Continuing loop to use remaining available marches."));
 			}
 		}
+		intelScreenHelper.returnToIntelFromWilderness();
+	}
+
+	private void waitForSurvivorBatchCooldownFlow() {
+		if (!survivorBatchCooldownRequired(survivorMissionsSincePause)) {
+			return;
+		}
+		logInfo(routineLogIntelligenceLine("Survivor batch limit reached (" + SURVIVOR_BATCH_LIMIT
+				+ "). Waiting 20 seconds before taking a fresh Intel marker snapshot."));
+		sleepTask(SURVIVOR_BATCH_PAUSE_MILLIS);
+		survivorMissionsSincePause = 0;
+	}
+
+	static boolean survivorBatchCooldownRequired(int launchedSincePause) {
+		return launchedSincePause >= SURVIVOR_BATCH_LIMIT;
 	}
 }

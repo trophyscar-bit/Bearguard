@@ -32,6 +32,7 @@ public final class CommonGameAreas {
     // after every completed Intel reward has been claimed.
     public static final AreaData INTEL_COOLDOWN_WITH_MARKERS_OCR_AREA = region(378, 103, 508, 146);
     public static final AreaData INTEL_COOLDOWN_EMPTY_MAP_OCR_AREA    = region(378, 580, 530, 640);
+    public static final AreaData INTEL_CLAIM_ALL_AREA                 = region(190, 1050, 530, 1200);
 
     // ── side panel navigation ────────────────────────────────────────
 
@@ -55,6 +56,8 @@ public final class CommonGameAreas {
     public static final PointData SIDEBAR_RESET_TO = point(360, 820);
     public static final PointData SIDEBAR_SCROLL_FROM = point(360, 800);
     public static final PointData SIDEBAR_SCROLL_TO = point(360, 350);
+    public static final PointData SIDEBAR_SCROLL_TOWARD_BOTTOM_FROM = point(360, 720);
+    public static final PointData SIDEBAR_SCROLL_TOWARD_BOTTOM_TO = point(360, 600);
 
     public static AreaData sidebarTab(SidebarSection section) {
         return switch (section) {
