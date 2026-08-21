@@ -22,7 +22,7 @@ import dev.frostguard.vision.convert.RegexNumberParser;
  * shared Fragment Backpack.
  *
  * <p>
- * matt/2026-08-14: the original {@code LaunchPoint.HOME}-then-pan-search approach
+ * The original {@code LaunchPoint.HOME}-then-pan-search approach
  * (see the old header below) turned out to be unreliable in practice -- camera pan
  * position drifts run to run depending on whatever the prior task left it at, so the
  * badge was often not where the pan sweep expected. Real fix, live-verified on the
@@ -55,10 +55,10 @@ import dev.frostguard.vision.convert.RegexNumberParser;
  * candidate-rescan logic below expects.
  *
  * <p>
- * <b>Alliance Trade deliberately NOT run automatically (matt's call, 2026-08-14):</b>
+ * <b>Alliance Trade deliberately NOT run automatically (the operator's call, 2026-08-14):</b>
  * the request/send logic below is real and was live-verified working correctly (Ally
  * Requests skip owned:1 rows and only send genuine duplicates, confirmed against a
- * live panel) -- but matt wants to handle Alliance Trade manually for now, so
+ * live panel) -- but the operator wants to handle Alliance Trade manually for now, so
  * {@code execute()} no longer calls it. Left in place, unused, for a future re-enable
  * rather than deleted.
  *
@@ -80,7 +80,7 @@ public class MonumentRoutine extends DelayedTask {
             new PointData(665, 258),
     };
 
-    // ========== Lancer-relative navigation to Monument (matt/2026-08-14) ==========
+    // ========== Lancer-relative navigation to Monument (the operator/2026-08-14) ==========
     // Same coordinates as TrainingRoutine.LANCER_AREA_VALUE / TRAINING_CAMP_TAP_MIN/MAX_VALUE --
     // the Lancer row in the left-menu City queue list, then the camp building itself.
     private static final PointData LANCER_AREA_TOP_LEFT = new PointData(161, 636);
@@ -141,7 +141,7 @@ public class MonumentRoutine extends DelayedTask {
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int ACTION_SETTLE_MS = 900;
     /** The reward-reveal animation after Enable runs noticeably longer than a normal
-     *  panel transition -- matt/2026-08-12, root cause of an earlier stuck-owned-count bug. */
+     *  panel transition -- the operator/2026-08-12, root cause of an earlier stuck-owned-count bug. */
     private static final int PACK_OPEN_SETTLE_MS = 1800;
 
     private static final OcrSettingsData PANEL_TITLE_OCR_SETTINGS = OcrSettingsData.assembler()
@@ -172,7 +172,7 @@ public class MonumentRoutine extends DelayedTask {
 
     @Override
     protected void execute() {
-        // matt/2026-08-12: a prior task (Resource Stockpile Scan, in particular) can
+        // A prior task (Resource Stockpile Scan, in particular) can
         // leave its own popup open when Monument's turn comes up. Clear it first,
         // unconditionally, before searching for anything.
         clearStrayPopups();
@@ -193,7 +193,7 @@ public class MonumentRoutine extends DelayedTask {
         tapNear(ATLAS_BACK_ARROW);
         sleepTask(ACTION_SETTLE_MS);
 
-        // matt/2026-08-14: moved here (was called before the back-arrow, at a coordinate that
+        // Moved here (was called before the back-arrow, at a coordinate that
         // doesn't exist on that screen -- see class header). This is the real Tundra Albums
         // hub, where Fragment Backpack's actual button lives.
         logInfo(logLine("On Tundra Albums. Processing the shared Fragment Backpack."));
@@ -202,7 +202,7 @@ public class MonumentRoutine extends DelayedTask {
         logInfo(logLine("Checking the milestone chest track."));
         claimMilestoneChestsIfReady();
 
-        // matt/2026-08-14: Alliance Trade deliberately not run automatically -- matt wants to
+        // Alliance Trade deliberately not run automatically -- the operator wants to
         // handle it manually for now. processAllianceTradeRequests()/processAllianceTradeSends()
         // are live-verified working correctly (see class header) and left in place for a future
         // re-enable, just not called here.
@@ -216,7 +216,7 @@ public class MonumentRoutine extends DelayedTask {
     }
 
     /**
-     * matt/2026-08-14: replaces the old direct-search-then-pan approach (kept below as
+     * Replaces the old direct-search-then-pan approach (kept below as
      * {@link #findBadgeWithPanFallback()}, tried second) -- navigates to Lancer Camp (a fixed,
      * always-reachable building) then a single confirmed 300px right swipe brings Monument's
      * badge into view, live-verified repeatedly. Taps the badge, then VERIFIES it's no longer
@@ -267,7 +267,7 @@ public class MonumentRoutine extends DelayedTask {
     }
 
     /**
-     * matt/2026-08-12: confirmed live that Resource Stockpile Scan's "Overview"
+     * Confirmed live that Resource Stockpile Scan's "Overview"
      * panel does NOT close on a back press -- it's a game-rendered modal, not a
      * native Android view, so the system back key is simply ignored by it. A
      * different task later left a DIFFERENT panel open ("Resource &amp; Speedup
@@ -278,7 +278,7 @@ public class MonumentRoutine extends DelayedTask {
      * clean Home screen is confirmed.
      *
      * <p>
-     * matt/2026-08-14: root-caused live, by watching the actual screen after a run --
+     * Root-caused live, by watching the actual screen after a run --
      * this game's own back-button behavior on the City/Home view is to ZOOM OUT to
      * the World strategic map, not to close nothing-there / exit. With nothing open
      * (the overwhelmingly common case), the blind {@code pressBack()} x3 x4-rounds
@@ -287,7 +287,7 @@ public class MonumentRoutine extends DelayedTask {
      * World map. From World, Monument's badge/building templates (Home-only) can
      * never match again, so it got permanently stuck until some unrelated task
      * happened to navigate back to Home for its own purposes. This is exactly what
-     * matt saw and described as the app "freaking out" / "almost exiting."
+     * the operator saw and described as the app "freaking out" / "almost exiting."
      * <p>
      * Fix: stop reinventing Home-recovery with raw back-presses. The framework
      * already has {@link dev.frostguard.engine.helper.NavigationHelper#ensureCorrectScreenLocation}
@@ -331,8 +331,8 @@ public class MonumentRoutine extends DelayedTask {
                 TemplatesEnum.MONUMENT_BUILDING_ANCHOR, SearchConfigConstants.QUICK_SEARCH).isFound();
     }
 
-    // ========== Camera-pan fallback (matt/2026-08-13) ==========
-    // matt/2026-08-13: root-caused live, by hand, comparing a real screenshot against what the bot
+    // ========== Camera-pan fallback (the operator/2026-08-13) ==========
+    // Root-caused live, by hand, comparing a real screenshot against what the bot
     // was actually seeing -- ensureCorrectScreenLocation(HOME) only confirms the camera is ZOOMED to
     // the City view (via the Furnace anchor), not that it's PANNED to wherever Monument's building
     // happens to sit. Repeated automated runs never had Monument in the viewport at all; a manual
@@ -342,7 +342,7 @@ public class MonumentRoutine extends DelayedTask {
     // pan the camera in each cardinal direction and re-check after every pan, instead of assuming the
     // first look is the only look. Drags are controlled (explicit duration), not flicks, to avoid
     // triggering momentum scrolling far past the intended distance.
-    // matt/2026-08-13, Part 2: live-verified by hand -- from the app's own default camera position,
+    // Live-verified by hand -- from the app's own default camera position,
     // Monument needed a SINGLE pan roughly up-and-left (finger drag from ~(550,800) to ~(300,500), i.e.
     // dx=-250/dy=-300) to come fully into view; the original 280px reach undershot that in the
     // corresponding diagonal direction, and the 90-threshold recheck was tight enough that a
@@ -367,7 +367,7 @@ public class MonumentRoutine extends DelayedTask {
             {-PAN_DISTANCE_PX, 0},  // reveal what's to the right
     };
 
-    // matt/2026-08-14: caught live watching the app -- "it just randomly searches around the
+    // Caught live watching the app -- "it just randomly searches around the
     // screen." Root cause chain: (1) MONUMENT_BUILDING_ANCHOR was stale (captured against an old
     // building skin, live-verified 0.35 score against the actual current golden-ringed Monument --
     // recaptured), which made isScreenClear() unreliable and pushed almost every run into the full
@@ -442,7 +442,7 @@ public class MonumentRoutine extends DelayedTask {
         }
     }
 
-    // matt/2026-08-13: caught live -- the Tundra Albums hub has its own fragment-count milestone
+    // Caught live -- the Tundra Albums hub has its own fragment-count milestone
     // chest track at the top (separate from the per-category Atlas rewards handled above) that this
     // routine's own header comment had flagged as a known, unhandled gap. Live-verified by hand: the
     // currently-claimable chest is visually lit/glowing; tapping it opens a real "Rewards" popup
@@ -492,15 +492,15 @@ public class MonumentRoutine extends DelayedTask {
         logWarning(logLine("Hit the milestone-chest safety cap (" + MAX_MILESTONE_CHEST_CLAIMS + ")."));
     }
 
-    // matt/2026-08-13: caught live -- ALBUMS_FRAGMENT_BACKPACK_BTN was documented as the Tundra
+    // Caught live -- ALBUMS_FRAGMENT_BACKPACK_BTN was documented as the Tundra
     // Albums hub's own button, but this method used to fire BEFORE the back-arrow tap, on a
     // screen where that coordinate doesn't correspond to a real button at all -- 0 rows ever
     // opened, with no error, because the panel-title check below just correctly declined every
-    // time. matt/2026-08-14: fixed by moving the call to after the back-arrow (see execute()) so
+    // time. Observed live: fixed by moving the call to after the back-arrow (see execute()) so
     // this now genuinely runs on the Tundra Albums hub, where ALBUMS_FRAGMENT_BACKPACK_BTN is
     // the real button -- live-verified hand-driven, screenshot-confirmed.
 
-    // matt/2026-08-13, live-verified by hand, full real clear-out (General Album -> Daybreak Island
+    // the operator/2026-08-13, live-verified by hand, full real clear-out (General Album -> Daybreak Island
     // x3 -> The Labyrinth, 5 packs total): the fixed-row model above was wrong on two counts.
     // (1) A row with multiple pack types side by side (e.g. Daybreak Island showing 3 colors at
     // once) RE-CENTERS its remaining icons after each one is opened -- tapping a fixed per-slot X
@@ -524,12 +524,12 @@ public class MonumentRoutine extends DelayedTask {
     private static final int BACKPACK_BADGE_HALF_HEIGHT = 18;
     private static final int BACKPACK_MAX_TOTAL_OPENS = 40;
 
-    // matt/2026-08-14, caught live: findAnyOwnedPackIcon() false-positived on candidate (360,587) --
+    // Observed live caught live: findAnyOwnedPackIcon() false-positived on candidate (360,587) --
     // the OCR "owned count" read at that offset actually landed on the unrelated Labyrinth hub's own
     // milestone-chest track digits, not a real pack. The bot tapped it, tapped where Enable should be,
     // tapped where a reward-reveal close should be -- all blind, all on the wrong screen -- and ended
     // up stuck on a completely different "Rewards ... Tap anywhere to exit" chest-reveal screen (a
-    // different UI skin REWARD_REVEAL_TAP_ANYWHERE doesn't clear) for 7+ minutes until matt manually
+    // different UI skin REWARD_REVEAL_TAP_ANYWHERE doesn't clear) for 7+ minutes until the operator manually
     // quit. Two real fixes: (1) a hard wall-clock time budget on the whole pass, so an unrecognized
     // screen can never again silently eat minutes; (2) active recovery (repeated back-presses, which
     // already carry the quit-game-dialog safety net) instead of one blind close-tap that assumes
@@ -590,7 +590,7 @@ public class MonumentRoutine extends DelayedTask {
             tapNear(PACK_DETAIL_ENABLE_BTN);
             sleepTask(PACK_OPEN_SETTLE_MS);
 
-            // matt/2026-08-13: the reward-reveal screen has two visual variants -- a quick single-icon
+            // The reward-reveal screen has two visual variants -- a quick single-icon
             // flash for small stacks, and a slower multi-piece grid intro for bigger ones -- and the
             // grid variant is still mid-animation (not yet tappable) right when a single "tap anywhere"
             // would have landed before. Tap twice with a settle between; harmless no-op on the fast
@@ -689,7 +689,7 @@ public class MonumentRoutine extends DelayedTask {
             Integer owned = ownedText == null ? null : RegexNumberParser.extractByPattern(
                     ownedText, Pattern.compile("(\\d+)"));
 
-            // matt, 2026-08-12: only send when a duplicate is actually owned (>=2) --
+            // Only send when a duplicate is actually owned (>=2) --
             // "Owned: 1" means it's their only copy, leave it alone.
             if (owned != null && owned >= 2) {
                 logInfo(logLine("Ally Requests row " + row + ": owned " + owned + ", sending."));

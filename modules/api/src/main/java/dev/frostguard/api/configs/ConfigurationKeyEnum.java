@@ -94,7 +94,7 @@ public enum ConfigurationKeyEnum {
     RESEARCH_ENABLED_BOOL                       ("false",   Boolean.class,  ConfigCategory.CITY),
     RESEARCH_GROWTH_BOOL                        ("false",   Boolean.class,  ConfigCategory.CITY),
     RESEARCH_PRIORITIES_STRING                  ("growth:Growth:1:true|economy:Economy:2:true|battle:Battle:3:true", String.class, ConfigCategory.CITY),
-    // matt/2026-08-12: "Explore the World" Atlas/Monument -- claims ready quest rows,
+    // "Explore the World" Atlas/Monument -- claims ready quest rows,
     // opens owned Scene Fragment Packs, runs daily Alliance Trade requests/sends.
     MONUMENT_ENABLED_BOOL               ("false",   Boolean.class,  ConfigCategory.CITY),
 
@@ -283,9 +283,9 @@ public enum ConfigurationKeyEnum {
     // Depends on feature/schedule-jitter-and-quit-dialog-guard -- see that branch for why.
     SCHEDULE_JITTER_PERCENT_INT         ("15",          Integer.class,  ConfigCategory.SYSTEM),
     SCHEDULE_JITTER_MAX_SECONDS_INT     ("150",         Integer.class,  ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: allow explicit stop-policy selection for GUI stop action.
+    // Allow explicit stop-policy selection for GUI stop action.
     STOP_BEHAVIOR_STRING                ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
-    // Changed by pernerch | Date: 2026-07-04 | Why: separate Telegram stop behavior from local GUI stop behavior.
+    // Separate Telegram stop behavior from local GUI stop behavior.
     STOP_BEHAVIOR_TELEGRAM_STRING       ("DO_NOTHING",  String.class,   ConfigCategory.SYSTEM),
     LDPLAYER_PATH_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     MAX_IDLE_TIME_INT                   ("15",          Integer.class,  ConfigCategory.SYSTEM),
