@@ -187,11 +187,11 @@ public class ResourceStockpileRoutine extends DelayedTask {
             Long iron = sanityCheckAgainstCached("iron", read.get("iron"),
                     ConfigurationKeyEnum.RESOURCE_STOCKPILE_IRON_LONG);
 
-            // Dave's #254 review: the timestamp used to advance unconditionally whenever the
+            // The timestamp used to advance unconditionally whenever the
             // Overview panel was merely readABLE, even on a pass where every single field got
             // rejected by the sanity check above -- marking a genuinely stale cache as fresh.
             //
-            // Dave's #254 re-review: a single SHARED timestamp still had a gap even after that fix
+            // A single SHARED timestamp still had a gap even after that fix
             // -- if only meat was accepted this pass, advancing one shared timestamp made wood/
             // coal/iron's untouched, possibly much older values look exactly as fresh as meat's
             // brand-new one. Each field now gets its own LAST_READ timestamp, advanced only when

@@ -558,7 +558,7 @@ private void requeueAutoJoinTaskFlow() {
 	}
 
 private void finalizePostIntelTaskFlow() {
-		// Dave's #254 re-review: this used to release unconditionally at the end of every pass --
+		// This used to release unconditionally at the end of every pass --
 		// but under the real serial per-profile TaskQueue, Gather only ever runs as a SEPARATE task
 		// dispatch after Intel's own execute() has fully returned. Releasing here meant the claim's
 		// entire lifetime was contained within Intel's own execute() call, so Gather could never

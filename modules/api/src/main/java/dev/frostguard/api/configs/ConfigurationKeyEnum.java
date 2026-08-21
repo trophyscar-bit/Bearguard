@@ -253,7 +253,7 @@ public enum ConfigurationKeyEnum {
     SPEEDUP_RESEARCH_MIN_LONG          ("0",  Long.class,    ConfigCategory.GATHERING),
     SPEEDUP_HEALING_MIN_LONG           ("0",  Long.class,    ConfigCategory.GATHERING),
     RESOURCE_STOCKPILE_LAST_READ_STRING ("",   String.class,  ConfigCategory.GATHERING),
-    // Dave's #254 re-review: the single shared LAST_READ_STRING above advanced whenever ANY field
+    // The single shared LAST_READ_STRING above advanced whenever ANY field
     // was accepted, even if the other three were rejected by the sanity check that same pass --
     // making rejected/stale values look fresh under the shared timestamp. Per-field timestamps let
     // GatherRoutine judge each resource's own freshness independently instead of all four at once.

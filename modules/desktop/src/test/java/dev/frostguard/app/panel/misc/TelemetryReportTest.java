@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Covers the fixes from Dave's #250 review: workspace-relative loading, per-profile isolation,
+ * Covers the review fixes: workspace-relative loading, per-profile isolation,
  * malformed-line tolerance, and per-metric (not per-sample) delta anchoring.
  */
 class TelemetryReportTest {
@@ -117,7 +117,7 @@ class TelemetryReportTest {
 
     @Test
     void narrowWindowUsesTheLastValueBeforeItOpenedAsBaseline() throws IOException {
-        // Dave's #251 review: "Past Hour" against an hourly writer normally contains exactly one
+        // "Past Hour" against an hourly writer normally contains exactly one
         // in-window sample, so the old first-in-window baseline made start==end and the delta
         // always read as zero -- even though a real earlier sample (just outside the window)
         // proves the value actually changed. One sample well before the window, one sample
@@ -210,7 +210,7 @@ class TelemetryReportTest {
 
     @Test
     void activityDeltaUsesTheLastActivityBearingSampleAtOrBeforeTheWindowAsBaseline() throws IOException {
-        // Dave's re-review, point 2: activityOverWindow() only ever looked at samples AT OR AFTER
+        // ActivityOverWindow() only ever looked at samples AT OR AFTER
         // `from`, so with the hourly writer, a narrow window (e.g. "Past Hour") normally contains
         // exactly one activity-bearing sample -- start and end are the same row, and every activity
         // count reads as zero even though real activity happened just before the window opened.

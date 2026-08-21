@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Covers Dave's #254 re-review of {@code readCurrentStockpiles}/{@code isFieldFresh}: per-field
+ * Covers the re-review of {@code readCurrentStockpiles}/{@code isFieldFresh}: per-field
  * staleness (a stale field is dropped, not the whole cache), a missing/malformed/future timestamp
  * is trusted once and then re-stamped so it can't bypass staleness forever, and a legacy shared
  * timestamp is still honored as a fallback when a field's own per-field timestamp was never
