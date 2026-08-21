@@ -94,7 +94,7 @@ public class LabyrinthRaidRoutine extends DelayedTask {
     }
 
     // ========== "Tail of the tape" -- stat comparison screen ==========
-    // Observed live live-verified: the magnifying-glass icon next to the stage's enemy portrait
+    // Live-verified: the magnifying-glass icon next to the stage's enemy portrait
     // on the Challenge screen opens "View Details" -- Troops Details (enemy composition) up top,
     // then a 12-row "My Stats" vs "Opponent's Stats" table (Infantry/Lancer/Marksman x
     // Attack/Defense/Lethality/Health), all 12 rows fitting on screen with no scroll needed at this
@@ -174,7 +174,7 @@ public class LabyrinthRaidRoutine extends DelayedTask {
     private static final PointData MARKSMAN_COUNT_FIELD = new PointData(475, 648);
     private static final PointData COUNT_EDIT_OK_BUTTON = new PointData(640, 1216);
     private static final PointData DEPLOY_BUTTON = new PointData(549, 1213);
-    // Observed live live-verified crop (pixel-checked against a real deploy-screen screenshot):
+    // Live-verified crop (pixel-checked against a real deploy-screen screenshot):
     // tight enough to exclude the person-icon and warning-icon glyphs on either side, which
     // otherwise feed Tesseract noise it doesn't need with a digits/comma/slash whitelist.
     private static final PointData ARMY_TOTAL_TL = new PointData(85, 108);
@@ -290,7 +290,7 @@ public class LabyrinthRaidRoutine extends DelayedTask {
     }
 
     // ========== Battle result detection ==========
-    // Observed live live-verified: the post-battle screen shows an unambiguous "Defeat!" or
+    // Live-verified: the post-battle screen shows an unambiguous "Defeat!" or
     // "Victory!" banner -- far more reliable than parsing Battle Report troop-loss numbers.
     private static final PointData RESULT_BANNER_TL = new PointData(90, 320);
     private static final PointData RESULT_BANNER_BR = new PointData(630, 400);
@@ -325,7 +325,7 @@ public class LabyrinthRaidRoutine extends DelayedTask {
     }
 
     /**
-     * Observed live live-verified: "Retry" re-fights with the IDENTICAL deployed ratio -- same
+     * Live-verified: "Retry" re-fights with the IDENTICAL deployed ratio -- same
      * inputs, same deterministic outcome, wastes an attempt for literally nothing (confirmed live:
      * lost twice in a row with no ratio change between). Never used here. Instead, on a loss, this
      * taps "Adjust number of troops" to return to the deploy screen with a fresh preset.
@@ -355,7 +355,7 @@ public class LabyrinthRaidRoutine extends DelayedTask {
      * regardless of how many the account has left, so a genuinely bad matchup can never burn the
      * whole daily pool on its own.
      *
-     * <p>Attempt 1 now uses {@link #configuredDefaultFor}'s Research Center /
+     * <p>: attempt 1 now uses {@link #configuredDefaultFor}'s Research Center /
      * Gear Forge default ratio (the UI field he can tune) instead of the OCR-derived guess this
      * used to make on its own. The OCR read of the stat comparison still runs first -- an
      * unreadable screen is still a hard stop, and it still supplies the fallback lean when no

@@ -61,7 +61,7 @@ public class LabyrinthLayoutController extends AbstractProfileController {
     // "once you add Gaia, I should be able to put in both formation percentages" --
     // Gaia Heart is a real two-squad zone (Squad Config, same shape as Land of Heroes), not a
     // single-composition Challenge fight like Research Center/Gear Forge. Squad 3 scaffolded too
-    // (locked until Stage 15-10 on the operator's account) -- ready the moment it unlocks.
+    // (locked until Stage 15-10 on this account) -- ready the moment it unlocks.
     @FXML private TextField tfGaiaSquad1Inf;
     @FXML private TextField tfGaiaSquad1Lan;
     @FXML private TextField tfGaiaSquad1Mrk;
