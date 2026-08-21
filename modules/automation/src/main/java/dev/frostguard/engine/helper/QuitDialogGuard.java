@@ -9,7 +9,7 @@ import dev.frostguard.engine.emulator.EmulatorController;
  * Single shared implementation of the "quit game?" confirmation-dialog recovery, so every Back
  * press in the codebase gets the same protection instead of each call site inventing its own.
  *
- * <p>Dave's #252 review flagged two real gaps in the original version of this guard (which
+ * <p>The review flagged two real gaps in the original version of this guard (which
  * lived only in {@code NavigationHelper}): (1) the dialog was checked for immediately after the
  * ADB Back command with no settle delay, so a dialog that animates in a beat late was missed, and
  * (2) several direct {@code EmulatorController.pressBack(...)} call sites across the codebase

@@ -386,7 +386,7 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
         emuManager.swipeScreen(EMULATOR_NUMBER, start, end);
     }
 
-    // Dave's #252 review: a duration-aware swipe(start, end, durationMs) overload lived here with
+    // A duration-aware swipe(start, end, durationMs) overload lived here with
     // zero callers on this branch -- unrelated scope creep for a schedule-jitter/quit-dialog PR.
     // Removed; it exists independently on Bearguard's own main where it actually has a consumer
     // (Monument's map-panning navigation), and can be proposed on its own if it's ever needed
@@ -500,7 +500,7 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
      * Schedules the next run at exactly the given time. Every one of this codebase's ~236
      * existing call sites was written expecting this exact contract, so it stays exact.
      *
-     * <p>Dave's #252 review, 2026-08-18: an earlier version of this method jittered every call
+     * <p>An earlier version of this method jittered every call
      * unconditionally -- silently adding up to {@link ConfigurationKeyEnum#SCHEDULE_JITTER_MAX_SECONDS_INT}
      * of drift to saved schedules, daily/event reset times, Bear Trap plans, stamina wake-ups,
      * Telegram schedules, and every custom task, none of which had been audited as tolerant of
@@ -532,7 +532,7 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
      * <p>Only ever delays, never pulls forward — arriving early at a timer that has not expired
      * wastes a navigation cycle and can read as a retry loop.</p>
      *
-     * <p>Dave's #252 review: deliberately opt-in and currently uncalled. This used to be what
+     * <p>Deliberately opt-in and currently uncalled. This used to be what
      * plain {@code reschedule()} did for every one of ~236 call sites, none of which had been
      * checked for whether a scattered wake-up is actually safe for them (a fixed event window
      * or march landing, for instance, is not). Migrating specific call sites to this is a
