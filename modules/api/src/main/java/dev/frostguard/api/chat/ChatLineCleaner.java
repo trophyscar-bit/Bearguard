@@ -42,6 +42,65 @@ public final class ChatLineCleaner {
                     + "|help (request|needed)|has joined the alliance|alliance bomb)\\b");
 
     private static final Pattern EMOJI_ONLY = Pattern.compile("^[\\p{So}\\p{Cn}\\s]+$");
+
+    /**
+     * A player name as the game renders it at the head of a quoted reply.
+     *
+     * <p>Replying puts the original message inside the new bubble as {@code Name: text}. Read as
+     * one region that lands in the body, so a third of all captured messages carried somebody
+     * else's words appended to their own -- measured at 84 of 295 on a live pass.
+     */
+    private static final String QUOTED_NAME =
+            "(?:\\[[A-Za-z0-9]{2,4}\\])?[A-Za-z][A-Za-z0-9_'!.-]{0,14}(?:\\s[A-Za-z0-9_'!.-]{1,12}){0,2}";
+
+    /** The quote begins on its own line, so a newline boundary is the reliable one. */
+    private static final Pattern QUOTE_AT_LINE = Pattern.compile("\\n\\s*(" + QUOTED_NAME + "):\\s");
+
+    /** Fallback for when the reader loses the line break. */
+    private static final Pattern QUOTE_INLINE = Pattern.compile("\\s(" + QUOTED_NAME + "):\\s");
+
+    /**
+     * Game-generated chatter rather than anything a player typed: recalled messages, shared layouts
+     * and coordinates, rally and formation cards. Kept separable so the reader can hide it and be
+     * left with the conversation.
+     */
+    private static final Pattern NON_SPEECH = Pattern.compile(
+            "(?i)\\b(recalled a message|share (layout|coordinates)|state\\s*#\\s*\\d+"
+                    + "|has joined the alliance|left your alliance|new message\\(s\\)"
+                    + "|hold(ing)? a rally|join(ed)? the rally|rally (started|is starting)"
+                    + "|defeat the beast|gather together|formation shared)\\b");
+
+    /**
+     * The most common English function words. Enough of them in a message means it is English;
+     * their absence means it is not, whatever alphabet it happens to use.
+     */
+    private static final java.util.Set<String> COMMON_ENGLISH = java.util.Set.of(
+            "the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "it", "for", "not", "on",
+            "with", "he", "as", "you", "do", "at", "this", "but", "his", "by", "from", "they", "we",
+            "say", "her", "she", "or", "an", "will", "my", "one", "all", "would", "there", "their",
+            "what", "so", "up", "out", "if", "about", "who", "get", "which", "go", "me", "when",
+            "make", "can", "like", "time", "no", "just", "him", "know", "take", "into", "year",
+            "your", "good", "some", "could", "them", "see", "other", "than", "then", "now", "look",
+            "only", "come", "its", "over", "think", "back", "after", "use", "two", "how", "our",
+            "work", "first", "well", "way", "even", "new", "want", "because", "any", "these", "give",
+            "day", "most", "us", "is", "are", "was", "were", "am", "been", "has", "had", "did",
+            "does", "dont", "cant", "im", "ive", "youre", "yes", "yeah", "ok", "okay", "thanks",
+            "thank", "please", "hi", "hello", "hey", "lol", "sorry", "rally", "join", "help", "need",
+            "more", "bro", "man", "still", "here", "why", "much", "very", "really");
+
+    private static final Pattern WORDS = Pattern.compile("[A-Za-z']+");
+
+    /** Below this share of recognisable English words a message is treated as foreign. */
+    private static final double ENGLISH_WORD_RATIO = 0.25;
+
+    /**
+     * Below this the function-word test has no power and is left alone.
+     *
+     * <p>Three was too low. "proton password manager" carries no function words at all, scored zero,
+     * and was shipped to the translator to come back unchanged -- a wasted lookup on plain English.
+     * Short messages now rely on the diacritic and script checks, which need no word evidence.
+     */
+    private static final int MIN_WORDS_TO_JUDGE = 5;
     private static final Pattern REPEATED_SPACE = Pattern.compile("\\s{2,}");
 
     private ChatLineCleaner() {
@@ -120,31 +179,109 @@ public final class ChatLineCleaner {
 
     /**
      * Whether the body already reads as English, decided locally so the common case never leaves
-     * the machine. Any non-Latin script is decisive on its own; otherwise a body has to be mostly
-     * ASCII letters before it is treated as English.
+     * the machine.
+     *
+     * <p>The first version compared how much of the text was ASCII, which is not a language test at
+     * all. Turkish and Spanish are written in plain ASCII, so "bana nazik bir sekilde maymun dedi"
+     * scored as confidently English and was never translated. On a live pass that rule called every
+     * one of the foreign messages English -- the translation feature had a 100% miss rate while
+     * appearing to work.
+     *
+     * <p>What actually separates English from other Latin-script languages is its function words.
+     * A message carrying none of them is not English regardless of its alphabet, and one carrying
+     * several is, so the decision keys on those instead. Any non-Latin script still settles it
+     * outright.
+     *
+     * <p>A short message is left alone: two words are not enough evidence either way, and sending
+     * them all for translation would spend lookups on "one day" and "thanks bro".
      */
     public static boolean looksEnglish(String body) {
         if (body == null || body.isBlank()) {
             return true;
         }
-        long letters = 0;
-        long ascii = 0;
         for (int i = 0; i < body.length(); i++) {
             char c = body.charAt(i);
-            if (!Character.isLetter(c)) {
+            if (!Character.isLetter(c) || c < 128) {
                 continue;
             }
-            letters++;
-            if (c < 128) {
-                ascii++;
-            } else {
-                Character.UnicodeScript script = Character.UnicodeScript.of(c);
-                if (script != Character.UnicodeScript.LATIN) {
-                    return false;
+            // Any non-Latin script settles it outright. So does an accented Latin letter: English
+            // effectively does not use them, so a single one is stronger evidence than a word count
+            // -- and it catches short messages the word test is too small to judge.
+            return false;
+        }
+
+        java.util.List<String> words = new ArrayList<>();
+        Matcher m = WORDS.matcher(body.toLowerCase(Locale.ROOT));
+        while (m.find()) {
+            words.add(m.group());
+        }
+        if (words.size() < MIN_WORDS_TO_JUDGE) {
+            return true;
+        }
+        long known = words.stream().filter(COMMON_ENGLISH::contains).count();
+        return (known / (double) words.size()) >= ENGLISH_WORD_RATIO;
+    }
+
+    /** What a bubble held once the quoted reply is taken off it. */
+    public record Body(String own, String quoted) {
+    }
+
+    /**
+     * Separates the sender's own words from the message they were replying to.
+     *
+     * <p>Both are read as one region, so without this the transcript attributes another player's
+     * sentence to whoever quoted it. The quote is rendered last, so the final boundary is the
+     * right one -- taking the first match splits on a name mentioned mid-sentence instead.
+     */
+    public static Body splitQuotedReply(String body) {
+        if (body == null || body.isBlank()) {
+            return new Body("", "");
+        }
+        for (Pattern pattern : new Pattern[] {QUOTE_AT_LINE, QUOTE_INLINE}) {
+            Matcher m = pattern.matcher(body);
+            int start = -1;
+            while (m.find()) {
+                // A quote with nothing before it is the whole bubble, not a reply.
+                if (!body.substring(0, m.start()).isBlank()) {
+                    start = m.start();
                 }
             }
+            if (start >= 0) {
+                return new Body(collapse(body.substring(0, start)), collapse(body.substring(start)));
+            }
         }
-        return letters == 0 || (ascii / (double) letters) >= 0.9;
+        return new Body(collapse(body), "");
+    }
+
+    /**
+     * True when a body is actually a sender line the row split failed to separate.
+     *
+     * <p>The name sits on the first line of the row, so a missing line break sends it downstream as
+     * the message. It shows up as a bubble containing nothing but a tag and a name -- "64
+     * [HOD]TheFlyingDutch" -- which is not something anyone said.
+     */
+    public static boolean looksLikeSenderLine(String body) {
+        if (body == null || body.isBlank()) {
+            return false;
+        }
+        Sender s = parseSender(body);
+        // The giveaway is the decoration, not the name: a stray sender line still carries its
+        // alliance tag or VIP badge, and no message is only that. Keying on "does this parse as a
+        // name" instead would match almost any short sentence, since the parser will happily read
+        // one as a name.
+        if (s.allianceTag().isEmpty() && s.vipLevel() == 0) {
+            return false;
+        }
+        long words = WORDS.matcher(s.name()).results().count();
+        return words <= MAX_WORDS_IN_A_NAME;
+    }
+
+    /** A player name runs to a few words; a sentence does not stop there. */
+    private static final int MAX_WORDS_IN_A_NAME = 3;
+
+    /** True when the line is a game event rather than something a player said. */
+    public static boolean isNonSpeech(String body) {
+        return body != null && NON_SPEECH.matcher(body).find();
     }
 
     /** Lowercased key for caching a translation, so the same phrase is only ever fetched once. */

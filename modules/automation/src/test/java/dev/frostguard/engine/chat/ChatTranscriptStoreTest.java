@@ -28,7 +28,7 @@ class ChatTranscriptStoreTest {
 
     private static ChatMessage msg(Instant at, String author, String body) {
         return new ChatMessage(at, "world", author, "INF", 0, body, "", List.of(),
-                ChatMessage.Kind.TEXT);
+                ChatMessage.Kind.TEXT, "");
     }
 
     private ChatTranscriptStore store() {
@@ -61,7 +61,7 @@ class ChatTranscriptStoreTest {
     @Test
     void unreadableRowsNeverReachTheTranscript() throws IOException {
         ChatMessage junk = new ChatMessage(Instant.parse("2026-08-21T22:15:00Z"), "world", "",
-                "", 0, "", "", List.of(), ChatMessage.Kind.UNREADABLE);
+                "", 0, "", "", List.of(), ChatMessage.Kind.UNREADABLE, "");
 
         assertEquals(0, store().append(List.of(junk)));
     }

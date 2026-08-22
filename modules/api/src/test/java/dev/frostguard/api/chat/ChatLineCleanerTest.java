@@ -95,10 +95,55 @@ class ChatLineCleanerTest {
     }
 
     @Test
-    void accentedLatinStillCountsAsForeignWhenItIsNotMostlyAscii() {
+    void accentedLatinIsForeignEvenWhenTheMessageIsTooShortToScoreWords() {
         // Turkish appears in live world chat. It is Latin script, so the script test alone passes
-        // it; the ASCII ratio is what catches it and sends it for translation.
+        // it, and at two words it is below the threshold the word test needs -- the diacritics are
+        // what catch it.
         assertFalse(ChatLineCleaner.looksEnglish("Teşekkürler işçi"));
+    }
+
+    @Test
+    void unaccentedForeignTextIsCaughtByItsLackOfEnglishFunctionWords() {
+        // The real miss: Turkish and Spanish written in plain ASCII scored as confidently English
+        // under the old ratio test, so every foreign message on a live pass went untranslated.
+        assertFalse(ChatLineCleaner.looksEnglish("bana nazik bir sekilde maymun dedi"));
+        assertFalse(ChatLineCleaner.looksEnglish("Y de onde eres vos amigo"));
+    }
+
+    @Test
+    void ordinaryEnglishStillReadsAsEnglishAndIsNeverSent() {
+        assertTrue(ChatLineCleaner.looksEnglish("who uses outlook?"));
+        assertTrue(ChatLineCleaner.looksEnglish("i pray for you"));
+        assertTrue(ChatLineCleaner.looksEnglish("A quick google search told me Latin America"));
+    }
+
+    @Test
+    void quotedReplyIsSeparatedFromTheSendersOwnWords() {
+        // A reply renders the original inside the same bubble. Measured on a live pass, 84 of 295
+        // messages carried someone else's sentence appended to their own.
+        ChatLineCleaner.Body b = ChatLineCleaner.splitQuotedReply(
+                String.join("\n", "@Rhaegar it still does",
+                        "Rhaegar: JK i know outlook doesnt say that"));
+
+        assertEquals("@Rhaegar it still does", b.own());
+        assertTrue(b.quoted().startsWith("Rhaegar:"));
+    }
+
+    @Test
+    void aNameMentionedMidSentenceDoesNotSplitTheMessage() {
+        // Taking the FIRST name-colon match splits on a mention rather than the quote, which is why
+        // the boundary is the last one.
+        ChatLineCleaner.Body b = ChatLineCleaner.splitQuotedReply("TheFlyingDutch same");
+
+        assertEquals("TheFlyingDutch same", b.own());
+        assertTrue(b.quoted().isEmpty());
+    }
+
+    @Test
+    void gameChatterIsRecognisedSoItCanBeHidden() {
+        assertTrue(ChatLineCleaner.isNonSpeech("[BAE]Qwert recalled a message"));
+        assertTrue(ChatLineCleaner.isNonSpeech("Share layout"));
+        assertFalse(ChatLineCleaner.isNonSpeech("who uses outlook?"));
     }
 
     @Test
