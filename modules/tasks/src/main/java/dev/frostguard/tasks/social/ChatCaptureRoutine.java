@@ -197,6 +197,12 @@ public class ChatCaptureRoutine extends DelayedTask {
             if (includePersonal) {
                 totalNew += captureChannel("personal", TAB_PERSONAL);
             }
+        } catch (RuntimeException failure) {
+            // The queue retries a throwing task immediately and does not print the cause, so a
+            // crash-loop shows up as the task restarting every few seconds with nothing to explain
+            // it. Naming the failure here is the difference between a mystery and a stack trace.
+            logError("ChatCaptureRoutine | Pass failed: " + failure, failure);
+            throw failure;
         } finally {
             // Closing chat has to happen whether the pass succeeded, threw, or gave up. It used to
             // sit on the success path only, so a failure left the game parked on the chat window --

@@ -44,12 +44,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 public final class ChatTranslator {
 
-    private static final String PRIMARY =
+    static final String PRIMARY =
             "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=";
 
     /** Documented, keyless, but capped for anonymous callers -- a backstop, not a primary. */
-    private static final String FALLBACK =
-            "https://api.mymemory.translated.net/get?langpair=autodetect|en&q=";
+    static final String FALLBACK =
+            "https://api.mymemory.translated.net/get?langpair=autodetect%7Cen&q=";
 
     private static final int MAX_CHARS = 1200;
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -134,7 +134,12 @@ public final class ChatTranslator {
                     .build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             return res.statusCode() == 200 ? Optional.of(res.body()) : Optional.empty();
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
+            // IllegalArgumentException is URI.create rejecting the assembled address. It used to
+            // escape this method, and because it is unchecked it travelled all the way out of the
+            // capture task -- the queue retried the task at once, so a bad address showed up as
+            // chat restarting every few seconds with nothing captured and no cause logged. A
+            // translation is a nicety; failing to build its URL must not end the pass.
             return Optional.empty();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
