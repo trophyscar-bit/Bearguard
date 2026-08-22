@@ -141,19 +141,20 @@ public class IntelScreenHelper {
                 return true;
             }
 
+            // The Lighthouse is a CITY building, so the city has to be on screen before anything
+            // goes looking for it.
+            if (!ensureInCity()) {
+                log.warn("Not in the city and could not switch to it; the Lighthouse is not "
+                        + "reachable from the kingdom map.");
+                return false;
+            }
+
             // With intel already collected the Lighthouse carries no bubble, but the building is
             // still there and still opens the map -- which is where the refresh timer lives. So the
             // building itself is tried before giving up, rather than treating "nothing new to
             // collect" as "cannot navigate".
-            ImageSearchResultData building = tpl.locatePattern(TemplatesEnum.LIGHTHOUSE_BUILDING,
-                    SearchConfigConstants.DEFAULT_SINGLE);
-            if (building.isFound()) {
-                log.info("Tapping the Lighthouse building at " + building.getPoint());
-                taps.tapInside(building);
-                pause(1_500);
-                if (isIntelScreenActive()) {
-                    return true;
-                }
+            if (tapLighthouse()) {
+                return true;
             }
 
             ImageSearchResultData hit = tpl.locatePattern(TemplatesEnum.LIGHTHOUSE_INTEL_BUBBLE,
@@ -376,8 +377,122 @@ public class IntelScreenHelper {
     private static final int CAMERA_SETTLE_POLL_MS = 600;
     private static final int CAMERA_SETTLE_MAX_POLLS = 20;
 
+    /**
+     * Where a Lighthouse that is comfortably in frame sits, measured from a live capture that
+     * matched at 100%. Used as the target to drag a partly-visible one towards.
+     */
+    private static final PointData LIGHTHOUSE_FRAMED_AT = new PointData(395, 760);
+
+    /** How close to {@link #LIGHTHOUSE_FRAMED_AT} counts as framed, so a good view is not dragged. */
+    private static final int FRAMED_TOLERANCE_PX = 140;
+
+    /** Above this the building is fully in frame and can be tapped as it stands. */
+    private static final double TAP_DIRECTLY_SCORE = 80.0;
+
+    /** How many locate-and-centre rounds before giving up. */
+    private static final int VIEW_ATTEMPTS = 3;
+
+    /** The map keeps sliding after a swipe; this is the wait for it to stop. */
+    private static final int MAP_SETTLE_MS = 1_200;
+
+    /**
+     * Finds the Lighthouse in the city view and opens it.
+     *
+     * <p>The caller has usually just used the Daily sidebar's "Lighthouse Intel" row, whose Go
+     * arrow pans the camera onto the building and puts the game's own tap prompt on it. That prompt
+     * is where this used to come unstuck: the Go arrow does not open Intel by itself, it only
+     * travels there and waits to be tapped, so the last step was always this one.
+     *
+     * <p>It failed for a reason no threshold could fix. The template was cropped from the lamp
+     * housing, which carries an animated rotating beam, so the same building photographed twice
+     * does not match itself -- real hits scored 69% against a 68% noise floor. Recut to the static
+     * stone tower, a Lighthouse in frame scores 88-100% and an empty view scores 23-32%.
+     *
+     * <p>The remaining wrinkle is that the pointing-hand prompt sits over the tower and drags a
+     * genuine match down to about 60%. That is still far above the noise floor and lands within a
+     * screen's width of where a framed Lighthouse sits, so it is treated as located rather than
+     * missing, and tapped where it was found -- measured at (360, 674), which opened Intel.
+     *
+     * <p>There is deliberately no city-wide search here. The city view scrolls far past the built
+     * area into empty snow, so a building that is not in frame cannot be found by dragging around
+     * looking for it -- an attempt at that wandered six large drags into blank terrain. When the
+     * Lighthouse is genuinely not on screen the honest answer is to say so and let the sidebar route
+     * put the camera back on it.
+     */
+    private boolean tapLighthouse() {
+        for (int attempt = 1; attempt <= VIEW_ATTEMPTS; attempt++) {
+            ImageSearchResultData found = tpl.locatePatternMultiScale(
+                    TemplatesEnum.LIGHTHOUSE_BUILDING,
+                    SearchConfigConstants.LIGHTHOUSE_BUILDING_SEARCH);
+
+            if (!found.isFound()) {
+                log.debug("Lighthouse not in frame on attempt " + attempt + ".");
+                return false;
+            }
+
+            PointData at = found.getPoint();
+            double score = found.getMatchPercentage();
+
+            if (score >= TAP_DIRECTLY_SCORE || isFramed(at)) {
+                log.info(String.format(java.util.Locale.ROOT,
+                        "Tapping the Lighthouse at %s (match %.1f%%)", at, score));
+                taps.tapInside(found);
+                pause(1_500);
+                if (isIntelScreenActive()) {
+                    return true;
+                }
+                log.warn("Tapping the Lighthouse did not open Intel; re-centring and retrying.");
+            } else {
+                log.debug(String.format(java.util.Locale.ROOT,
+                        "Lighthouse off to one side at %s (match %.1f%%); centring it.", at, score));
+            }
+
+            dragMap(at, LIGHTHOUSE_FRAMED_AT);
+        }
+        return false;
+    }
+
+    private boolean isFramed(PointData at) {
+        return Math.abs(at.getX() - LIGHTHOUSE_FRAMED_AT.getX()) <= FRAMED_TOLERANCE_PX
+                && Math.abs(at.getY() - LIGHTHOUSE_FRAMED_AT.getY()) <= FRAMED_TOLERANCE_PX;
+    }
+
+    private void dragMap(PointData from, PointData to) {
+        emu.swipeScreen(dev, from, to, MAP_DRAG_MS);
+        pause(MAP_SETTLE_MS);
+    }
+
+    /** Slow enough that the map follows the finger instead of being flicked. */
+    private static final int MAP_DRAG_MS = 600;
+
     /** Provisional: tightened or relaxed once the logged deltas show what this scene really does. */
     private static final double CAMERA_SETTLE_MAX_DELTA = 6.0;
+
+    /**
+     * Puts the game in the base city, which is where the Lighthouse lives.
+     *
+     * <p>Checked positively rather than assumed: the city anchor has to be visible before anything
+     * goes looking for a building in it. Asking the navigator to switch and trusting that it worked
+     * is the same guess this method exists to remove.
+     */
+    private boolean ensureInCity() {
+        if (tpl.locatePattern(TemplatesEnum.GAME_HOME_FURNACE,
+                SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
+            return true;
+        }
+
+        log.info("On the kingdom map rather than the city; switching to the city for the Lighthouse.");
+        nav.ensureCorrectScreenLocation(LaunchPoint.HOME);
+        pause(CITY_SWITCH_SETTLE_MS);
+
+        boolean inCity = tpl.locatePattern(TemplatesEnum.GAME_HOME_FURNACE,
+                SearchConfigConstants.DEFAULT_SINGLE).isFound();
+        log.info(inCity ? "City confirmed." : "Still not in the city after switching.");
+        return inCity;
+    }
+
+    /** The city/map transition animates; the anchor is not up the instant the switch returns. */
+    private static final int CITY_SWITCH_SETTLE_MS = 1_500;
 
     private static void pause(long ms) {
         try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }

@@ -77,6 +77,27 @@ public final class SearchConfigConstants {
     // 60 sits far above the measured noise floor (43-52 across every stale template tried on that
     // frame) and far below a genuine hit. Not set higher: the 100% above is inflated by the template
     // having been cropped from this exact frame, so real matches on other frames will score lower.
+    /**
+     * Finding the Lighthouse in the city view.
+     *
+     * <p>Multi-scale because the city camera keeps whatever position and zoom the last routine left
+     * it at -- it is not reset on entry, which a live check confirmed: leaving the city and coming
+     * straight back returned the view to exactly where it had been scrolled to.
+     *
+     * <p>Threshold 45, measured against live captures after the template was recut from the
+     * animated lamp to the static tower. With the tower a Lighthouse fully in frame scores 88-100%
+     * and one that is absent scores 23-32%, a margin wide enough that the threshold stops being a
+     * tuning exercise. 45 sits in that gap: high enough to reject an empty city view, low enough to
+     * still locate a Lighthouse the UI banner is partly covering, which measured 65%.
+     *
+     * <p>The old 70 was set against the lamp template, whose real matches (69%) were
+     * indistinguishable from its noise (68%). No threshold could have worked there -- the template
+     * had to change, not the number.
+     */
+    public static final SearchConfig LIGHTHOUSE_BUILDING_SEARCH =
+            SearchConfig.builder().withMaxAttempts(2).withThreshold(45).withDelay(300L).build();
+
+
     public static final SearchConfig MONUMENT_BADGE_SEARCH =
             SearchConfig.builder().withMaxAttempts(6).withThreshold(60).withDelay(300L).build();
 
