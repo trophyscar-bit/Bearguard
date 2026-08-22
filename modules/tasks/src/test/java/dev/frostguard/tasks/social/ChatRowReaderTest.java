@@ -24,13 +24,12 @@ class ChatRowReaderTest {
     private static final Instant AT = Instant.parse("2026-08-21T22:15:00Z");
 
     /**
-     * Row bands are fixed offsets from the row top -- the name starts at +18 and the body at +58 --
-     * so the higher read is the name. The split sits between the two rather than near either, so a
-     * band offset changing by a few pixels does not silently swap them.
+     * The reader takes the whole row in one call and treats the first line as the sender, so the
+     * stub returns both joined the way the reader emits them.
      */
     private static java.util.function.BiFunction<PointData, PointData, String> reader(
             String name, String body) {
-        return (tl, br) -> tl.getY() < 40 ? name : body;
+        return (tl, br) -> name + (char) 10 + body;
     }
 
     private static List<ChatRowSegmenter.Row> oneRow() {

@@ -45,6 +45,9 @@ public final class ChatTranscriptCodec {
             ArrayNode arr = n.putArray("mentions");
             m.mentions().forEach(arr::add);
         }
+        if (m.hasQuote()) {
+            n.put("quoted", m.quoted());
+        }
         n.put("kind", m.kind().name());
         return n.toString();
     }
@@ -68,7 +71,8 @@ public final class ChatTranscriptCodec {
                     n.path("body").asText(""),
                     n.path("en").asText(""),
                     mentions,
-                    kindOf(n.path("kind").asText("TEXT")));
+                    kindOf(n.path("kind").asText("TEXT")),
+                    n.path("quoted").asText(""));
         } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
             return null;
         }

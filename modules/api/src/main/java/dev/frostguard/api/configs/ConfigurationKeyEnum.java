@@ -552,7 +552,11 @@ public enum ConfigurationKeyEnum {
 
     // Whole days older than this are deleted from the transcript. Frames are already removed as
     // soon as they are read, so this bounds the text alone.
-    CHAT_TRANSCRIPT_RETENTION_DAYS_INT  ("30",              Integer.class,  ConfigCategory.SYSTEM);
+    CHAT_TRANSCRIPT_RETENTION_DAYS_INT  ("30",              Integer.class,  ConfigCategory.SYSTEM),
+
+    // Hides game-generated chatter -- recalled messages, shared layouts and coordinates, rally and
+    // formation cards -- so the transcript is the conversation rather than the event feed.
+    CHAT_HIDE_GAME_CHATTER_BOOL         ("true",            Boolean.class,  ConfigCategory.SYSTEM);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.
