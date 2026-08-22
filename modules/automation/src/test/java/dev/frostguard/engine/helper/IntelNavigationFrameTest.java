@@ -38,7 +38,11 @@ class IntelNavigationFrameTest {
 
     @Test
     void detectsLighthouseRowAndReadsAdvertisedIntelGain() throws IOException, OcrException {
-        ImageSearchResultData row = IntelScreenHelper.lighthouseRowAtBottom();
+        // y=649 is where the Lighthouse row sat on THIS capture (2026-08-19). It has since moved to
+        // 723 as the Daily list gained an entry -- see DailySidebarLighthouseRowFrameTest. That is
+        // exactly why production locates the row instead of assuming a constant; this test pins the
+        // gain-area geometry relative to whatever row it is given.
+        ImageSearchResultData row = IntelScreenHelper.rowAt(649);
         assertEquals(new PointData(46, 649), row.getPoint());
 
         AreaData gainArea = IntelScreenHelper.gainAreaFor(row);
