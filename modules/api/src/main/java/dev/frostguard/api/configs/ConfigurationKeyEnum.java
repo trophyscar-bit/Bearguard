@@ -539,7 +539,20 @@ public enum ConfigurationKeyEnum {
     // Applied live, not just tagged: emote/sticker-only messages (no letters
     // or digits after stripping punctuation) are dropped before saving, since
     // that much is plain pattern matching and does not need an LLM.
-    CHAT_CAPTURE_FILTER_NOISE_BOOL      ("true",            Boolean.class,  ConfigCategory.SYSTEM);
+    CHAT_CAPTURE_FILTER_NOISE_BOOL      ("true",            Boolean.class,  ConfigCategory.SYSTEM),
+
+    // How many screens of history each pass walks back through. Every screen is one capture and
+    // one read, and consecutive passes overlap heavily, so this trades pass duration for how long
+    // the bot can be away before chat scrolls past what it can still reach.
+    CHAT_CAPTURE_SCROLL_BACK_INT        ("30",              Integer.class,  ConfigCategory.SYSTEM),
+
+    // Renders non-English messages into English over the network. Nothing is downloaded and no
+    // account is needed; a failed lookup leaves the original text in place.
+    CHAT_TRANSLATE_TO_ENGLISH_BOOL      ("true",            Boolean.class,  ConfigCategory.SYSTEM),
+
+    // Whole days older than this are deleted from the transcript. Frames are already removed as
+    // soon as they are read, so this bounds the text alone.
+    CHAT_TRANSCRIPT_RETENTION_DAYS_INT  ("30",              Integer.class,  ConfigCategory.SYSTEM);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.
