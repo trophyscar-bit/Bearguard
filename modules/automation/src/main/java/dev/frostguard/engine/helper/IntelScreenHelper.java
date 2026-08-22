@@ -102,7 +102,7 @@ public class IntelScreenHelper {
         AreaData go = SidebarNavigator.goButtonFor(lighthouseRow);
         log.info("Opening Lighthouse from Daily sidebar");
         taps.tapInside(go);
-        pause(1_500);
+        waitForCameraToSettle();
 
         if (reachIntelScreen()) {
             log.info("Intel reached");
@@ -139,6 +139,21 @@ public class IntelScreenHelper {
         for (int i = 1; i <= MAX_NAV_PASSES; i++) {
             if (isIntelScreenActive()) {
                 return true;
+            }
+
+            // With intel already collected the Lighthouse carries no bubble, but the building is
+            // still there and still opens the map -- which is where the refresh timer lives. So the
+            // building itself is tried before giving up, rather than treating "nothing new to
+            // collect" as "cannot navigate".
+            ImageSearchResultData building = tpl.locatePattern(TemplatesEnum.LIGHTHOUSE_BUILDING,
+                    SearchConfigConstants.DEFAULT_SINGLE);
+            if (building.isFound()) {
+                log.info("Tapping the Lighthouse building at " + building.getPoint());
+                taps.tapInside(building);
+                pause(1_500);
+                if (isIntelScreenActive()) {
+                    return true;
+                }
             }
 
             ImageSearchResultData hit = tpl.locatePattern(TemplatesEnum.LIGHTHOUSE_INTEL_BUBBLE,
@@ -298,6 +313,38 @@ public class IntelScreenHelper {
             return false;
         }
     }
+
+    /**
+     * Waits until the view stops moving, rather than guessing how long a pan takes.
+     *
+     * <p>The sidebar's Go button pans the camera across the city, and measured live that takes
+     * around eight seconds. The old fixed 1.5s wait expired mid-pan, so every check that followed
+     * ran against a screen that was still sliding -- which is why a building sitting in plain view
+     * was reported absent. Comparing consecutive frames ends the wait when the movement actually
+     * ends, on a fast machine and a slow one alike.
+     */
+    private void waitForCameraToSettle() {
+        byte[] previous = null;
+        for (int i = 0; i < CAMERA_SETTLE_MAX_POLLS; i++) {
+            pause(CAMERA_SETTLE_POLL_MS);
+            byte[] current;
+            try {
+                current = emu.captureScreen(dev).getFrameBytes();
+            } catch (RuntimeException e) {
+                return;
+            }
+            if (previous != null && java.util.Arrays.equals(previous, current)) {
+                log.debug("Camera settled after " + ((i + 1) * CAMERA_SETTLE_POLL_MS) + "ms");
+                return;
+            }
+            previous = current;
+        }
+        log.debug("Camera still moving after the settle budget; continuing anyway");
+    }
+
+    /** Long enough to cover the observed ~8s Go pan without stalling a pass that lands instantly. */
+    private static final int CAMERA_SETTLE_POLL_MS = 600;
+    private static final int CAMERA_SETTLE_MAX_POLLS = 20;
 
     private static void pause(long ms) {
         try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
