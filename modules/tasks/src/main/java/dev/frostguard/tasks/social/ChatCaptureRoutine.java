@@ -2,122 +2,81 @@ package dev.frostguard.tasks.social;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 import javax.imageio.ImageIO;
 
+import dev.frostguard.api.chat.ChatMessage;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
-import dev.frostguard.api.domain.PointData;
-import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
-import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
+import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.engine.chat.ChatTranscriptStore;
+import dev.frostguard.engine.chat.ChatTranslator;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
+import dev.frostguard.vision.layout.ChatRowSegmenter;
 import dev.frostguard.vision.ocr.OcrEngine;
 
 /**
- * Captures World, Alliance, and Personal chat on a schedule for the Whiteout
- * dashboard.
+ * Captures World, Alliance and Personal chat on a schedule and stores it as a readable transcript.
  *
- * <p><b>Capture is deliberately separated from interpretation.</b> Chat is
- * multilingual, full of emoji and sticker-only messages, and Tesseract handles
- * that far worse than it handles the numeric HUD - so each capture saves the
- * raw frame alongside a best-effort OCR pass rather than OCR text alone. A
- * poor OCR result then costs nothing: the frame is still on disk to be read
- * properly later. The {@code CHAT_CAPTURE_MODE_STRING} setting (transcript vs.
- * summary) is likewise a preference recorded for whatever writes the dashboard
- * afterward - producing an actual summary needs an AI pass over the
- * transcript, which is not something this bot can do with OCR alone.
+ * <p><b>Rows are found before anything is read.</b> Reading the whole feed as one block and
+ * splitting the result afterwards cannot recover message boundaries -- by then the reader has
+ * already run several people's lines together, and live captures show exactly that: senders like
+ * {@code Ww} and bodies carrying three separate messages. Every message instead owns one avatar
+ * tile, so {@link ChatRowSegmenter} finds the tiles geometrically and each row's name strip and
+ * bubble are read separately. Two tight reads per row cannot merge anything.
  *
- * <p><b>Diffing.</b> Each run starts at the newest messages and, per channel,
- * remembers a signature of what it captured. The next run compares its first
- * frame against that signature: identical means nothing changed and the run
- * stops immediately; different means it scrolls back through history, saving
- * each new frame, until it recognizes a frame it already captured last time
- * or hits a safety cap. This keeps repeat runs from re-saving the same
- * history every cycle.
+ * <p><b>Frames do not survive the pass.</b> Each screenshot is roughly 394KB, and the schedule this
+ * task runs -- around thirty screens across three channels every twenty minutes -- lands near 6,500
+ * frames a day, about 2.5GB. The same content as text is a few megabytes before de-duplication and
+ * far less after. So a frame is deleted the moment its rows are safely stored, and kept only when
+ * storing failed and the image is the sole remaining evidence.
  *
- * <p><b>Sender/message structure.</b> Each capture now parses the OCR'd
- * feed into actual {@code {sender, text}} pairs at capture time (see
- * {@link #parseMessages}), not as a flat list of lines left for some
- * downstream process to guess boundaries from later - that guessing is
- * exactly what was merging different people's messages together. A line
- * matching {@link #SENDER_LINE_PATTERN} opens a new message; every
- * following line (handles wrapped multi-line messages) belongs to it,
- * until the next sender line or end of capture.
- *
- * <p>Live-verified 2026-08-06 against real saved captures from this
- * account's own history (frames + OCR'd lines under
- * {@code telemetry/chat/frames/} and {@code chat.jsonl}) - not guessed.
+ * <p><b>Translation is network-only.</b> Frostguard ships to people who did not ask for a
+ * translation stack, so nothing is downloaded and no key is needed; see {@link ChatTranslator}.
  */
 public class ChatCaptureRoutine extends DelayedTask {
 
     private static final int DEFAULT_FREQUENCY_MINUTES = 30;
+    private static final int DEFAULT_SCROLL_BACK = 30;
+    private static final int DEFAULT_RETENTION_DAYS = 30;
+
+    /** Distinct phrases held before the least-used are dropped. Chat repeats heavily, so a modest
+     *  cache absorbs most of the traffic a pass would otherwise put on the network. */
+    private static final int TRANSLATION_CACHE_SIZE = 5000;
 
     /** Chat entry point: the globe/chat icon along the bottom of the World view. */
     private static final PointData CHAT_OPEN = new PointData(43, 1135);
 
     private static final PointData TAB_WORLD = new PointData(132, 116);
     private static final PointData TAB_ALLIANCE = new PointData(360, 117);
-    /** Measured live this session, unlike World/Alliance which predate it. */
     private static final PointData TAB_PERSONAL = new PointData(588, 117);
-
     private static final PointData CHAT_CLOSE = new PointData(44, 40);
 
-    /** Scrollable message area - excludes the tab header and the compose bar. */
+    /** Scrollable message area -- excludes the tab header and the compose bar. */
     private static final int FEED_TOP = 175;
     private static final int FEED_BOTTOM = 1150;
     private static final int FEED_X = 360;
 
-    // OCR region now EXCLUDES the avatar column (x < ~112
-    // on a live capture - avatar art + rank badge). Feeding player-portrait
-    // images into Tesseract as if they were text was a real source of the
-    // garbage glyphs polluting every capture. Sender name + message bubble
-    // both live to the right of the avatar, so this loses nothing.
-    private static final int FEED_LEFT = 112;
-    private static final int FEED_RIGHT = 710;
-
-    private static final int MAX_SCROLL_BACK = 8;
-
     /**
-     * Two real bugs fixed here, found by comparing this
-     * task's actual saved output against a live screenshot of the real chat
-     * UI:
-     * (1) TesseractOcrProvider hardcoded "eng" regardless of what any caller
-     *     configured. Tried eng+chi_sim first (chi_sim being the only extra
-     *     language pack already bundled) but live evidence was net-negative:
-     *     small UI icons/badges started getting misread AS Chinese glyphs
-     *     (a stray "全" appearing in otherwise-Portuguese/English text,
-     *     verified against real captures) - CJK's huge glyph set is more
-     *     prone to false-positive-matching an icon shape than English's
-     *     small character set is. Reverted to eng-only. Translation for
-     *     genuinely non-English text happens downstream in
-     *     chat_summarize.py instead (Google Translate, not local OCR
-     *     language packs) - see that file for why that's the more robust
-     *     place for it.
-     * (2) TesseractOcrProvider's recognizeText() unconditionally stripped
-     *     ALL newlines before returning, which is exactly right for a
-     *     single HUD value but was quietly flattening this task's entire
-     *     multi-message chat panel into one run-on string with no line
-     *     boundaries at all - that's the direct cause of captures coming
-     *     back as one giant garbled blob mixing several people's messages.
-     *     preserveLineBreaks(true) keeps Tesseract's real line segmentation.
+     * Reader configuration for a chat region.
+     *
+     * <p>English-only is deliberate and evidence-backed: adding chi_sim was net-negative live,
+     * because CJK's much larger glyph set false-matches small UI icons and badges as characters,
+     * putting stray glyphs into otherwise-Latin text. Foreign chat is handled downstream by
+     * translating the read text rather than by widening the reader.
      */
     private static final OcrSettingsData CHAT_TEXT_SETTINGS =
             OcrSettingsData.assembler()
@@ -127,49 +86,23 @@ public class ChatCaptureRoutine extends DelayedTask {
                     .preserveLineBreaks(true)
                     .build();
 
-    /**
-     * A sender-HEADER line (the bubble label above a message) looks like
-     * "VIP4 [INF]Abu Ibrahim" or "[INF]Abu Ibrahim" or "Abu Ibrahim" -
-     * short, no sentence-like punctuation, often with a VIP tier and/or a
-     * bracketed alliance tag. Message text, by contrast, is free-form
-     * prose. Bracket/paren accepted interchangeably on either side
-     * ("[INF)Mrs_Lasanha" was observed live - Tesseract mixing them up on
-     * a real capture) since that's an OCR-glyph-confusion issue, not a
-     * different UI element.
-     */
-    private static final java.util.regex.Pattern SENDER_HEADER_PATTERN =
-            java.util.regex.Pattern.compile(
-                    "^(VIP\\d+\\s*)?([\\[(][A-Za-z0-9]{2,5}[\\])]\\s*)?[\\p{L}0-9_.'\\- ]{2,24}$");
-
-    /**
-     * Added after live evidence the header-only pattern
-     * above was missing a second, equally common format - the small gray
-     * "reply preview" strip under a bubble, which renders inline as
-     * "Name: message" on ONE line rather than name-then-text on separate
-     * lines (e.g. "Kratos: Mas agora k so criar tropa..." seen live,
-     * completely missed by the header pattern since it never appears alone
-     * on its own line). This is checked as a distinct, self-contained
-     * message: sender is the part before the colon, text is everything
-     * after - it does not open a new multi-line block the way a header
-     * does, since a reply preview is always exactly one line.
-     */
-    private static final java.util.regex.Pattern INLINE_SENDER_PATTERN =
-            java.util.regex.Pattern.compile(
-                    "^([\\p{L}0-9_.'\\- ]{2,24}):\\s+(.+)$");
-
     private static final DateTimeFormatter FILE_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private int frequencyMinutes = DEFAULT_FREQUENCY_MINUTES;
     private boolean includeWorld = true;
     private boolean includeAlliance = true;
     private boolean includePersonal = false;
-    private boolean filterNoise = true;
     private String mode = "TRANSCRIPT";
+    private int scrollBack = DEFAULT_SCROLL_BACK;
+    private int retentionDays = DEFAULT_RETENTION_DAYS;
+
+    private ChatTranscriptStore store;
+    private ChatTranslator translator;
 
     public ChatCaptureRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
-        // Local time - the queue compares against LocalDateTime.now(); a UTC
-        // instant here would silently defer the first run by the UTC offset.
+        // Local time -- the queue compares against LocalDateTime.now(); a UTC instant here would
+        // silently defer the first run by the UTC offset.
         reschedule(LocalDateTime.now());
     }
 
@@ -193,11 +126,20 @@ public class ChatCaptureRoutine extends DelayedTask {
                 profile.getConfig(ConfigurationKeyEnum.CHAT_CAPTURE_INCLUDE_ALLIANCE_BOOL, Boolean.class));
         includePersonal = Boolean.TRUE.equals(
                 profile.getConfig(ConfigurationKeyEnum.CHAT_CAPTURE_INCLUDE_PERSONAL_BOOL, Boolean.class));
-        filterNoise = Boolean.TRUE.equals(
-                profile.getConfig(ConfigurationKeyEnum.CHAT_CAPTURE_FILTER_NOISE_BOOL, Boolean.class));
 
         String storedMode = profile.getConfig(ConfigurationKeyEnum.CHAT_CAPTURE_MODE_STRING, String.class);
         mode = storedMode != null && !storedMode.isBlank() ? storedMode : "TRANSCRIPT";
+
+        Integer back = profile.getConfig(ConfigurationKeyEnum.CHAT_CAPTURE_SCROLL_BACK_INT, Integer.class);
+        scrollBack = back != null && back > 0 ? back : DEFAULT_SCROLL_BACK;
+
+        Integer keep = profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSCRIPT_RETENTION_DAYS_INT, Integer.class);
+        retentionDays = keep != null && keep > 0 ? keep : DEFAULT_RETENTION_DAYS;
+
+        boolean translate = Boolean.TRUE.equals(
+                profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSLATE_TO_ENGLISH_BOOL, Boolean.class));
+        translator = new ChatTranslator(translate, TRANSLATION_CACHE_SIZE);
+        store = new ChatTranscriptStore(baseDir(), ZoneId.systemDefault());
     }
 
     @Override
@@ -211,7 +153,20 @@ public class ChatCaptureRoutine extends DelayedTask {
             return;
         }
 
-        logInfo("ChatCaptureRoutine | Opening chat.");
+        // Learn what previous runs already wrote before the first overlapping screen arrives,
+        // otherwise a restart re-appends the whole scroll-back it is about to re-read.
+        try {
+            store.primeFromDisk();
+            int purged = store.purgeOlderThan(retentionDays);
+            if (purged > 0) {
+                logInfo("ChatCaptureRoutine | Dropped " + purged + " transcript day(s) past the "
+                        + retentionDays + "-day window.");
+            }
+        } catch (IOException e) {
+            logWarning("ChatCaptureRoutine | Could not read the existing transcript: " + e.getMessage());
+        }
+
+        logInfo("ChatCaptureRoutine | Opening chat (" + mode + ", " + scrollBack + " screens back).");
         tapNear(CHAT_OPEN);
         sleepTask(1200L);
 
@@ -230,351 +185,121 @@ public class ChatCaptureRoutine extends DelayedTask {
         sleepTask(500L);
 
         int channelCount = (includeWorld ? 1 : 0) + (includeAlliance ? 1 : 0) + (includePersonal ? 1 : 0);
-        logInfo("ChatCaptureRoutine | Captured " + totalNew + " new frame(s) across " + channelCount + " channel(s).");
+        String size;
+        try {
+            size = ChatTranscriptStore.humanSize(store.sizeBytes());
+        } catch (IOException e) {
+            size = "unknown";
+        }
+        logInfo("ChatCaptureRoutine | Stored " + totalNew + " new message(s) across " + channelCount
+                + " channel(s). Transcript is now " + size + "; "
+                + translator.cachedPhrases() + " phrase(s) cached.");
 
         setRecurring(true);
         reschedule(LocalDateTime.now().plusMinutes(frequencyMinutes));
     }
 
     /**
-     * Captures one channel from newest backward until either the diff catches
-     * up to previously-seen content or the safety cap is hit. Returns the
-     * number of genuinely new frames saved.
+     * Walks one channel from the newest message backwards, storing what has not been seen before.
+     *
+     * @return how many genuinely new messages were stored
      */
     private int captureChannel(String channel, PointData tab) {
         tapNear(tab);
         sleepTask(1000L);
 
-        ChatDiffState previous = loadState(channel);
-        Set<String> previousSignatures = previous.frameSignatures;
-        Set<String> thisRunSignatures = new LinkedHashSet<>();
-        List<ChatMessage> newFrontier = null;
+        int stored = 0;
+        int barrenScreens = 0;
 
-        int saved = 0;
-        for (int i = 0; i < MAX_SCROLL_BACK; i++) {
+        for (int i = 0; i < scrollBack; i++) {
             RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
             if (frame == null || !frame.isValid()) {
-                logWarning("ChatCaptureRoutine | Could not capture a frame for " + channel + "; stopping this channel.");
+                logWarning("ChatCaptureRoutine | Could not capture a frame for " + channel
+                        + "; stopping this channel.");
                 break;
             }
+
             BufferedImage image = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
-
-            String rawText;
-            try {
-                // Direct call, bypassing readStringValue()'s indirection -
-                // that path doesn't expose preserveLineBreaks/language, and
-                // this task already holds its own frame to pass through.
-                rawText = OcrEngine.recognizeText(
-                        frame,
-                        new PointData(FEED_LEFT, FEED_TOP), new PointData(FEED_RIGHT, FEED_BOTTOM),
-                        CHAT_TEXT_SETTINGS);
-            } catch (Exception e) {
-                logWarning("ChatCaptureRoutine | OCR failed for " + channel + ": " + e.getMessage());
-                rawText = null;
+            List<ChatRowSegmenter.Row> rows = ChatRowSegmenter.segment(image);
+            if (rows.isEmpty()) {
+                logInfo("ChatCaptureRoutine | " + channel + ": no message rows on this screen.");
+                swipeUpThroughHistory();
+                continue;
             }
 
-            List<String> lines = cleanLines(rawText);
-            List<ChatMessage> messages = parseMessages(lines);
-            String signature = signatureOf(messages);
+            List<ChatMessage> messages = ChatRowReader.read(
+                    rows,
+                    (topLeft, bottomRight) -> readRegion(frame, topLeft, bottomRight),
+                    channel,
+                    Instant.now(),
+                    body -> translator.toEnglish(body));
 
-            if (i == 0) {
-                newFrontier = messages;
-                if (signature.equals(previous.frontierSignature)) {
-                    // Nothing has changed since last run's newest capture -
-                    // stop immediately rather than re-walking history that is
-                    // guaranteed to already be saved.
-                    logInfo("ChatCaptureRoutine | " + channel + ": no new messages since last check.");
-                    break;
-                }
-            } else if (previousSignatures.contains(signature)) {
-                // Walked back into territory the previous run already
-                // captured - everything before this point is already saved.
+            int fresh;
+            try {
+                fresh = store.append(messages);
+            } catch (IOException e) {
+                // The frame is the only remaining copy of anything that failed to store, so keep it
+                // and stop rather than scrolling past messages that were never written.
+                logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
+                        + ": " + e.getMessage());
+                keepUnstoredFrame(channel, i, image);
                 break;
             }
+            stored += fresh;
 
-            if (!messages.isEmpty()) {
-                saveFrame(channel, i, image, messages, signature);
-                thisRunSignatures.add(signature);
-                saved++;
+            // Overlapping scroll-backs mean most screens are already stored. Two consecutive
+            // screens with nothing new means this pass has reached history the previous pass
+            // already covered, and going further only spends captures re-reading it.
+            barrenScreens = fresh == 0 ? barrenScreens + 1 : 0;
+            if (barrenScreens >= 2) {
+                logInfo("ChatCaptureRoutine | " + channel + ": reached already-captured history.");
+                break;
             }
 
             swipeUpThroughHistory();
         }
 
-        // Persist this run's frontier (for the fast "nothing new" check) and
-        // the signatures walked this run (for next run's "have I reached
-        // already-seen content" check). If nothing new was found, keep the
-        // previous state as-is rather than overwriting it with an empty walk.
-        if (newFrontier != null && saved > 0) {
-            saveState(channel, signatureOf(newFrontier), thisRunSignatures);
-        }
-
-        return saved;
+        return stored;
     }
 
-    /** One parsed chat message: who sent it (best-effort) and what it says. */
-    private record ChatMessage(String sender, String text) {}
+    /** Reads one region of the held frame, returning empty rather than throwing on a bad read. */
+    private String readRegion(RawImageData frame, PointData topLeft, PointData bottomRight) {
+        try {
+            String text = OcrEngine.recognizeText(frame, topLeft, bottomRight, CHAT_TEXT_SETTINGS);
+            return text == null ? "" : text;
+        } catch (Exception e) {
+            return "";
+        }
+    }
 
     /**
-     * Groups OCR'd lines into {sender, text} pairs. A line matching
-     * {@link #SENDER_LINE_PATTERN} starts a new message; subsequent lines
-     * (handles a message that wraps across multiple physical lines) are
-     * appended to that message's text until the next sender line appears.
-     * Lines before the first recognized sender (page furniture, a message
-     * cut off by scroll position) are dropped rather than guessed at.
+     * Keeps a frame whose rows could not be stored.
+     *
+     * <p>Successful frames are deleted as soon as their rows are safe. A failure is the one case
+     * where the image is still the only evidence, and the standing rule is to dump the frame rather
+     * than guess at what went wrong.
      */
-    private List<ChatMessage> parseMessages(List<String> lines) {
-        List<ChatMessage> out = new ArrayList<>();
-        String currentSender = null;
-        StringBuilder currentText = null;
-
-        for (String line : lines) {
-            var inlineMatch = INLINE_SENDER_PATTERN.matcher(line);
-            if (inlineMatch.matches()) {
-                // Self-contained "Name: text" (reply-preview strip) - closes
-                // whatever multi-line header block was open, then stands as
-                // its own complete message immediately.
-                if (currentSender != null && currentText != null && currentText.length() > 0) {
-                    out.add(new ChatMessage(currentSender, currentText.toString().trim()));
-                }
-                out.add(new ChatMessage(inlineMatch.group(1).trim(), inlineMatch.group(2).trim()));
-                currentSender = null;
-                currentText = null;
-            } else if (SENDER_HEADER_PATTERN.matcher(line).matches()) {
-                if (currentSender != null && currentText != null && currentText.length() > 0) {
-                    out.add(new ChatMessage(currentSender, currentText.toString().trim()));
-                }
-                currentSender = line;
-                currentText = new StringBuilder();
-            } else if (currentSender != null) {
-                if (currentText.length() > 0) {
-                    currentText.append(' ');
-                }
-                currentText.append(line);
-            }
-            // else: text before any recognized sender - dropped, not guessed.
+    private void keepUnstoredFrame(String channel, int scrollIndex, BufferedImage image) {
+        try {
+            Path dir = baseDir().resolve("failed");
+            Files.createDirectories(dir);
+            Path out = dir.resolve(channel + "-" + LocalDateTime.now().format(FILE_STAMP)
+                    + "-" + scrollIndex + ".png");
+            ImageIO.write(image, "png", out.toFile());
+            logWarning("ChatCaptureRoutine | Kept the unstored frame at " + out);
+        } catch (IOException e) {
+            logWarning("ChatCaptureRoutine | Could not keep the failed frame: " + e.getMessage());
         }
-        if (currentSender != null && currentText != null && currentText.length() > 0) {
-            out.add(new ChatMessage(currentSender, currentText.toString().trim()));
-        }
-        return out;
     }
 
     private void swipeUpThroughHistory() {
-        // Downward drag reveals content above the current view, i.e. older
-        // messages - the opposite of how a page-down gesture reads.
+        // A downward drag reveals content above the current view, i.e. older messages -- the
+        // opposite of how a page-down gesture reads.
         swipe(new PointData(FEED_X, FEED_TOP + 120), new PointData(FEED_X, FEED_BOTTOM - 120));
         sleepTask(700L);
     }
 
-    /**
-     * Splits OCR output into lines and, when the filter is on, drops any line
-     * that has no letters or digits after stripping punctuation - the pattern
-     * an emote/sticker-only message leaves behind. This is plain string
-     * matching, not language understanding, so it is applied live rather than
-     * just tagged as a preference for later.
-     */
-    private List<String> cleanLines(String rawText) {
-        List<String> lines = new ArrayList<>();
-        if (rawText == null) {
-            return lines;
-        }
-        for (String line : rawText.split("\\r?\\n")) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            if (filterNoise && trimmed.replaceAll("[^\\p{L}\\p{N}]", "").length() < 2) {
-                continue;
-            }
-            lines.add(trimmed);
-        }
-        return lines;
-    }
-
-    private String signatureOf(List<ChatMessage> messages) {
-        StringBuilder sb = new StringBuilder();
-        for (ChatMessage m : messages) {
-            sb.append(m.sender()).append(':').append(m.text()).append(" | ");
-        }
-        return sb.toString();
-    }
-
-    private void saveFrame(String channel, int scrollIndex, BufferedImage image, List<ChatMessage> messages, String signature) {
-        String stamp = LocalDateTime.now(ZoneOffset.UTC).format(FILE_STAMP);
-        Path framesDir = baseDir().resolve("frames");
-        Path shot = framesDir.resolve(channel + "-" + stamp + "-" + scrollIndex + ".png");
-
-        try {
-            Files.createDirectories(framesDir);
-            ImageIO.write(image, "png", shot.toFile());
-        } catch (IOException e) {
-            logError("ChatCaptureRoutine | Frame save failed for " + channel + ": " + e.getMessage());
-            return;
-        }
-
-        List<Map<String, Object>> messageRows = new ArrayList<>();
-        for (ChatMessage m : messages) {
-            Map<String, Object> mr = new LinkedHashMap<>();
-            mr.put("sender", m.sender());
-            mr.put("text", m.text());
-            messageRows.add(mr);
-        }
-
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("capturedAt", LocalDateTime.now(ZoneOffset.UTC).toString() + "Z");
-        row.put("channel", channel);
-        row.put("mode", mode);
-        row.put("frame", baseDir().relativize(shot).toString().replace('\\', '/'));
-        // Was a flat "lines" array with no sender/message
-        // structure at all - that's what the downstream Python summarizer
-        // was trying (and failing) to reconstruct with regex. Now the
-        // capture itself owns that structure (see parseMessages above).
-        row.put("messages", messageRows);
-        row.put("signature", signature);
-        appendRow(toJson(row));
-    }
-
-    // ── diff state persistence ──────────────────────────────────────────
-
-    private record ChatDiffState(String frontierSignature, Set<String> frameSignatures) {}
-
-    private Path stateFile(String channel) {
-        return baseDir().resolve("state-" + channel + ".json");
-    }
-
-    private ChatDiffState loadState(String channel) {
-        Path file = stateFile(channel);
-        if (!Files.exists(file)) {
-            return new ChatDiffState("", Set.of());
-        }
-        try {
-            String json = Files.readString(file, StandardCharsets.UTF_8);
-            String frontier = extractJsonString(json, "frontierSignature");
-            Set<String> signatures = new LinkedHashSet<>(extractJsonStringArray(json, "frameSignatures"));
-            return new ChatDiffState(frontier == null ? "" : frontier, signatures);
-        } catch (IOException e) {
-            logWarning("ChatCaptureRoutine | Could not read diff state for " + channel + ": " + e.getMessage());
-            return new ChatDiffState("", Set.of());
-        }
-    }
-
-    private void saveState(String channel, String frontierSignature, Set<String> frameSignatures) {
-        StringBuilder sb = new StringBuilder("{");
-        sb.append("\"frontierSignature\":\"").append(escape(frontierSignature)).append("\",");
-        sb.append("\"frameSignatures\":[");
-        boolean first = true;
-        for (String s : frameSignatures) {
-            if (!first) {
-                sb.append(',');
-            }
-            first = false;
-            sb.append('"').append(escape(s)).append('"');
-        }
-        sb.append("]}");
-        try {
-            Files.createDirectories(baseDir());
-            Files.writeString(stateFile(channel), sb.toString(), StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        } catch (IOException e) {
-            logWarning("ChatCaptureRoutine | Could not write diff state for " + channel + ": " + e.getMessage());
-        }
-    }
-
-    /**
-     * Deliberately not a real JSON parser - the state file is written by this
-     * same class in a fixed shape, so a small hand-rolled reader is enough and
-     * avoids pulling in a JSON dependency for two fields.
-     */
-    private static String extractJsonString(String json, String key) {
-        var m = java.util.regex.Pattern.compile("\"" + key + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").matcher(json);
-        return m.find() ? unescape(m.group(1)) : null;
-    }
-
-    private static List<String> extractJsonStringArray(String json, String key) {
-        List<String> out = new ArrayList<>();
-        var arrayMatch = java.util.regex.Pattern.compile("\"" + key + "\"\\s*:\\s*\\[(.*?)]",
-                java.util.regex.Pattern.DOTALL).matcher(json);
-        if (!arrayMatch.find()) {
-            return out;
-        }
-        var itemMatch = java.util.regex.Pattern.compile("\"((?:[^\"\\\\]|\\\\.)*)\"").matcher(arrayMatch.group(1));
-        while (itemMatch.find()) {
-            out.add(unescape(itemMatch.group(1)));
-        }
-        return out;
-    }
-
     private Path baseDir() {
         return Paths.get(System.getProperty("user.dir"), "telemetry", "chat");
-    }
-
-    private void appendRow(String json) {
-        try {
-            Files.createDirectories(baseDir());
-            Files.write(baseDir().resolve("chat.jsonl"),
-                    (json + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (IOException e) {
-            logError("ChatCaptureRoutine | Could not append chat log: " + e.getMessage());
-        }
-    }
-
-    private static String toJson(Map<String, Object> map) {
-        StringBuilder sb = new StringBuilder("{");
-        boolean first = true;
-        for (Map.Entry<String, Object> e : map.entrySet()) {
-            if (!first) {
-                sb.append(',');
-            }
-            first = false;
-            sb.append('"').append(e.getKey()).append("\":");
-            sb.append(toJsonValue(e.getValue()));
-        }
-        return sb.append('}').toString();
-    }
-
-    @SuppressWarnings("unchecked")
-    private static String toJsonValue(Object v) {
-        if (v == null) {
-            return "null";
-        }
-        if (v instanceof Number) {
-            return v.toString();
-        }
-        if (v instanceof List<?> list) {
-            StringBuilder sb = new StringBuilder("[");
-            boolean first = true;
-            for (Object item : list) {
-                if (!first) {
-                    sb.append(',');
-                }
-                first = false;
-                // "messages" is now a List<Map<String,Object>>
-                // (one map per {sender, text} pair) - the old version assumed
-                // every list item was a plain string and would have serialized
-                // each message as its Java toString(), not valid JSON.
-                if (item instanceof Map<?, ?> m) {
-                    sb.append(toJson((Map<String, Object>) m));
-                } else {
-                    sb.append('"').append(escape(String.valueOf(item))).append('"');
-                }
-            }
-            return sb.append(']').toString();
-        }
-        return "\"" + escape(String.valueOf(v)) + "\"";
-    }
-
-    /** Chat text is user-authored, so newlines and quotes must be escaped. */
-    private static String escape(String s) {
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\r", "")
-                .replace("\n", "\\n")
-                .replace("\t", " ");
-    }
-
-    private static String unescape(String s) {
-        return s.replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\");
     }
 }
