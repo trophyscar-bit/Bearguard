@@ -132,8 +132,25 @@ public final class ChatLineCleaner {
         return new Sender(name, tag, vip, isPlausibleName(name));
     }
 
+    /** Characters that occur in real player names: letters, digits, and the usual name punctuation. */
+    private static final Pattern NAME_ODDITY = Pattern.compile("[^\\p{L}\\p{N} _.'-]");
+
+    /** More than one stray symbol is the reader inventing glyphs, not a player being creative. */
+    private static final int MAX_ODD_CHARS_IN_A_NAME = 1;
+
+    /**
+     * Whether a name strip read cleanly enough to attribute a message to.
+     *
+     * <p>"Starts with a letter and is three characters long" was too permissive. It let through
+     * "S} ViP/ TRejbreach" and "fe MPA) /UIBGeULClICr", which rendered in the transcript as
+     * participants -- the reader mangling a VIP badge and an alliance tag into punctuation. Real
+     * names carry at most an odd character or two; a scattering of braces and slashes is noise.
+     */
     private static boolean isPlausibleName(String name) {
-        return name.length() >= 3 && Character.isLetter(name.charAt(0));
+        if (name.length() < 3 || !Character.isLetter(name.charAt(0))) {
+            return false;
+        }
+        return NAME_ODDITY.matcher(name).results().count() <= MAX_ODD_CHARS_IN_A_NAME;
     }
 
     /** Strips the reader's invented characters and collapses the whitespace they leave behind. */
