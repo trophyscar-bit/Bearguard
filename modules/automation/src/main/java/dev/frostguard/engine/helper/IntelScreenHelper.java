@@ -4,6 +4,7 @@ import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.ImageSearchResultData;
+import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.engine.emulator.EmulatorController;
 import dev.frostguard.engine.error.HomeNotFoundException;
@@ -87,7 +88,10 @@ public class IntelScreenHelper {
                 CommonGameAreas.SIDEBAR_SCROLL_TO, 400);
         pause(600);
 
-        ImageSearchResultData lighthouseRow = lighthouseRowAtBottom();
+        ImageSearchResultData lighthouseRow = locateLighthouseRow();
+        if (lighthouseRow == null) {
+            throw new HomeNotFoundException("Lighthouse row not present in the Daily sidebar");
+        }
 
         OptionalInt advertisedGain = readAdvertisedGain(lighthouseRow);
         advertisedGain.ifPresent(value -> log.info("Daily sidebar reports Intel Gain: " + value));
@@ -167,8 +171,74 @@ public class IntelScreenHelper {
                 center.getX() + 310, center.getY() + 38);
     }
 
-    static ImageSearchResultData lighthouseRowAtBottom() {
-        return ImageSearchResultData.hit(LIGHTHOUSE_ROW_X, LIGHTHOUSE_ROW_Y, 100.0, 44, 44);
+    /** Vertical spacing between rows in the Daily sidebar, measured on a live capture. */
+    private static final int SIDEBAR_ROW_PITCH = 113;
+
+    /** Row centres to try, bottom-up: the Lighthouse sits near the end of the Daily list. */
+    private static final int[] ROW_CENTRE_CANDIDATES = {836, 723, 610, 497, 384};
+
+    /** A row label is two short lines (name above, state below), so it is read as a block. A
+     *  single-line layout clips the longer word and the match misses. */
+    private static final OcrSettingsData ROW_LABEL_SETTINGS = OcrSettingsData.assembler()
+            .textLayout(OcrSettingsData.TextLayout.TEXT_BLOCK)
+            .stripBackground(false)
+            .language("eng")
+            .build();
+
+    /** Label column, clear of the row icon on the left and the Go button on the right. */
+    private static final int ROW_LABEL_X0 = 90;
+    private static final int ROW_LABEL_X1 = 390;
+    private static final int ROW_LABEL_ABOVE = 33;
+    private static final int ROW_LABEL_BELOW = 32;
+
+    /**
+     * Finds the Lighthouse row by reading the sidebar, instead of assuming where it sits.
+     *
+     * <p>This used to return a fabricated hit at a fixed {@code (46, 649)} carrying 100% confidence
+     * -- a coordinate dressed up as a search result, so every caller downstream treated a guess as
+     * a measurement. The Daily list has no fixed length: entries appear and disappear with what is
+     * active, so any constant row position is only ever right by luck.
+     *
+     * <p>It was not right. Measured live, the Lighthouse row sits at y=723 and y=649 lands on
+     * "Daily Activity Triumph" -- so the Go button being tapped belonged to Alliance Triumph, the
+     * Intel map never opened, and the routine reported "Intel unreachable" 163 times across two
+     * days without a single success.
+     *
+     * <p>Returning null when the row is not found is deliberate. The caller backs off rather than
+     * tapping a Go button belonging to whatever else happens to be there.
+     */
+    /** A row handle at a known centre. Test-visible so fixtures can pin geometry at their own
+     *  captured position -- production never assumes one, it locates the row. */
+    static ImageSearchResultData rowAt(int centreY) {
+        return ImageSearchResultData.hit(LIGHTHOUSE_ROW_X, centreY, 100.0, 44, 44);
+    }
+
+    ImageSearchResultData locateLighthouseRow() {
+        for (int centre : ROW_CENTRE_CANDIDATES) {
+            String label = readRowLabel(centre);
+            // Matched on "intel" rather than "lighthouse": it is the only word unique to this row
+            // among the Daily entries, and it survives a partial read of the longer word, which
+            // the reader does clip on this font at this size.
+            if (label != null && label.toLowerCase().contains("intel")) {
+                log.info("Lighthouse row found at y=" + centre + " (\"" + label.trim() + "\")");
+                return rowAt(centre);
+            }
+        }
+        log.warn("Lighthouse row not found in the Daily sidebar -- not tapping a Go button that "
+                + "belongs to some other row.");
+        return null;
+    }
+
+    private String readRowLabel(int centre) {
+        try {
+            return emu.readText(dev,
+                    new PointData(ROW_LABEL_X0, centre - ROW_LABEL_ABOVE),
+                    new PointData(ROW_LABEL_X1, centre + ROW_LABEL_BELOW),
+                    ROW_LABEL_SETTINGS);
+        } catch (IOException | OcrException e) {
+            log.debug("Sidebar row label OCR failed at y=" + centre + ": " + e.getMessage());
+            return null;
+        }
     }
 
     static OptionalInt parseAdvertisedGain(String text) {
