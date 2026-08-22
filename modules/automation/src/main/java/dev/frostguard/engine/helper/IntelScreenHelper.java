@@ -333,18 +333,51 @@ public class IntelScreenHelper {
             } catch (RuntimeException e) {
                 return;
             }
-            if (previous != null && java.util.Arrays.equals(previous, current)) {
-                log.debug("Camera settled after " + ((i + 1) * CAMERA_SETTLE_POLL_MS) + "ms");
-                return;
+            if (previous != null) {
+                double delta = frameDelta(previous, current);
+                // Logged so the threshold can be set from what the scene actually does rather than
+                // from a guess about it.
+                log.debug("Camera delta " + String.format(java.util.Locale.ROOT, "%.2f", delta)
+                        + " (settle below " + CAMERA_SETTLE_MAX_DELTA + ")");
+                if (delta <= CAMERA_SETTLE_MAX_DELTA) {
+                    log.debug("Camera settled after " + ((i + 1) * CAMERA_SETTLE_POLL_MS) + "ms");
+                    return;
+                }
             }
             previous = current;
         }
         log.debug("Camera still moving after the settle budget; continuing anyway");
     }
 
+    /**
+     * How different two frames are, as a mean absolute byte difference (0 = identical).
+     *
+     * <p>Counting bytes that differ at all does not work on this scene: falling snow and the
+     * lighthouse beam nudge a large share of pixels by a small amount, so a stationary view still
+     * shows most bytes changing. What separates a still camera from a panning one is the SIZE of
+     * the change, not how many pixels are involved, which is what an average captures.
+     */
+    private static double frameDelta(byte[] a, byte[] b) {
+        if (a.length != b.length) {
+            return Double.MAX_VALUE;
+        }
+        long total = 0;
+        // Every fourth byte is enough: a full pass over a 720x1280 RGBA frame is ~3.7M comparisons
+        // several times a second, and the answer does not change.
+        int sampled = 0;
+        for (int i = 0; i < a.length; i += 4) {
+            total += Math.abs((a[i] & 0xFF) - (b[i] & 0xFF));
+            sampled++;
+        }
+        return sampled == 0 ? 0 : total / (double) sampled;
+    }
+
     /** Long enough to cover the observed ~8s Go pan without stalling a pass that lands instantly. */
     private static final int CAMERA_SETTLE_POLL_MS = 600;
     private static final int CAMERA_SETTLE_MAX_POLLS = 20;
+
+    /** Provisional: tightened or relaxed once the logged deltas show what this scene really does. */
+    private static final double CAMERA_SETTLE_MAX_DELTA = 6.0;
 
     private static void pause(long ms) {
         try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
