@@ -64,6 +64,7 @@ import dev.frostguard.app.panel.training.ResearchLayoutController;
 import dev.frostguard.app.panel.misc.CharacterLayoutController;
 import dev.frostguard.app.panel.misc.StatisticsLayoutController;
 import dev.frostguard.app.panel.social.ChatCaptureLayoutController;
+import dev.frostguard.app.panel.social.ChatTranscriptLayoutController;
 import dev.frostguard.app.panel.taskbuilder.TaskBuilderLayoutController;
 import dev.frostguard.app.panel.custom.CustomTasksLayoutController;
 import javafx.application.Platform;
@@ -581,7 +582,33 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         configTabs.setMaxWidth(Double.MAX_VALUE);
         configTabs.setMaxHeight(Double.MAX_VALUE);
 
+        // Chat, pinned beneath Config. Two tabs rather than one panel: reading the transcript and
+        // configuring the capture are different jobs, and the transcript is the one worth opening
+        // on, so it leads.
+        ChatTranscriptLayoutController transcriptCtrl = new ChatTranscriptLayoutController();
+        Parent transcriptPane = loadNode("ChatTranscriptLayout", transcriptCtrl);
+
+        ChatCaptureLayoutController chatConfigCtrl = new ChatCaptureLayoutController();
+        if (chatConfigCtrl instanceof IProfileObserverInjectable) {
+            ((IProfileObserverInjectable) chatConfigCtrl).attachProfileListener(profileManagerLayoutController);
+        }
+        Parent chatConfigPane = loadNode("ChatCaptureLayout", chatConfigCtrl);
+        moduleControllers.put("Chat", chatConfigCtrl);
+        if (chatConfigCtrl instanceof IProfileLoadListener) {
+            profileManagerLayoutController.addProfileLoadListener((IProfileLoadListener) chatConfigCtrl);
+        }
+
+        TabPane chatTabs = new TabPane();
+        chatTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        chatTabs.getTabs().addAll(
+                makeTab("Live Transcript", transcriptPane),
+                makeTab("Configure", chatConfigPane)
+        );
+        chatTabs.setMaxWidth(Double.MAX_VALUE);
+        chatTabs.setMaxHeight(Double.MAX_VALUE);
+
         addPinnedButton("Config", MaterialDesignC.COG_OUTLINE, configTabs);
+        addPinnedButton("Chat", MaterialDesignC.CHAT_OUTLINE, chatTabs);
 
         // Open Bearguard on the Tasks view instead of the raw log. Select the first
         // Control tab (Tasks) and fire the Control button so startup lands there with it highlighted.
@@ -720,10 +747,9 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 new ModuleDefinition("SkipTutorialLayout",       "Skip Tutorial",        MaterialDesignS.SKIP_NEXT_OUTLINE,          SkipTutorialLayoutController::new),
                 new ModuleDefinition("CharacterLayout",          "Character",            MaterialDesignA.ACCOUNT_OUTLINE,            CharacterLayoutController::new),
                 // Statistics is pinned at the sidebar bottom (with Control/Config), not in this list — see buildPinnedButtons.
-                new ModuleDefinition("GameAnalyticsLayout",      "Game Data",            MaterialDesignV.VIEW_LIST_OUTLINE,          GameAnalyticsLayoutController::new),
-
-                // Bearguard
-                new ModuleDefinition("ChatCaptureLayout",        "Chat",                 MaterialDesignC.CHAT_OUTLINE,               ChatCaptureLayoutController::new)
+                new ModuleDefinition("GameAnalyticsLayout",      "Game Data",            MaterialDesignV.VIEW_LIST_OUTLINE,          GameAnalyticsLayoutController::new)
+                // Chat is pinned at the sidebar bottom with Statistics/Control/Config rather than
+                // sitting in this list -- see initializePinnedModules().
         );
         //@formatter:on
 
