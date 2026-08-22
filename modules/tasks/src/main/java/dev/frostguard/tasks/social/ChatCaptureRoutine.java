@@ -15,6 +15,8 @@ import javax.imageio.ImageIO;
 
 import dev.frostguard.api.chat.ChatMessage;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
+import dev.frostguard.api.configs.TemplatesEnum;
+import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.OcrSettingsData;
@@ -96,6 +98,9 @@ public class ChatCaptureRoutine extends DelayedTask {
                     .language("eng")
                     .preserveLineBreaks(true)
                     .build();
+
+    /** Taps at the close control before falling back to Back. */
+    private static final int CHAT_CLOSE_ATTEMPTS = 3;
 
     private static final DateTimeFormatter FILE_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
@@ -182,18 +187,25 @@ public class ChatCaptureRoutine extends DelayedTask {
         sleepTask(1200L);
 
         int totalNew = 0;
-        if (includeWorld) {
-            totalNew += captureChannel("world", TAB_WORLD);
+        try {
+            if (includeWorld) {
+                totalNew += captureChannel("world", TAB_WORLD);
+            }
+            if (includeAlliance) {
+                totalNew += captureChannel("alliance", TAB_ALLIANCE);
+            }
+            if (includePersonal) {
+                totalNew += captureChannel("personal", TAB_PERSONAL);
+            }
+        } finally {
+            // Closing chat has to happen whether the pass succeeded, threw, or gave up. It used to
+            // sit on the success path only, so a failure left the game parked on the chat window --
+            // and the next task inherited it. Observed live: this routine crash-looped, and the
+            // Intelligence routine that followed spent every attempt hunting a city building while
+            // a chat panel filled the screen, reporting "Intel unreachable" for hours. A task that
+            // cannot finish its own work still owes the next one a screen it recognises.
+            closeChat();
         }
-        if (includeAlliance) {
-            totalNew += captureChannel("alliance", TAB_ALLIANCE);
-        }
-        if (includePersonal) {
-            totalNew += captureChannel("personal", TAB_PERSONAL);
-        }
-
-        tapNear(CHAT_CLOSE);
-        sleepTask(500L);
 
         int channelCount = (includeWorld ? 1 : 0) + (includeAlliance ? 1 : 0) + (includePersonal ? 1 : 0);
         String size;
@@ -307,6 +319,44 @@ public class ChatCaptureRoutine extends DelayedTask {
         } catch (IOException e) {
             logWarning("ChatCaptureRoutine | Could not keep the failed frame: " + e.getMessage());
         }
+    }
+
+    /**
+     * Returns the game to a screen the next task will recognise.
+     *
+     * <p>Verified rather than assumed: a single blind tap on the close control is exactly the kind
+     * of "it probably worked" step that strands the game somewhere unexpected. The chat panel can
+     * also be more than one layer deep, so this taps and checks until a home anchor is visible.
+     */
+    private void closeChat() {
+        for (int attempt = 1; attempt <= CHAT_CLOSE_ATTEMPTS; attempt++) {
+            if (isOnAHomeScreen()) {
+                return;
+            }
+            tapNear(CHAT_CLOSE);
+            sleepTask(700L);
+        }
+
+        if (isOnAHomeScreen()) {
+            return;
+        }
+        // Say so plainly rather than leaving the next task to discover it. pressBack carries the
+        // quit-dialog guard, so it is the safer last resort than tapping more coordinates.
+        logWarning("ChatCaptureRoutine | Chat did not close after " + CHAT_CLOSE_ATTEMPTS
+                + " attempts; falling back to Back so the next task does not inherit this screen.");
+        pressBack();
+        sleepTask(700L);
+        if (!isOnAHomeScreen()) {
+            logWarning("ChatCaptureRoutine | Still not on a recognised screen after closing chat.");
+        }
+    }
+
+    /** Either home screen counts: the next task navigates from whichever one it needs. */
+    private boolean isOnAHomeScreen() {
+        return templateSearchHelper.locatePattern(TemplatesEnum.GAME_HOME_FURNACE,
+                        SearchConfigConstants.QUICK_SEARCH).isFound()
+                || templateSearchHelper.locatePattern(TemplatesEnum.GAME_HOME_WORLD,
+                        SearchConfigConstants.QUICK_SEARCH).isFound();
     }
 
     private void swipeUpThroughHistory() {
