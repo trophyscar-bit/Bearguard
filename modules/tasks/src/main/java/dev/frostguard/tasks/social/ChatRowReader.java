@@ -12,13 +12,13 @@ import dev.frostguard.api.domain.PointData;
 import dev.frostguard.vision.layout.ChatRowSegmenter;
 
 /**
- * Reads one segmented row into a message, taking the name and the body as separate reads.
+ * Reads one segmented row into a message.
  *
  * <p>This is the point of segmenting first. Reading the whole feed as one block and splitting the
  * result afterwards produced senders like {@code Ww} and bodies carrying three people's lines,
- * because by then the reader had already run them together. Two tight reads per row cannot merge
- * anything: the name strip physically contains one name, and the bubble below it contains one
- * message.
+ * because by then the reader had already run them together. A read bounded to one row cannot merge
+ * anything: the region physically contains one name and one message, and the name is its first
+ * line.
  *
  * <p>The bands are measured from live 720x1280 captures. The name sits just below the row's top
  * edge, right of the avatar; the bubble begins a little under it and runs to the next avatar.
@@ -38,6 +38,9 @@ final class ChatRowReader {
 
     /** Beyond this a bubble is a card or a sticker, and its lower half is art, not text. */
     private static final int MAX_BODY_HEIGHT = 260;
+
+    /** Line feed, by code point, to avoid an escape that source tooling can mangle. */
+    private static final char LINE_FEED = (char) 10;
 
     private ChatRowReader() {
     }
@@ -64,13 +67,34 @@ final class ChatRowReader {
                 continue;
             }
 
-            ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(
-                    readText.apply(new PointData(TEXT_X0, nameTop), new PointData(TEXT_X1, nameBottom)));
-            String body = ChatLineCleaner.cleanBody(
-                    readText.apply(new PointData(TEXT_X0, bodyTop), new PointData(TEXT_X1, bodyBottom)));
+            // One read per row, not two. Reading the name strip and the bubble separately doubled
+            // the OCR calls, and a pass is thirty screens across three channels -- the reader is by
+            // far the slowest thing here, so halving the calls halves the pass. The name is simply
+            // the first line of the region: it sits on its own line above the bubble, which is the
+            // same fact the two-region split was relying on.
+            String region = readText.apply(new PointData(TEXT_X0, nameTop),
+                    new PointData(TEXT_X1, bodyBottom));
+            // Line feed by code point: the reader emits \n regardless of platform, so the OS line
+            // separator is the wrong thing to look for here.
+            int firstBreak = region == null ? -1 : region.indexOf(LINE_FEED);
+            String nameLine = firstBreak < 0 ? "" : region.substring(0, firstBreak);
+            String bodyLines = firstBreak < 0 ? (region == null ? "" : region) : region.substring(firstBreak + 1);
+
+            ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(nameLine);
+            String raw = ChatLineCleaner.cleanBody(bodyLines);
+
+            // A reply renders the original inside the same bubble, so without splitting it here the
+            // transcript credits another player's sentence to whoever quoted it.
+            ChatLineCleaner.Body split = ChatLineCleaner.splitQuotedReply(raw);
+            String body = split.own();
 
             ChatMessage.Kind kind = ChatLineCleaner.classify(body);
             if (kind == ChatMessage.Kind.UNREADABLE) {
+                continue;
+            }
+            // When the row's line break is lost the name arrives as the message. Storing it would
+            // put a bare "[HOD]TheFlyingDutch" in the transcript as if somebody had said it.
+            if (ChatLineCleaner.looksLikeSenderLine(body)) {
                 continue;
             }
 
@@ -79,12 +103,19 @@ final class ChatRowReader {
             // could not be established, and inventing a participant is the worse failure.
             String author = sender.trusted() ? sender.name() : "";
 
+            // Only the sender's own words are translated. The quote is another message that was
+            // already captured on its own row, so translating it again duplicates the lookup.
             String english = kind == ChatMessage.Kind.TEXT
                     ? translate.apply(body).orElse("")
                     : "";
+            // A rendering identical to its source is not a translation; keeping it would show the
+            // same sentence twice, once labelled as the original.
+            if (english.equalsIgnoreCase(body.trim())) {
+                english = "";
+            }
 
             out.add(new ChatMessage(at, channel, author, sender.allianceTag(), sender.vipLevel(),
-                    body, english, ChatLineCleaner.mentions(body), kind));
+                    body, english, ChatLineCleaner.mentions(body), kind, split.quoted()));
         }
         return out;
     }

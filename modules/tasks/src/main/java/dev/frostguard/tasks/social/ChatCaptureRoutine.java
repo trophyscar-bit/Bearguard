@@ -57,6 +57,17 @@ public class ChatCaptureRoutine extends DelayedTask {
      *  cache absorbs most of the traffic a pass would otherwise put on the network. */
     private static final int TRANSLATION_CACHE_SIZE = 5000;
 
+    /**
+     * Consecutive screens yielding nothing new before the walk gives up.
+     *
+     * <p>Two was too eager. A screen can legitimately yield nothing -- a run of stickers, a couple
+     * of unreadable bubbles, a timestamp divider -- and stopping there cuts the scroll-back short
+     * while reporting a clean finish. The pass is bounded by scrollBack anyway, so the cost of
+     * being generous here is a few extra screens, and the cost of being wrong is silently
+     * capturing a fraction of the history.
+     */
+    private static final int BARREN_SCREENS_BEFORE_STOP = 6;
+
     /** Chat entry point: the globe/chat icon along the bottom of the World view. */
     private static final PointData CHAT_OPEN = new PointData(43, 1135);
 
@@ -237,6 +248,12 @@ public class ChatCaptureRoutine extends DelayedTask {
             int fresh;
             try {
                 fresh = store.append(messages);
+                // Per-screen accounting. Without it a pass is a black box: the only way to tell a
+                // successful walk from one that read nothing was the total at the end, which hides
+                // where in the scroll-back it stopped finding anything.
+                logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + scrollBack
+                        + ": " + rows.size() + " row(s), " + messages.size() + " readable, "
+                        + fresh + " new.");
             } catch (IOException e) {
                 // The frame is the only remaining copy of anything that failed to store, so keep it
                 // and stop rather than scrolling past messages that were never written.
@@ -251,7 +268,7 @@ public class ChatCaptureRoutine extends DelayedTask {
             // screens with nothing new means this pass has reached history the previous pass
             // already covered, and going further only spends captures re-reading it.
             barrenScreens = fresh == 0 ? barrenScreens + 1 : 0;
-            if (barrenScreens >= 2) {
+            if (barrenScreens >= BARREN_SCREENS_BEFORE_STOP) {
                 logInfo("ChatCaptureRoutine | " + channel + ": reached already-captured history.");
                 break;
             }

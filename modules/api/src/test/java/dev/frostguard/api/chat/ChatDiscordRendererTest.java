@@ -19,7 +19,7 @@ class ChatDiscordRendererTest {
 
     private static ChatMessage msg(String author, String body) {
         return new ChatMessage(AT, "world", author, "", 0, body, "", List.of(),
-                ChatMessage.Kind.TEXT);
+                ChatMessage.Kind.TEXT, "");
     }
 
     private static String render(ChatMessage... messages) {
@@ -56,7 +56,7 @@ class ChatDiscordRendererTest {
         // A reader who speaks the language should not have to trust the machine rendering, and a
         // bad translation is obvious next to its source.
         ChatMessage m = new ChatMessage(AT, "world", "Sec", "THE", 9, "Teşekkürler", "Thank you",
-                List.of(), ChatMessage.Kind.TEXT);
+                List.of(), ChatMessage.Kind.TEXT, "");
 
         String html = ChatDiscordRenderer.render(List.of(m), ZoneOffset.UTC);
 
@@ -68,7 +68,7 @@ class ChatDiscordRendererTest {
     @Test
     void mentionsAreMarkedUpSoTheyReadAsMentions() {
         ChatMessage m = new ChatMessage(AT, "world", "Nightjar", "", 0, "@Marisol bring lancers",
-                "", List.of("Marisol"), ChatMessage.Kind.TEXT);
+                "", List.of("Marisol"), ChatMessage.Kind.TEXT, "");
 
         assertTrue(ChatDiscordRenderer.render(List.of(m), ZoneOffset.UTC)
                 .contains("class=\"mention\">@Marisol"));
@@ -77,7 +77,7 @@ class ChatDiscordRendererTest {
     @Test
     void systemCardsAreStyledAsEventsRatherThanSpeech() {
         ChatMessage m = new ChatMessage(AT, "world", "", "", 0, "Lucky Pouch", "", List.of(),
-                ChatMessage.Kind.SYSTEM);
+                ChatMessage.Kind.SYSTEM, "");
 
         assertTrue(ChatDiscordRenderer.render(List.of(m), ZoneOffset.UTC).contains("body system"));
     }

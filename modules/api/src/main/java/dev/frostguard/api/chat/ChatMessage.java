@@ -16,6 +16,7 @@ import java.util.List;
  * @param translated the English rendering when the body was not already English, otherwise empty
  * @param mentions   names this message addressed with {@code @}
  * @param kind       what the bubble actually contained
+ * @param quoted     the message being replied to, when the bubble carried one, otherwise empty
  */
 public record ChatMessage(
         Instant capturedAt,
@@ -26,7 +27,8 @@ public record ChatMessage(
         String body,
         String translated,
         List<String> mentions,
-        Kind kind) {
+        Kind kind,
+        String quoted) {
 
     /** Not every bubble is text; rendering has to say so rather than showing OCR noise. */
     public enum Kind {
@@ -45,6 +47,11 @@ public record ChatMessage(
     /** The text a reader should see: the English rendering when there is one, else the original. */
     public String displayBody() {
         return translated == null || translated.isBlank() ? body : translated;
+    }
+
+    /** A reply carries the quoted original; the reader shows it above the new text. */
+    public boolean hasQuote() {
+        return quoted != null && !quoted.isBlank();
     }
 
     /** True when this carries a usable body worth storing or rendering. */

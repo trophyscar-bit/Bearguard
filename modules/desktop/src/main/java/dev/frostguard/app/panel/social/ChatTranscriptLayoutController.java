@@ -19,8 +19,12 @@ import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Toggle;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -60,12 +64,46 @@ public class ChatTranscriptLayoutController {
     private Label statusLabel;
     @FXML
     private ScrollPane scrollPane;
+    @FXML
+    private ToggleButton tabAll;
+    @FXML
+    private ToggleButton tabWorld;
+    @FXML
+    private ToggleButton tabAlliance;
+    @FXML
+    private ToggleButton tabPersonal;
+    @FXML
+    private CheckBox checkHideChatter;
+
+    /** Empty means every channel in one feed. */
+    private String channelFilter = "";
 
     private final ChatTranscriptStore store =
             new ChatTranscriptStore(baseDir(), ZoneId.systemDefault());
 
     @FXML
     private void initialize() {
+        // One channel at a time by default. World, Alliance and Personal are separate
+        // conversations, and interleaving them is what made the transcript hard to follow.
+        ToggleGroup channels = new ToggleGroup();
+        for (ToggleButton t : new ToggleButton[] {tabAll, tabWorld, tabAlliance, tabPersonal}) {
+            t.setToggleGroup(channels);
+        }
+        // A toggle group lets the selected button be clicked off, which would leave no channel
+        // chosen and an empty screen; re-select it instead.
+        channels.selectedToggleProperty().addListener((obs, was, now) -> {
+            if (now == null && was != null) {
+                was.setSelected(true);
+            }
+        });
+        refresh();
+    }
+
+    @FXML
+    private void selectChannel() {
+        Toggle selected = tabAll.getToggleGroup().getSelectedToggle();
+        Object data = selected == null ? null : ((ToggleButton) selected).getUserData();
+        channelFilter = data == null ? "" : data.toString();
         refresh();
     }
 
@@ -81,7 +119,24 @@ public class ChatTranscriptLayoutController {
         Task<List<ChatMessage>> load = new Task<>() {
             @Override
             protected List<ChatMessage> call() throws IOException {
-                return store.recent(VIEW_LIMIT);
+                // Read wider than the view limit before filtering, otherwise selecting one channel
+                // shows only the handful of its messages that fell inside the last N overall.
+                List<ChatMessage> all = store.recent(VIEW_LIMIT * 4);
+                boolean hideChatter = checkHideChatter.isSelected();
+                List<ChatMessage> kept = new java.util.ArrayList<>();
+                for (ChatMessage m : all) {
+                    if (!channelFilter.isEmpty() && !channelFilter.equals(m.channel())) {
+                        continue;
+                    }
+                    if (hideChatter && (m.kind() == ChatMessage.Kind.SYSTEM
+                            || dev.frostguard.api.chat.ChatLineCleaner.isNonSpeech(m.body()))) {
+                        continue;
+                    }
+                    kept.add(m);
+                }
+                return kept.size() > VIEW_LIMIT
+                        ? kept.subList(kept.size() - VIEW_LIMIT, kept.size())
+                        : kept;
             }
         };
         load.setOnSucceeded(e -> Platform.runLater(() -> show(load.getValue())));
@@ -202,7 +257,19 @@ public class ChatTranscriptLayoutController {
 
         TextFlow flow = new TextFlow(text);
         flow.setMaxWidth(Double.MAX_VALUE);
-        VBox box = new VBox(1, flow);
+        VBox box = new VBox(1);
+
+        // The quoted original goes above the reply, the way a chat client shows it, so it reads as
+        // context rather than as part of what this player said.
+        if (m.hasQuote()) {
+            Text quote = new Text(m.quoted());
+            quote.setStyle("-fx-fill: #949ba4; -fx-font-size: 11px;");
+            TextFlow quoteFlow = new TextFlow(quote);
+            quoteFlow.setStyle("-fx-border-color: transparent transparent transparent #4e5058;"
+                    + " -fx-border-width: 0 0 0 2; -fx-padding: 0 0 0 6;");
+            box.getChildren().add(quoteFlow);
+        }
+        box.getChildren().add(flow);
 
         if (!m.translated().isBlank()) {
             Text original = new Text(m.body());
