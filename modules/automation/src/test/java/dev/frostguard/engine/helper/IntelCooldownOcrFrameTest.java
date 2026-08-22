@@ -35,6 +35,18 @@ class IntelCooldownOcrFrameTest {
                 Duration.ofMinutes(25).plusSeconds(41));
     }
 
+    @Test
+    void readsTopBannerWhileAnUnbeatableBeastIsStuckOnTheBoard() throws Exception {
+        // The state the navigation fix exists for: a Fire Beast nothing can clear sits on the map
+        // for hours. It is already-known intel, so the Lighthouse advertises no bubble -- but the
+        // refresh banner is right there and readable, which is what makes backing off to the real
+        // timer possible instead of a fixed guess.
+        assertCooldown(
+                "/intel/marker-map-stuck-beast-20260822.png",
+                CommonGameAreas.INTEL_COOLDOWN_WITH_MARKERS_OCR_AREA,
+                Duration.ofHours(2).plusMinutes(26).plusSeconds(45));
+    }
+
     private void assertCooldown(String resource, AreaData area, Duration expected) throws Exception {
         BufferedImage image = ImageIO.read(Objects.requireNonNull(getClass().getResourceAsStream(resource)));
         RawImageData frame = rgbaFrame(image);

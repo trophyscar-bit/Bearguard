@@ -67,7 +67,7 @@ public class IntelScreenHelper {
 
 
         log.info("Not on Intel - checking for the Lighthouse Intel bubble in City");
-        if (tryOpenIntelBubble()) {
+        if (reachIntelScreen()) {
             log.info("Intel reached directly from the City Lighthouse bubble");
             return OptionalInt.empty();
         }
@@ -100,13 +100,7 @@ public class IntelScreenHelper {
         taps.tapInside(go);
         pause(1_500);
 
-        log.info("Clearing Lighthouse tutorial state with two Android Back presses");
-        emu.pressBack(dev);
-        pause(500);
-        emu.pressBack(dev);
-        pause(700);
-
-        if (tryOpenIntelBubble()) {
+        if (reachIntelScreen()) {
             log.info("Intel reached");
             return advertisedGain;
         }
@@ -114,11 +108,42 @@ public class IntelScreenHelper {
         throw new HomeNotFoundException("Failed to navigate to Intel screen");
     }
 
-    private boolean tryOpenIntelBubble() {
+    /**
+     * Gets onto the Intel map, whether or not the Lighthouse is advertising anything.
+     *
+     * <p>The bubble answers "is there NEW intel", which is a question about content. Whether the
+     * map can be opened is a question about navigation. Requiring the bubble before entering
+     * conflates the two, and the consequence is not a missed reward -- it is that the refresh
+     * timer becomes unreadable in exactly the state that most needs it.
+     *
+     * <p>Observed live: a Fire Beast nothing can beat sits on the board for hours. It is already
+     * known intel, so the Lighthouse shows no bubble; navigation therefore reports "unreachable"
+     * and throws, the caller backs off a fixed 15 minutes, and the real "Refreshes In: 02:26:45"
+     * banner -- sitting in plain view on the screen we refused to open -- is never read. That
+     * repeated 163 times over two days without one success.
+     *
+     * <p>So the screen check comes first: tapping Go frequently lands on the map already, and when
+     * it does there is nothing left to look for. The bubble is only hunted when we are demonstrably
+     * not there yet, which is the one case it was ever needed for.
+     *
+     * <p>The two unconditional Back presses that used to run here are gone. They existed to clear a
+     * tutorial overlay, but fired whether or not one was present, so on the ordinary path they
+     * navigated away from whatever Go had just opened -- pressing Back on the assumption that
+     * something is there is the same class of guess as reading a value without an anchor.
+     */
+    private boolean reachIntelScreen() {
         for (int i = 1; i <= MAX_NAV_PASSES; i++) {
+            if (isIntelScreenActive()) {
+                return true;
+            }
+
             ImageSearchResultData hit = tpl.locatePattern(TemplatesEnum.LIGHTHOUSE_INTEL_BUBBLE,
                     SearchConfigConstants.DEFAULT_SINGLE);
-            if (!hit.isFound()) { log.debug("Intel button absent, pass " + i); pause(300); continue; }
+            if (!hit.isFound()) {
+                log.debug("Not on Intel and no bubble to tap, pass " + i);
+                pause(300);
+                continue;
+            }
 
             log.info("Tapping Intel button");
             taps.tapInside(hit);
