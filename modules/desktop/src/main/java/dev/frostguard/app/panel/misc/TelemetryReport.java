@@ -141,6 +141,21 @@ public final class TelemetryReport {
 
     public List<Sample> samples() { return samples; }
 
+    /**
+     * The most recent value recorded for one specific metric, independent of whether the single
+     * latest overall sample happens to carry it. Reading "current" card values off
+     * {@link #latest()} alone loses a metric whenever it is missing from just the newest row (a
+     * transient OCR miss), even though an earlier sample holds a perfectly good value. Mirrors the
+     * same per-metric independence {@link #deltaOverWindow} already uses for its end value.
+     */
+    public Long latestValueOf(String metric) {
+        for (int i = samples.size() - 1; i >= 0; i--) {
+            Long v = samples.get(i).get(metric);
+            if (v != null) return v;
+        }
+        return null;
+    }
+
 
     /**
      * Change in every metric over the window ending {@code to}, using {@code from} as the
@@ -296,11 +311,19 @@ public final class TelemetryReport {
         return coverageForWindow(now.minus(amount, unit), now);
     }
 
+    /**
+     * The real recorded range behind {@link #total()}, not the report's global first/last sample.
+     * Not every metric is captured from the very first sample (meat/wood/iron predate their own
+     * capture; steel and the sp_* speedups were added later still), so a global range can start
+     * well before, or run past, the actual evidence for a given metric's total() delta. Derives
+     * from coverageForWindow over the same bounds total() itself uses, so the reported range is
+     * the real per-metric envelope of what total()'s deltas were built from.
+     */
     public Coverage coverageForTotal() {
         if (samples.size() < 2) {
             return null;
         }
-        return new Coverage(samples.get(0).at(), samples.get(samples.size() - 1).at());
+        return coverageForWindow(samples.get(0).at(), samples.get(samples.size() - 1).at());
     }
 
     // ---- activity ("what the bot did") --------------------------------------
@@ -337,44 +360,69 @@ public final class TelemetryReport {
         return found;
     }
 
-    /** Earliest sample at/after from that actually carries activity fields. */
-    private Sample earliestActivityAtOrAfter(Instant from) {
-        for (Sample s : samples) {
-            if (!s.at().isBefore(from) && !s.activity().isEmpty()) return s;
-        }
-        return null;
-    }
-
     /**
-     * Uses the same at-or-before baseline semantics as {@link #deltaOverWindow}: prefer the last
-     * activity-bearing sample AT OR BEFORE the window opened (the actual state right when the
-     * window started) over always using the earliest in-window sample, which with the hourly
-     * writer normally means exactly one such sample exists in a short window (e.g. "Past Hour") --
-     * start and end become the same row, and every activity count reads as zero even though real
-     * activity happened. Falls back to the earliest in-window sample only when nothing predates
-     * the window (the older resource-only rows written before activity capture existed, or this is
-     * the very first
-     * activity-bearing sample ever).
+     * Per-counter activity over a window. Sharing ONE start/end sample pair across every counter
+     * (picked by whichever samples carry ANY non-empty activity map) breaks in two ways: a counter
+     * missing from the chosen pair -- added to tracking later, or lost to a write gap -- is skipped
+     * even though other samples hold it; and a counter that resets partway through the window
+     * (game-side rollover, a re-seeded save) yields a negative raw diff that a {@code change > 0}
+     * filter drops to nothing instead of reporting the real post-reset activity.
+     *
+     * <p>So this matches {@link #deltaOverWindow}'s per-metric approach: each counter finds its OWN
+     * latest-at-or-before-{@code from} baseline and latest-at-or-before-{@code to} end value
+     * independently, falling back to the earliest in-window sample that carries it when nothing
+     * predates the window (the counter is genuinely new). A negative diff (end &lt; start) means a
+     * reset happened somewhere in the window; conservatively, that's reported as the end value
+     * itself -- the real, known amount of activity since the reset -- rather than a misleading
+     * negative number or silence.</p>
      */
     List<Activity> activityOverWindow(Instant from, Instant to) {
         List<Activity> out = new ArrayList<>();
-        Sample endS = latestActivityAtOrBefore(to);
-        if (endS == null) {
-            return out;
-        }
-        Sample startS = latestActivityAtOrBefore(from);
-        if (startS == null || !startS.at().isBefore(endS.at())) {
-            startS = earliestActivityAtOrAfter(from);
-        }
-        if (startS == null || !startS.at().isBefore(endS.at())) {
-            return out;
-        }
         for (Map.Entry<String, String> entry : ACTIVITY_LABELS.entrySet()) {
-            Long s = startS.activity().get(entry.getKey());
-            Long e = endS.activity().get(entry.getKey());
-            if (s == null || e == null) continue;
-            long change = e - s;
-            if (change > 0) out.add(new Activity(entry.getValue(), change));
+            String key = entry.getKey();
+
+            Long end = null;
+            for (Sample s : samples) {
+                if (s.at().isAfter(to)) break;
+                Long v = s.activity().get(key);
+                if (v != null) end = v;
+            }
+            if (end == null) continue; // this counter was never captured at or before the window closed
+
+            Long start = null;
+            for (Sample s : samples) {
+                if (s.at().isAfter(from)) break;
+                Long v = s.activity().get(key);
+                if (v != null) start = v;
+            }
+            if (start == null) {
+                // Nothing predates the window for this counter -- either it's genuinely new, or this
+                // is the very first sample ever. Fall back to the earliest in-window carrier so a
+                // newly-introduced counter can still show real activity as soon as it has two points,
+                // the same fallback deltaOverWindow already uses for resource metrics.
+                for (Sample s : samples) {
+                    if (s.at().isBefore(from)) continue;
+                    Long v = s.activity().get(key);
+                    if (v != null) { start = v; break; }
+                }
+            }
+            if (start == null) continue; // genuinely only one data point for this counter -- no window to measure
+
+            long change = end - start;
+            if (change < 0) {
+                // A reset happened somewhere in the window. The real, known amount of activity since
+                // the reset is exactly the end value -- report that rather than a negative number or
+                // silently dropping a counter that plainly did something during the window.
+                change = end;
+            }
+            // A counter reaching this point HAS a usable start/end pair, so the window is genuinely
+            // measurable for it -- even when the two values are identical. Emitting the zero is what
+            // keeps "measured, and nothing happened" distinguishable from "not enough samples yet".
+            // Dropping it would collapse both cases into an empty list, and the UI would tell the
+            // operator to wait for more cycles immediately after measuring a real quiet window.
+            // Sufficiency rides on the entry EXISTING; change() carries only magnitude, so callers
+            // wanting just what actually happened filter on change() != 0.
+            out.add(new Activity(entry.getValue(), change));
         }
         return out;
     }
