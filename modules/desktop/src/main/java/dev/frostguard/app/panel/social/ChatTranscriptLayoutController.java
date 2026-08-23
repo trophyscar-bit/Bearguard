@@ -220,15 +220,20 @@ public class ChatTranscriptLayoutController {
         VBox content = new VBox(2, header, bodyNode(m));
         HBox.setHgrow(content, Priority.ALWAYS);
 
-        HBox row = new HBox(10, avatar(author), content);
+        // No avatar disc. A coloured circle carrying one letter of a name that is already written
+        // in full on the next line adds nothing to read and costs a column of width, which the
+        // panel does not have to spare at the size it is actually used at.
+        HBox row = new HBox(10, content);
         row.setPadding(new Insets(6, 8, 2, 8));
         return row;
     }
 
     private HBox groupedRow(ChatMessage m) {
+        // Grouped messages used to indent past the avatar column; with no avatar there is nothing
+        // to clear, so they line up with the message above them.
         Region spacer = new Region();
-        spacer.setMinWidth(34);
-        spacer.setPrefWidth(34);
+        spacer.setMinWidth(0);
+        spacer.setPrefWidth(0);
 
         VBox content = new VBox(bodyNode(m));
         HBox.setHgrow(content, Priority.ALWAYS);
@@ -274,16 +279,6 @@ public class ChatTranscriptLayoutController {
             box.getChildren().add(new TextFlow(original));
         }
         return box;
-    }
-
-    private StackPane avatar(String author) {
-        Circle disc = new Circle(17);
-        disc.setStyle("-fx-fill: " + colourFor(author) + ";");
-        Label initial = new Label(author.isBlank() ? "?" : author.substring(0, 1).toUpperCase(Locale.ROOT));
-        initial.setStyle("-fx-text-fill: white; -fx-font-weight: bold;");
-        StackPane pane = new StackPane(disc, initial);
-        pane.setMinWidth(34);
-        return pane;
     }
 
     private Label chip(String text, String background, String foreground) {
