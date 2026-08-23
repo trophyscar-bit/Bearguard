@@ -44,6 +44,26 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 public final class ChatTranslator {
 
+    /**
+     * Instances of a keyless translation frontend, tried in order.
+     *
+     * <p>These replaced the previous primary because both earlier endpoints failed at once and
+     * translation stopped dead: the Google endpoint now answers 429 from this address, and the
+     * documented fallback exhausted its anonymous daily allowance and started returning a quota
+     * notice in place of a translation. Probed live, these instances answered Spanish, Turkish,
+     * Korean and Arabic correctly and did not rate-limit across rapid calls.
+     *
+     * <p>More than one is listed because this class of service is volunteer-run and does go down --
+     * two mirrors of a comparable frontend were returning 500 during the same probe. A list costs
+     * nothing and turns an outage into a slower pass rather than a silent loss of translation.
+     */
+    static final String[] FRONTENDS = {
+        "https://simplytranslate.org/api/translate/?engine=google&from=auto&to=en&text=",
+        "https://st.adast.dk/api/translate/?engine=google&from=auto&to=en&text=",
+        "https://simplytranslate.ducks.party/api/translate/?engine=google&from=auto&to=en&text=",
+        "https://simplytranslate.aketawi.space/api/translate/?engine=google&from=auto&to=en&text=",
+    };
+
     static final String PRIMARY =
             "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=";
 
@@ -87,13 +107,49 @@ public final class ChatTranslator {
         }
 
         String trimmed = body.length() > MAX_CHARS ? body.substring(0, MAX_CHARS) : body;
-        String result = viaPrimary(trimmed).orElseGet(() -> viaFallback(trimmed).orElse(""));
+        String result = viaFrontends(trimmed)
+                .or(() -> viaPrimary(trimmed))
+                .orElseGet(() -> viaFallback(trimmed).orElse(""));
 
         // Cache the failure too. A body that cannot be translated will arrive again on the next
         // overlapping scroll-back, and re-requesting it every pass is how a keyless endpoint
         // starts refusing service.
         cache.put(key, result);
         return result.isEmpty() ? Optional.empty() : Optional.of(result);
+    }
+
+    /**
+     * A provider that answers with a notice instead of a translation has not translated anything.
+     *
+     * <p>The capped fallback returns its quota message as an ordinary 200 with the text sitting in
+     * the same field a translation would occupy, so without this check the transcript quietly fills
+     * with "YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY" attributed to players.
+     */
+    private static boolean isProviderNotice(String text) {
+        String upper = text.toUpperCase(java.util.Locale.ROOT);
+        return upper.contains("MYMEMORY WARNING")
+                || upper.contains("ALL AVAILABLE FREE TRANSLATIONS")
+                || upper.contains("USAGE LIMIT")
+                || upper.contains("QUOTA");
+    }
+
+    private Optional<String> viaFrontends(String body) {
+        String encoded = URLEncoder.encode(body, StandardCharsets.UTF_8);
+        for (String base : FRONTENDS) {
+            Optional<String> raw = fetch(base + encoded);
+            if (raw.isEmpty()) {
+                continue;
+            }
+            try {
+                String out = MAPPER.readTree(raw.get()).path("translated_text").asText("").trim();
+                if (!out.isEmpty() && !isProviderNotice(out)) {
+                    return Optional.of(out);
+                }
+            } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
+                // Try the next instance rather than giving up on translation altogether.
+            }
+        }
+        return Optional.empty();
     }
 
     private Optional<String> viaPrimary(String body) {
@@ -118,7 +174,7 @@ public final class ChatTranslator {
             try {
                 String out = MAPPER.readTree(raw).path("responseData").path("translatedText")
                         .asText("").trim();
-                return out.isEmpty() ? Optional.empty() : Optional.of(out);
+                return out.isEmpty() || isProviderNotice(out) ? Optional.empty() : Optional.of(out);
             } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
                 return Optional.empty();
             }
