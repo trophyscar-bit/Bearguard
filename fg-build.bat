@@ -58,6 +58,20 @@ exit /b 1
 
 :tree_ok
 
+REM Claim the shared checkout for the whole stop -> build -> relaunch, not just the build. Several
+REM sessions share C:\Bearguard, and the window where someone else can switch a branch or start
+REM their own build spans all three steps, not the compile alone.
+REM Set BEARGUARD_OWNER to identify yourself; it defaults to the machine's username.
+if not defined BEARGUARD_OWNER set "BEARGUARD_OWNER=%USERNAME%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0prod-lock.ps1" acquire -Owner "%BEARGUARD_OWNER%" -Reason "fg-build" -Root "%~dp0."
+if errorlevel 1 (
+    echo [ERROR] Someone else is working in this checkout -- refusing to build over them.
+    echo         Ask them, or if they are definitely gone:
+    echo             powershell -File prod-lock.ps1 acquire -Owner "%BEARGUARD_OWNER%" -Reason "..." -Force
+    pause
+    exit /b 1
+)
+
 echo.
 echo Stopping Bearguard gracefully (checkpoints the WAL and backs settings up first)...
 REM This used to be taskkill /F on java.exe + javaw.exe. A hard kill strands writes in
@@ -142,6 +156,13 @@ echo ==========================================
 echo BUILD SUCCESSFUL!
 echo ==========================================
 echo.
+
+REM Release on the way out. The failure paths above exit without releasing on purpose rather than
+REM through a fragile batch restructure: the lock carries a 20-minute stale timeout, so an
+REM abandoned one expires by itself and names its owner when the next person takes it. A lock left
+REM by a build that died is a nuisance for 20 minutes; a lock released by a path that did not
+REM finish is a second session building on top of a half-built tree.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0prod-lock.ps1" release -Owner "%BEARGUARD_OWNER%" -Root "%~dp0."
 
 set "OUTPUT_DIR=%CD%\packaging\desktop\target\input"
 if exist "%OUTPUT_DIR%" (

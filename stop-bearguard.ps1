@@ -21,6 +21,19 @@ param(
 $ErrorActionPreference = 'Continue'
 $Root = (Resolve-Path -LiteralPath $Root).Path
 
+# Warn, never block. Stopping prod is sometimes exactly what has to happen in a hurry, and a lock
+# left behind by a session that has since ended must not stand between anyone and a stuck app.
+# But two sessions stopping and rebuilding this checkout minutes apart has already happened once,
+# so say who else is in here before closing it.
+$lockScript = Join-Path $Root 'prod-lock.ps1'
+if (Test-Path $lockScript) {
+    $held = & $lockScript status -Root $Root 2>&1
+    if ($LASTEXITCODE -eq 1) {
+        Write-Warning "prod is locked by another session -- stopping anyway, but check with them:"
+        $held | ForEach-Object { Write-Host "  $_" }
+    }
+}
+
 function Get-BearguardProcesses([string]$root) {
     # Match on the directory, not the bare string. 'C:\Bearguard' is a prefix of
     # 'C:\Bearguard-dev', so a substring test reports dev as prod and closes the wrong instance.
