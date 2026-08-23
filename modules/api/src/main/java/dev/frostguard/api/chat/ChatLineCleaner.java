@@ -53,11 +53,42 @@ public final class ChatLineCleaner {
      * out of 213.
      */
     private static final Pattern TAG_ANY =
-            Pattern.compile("[\\[({]\\s*([A-Za-z0-9]{2,4})\\s*[\\])}jJ|Il1]");
+            Pattern.compile("[\\[({]\\s*([A-Za-z0-9]{2,4})\\s*[\\])}jJ|Ili1]");
 
     /** {@code @Name} and the spaced {@code @ [TAG]Name} the reader also produces. */
     private static final Pattern MENTION = Pattern.compile(
             "@\\s*(?:[\\[(][A-Za-z0-9]{2,4}[\\])])?\\s*([A-Za-z0-9_][A-Za-z0-9_ ]{1,20}?)(?=[\\s,.:!?]|$)");
+
+    /**
+     * Two characters that are usually chrome but sometimes real text, put back before stripping.
+     *
+     * <p>The artifact strip below removes the pipe and the copyright sign because they are normally
+     * a bubble border and an unresolved emoji. Sometimes they are neither: a lone "|" standing
+     * between spaces is the English word "I", and a "©" pressed up against a name is an "@".
+     * Removing them silently deleted a word from the middle of a sentence -- "Ooooops. I missed it"
+     * was stored as "Oooops. missed it" -- and cost "@Maki felicidades!" the mention saying who it
+     * was addressed to.
+     *
+     * <p>Both are read narrowly, because guessing wrong invents text rather than merely losing it.
+     * The pipe counts as a word only between spaces: at the start of a bubble it is the border, and
+     * calling that an "I" prefixes a stray word. The copyright sign counts as an "@" only when it
+     * is pressed straight against a capital -- with a space between them it is usually an emoji
+     * opening a sentence, and "© Oooops. I missed it" was stored as "@Oooops. I missed it". A
+     * mention occasionally lost is better than an "@" invented in front of an ordinary word.
+     */
+    private static final Pattern MISREAD_I = Pattern.compile("(?<=\\s)\\|(?=\\s)");
+    private static final Pattern MISREAD_AT = Pattern.compile("[©®](?=\\p{Lu})");
+
+    /**
+     * A single letter stranded at the front of a message.
+     *
+     * <p>Bubble art on the left reads as one loose character: "@Maki felicidades!" arrived as
+     * "b @Maki felicidades!". Letters that are words in their own right are left alone, because
+     * "y", "o", "a" and "e" all open real sentences in Spanish and Portuguese, and "I" and "A"
+     * do in English.
+     */
+    private static final Pattern LEADING_LONE_LETTER =
+            Pattern.compile("^(?![aeouyiAEOUYI]\\b)\\p{L}\\s+(?=\\p{L}|@)");
 
     /** Characters the reader invents from bubble borders, crowns and unresolved emoji. */
     private static final Pattern ARTIFACTS = Pattern.compile("[|=~®©*“”„¦¬`^]+");
@@ -270,8 +301,11 @@ public final class ChatLineCleaner {
         if (raw == null) {
             return "";
         }
+        // Put back the two characters that are real text before anything is stripped.
+        String restored = MISREAD_AT.matcher(
+                MISREAD_I.matcher(raw).replaceAll("I")).replaceAll("@");
         String body = collapse(TRANSLATE_CONTROL.matcher(
-                ARTIFACTS.matcher(raw).replaceAll(" ")).replaceAll(" "));
+                ARTIFACTS.matcher(restored).replaceAll(" ")).replaceAll(" "));
         return trimOrphanGlyphs(body);
     }
 
@@ -292,6 +326,7 @@ public final class ChatLineCleaner {
         String out = body;
         for (int i = 0; i < 2; i++) {
             out = LEADING_ORPHAN.matcher(out).replaceAll("");
+            out = LEADING_LONE_LETTER.matcher(out).replaceAll("");
         }
         out = TRAILING_ORPHAN.matcher(out).replaceAll("");
         out = TRAILING_LOOSE_CAPS.matcher(out).replaceAll("");
@@ -327,7 +362,7 @@ public final class ChatLineCleaner {
             Pattern.compile("\\s+(?![aeouyiAEOUYI]\\b)\\p{L}\\s*$");
 
     /** Below this a message is too short to risk taking a character off the end of. */
-    private static final int WORDS_BEFORE_TRIMMING_A_LETTER = 4;
+    private static final int WORDS_BEFORE_TRIMMING_A_LETTER = 3;
 
     /**
      * A key that holds two readings of the same message together.
