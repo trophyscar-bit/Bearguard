@@ -89,6 +89,11 @@ two stations and the tree - and the account's essence counter moved from 42,955
 to 44,012 in that run. The three preceding runs of the fixed-tap version had
 reported "Claimed: 3" each while leaving the counter unchanged.
 
+The unreadable-island fix is confirmed the same way. The 16:58 run logged
+"Claimed: 1" against frames showing one badge before and none after, and the
+counter moved 44,012 to 44,510. The run before it, on the unfixed build, had
+reported "Claimed: 0" against frames showing that same badge on screen.
+
 Unsupported: badges outside the search window, resolutions other than 720x1280,
 and any island layout where two badges overlap closely enough to merge into one
 blob.
