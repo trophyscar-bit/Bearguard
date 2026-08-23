@@ -20,6 +20,14 @@ import org.junit.jupiter.api.Test;
 class ChatTranslatorTest {
 
     @Test
+    void everyFrontendAssemblesIntoAnAddressThatParses() {
+        String body = URLEncoder.encode("hola amigo", StandardCharsets.UTF_8);
+        for (String base : ChatTranslator.FRONTENDS) {
+            assertDoesNotThrow(() -> URI.create(base + body), "bad address: " + base);
+        }
+    }
+
+    @Test
     void bothEndpointsAssembleIntoAddressesThatParse() {
         // The body that triggered it live: an apostrophe and a trademark sign, both of which the
         // encoder handles -- the illegal character was in the endpoint itself, not the message.
