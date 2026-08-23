@@ -5,8 +5,8 @@
  * Observed live after losing his configuration twice in one evening: "we can't have this
  * keep happening."
  *
- * Why it happens: Bearguard keeps SQLite in WAL mode, so recent writes live in database.db-wal
- * until a checkpoint folds them into database.db. Killing the process hard (which a rebuild
+ * Why it happens: Bearguard keeps SQLite in WAL mode, so recent writes live in frostguard.db-wal
+ * until a checkpoint folds them into frostguard.db. Killing the process hard (which a rebuild
  * cycle does constantly) can leave that WAL unmerged, and the settings written since the last
  * checkpoint are effectively gone. The 4MB WAL sitting next to a 151KB database was the tell.
  *
@@ -31,7 +31,13 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROOT = __dirname;
-const DB = path.join(ROOT, 'database.db');
+// WorkspacePaths.database() resolves to frostguard.db, and DataStore overrides the JDBC url
+// persistence.xml still declares, so frostguard.db is the file the app actually writes. This
+// pointed at database.db, which the app stopped using -- every backup since then captured a
+// frozen snapshot instead of the live settings, and the checkpoint in step 1 was folding an
+// abandoned WAL. That is the exact failure this script exists to prevent, so it must name the
+// same file the runtime opens.
+const DB = path.join(ROOT, 'frostguard.db');
 const OUT = path.join(ROOT, 'settings-backups');
 const RETAIN = 30;
 

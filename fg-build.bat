@@ -15,9 +15,21 @@ echo      Bearguard Quick Recompile Script
 echo ==========================================
 
 echo.
-echo Stopping any running Java and ADB processes...
-taskkill /F /IM java.exe >nul 2>&1
-taskkill /F /IM javaw.exe >nul 2>&1
+echo Stopping Bearguard gracefully (checkpoints the WAL and backs settings up first)...
+REM This used to be taskkill /F on java.exe + javaw.exe. A hard kill strands writes in
+REM frostguard.db-wal, which is how settings were lost twice, and it also killed every OTHER Java
+REM process on the machine including a dev instance. stop-bearguard.ps1 backs up, asks the window
+REM to close, and confirms it went; if it will not close we abort rather than build against a
+REM running instance holding the jars.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0stop-bearguard.ps1" -Root "%~dp0."
+if errorlevel 1 (
+    echo [ERROR] Bearguard is still running -- refusing to build on top of a live instance.
+    echo         Close it by hand and run this again.
+    pause
+    exit /b 1
+)
+
+REM adb holds file handles under the build tree; it is stateless and safe to stop hard.
 taskkill /F /IM adb.exe >nul 2>&1
 timeout /t 2 >nul
 
