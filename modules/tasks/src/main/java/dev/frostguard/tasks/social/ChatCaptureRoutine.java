@@ -95,7 +95,15 @@ public class ChatCaptureRoutine extends DelayedTask {
             OcrSettingsData.assembler()
                     .textLayout(TextLayout.TEXT_BLOCK)
                     .stripBackground(false)
-                    .language("eng")
+                    // Measured over 20 live alliance frames: reading with Spanish, Portuguese
+                    // and Turkish alongside English lifted the text recognised by 19% and the
+                    // sender lines found by 29% (66 to 85), and made a name error disappear that
+                    // no amount of cleanup had shifted -- "JAthenaRyu" was English being forced
+                    // onto Spanish text. Adding further languages measured WORSE, not better:
+                    // ten of them dropped senders to 59 and cost 2.6x the time, because Tesseract
+                    // hedges across alphabets and mangles Latin it was reading correctly. More
+                    // scripts belong behind per-message script detection, not in this list.
+                    .language("eng+spa+por+tur")
                     .preserveLineBreaks(true)
                     .build();
 
