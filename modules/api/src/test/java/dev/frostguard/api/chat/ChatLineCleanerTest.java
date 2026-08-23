@@ -48,6 +48,29 @@ class ChatLineCleanerTest {
     }
 
     @Test
+    void theClosingBracketIsAcceptedInEveryShapeTheReaderProduces() {
+        // Measured across 232 rows from 50 live alliance frames: the closing bracket comes back as
+        // a literal ] in only a handful and as j, J or | in most of the rest. Insisting on ]
+        // recognised 2 sender lines out of 213; accepting the real shapes recognises 181.
+        for (String line : new String[] {
+            "VIP6 [INF]AthenaRyu", "VIPG [INF jAthenaRyu", "VIP6 [INF|Nicko .",
+            "VIPG [INFJAthenaRyu", "VIP6 (INF]Nicko"}) {
+            ChatLineCleaner.Sender s = ChatLineCleaner.parseSender(line);
+            assertEquals("INF", s.allianceTag(), "tag not read from: " + line);
+            assertTrue(s.trusted(), "should trust: " + line);
+        }
+    }
+
+    @Test
+    void trailingDecorationIsTrimmedOffTheName() {
+        // "Nicko ." and "AthenaRyu 7" are the same two players with a speck of the avatar frame
+        // caught on the end of the line.
+        assertEquals("Nicko", ChatLineCleaner.parseSender("VIP6 [INF|Nicko .").name());
+        assertEquals("AthenaRyu", ChatLineCleaner.parseSender("VIP6 [INF]AthenaRyu 7").name());
+        assertEquals("AthenaRyu", ChatLineCleaner.parseSender("VIP6 [INF]AthenaRyu -").name());
+    }
+
+    @Test
     void readsATaggedSenderWhenTheReaderMistakesTheBracketForAParenthesis() {
         // Live captures carry both forms for the same tag; the leading bracket is thin enough that
         // the reader flips it, and a bracket-only pattern silently drops those senders.

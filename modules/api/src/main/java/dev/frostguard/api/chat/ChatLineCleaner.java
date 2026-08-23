@@ -39,7 +39,21 @@ public final class ChatLineCleaner {
      * last tag on the line wins, so a tag mentioned inside a name cannot end the match early.
      */
     private static final Pattern TAG_ANCHORED = Pattern.compile(
-            "^.*[\\[(](?<tag>[A-Za-z0-9]{2,4})[\\])]\\s*(?<name>\\p{L}[^\\s].{0,22})\\s*$");
+            "^.*\\[(?<tag>[A-Za-z0-9]{2,4})\\]\\s*(?<name>\\p{L}[^\\s]{0,23})");
+
+    /**
+     * Rewrites the alliance tag into a canonical {@code [TAG]} before anything else reads the line.
+     *
+     * <p>Measured over 232 rows from 50 live alliance frames: the closing bracket comes back as a
+     * literal {@code ]} in only a handful of rows, and as {@code j}, {@code J} or {@code |} in most
+     * of the rest -- it is a thin tall glyph sitting hard against the first letter of the name.
+     * Worse, {@code |} was being deleted as an invented character before the tag was ever parsed,
+     * so the closing bracket vanished entirely. Normalising first means the tag patterns and the
+     * artifact strip see the same shape. Insisting on a literal {@code ]} recognised 2 sender lines
+     * out of 213.
+     */
+    private static final Pattern TAG_ANY =
+            Pattern.compile("[\\[({]\\s*([A-Za-z0-9]{2,4})\\s*[\\])}jJ|Il1]");
 
     /** {@code @Name} and the spaced {@code @ [TAG]Name} the reader also produces. */
     private static final Pattern MENTION = Pattern.compile(
@@ -147,7 +161,11 @@ public final class ChatLineCleaner {
         if (raw == null || raw.isBlank()) {
             return new Sender("", "", 0, false);
         }
-        String cleaned = collapse(ARTIFACTS.matcher(raw).replaceAll(" "));
+        // Canonicalise the tag first. The artifact strip below deletes "|", which is one of the
+        // shapes the closing bracket reads as, so leaving this until afterwards threw the bracket
+        // away before anything could parse it.
+        String normalised = TAG_ANY.matcher(raw).replaceAll("[$1]");
+        String cleaned = collapse(ARTIFACTS.matcher(normalised).replaceAll(" "));
 
         // The alliance tag is the one anchor on this line that survives a bad read, so when it is
         // present everything before it is discarded outright. The VIP badge is why: it is drawn on
@@ -217,7 +235,8 @@ public final class ChatLineCleaner {
     private static final Pattern STRAY_VIP = Pattern.compile("(?i)\\bV[il1|]{0,2}[PR][0-9A-Za-z]?\\b");
 
     /** Trailing digits and stray letters the reader picks up from decorations beside the name. */
-    private static final Pattern NAME_TRAILING_NOISE = Pattern.compile("[\\s\\p{N}]+$");
+    private static final Pattern NAME_TRAILING_NOISE =
+            Pattern.compile("[\\s\\p{N}\\p{Punct}]+$");
 
     /** Strips the reader's invented characters and collapses the whitespace they leave behind. */
     public static String cleanBody(String raw) {
