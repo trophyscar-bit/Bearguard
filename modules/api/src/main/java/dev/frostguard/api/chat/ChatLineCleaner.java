@@ -81,7 +81,7 @@ public final class ChatLineCleaner {
                     // own wording is what identifies it: "Initiator:", "Participants: 49/98",
                     // "Vote in: 11:29:34".
                     + "|initiator|participants|vote in|selection"
-                    + "|have not participated|alliance notice)\\b");
+                    + "|have not participated|alliance notice|alliance label|label set at)\\b");
 
     /**
      * A bubble that is nothing but the word "Vote".
@@ -254,9 +254,16 @@ public final class ChatLineCleaner {
     /** The badge as the reader spells it when it fails: VIP, ViIPO, VIPG, VirP, VIPw. */
     private static final Pattern STRAY_VIP = Pattern.compile("(?i)\\bV[il1|]{0,2}[PR][0-9A-Za-z]?\\b");
 
-    /** Trailing digits and stray letters the reader picks up from decorations beside the name. */
+    /**
+     * Trailing decoration the reader picks up from beside the name.
+     *
+     * <p>Written as the Unicode punctuation and symbol categories, not as {@code \p{Punct}}, which
+     * in Java covers only the ASCII marks. The reader's inventions are mostly not ASCII: an em
+     * dash, a curly quote, an arrow. "Mojorisinfans —" was kept whole and stored as a player's
+     * name because the dash on the end fell outside the class meant to strip it.
+     */
     private static final Pattern NAME_TRAILING_NOISE =
-            Pattern.compile("[\\s\\p{N}\\p{Punct}]+$");
+            Pattern.compile("[\\s\\p{N}\\p{P}\\p{S}]+$");
 
     /** Strips the reader's invented characters and collapses the whitespace they leave behind. */
     public static String cleanBody(String raw) {
@@ -288,6 +295,9 @@ public final class ChatLineCleaner {
         }
         out = TRAILING_ORPHAN.matcher(out).replaceAll("");
         out = TRAILING_LOOSE_CAPS.matcher(out).replaceAll("");
+        if (out.trim().split("\\s+").length >= WORDS_BEFORE_TRIMMING_A_LETTER) {
+            out = TRAILING_LONE_LETTER.matcher(out).replaceAll("");
+        }
         return out.strip();
     }
 
@@ -303,6 +313,21 @@ public final class ChatLineCleaner {
     /** The control also reads as one or two loose capitals, most often "E". */
     private static final Pattern TRAILING_LOOSE_CAPS =
             Pattern.compile("\\s+[A-Z]{1,2}\\s*$");
+
+    /**
+     * A single letter left hanging on the end of a sentence.
+     *
+     * <p>The controls and icons drawn at the end of a bubble come back as one stray character, and
+     * which one depends on the icon: "En la 2 no te veo" arrived as "En la 2 no te veo q". Only
+     * removed when the message has enough words to be a sentence, so a genuinely one-word reply is
+     * never emptied, and never when the letter is a word in its own right -- "a", "y", "o" and "e"
+     * all end real sentences in Spanish and Portuguese.
+     */
+    private static final Pattern TRAILING_LONE_LETTER =
+            Pattern.compile("\\s+(?![aeouyiAEOUYI]\\b)\\p{L}\\s*$");
+
+    /** Below this a message is too short to risk taking a character off the end of. */
+    private static final int WORDS_BEFORE_TRIMMING_A_LETTER = 4;
 
     /**
      * A key that holds two readings of the same message together.
