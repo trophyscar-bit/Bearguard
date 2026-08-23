@@ -178,22 +178,40 @@ final class ChatScriptRecovery {
      * mostly Cyrillic to be accepted.
      */
     static boolean looksLikeMangledScript(String text) {
+        String[] words = text.split("\s+");
+        boolean[] isName = new boolean[words.length];
+        // A name can be more than one word, and only one of its words carries the marker. "@Mini
+        // TyTy" marks "@Mini" and leaves "TyTy"; "Mini TyTy:" marks "TyTy:" and leaves "Mini".
+        // Marking only the marked word left one capitalised half of every two-word name standing as
+        // evidence, which was enough to send eleven of Candy's Czech messages to the Cyrillic reader
+        // on a live pass.
+        for (int i = 0; i < words.length; i++) {
+            if (words[i].isEmpty()) {
+                continue;
+            }
+            if (words[i].charAt(0) == '@') {
+                isName[i] = true;
+                if (i + 1 < words.length && startsCapitalised(words[i + 1])) {
+                    isName[i + 1] = true;
+                }
+            }
+            if (words[i].endsWith(":")) {
+                isName[i] = true;
+                if (i > 0 && startsCapitalised(words[i - 1])) {
+                    isName[i - 1] = true;
+                }
+            }
+        }
+
         int odd = 0;
-        for (String word : text.split("\s+")) {
-            if (word.length() < MIN_WORD_TO_JUDGE_SHAPE || word.equals(word.toUpperCase())) {
+        for (int i = 0; i < words.length; i++) {
+            String word = words[i];
+            if (isName[i] || word.length() < MIN_WORD_TO_JUDGE_SHAPE
+                    || word.equals(word.toUpperCase())) {
                 continue;
             }
-            // Player names are the other thing that puts a capital inside a word, and the feed is
-            // full of them: a mention carries one, and a quoted reply repeats the name it is
-            // quoting with a colon after it. Counting those sent Spanish, English and Czech
-            // messages to the Cyrillic reader, which duly returned Cyrillic -- "AthenaRyu" came
-            // back as "А{ПепаВуи", and because the result was mostly Cyrillic characters it passed
-            // the test meant to catch exactly this. A name is not evidence of another alphabet.
-            if (word.charAt(0) == '@' || word.endsWith(":")) {
-                continue;
-            }
-            for (int i = 1; i < word.length(); i++) {
-                if (Character.isUpperCase(word.charAt(i))) {
+            for (int c = 1; c < word.length(); c++) {
+                if (Character.isUpperCase(word.charAt(c))) {
                     odd++;
                     break;
                 }
@@ -202,9 +220,20 @@ final class ChatScriptRecovery {
         return odd >= MANGLED_WORDS_TO_SUSPECT;
     }
 
+    private static boolean startsCapitalised(String word) {
+        return !word.isEmpty() && Character.isUpperCase(word.charAt(0));
+    }
+
     /** Shorter than this and a stray capital says nothing. */
     private static final int MIN_WORD_TO_JUDGE_SHAPE = 3;
-    /** How many oddly-shaped words before the line is worth reading again. */
+    /**
+     * How many oddly-shaped words before the line is worth reading again.
+     *
+     * <p>Two. Three was tried and rejected: real Russian messages measured here score exactly two
+     * once their all-capital words are set aside, so the stricter count stopped recognising the
+     * thing this exists for. The false triggers are dealt with by not counting names, which is what
+     * they were.
+     */
     private static final int MANGLED_WORDS_TO_SUSPECT = 2;
 
     /** Whether a line holds anything a Latin reader would call a word. */
