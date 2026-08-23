@@ -59,14 +59,21 @@ final class ChatScriptRecovery {
      * @param cjk       the non-Latin reader settings
      */
     static List<TextLine> reread(RawImageData frame, List<TextLine> lines, List<TextLine> words,
-                                 int rightEdge, OcrSettingsData cjk) {
+                                 int rightEdge, OcrSettingsData cjk, OcrSettingsData cyrillic) {
         List<TextLine> out = new ArrayList<>(lines.size());
         for (TextLine line : lines) {
-            if (hasReadableWord(line.text())) {
+            boolean unreadable = !hasReadableWord(line.text());
+            boolean mangled = !unreadable && looksLikeMangledScript(line.text());
+            if (!unreadable && !mangled) {
                 out.add(line);
                 continue;
             }
-            TextLine recovered = readAgain(frame, line, inkBoxOn(line, words), rightEdge, cjk);
+            // Which reader to spend depends on what the Latin pass produced. Nothing word-shaped at
+            // all is what a CJK message looks like through a Latin reader. Words that are the wrong
+            // shape -- capitals in the middle of them -- is what Cyrillic looks like, because its
+            // letters have Latin lookalikes and the reader happily returns them.
+            OcrSettingsData reader = unreadable ? cjk : cyrillic;
+            TextLine recovered = readAgain(frame, line, inkBoxOn(line, words), rightEdge, reader);
             out.add(recovered != null ? recovered : line);
         }
         return out;
@@ -152,6 +159,44 @@ final class ChatScriptRecovery {
         }
         return null;
     }
+
+    /**
+     * Whether a line reads like Cyrillic that a Latin reader has guessed its way through.
+     *
+     * <p>Russian is one of the sixteen languages the game ships in, and it never reached the other
+     * scripts pass, because that pass triggers on a line the Latin reader made no word of and
+     * Cyrillic does not look like that. Half its alphabet has Latin lookalikes, so the reader
+     * returns confident nonsense instead: "MH@ CPOUHO HyxeH gusaunep!!!" for "Мне срочно нужен
+     * дизайнер!!!". Every Russian message in a day's transcript was stored that way, and none was
+     * ever offered to a Cyrillic reader.
+     *
+     * <p>What gives it away is the shape of the words rather than the characters. Latin text puts
+     * capitals at the front of a word or across the whole of it; these have them in the middle --
+     * "HyxeH", "3aHMMaTbCA", "gusaunep" -- because the reader is matching Cyrillic letterforms one
+     * at a time and does not care where a capital belongs. Two such words on a line is enough to be
+     * worth a second reading, and a wrong guess costs only that reading: the result still has to be
+     * mostly Cyrillic to be accepted.
+     */
+    static boolean looksLikeMangledScript(String text) {
+        int odd = 0;
+        for (String word : text.split("\s+")) {
+            if (word.length() < MIN_WORD_TO_JUDGE_SHAPE || word.equals(word.toUpperCase())) {
+                continue;
+            }
+            for (int i = 1; i < word.length(); i++) {
+                if (Character.isUpperCase(word.charAt(i))) {
+                    odd++;
+                    break;
+                }
+            }
+        }
+        return odd >= MANGLED_WORDS_TO_SUSPECT;
+    }
+
+    /** Shorter than this and a stray capital says nothing. */
+    private static final int MIN_WORD_TO_JUDGE_SHAPE = 3;
+    /** How many oddly-shaped words before the line is worth reading again. */
+    private static final int MANGLED_WORDS_TO_SUSPECT = 2;
 
     /** Whether a line holds anything a Latin reader would call a word. */
     static boolean hasReadableWord(String text) {
