@@ -43,6 +43,10 @@ public class LifeEssenceRoutine extends DelayedTask {
 	private static final int EMPTY_SCANS_BEFORE_DONE = 2;
 	private static final int CLAIM_SETTLE_MILLIS = 700;
 
+	// Gap between the two captures a scan compares, long enough that a flying reward crystal has
+	// clearly moved while a bouncing badge has not.
+	private static final int BADGE_SETTLE_MILLIS = 700;
+
 	// Default configuration values
 	private static final int DEFAULT_OFFSET_MINUTES = Integer.parseInt(
 			ConfigurationKeyEnum.LIFE_ESSENCE_OFFSET_INT.getDefaultValue());
@@ -194,25 +198,39 @@ public class LifeEssenceRoutine extends DelayedTask {
 	}
 
 	/**
-	 * Returns the centre of every claim badge on the island, logging the green artwork that was
-	 * examined and rejected so a miss can be diagnosed from the account log alone.
+	 * Returns the centre of every claim badge on the island.
+	 *
+	 * <p>Proves the island screen is open before trusting anything on it, then takes a second capture
+	 * so that only badges holding still are returned. Rejected green artwork is logged so a miss can
+	 * be diagnosed from the account log alone.
 	 */
 	private List<PointData> locateClaimBadges() {
-		BufferedImage frame = captureFrame();
-		if (frame == null) {
+		BufferedImage first = captureFrame();
+		if (first == null) {
+			return List.of();
+		}
+		if (!IslandClaimBadges.onIslandScreen(first)) {
+			logWarning("My Island is not open - the essence counter is not on screen. Claiming nothing.");
 			return List.of();
 		}
 
-		List<PointData> badges = new ArrayList<>();
-		for (ColorBlobFinder.Blob blob : IslandClaimBadges.candidates(frame)) {
-			if (IslandClaimBadges.isClaimBadge(blob)) {
-				badges.add(blob.centre());
-			} else {
+		sleepTask(BADGE_SETTLE_MILLIS);
+		BufferedImage second = captureFrame();
+		if (second == null) {
+			return List.of();
+		}
+
+		List<ColorBlobFinder.Blob> candidates = IslandClaimBadges.candidates(second);
+		List<ColorBlobFinder.Blob> badges =
+				IslandClaimBadges.settled(IslandClaimBadges.candidates(first), candidates);
+
+		for (ColorBlobFinder.Blob blob : candidates) {
+			if (!badges.contains(blob)) {
 				logDebug("Ignored green blob at " + blob.centre() + ": " + blob.width() + "x" + blob.height()
 						+ " fill=" + String.format("%.2f", blob.fillRatio()));
 			}
 		}
-		return badges;
+		return badges.stream().map(ColorBlobFinder.Blob::centre).toList();
 	}
 
 	private static boolean seenBefore(List<PointData> claimed, PointData badge) {

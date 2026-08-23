@@ -169,10 +169,19 @@ public final class CommonGameAreas {
     // ── My Island (Life Essence) ─────────────────────────────────────
 
     // Claim badges hang over the tree and over each crafting station, and players place their
-    // stations wherever they like, so the whole island is searched rather than fixed spots. The
-    // window stops short of the top HUD, whose Life Essence counter carries the same green crystal
-    // as the badges, and short of the chat and bottom navigation bars.
-    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 340, 720, 1150);
+    // stations wherever they like, so the whole island is searched rather than fixed spots.
+    //
+    // Both edges are load-bearing. The top HUD's Life Essence counter is the same crystal artwork as
+    // the badges and measures 31x45 at 0.58 fill on a live frame, which passes every shape rule the
+    // detector applies - excluding it here is the only thing that stops the routine tapping the
+    // currency counter. The badge over the tree floats highest of any badge and reaches y=320, so
+    // the window must start above that or the crystal is clipped and loses a fifth of its pixels.
+    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 200, 720, 1100);
+
+    // The Life Essence counter in the top bar. Being the same crystal artwork as the badges makes it
+    // a free proof that the island screen is really open, since no other screen the routine can land
+    // on carries it.
+    public static final AreaData ISLAND_ESSENCE_COUNTER = region(500, 10, 640, 60);
 
     // ── character identity ───────────────────────────────────────────
 
