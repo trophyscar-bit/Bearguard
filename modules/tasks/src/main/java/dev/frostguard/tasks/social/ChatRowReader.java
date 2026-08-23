@@ -32,10 +32,9 @@ final class ChatRowReader {
      *  band and reads as stray punctuation, which {@link ChatLineCleaner} strips. */
     private static final int TEXT_X1 = 690;
 
+    private static final int NAME_TOP_OFFSET = 18;
+    private static final int NAME_BOTTOM_OFFSET = 56;
     private static final int BODY_TOP_OFFSET = 58;
-
-    /** Clear of the sender line's descenders before the bubble starts. */
-    private static final int BODY_GAP = 4;
 
     /** Beyond this a bubble is a card or a sticker, and its lower half is art, not text. */
     private static final int MAX_BODY_HEIGHT = 260;
@@ -59,20 +58,10 @@ final class ChatRowReader {
                                   Instant at,
                                   java.util.function.Function<String, Optional<String>> translate) {
         List<ChatMessage> out = new ArrayList<>(rows.size());
-        String lastAuthor = "";
-        String lastTag = "";
         for (ChatRowSegmenter.Row row : rows) {
-            // The segmenter measured where the sender line actually is; a fixed offset from the
-            // avatar drifted with crowns and rank badges and clipped the glyph tops.
-            int nameTop = row.nameTop();
-            int nameBottom = Math.min(row.nameBottom(), row.bottom());
-            // The body has to start below the sender line, not at a fixed offset from the avatar.
-            // Leaving it fixed while the name band moved let the two overlap: the sender line was
-            // read a second time as part of the bubble, so the transcript carried
-            // "VIP6 [INF]CrisdeuS Reclamen recompensas..." as the message and no author at all.
-            int bodyTop = row.hasNameLine()
-                    ? Math.min(nameBottom + BODY_GAP, row.bottom())
-                    : Math.min(row.top() + BODY_TOP_OFFSET, row.bottom());
+            int nameTop = row.top() + NAME_TOP_OFFSET;
+            int nameBottom = Math.min(row.top() + NAME_BOTTOM_OFFSET, row.bottom());
+            int bodyTop = Math.min(row.top() + BODY_TOP_OFFSET, row.bottom());
             int bodyBottom = Math.min(row.bottom(), bodyTop + MAX_BODY_HEIGHT);
             if (nameBottom <= nameTop || bodyBottom <= bodyTop) {
                 continue;
@@ -112,29 +101,7 @@ final class ChatRowReader {
             // An untrusted name is reported as unknown rather than dropped. The message itself is
             // still real and still belongs in the transcript; it is only the attribution that
             // could not be established, and inventing a participant is the worse failure.
-            // The game prints the sender once and omits it on the messages immediately following
-            // from the same person, so a row with no name is usually a continuation rather than an
-            // anonymous message. Carrying the last known sender forward is what the screen itself
-            // means; storing "" put 78 of 182 alliance messages in the transcript with no author.
-            // Three different situations, three different answers. A row with a readable sender
-            // names its own author. A row with no sender line at all is a continuation -- the game
-            // prints the name once and omits it on the messages that follow from the same person --
-            // so it inherits. A row that HAD a sender line which could not be read is genuinely
-            // unknown, and inheriting there would put the wrong name on someone else's words.
-            String author;
-            String tag;
-            if (sender.trusted()) {
-                author = sender.name();
-                tag = sender.allianceTag();
-                lastAuthor = author;
-                lastTag = tag;
-            } else if (!row.hasNameLine()) {
-                author = lastAuthor;
-                tag = lastTag;
-            } else {
-                author = "";
-                tag = "";
-            }
+            String author = sender.trusted() ? sender.name() : "";
 
             // Only the sender's own words are translated. The quote is another message that was
             // already captured on its own row, so translating it again duplicates the lookup.
@@ -147,7 +114,7 @@ final class ChatRowReader {
                 english = "";
             }
 
-            out.add(new ChatMessage(at, channel, author, tag, sender.vipLevel(),
+            out.add(new ChatMessage(at, channel, author, sender.allianceTag(), sender.vipLevel(),
                     body, english, ChatLineCleaner.mentions(body), kind, split.quoted()));
         }
         return out;

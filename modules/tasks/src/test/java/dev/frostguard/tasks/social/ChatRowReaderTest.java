@@ -33,8 +33,7 @@ class ChatRowReaderTest {
     }
 
     private static List<ChatRowSegmenter.Row> oneRow() {
-        // Name band measured by the segmenter; these are the values it produces for a plain row.
-        return List.of(new ChatRowSegmenter.Row(0, 200, 0, 112, 18, 56, true));
+        return List.of(new ChatRowSegmenter.Row(0, 200, 0, 112));
     }
 
     @Test
