@@ -218,12 +218,16 @@ public class ChatTranscriptLayoutController {
         header.getChildren().addAll(channel, time);
 
         VBox content = new VBox(2, header, bodyNode(m));
+        content.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(content, Priority.ALWAYS);
 
         // No avatar disc. A coloured circle carrying one letter of a name that is already written
-        // in full on the next line adds nothing to read and costs a column of width, which the
-        // panel does not have to spare at the size it is actually used at.
+        // in full on the next line adds nothing to read.
         HBox row = new HBox(10, content);
+        // Without this the row is only ever as wide as the text it happens to hold. A box's
+        // maximum defaults to its computed size, so it never grows into the space beside it, and
+        // the message wraps into a narrow column with the rest of the panel left empty.
+        row.setMaxWidth(Double.MAX_VALUE);
         row.setPadding(new Insets(6, 8, 2, 8));
         return row;
     }
@@ -236,9 +240,11 @@ public class ChatTranscriptLayoutController {
         spacer.setPrefWidth(0);
 
         VBox content = new VBox(bodyNode(m));
+        content.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(content, Priority.ALWAYS);
 
         HBox row = new HBox(10, spacer, content);
+        row.setMaxWidth(Double.MAX_VALUE);
         row.setPadding(new Insets(0, 8, 2, 8));
         return row;
     }
@@ -260,6 +266,8 @@ public class ChatTranscriptLayoutController {
         TextFlow flow = new TextFlow(text);
         flow.setMaxWidth(Double.MAX_VALUE);
         VBox box = new VBox(1);
+        box.setMaxWidth(Double.MAX_VALUE);
+        box.setFillWidth(true);
 
         // The quoted original goes above the reply, the way a chat client shows it, so it reads as
         // context rather than as part of what this player said.
@@ -267,6 +275,7 @@ public class ChatTranscriptLayoutController {
             Text quote = new Text(m.quoted());
             quote.setStyle("-fx-fill: #949ba4; -fx-font-size: 11px;");
             TextFlow quoteFlow = new TextFlow(quote);
+            quoteFlow.setMaxWidth(Double.MAX_VALUE);
             quoteFlow.setStyle("-fx-border-color: transparent transparent transparent #4e5058;"
                     + " -fx-border-width: 0 0 0 2; -fx-padding: 0 0 0 6;");
             box.getChildren().add(quoteFlow);
@@ -276,7 +285,9 @@ public class ChatTranscriptLayoutController {
         if (!m.translated().isBlank()) {
             Text original = new Text(m.body());
             original.setStyle("-fx-fill: #949ba4; -fx-font-size: 11px;");
-            box.getChildren().add(new TextFlow(original));
+            TextFlow originalFlow = new TextFlow(original);
+            originalFlow.setMaxWidth(Double.MAX_VALUE);
+            box.getChildren().add(originalFlow);
         }
         return box;
     }
