@@ -90,9 +90,13 @@ public final class OcrEngine {
 
         java.util.List<TextLine> local = getProvider().recognizeLines(prepared, cfg);
         java.util.List<TextLine> onFrame = new java.util.ArrayList<>(local.size());
+        // Preprocessing magnifies before recognising, so the reader answers in the magnified
+        // image's coordinates. Undo that before adding the crop's own offset, or every position is
+        // four times too far out and a caller reasoning about columns sees nothing where it looked.
+        int mag = dev.frostguard.vision.convert.ImagePreprocessor.MAGNIFICATION;
         for (TextLine l : local) {
-            onFrame.add(new TextLine(l.text(), l.left() + cx, l.top() + cy,
-                    l.width(), l.height(), l.confidence()));
+            onFrame.add(new TextLine(l.text(), l.left() / mag + cx, l.top() / mag + cy,
+                    l.width() / mag, l.height() / mag, l.confidence()));
         }
         log.debug("Recognised {} line(s) in {}x{} region at ({},{})", onFrame.size(), cw, ch, cx, cy);
         return onFrame;
