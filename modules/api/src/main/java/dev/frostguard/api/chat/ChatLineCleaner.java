@@ -62,6 +62,16 @@ public final class ChatLineCleaner {
     /** Characters the reader invents from bubble borders, crowns and unresolved emoji. */
     private static final Pattern ARTIFACTS = Pattern.compile("[|=~®©*“”„¦¬`^]+");
 
+    /**
+     * The per-message translate control, which the reader spells as a word.
+     *
+     * <p>It sits at the end of every bubble and comes back as a bare "tt" often enough to appear in
+     * most messages. Matched only as a whole token so a real word containing those letters is
+     * untouched.
+     */
+    private static final Pattern TRANSLATE_CONTROL =
+            Pattern.compile("(?<!\\p{L})tt(?!\\p{L})");
+
     /** Game-generated cards, which are events rather than things a player said. */
     private static final Pattern SYSTEM_CARD = Pattern.compile(
             "(?i)\\b(share (coordinates|layout)|lucky pouch|new message\\(s\\)|tap to enter"
@@ -208,6 +218,13 @@ public final class ChatLineCleaner {
         if (name.length() < 3 || !Character.isLetter(name.charAt(0))) {
             return false;
         }
+        // A sender line whose message ran into it: "[INF]Mojorisinfans se Tengo a Natalia y no la
+        // he podido" is a name followed by what that person then said. Players use one word, or
+        // two for the few with a space, and none of them are a sentence long.
+        if (name.length() > MAX_NAME_LENGTH
+                || name.trim().split("\\s+").length > MAX_WORDS_IN_A_NAME) {
+            return false;
+        }
         // A bracket surviving into the name means the alliance tag was not parsed off cleanly, so
         // what is left is the wreckage of the whole line rather than a player -- this is what
         // "VIPG [INF jAthenaRyu" looks like by the time it gets here.
@@ -228,6 +245,9 @@ public final class ChatLineCleaner {
         return NAME_TRAILING_NOISE.matcher(name).replaceAll("");
     }
 
+    /** Long enough for the longest real name seen, short enough to reject a sentence. */
+    private static final int MAX_NAME_LENGTH = 20;
+
     /** A bracket left in the name means the tag was never separated from it. */
     private static final Pattern UNPARSED_TAG = Pattern.compile("[\\[\\]()]");
 
@@ -243,7 +263,8 @@ public final class ChatLineCleaner {
         if (raw == null) {
             return "";
         }
-        String body = collapse(ARTIFACTS.matcher(raw).replaceAll(" "));
+        String body = collapse(TRANSLATE_CONTROL.matcher(
+                ARTIFACTS.matcher(raw).replaceAll(" ")).replaceAll(" "));
         return trimOrphanGlyphs(body);
     }
 
@@ -530,6 +551,7 @@ public final class ChatLineCleaner {
     }
 
     /** A player name runs to a few words; a sentence does not stop there. */
+    /** Some players carry a space or two in their name; none of them carry a sentence. */
     private static final int MAX_WORDS_IN_A_NAME = 3;
 
     /** True when the line is a game event rather than something a player said. */

@@ -21,31 +21,24 @@ import dev.frostguard.vision.ocr.TextLine;
  * the bubble instead, and the transcript carried "VIP6 [INF]CrisdeuS a Acabo de enviar a farmear"
  * as somebody's message with no author at all.
  *
- * <p>Recognised whole, the same frame reports every line and where it is, and the two kinds of line
- * separate themselves: on a 720-wide capture a sender line begins around x=140 and the bubble text
- * under it around x=170. That is a measurement rather than a guess, it cannot drift, and it costs
- * one recognition per screen instead of one per region.
+ * <p>Recognised whole, the same frame reports every line in reading order, and a sender line is
+ * told from a message by carrying an alliance tag. The column looked like the obvious signal and is
+ * not one: measured across live frames, sender lines start anywhere between x=139 and x=198 while
+ * the bubbles under them start between x=168 and x=172, because the width of the tag moves the
+ * name. It also costs one recognition per screen rather than one per region.
  */
 final class ChatFrameReader {
 
-    /** The message feed, clear of the tab bar above and the input box below. */
-    private static final int FEED_TOP = 175;
-    private static final int FEED_BOTTOM = 1160;
-
     /**
-     * Left of this a line is decoration rather than text: avatars, rank badges and the crowns that
-     * sit outside them. Sender lines and bubbles both begin to the right of it.
-     */
-    private static final int TEXT_LEFT_EDGE = 120;
-
-    /**
-     * A sender line starts in its own column, left of the bubble it introduces.
+     * The message feed, clear of the chrome above it and the input box below.
      *
-     * <p>Measured on live frames: sender lines begin at about x=140 and bubble text at about x=170.
-     * The boundary sits between them with room either side, because the exact column shifts a
-     * little with the width of the alliance tag.
+     * <p>Measured on live alliance frames: the Chat / Alliance Notice sub-tabs and the notice
+     * banner occupy down to about y=245, and the first real message begins at y=259. Starting at
+     * 175 pulled the banner in, and because it is a line like any other it was absorbed into
+     * whatever message followed -- "Milan Notice RO Awww. They had such lofty goals".
      */
-    private static final int SENDER_COLUMN_LIMIT = 162;
+    private static final int FEED_TOP = 250;
+    private static final int FEED_BOTTOM = 1160;
 
     /** Past this gap the next line belongs to a different message, not the one above. */
     private static final int MESSAGE_GAP = 46;
@@ -63,10 +56,17 @@ final class ChatFrameReader {
                                   Function<String, Optional<String>> translate) {
         List<TextLine> feed = new ArrayList<>();
         for (TextLine l : lines) {
-            if (l.top() >= FEED_TOP && l.bottom() <= FEED_BOTTOM && l.left() >= TEXT_LEFT_EDGE
-                    && !l.text().isBlank()) {
-                feed.add(l);
+            if (l.top() < FEED_TOP || l.bottom() > FEED_BOTTOM || l.text().isBlank()) {
+                continue;
             }
+            // The game prints a bare time beside each group. It is not something anybody said, and
+            // left in it becomes a message of its own. Recognised by being nothing but a time,
+            // rather than by where it sits: a line's reported left edge includes whatever art sat
+            // beside the text, so it is not a reliable thing to test.
+            if (TIME_ONLY.matcher(l.text().trim()).matches()) {
+                continue;
+            }
+            feed.add(l);
         }
         feed.sort((a, b) -> Integer.compare(a.top(), b.top()));
 
@@ -100,11 +100,12 @@ final class ChatFrameReader {
         return out;
     }
 
+    /** A timestamp the game prints beside a group, e.g. {@code 22:09}. */
+    private static final java.util.regex.Pattern TIME_ONLY =
+            java.util.regex.Pattern.compile("\\d{1,2}[:.]\\d{2}(\\s*[AaPp][Mm])?");
+
     /** The sender this line names, or null when it is ordinary message text. */
     private static ChatLineCleaner.Sender senderOn(TextLine line) {
-        if (line.left() > SENDER_COLUMN_LIMIT) {
-            return null;
-        }
         ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(line.text());
         return sender.trusted() && !sender.allianceTag().isEmpty() ? sender : null;
     }

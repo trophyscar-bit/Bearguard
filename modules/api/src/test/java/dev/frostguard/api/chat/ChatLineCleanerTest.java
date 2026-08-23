@@ -92,6 +92,30 @@ class ChatLineCleanerTest {
     }
 
     @Test
+    void aNameFullOfInventedPunctuationIsNotTrusted() {
+        // Seen rendering as real participants in the live transcript: the reader turning a VIP badge
+        // and an alliance tag into braces and slashes.
+        for (String junk : new String[] {"S} ViP/ TRejbreach", "fe MPA) /UIBGeULClICr", "SS} VirP/ TMejbreach"}) {
+            assertFalse(ChatLineCleaner.parseSender(junk).trusted(), "should not trust " + junk);
+        }
+    }
+
+    @Test
+    void aSenderLineWithTheMessageRunIntoItIsNotTrusted() {
+        // Seen live: the reader joins a sender line to the words that follow it, and the whole
+        // sentence was stored as the author. No player name is a sentence long.
+        assertFalse(ChatLineCleaner.parseSender(
+                "[INF]Mojorisinfans se Tengo a Natalia y no la he podido").trusted());
+    }
+
+    @Test
+    void ordinaryNamesSurviveTheTighterCheck() {
+        for (String ok : new String[] {"TheFlyingDutch", "Kim Jong Um", "Mrs_Lasanha", "Snoopy!R"}) {
+            assertTrue(ChatLineCleaner.parseSender(ok).trusted(), "should trust " + ok);
+        }
+    }
+
+    @Test
     void stripsTheReadersInventedCharactersFromTheBody() {
         // | and = are the two most common characters in the whole corpus and no player types them
         // here -- they are bubble borders and the per-message translate control.
