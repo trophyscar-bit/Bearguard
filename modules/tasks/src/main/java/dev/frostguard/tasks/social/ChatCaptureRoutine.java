@@ -13,6 +13,7 @@ import java.util.List;
 
 import javax.imageio.ImageIO;
 
+import dev.frostguard.api.chat.ChatLineCleaner;
 import dev.frostguard.api.chat.ChatMessage;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TemplatesEnum;
@@ -254,7 +255,9 @@ public class ChatCaptureRoutine extends DelayedTask {
         tapNear(tab);
         sleepTask(1000L);
 
-        int stored = 0;
+        // Keyed on the message body so the same line seen on overlapping screens is held once.
+        java.util.LinkedHashMap<String, ChatMessage> collected = new java.util.LinkedHashMap<>();
+        int knownBefore = 0;
         int barrenScreens = 0;
 
         for (int i = 0; i < scrollBack; i++) {
@@ -289,29 +292,32 @@ public class ChatCaptureRoutine extends DelayedTask {
             List<ChatMessage> messages = ChatFrameReader.read(
                     lines, channel, Instant.now(), body -> translator.toEnglish(body));
 
-            int fresh;
-            try {
-                fresh = store.append(messages);
-                // Per-screen accounting. Without it a pass is a black box: the only way to tell a
-                // successful walk from one that read nothing was the total at the end, which hides
-                // where in the scroll-back it stopped finding anything.
-                logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + scrollBack
-                        + ": " + lines.size() + " line(s), " + messages.size() + " readable, "
-                        + fresh + " new.");
-            } catch (IOException e) {
-                // The frame is the only remaining copy of anything that failed to store, so keep it
-                // and stop rather than scrolling past messages that were never written.
-                logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
-                        + ": " + e.getMessage());
-                keepUnstoredFrame(channel, i, image);
-                break;
+            // Hold the pass in memory rather than writing each screen as it is read. Scroll steps
+            // overlap by design, so most messages are seen on two or three screens -- and a message
+            // sitting at the top of one screen has its sender line above the frame edge, while the
+            // next screen back shows both. Writing immediately stored whichever copy arrived first,
+            // which for those messages is the one with no author on it. Keeping the pass together
+            // lets the attributed copy win.
+            for (ChatMessage m : messages) {
+                String key = ChatLineCleaner.mergeKey(m.body());
+                ChatMessage held = collected.get(key);
+                if (held == null || (held.author().isEmpty() && !m.author().isEmpty())) {
+                    collected.put(key, m);
+                }
             }
-            stored += fresh;
+            // Per-screen accounting. Without it a pass is a black box: the only way to tell a
+            // successful walk from one that read nothing was the total at the end, which hides
+            // where in the scroll-back it stopped finding anything.
+            int freshOnScreen = collected.size() - knownBefore;
+            logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + scrollBack
+                    + ": " + lines.size() + " line(s), " + messages.size() + " readable, "
+                    + freshOnScreen + " new.");
+            knownBefore = collected.size();
 
-            // Overlapping scroll-backs mean most screens are already stored. Two consecutive
-            // screens with nothing new means this pass has reached history the previous pass
-            // already covered, and going further only spends captures re-reading it.
-            barrenScreens = fresh == 0 ? barrenScreens + 1 : 0;
+            // Overlapping scroll-backs mean most screens repeat the one before. Two consecutive
+            // screens contributing nothing means this pass has reached history it has already
+            // walked, and going further only spends captures re-reading it.
+            barrenScreens = freshOnScreen == 0 ? barrenScreens + 1 : 0;
             if (barrenScreens >= BARREN_SCREENS_BEFORE_STOP) {
                 logInfo("ChatCaptureRoutine | " + channel + ": reached already-captured history.");
                 break;
@@ -320,7 +326,15 @@ public class ChatCaptureRoutine extends DelayedTask {
             swipeUpThroughHistory();
         }
 
-        return stored;
+        // The pass is written once, in the order it was read, now that every message has had the
+        // chance to be seen on a screen that also showed its sender.
+        try {
+            return store.append(new java.util.ArrayList<>(collected.values()));
+        } catch (IOException e) {
+            logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
+                    + ": " + e.getMessage());
+            return 0;
+        }
     }
 
     /** Reads one region of the held frame, returning empty rather than throwing on a bad read. */
