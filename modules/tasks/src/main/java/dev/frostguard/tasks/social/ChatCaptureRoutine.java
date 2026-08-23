@@ -385,7 +385,7 @@ public class ChatCaptureRoutine extends DelayedTask {
      * <p>A little over half a screen buys back the overlap. The cost is duplicates, which cost
      * nothing: de-duplication keys on the message body, so a line seen twice is stored once.
      */
-    private static final double SCROLL_STEP_FRACTION = 0.50;
+    private static final double SCROLL_STEP_FRACTION = 0.53;
 
     /**
      * How long the scroll drag takes.
