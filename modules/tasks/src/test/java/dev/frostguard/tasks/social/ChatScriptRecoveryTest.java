@@ -87,4 +87,15 @@ class ChatScriptRecoveryTest {
                 "@CrisdeuS a Tome. 3TO Hao HyxeH gusaunep BCE nepecTaBnaTb"));
     }
 
+    @Test
+    void doesNotTakeATwoWordPlayerNameAsEvidence() {
+        // All from one live pass. "Mini TyTy" is one player; only half of it carries the marker.
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "@Mini TyTy uz mi chybi jeho vtipkovani Mini TyTy: he's got a lot"));
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "@Mini moc mu chybi Szymon Mini TyTy: Though it's"));
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "@All Duz @Mini TyTy myslela v BAE Mini TyTy: same"));
+    }
+
 }
