@@ -764,16 +764,38 @@ public final class ChatLineCleaner {
     /** Player names are one word, or two for the few that carry a space. */
     private static final int MAX_WORDS_IN_A_QUOTED_NAME = 2;
 
-    /** A word that could be part of a player name rather than ordinary sentence text. */
+    /**
+     * Whether a word could be part of a player name rather than ordinary sentence text.
+     *
+     * <p>Deliberately tolerant of noise. A reply carries the message it answers inside the same
+     * bubble as "Name: text", and that name is the only thing marking where the quote begins -- but
+     * it is also the part of the bubble the reader mangles most, being small and often over
+     * decoration. Requiring a clean set of characters meant "CrisdeuS:" read as "Сг!з4еи$:" and
+     * "AthenaRyu:" read as "А{ПепаВуи:" were not recognised as names, the split never happened, and
+     * the quoted message stayed glued to the reply. Measured over a live evening, 35 of 187 stored
+     * messages carried somebody else's words that way.
+     *
+     * <p>So the test is the shape rather than the alphabet: name-length, starting with a letter,
+     * and mostly made of letters and digits. What is left over is the reader's invention, and a
+     * couple of stray brackets in the middle of a name does not stop it being one.
+     */
     private static boolean isNameWord(String word) {
         String bare = word.startsWith("[") && word.contains("]")
                 ? word.substring(word.indexOf(']') + 1) : word;
         if (bare.isEmpty() || bare.length() > 18 || !Character.isLetter(bare.charAt(0))) {
             return false;
         }
-        return bare.chars().allMatch(c -> Character.isLetterOrDigit(c)
-                || c == '_' || c == '\'' || c == '.' || c == '-' || c == '!');
+        long solid = bare.chars().filter(c -> Character.isLetterOrDigit(c)
+                || c == '_' || c == '\'' || c == '.' || c == '-' || c == '!').count();
+        long letters = bare.chars().filter(Character::isLetter).count();
+        return letters >= LETTERS_TO_BE_A_NAME
+                && solid / (double) bare.length() >= NAME_SOLID_SHARE;
     }
+
+    /** A name has some letters in it, however badly they were read. */
+    private static final int LETTERS_TO_BE_A_NAME = 3;
+    /** The share of a name that has to be ordinary characters rather than the reader's invention. */
+    private static final double NAME_SOLID_SHARE = 0.6;
 
     /**
      * Whether the word before this one also looks like part of the same name.

@@ -386,4 +386,31 @@ class ChatLineCleanerTest {
         assertEquals("En la 2 no te veo", ChatLineCleaner.cleanBody("En la 2 no te veo e,"));
     }
 
+    // ---- quoted replies with a mangled quoted name ------------------------------------------
+    // All of these were stored with the quote glued on, because the quoted name did not survive
+    // the reader cleanly enough to be recognised as a name.
+
+    @Test
+    void splitsAQuoteWhoseAuthorNameWasMangled() {
+        ChatLineCleaner.Body b = ChatLineCleaner.splitQuotedReply(
+                "@AthenaRyu Yes ! А{пепаВуи: @Mini TyTy you better not go");
+        assertEquals("@AthenaRyu Yes !", b.own());
+        assertFalse(b.quoted().isBlank());
+    }
+
+    @Test
+    void splitsAQuoteWhoseAuthorNameCarriesReaderNoise() {
+        ChatLineCleaner.Body b = ChatLineCleaner.splitQuotedReply(
+                "@CrisdeuS Ugg. Only 2 days worth of speedups Сг!$4еи$: @AthenaRyu jasjsaj");
+        assertEquals("@CrisdeuS Ugg. Only 2 days worth of speedups", b.own());
+        assertFalse(b.quoted().isBlank());
+    }
+
+    @Test
+    void doesNotSplitAnOrdinarySentenceContainingAColon() {
+        ChatLineCleaner.Body b = ChatLineCleaner.splitQuotedReply(
+                "En 1:45 hora batalla de la fundicion de la legion 2");
+        assertTrue(b.quoted().isBlank());
+    }
+
 }
