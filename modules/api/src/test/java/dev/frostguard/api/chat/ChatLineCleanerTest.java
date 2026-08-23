@@ -254,4 +254,83 @@ class ChatLineCleanerTest {
         assertEquals(ChatLineCleaner.cacheKey("Join   the RALLY"),
                 ChatLineCleaner.cacheKey("join the rally"));
     }
+    // ---- near-duplicate merging -------------------------------------------------------------
+    // Every string here is a real pair from five consecutive live alliance screens, which stored
+    // 20 entries for 13 actual messages before this existed.
+
+    @Test
+    void treatsAClippedCopyOfALongMessageAsTheSameMessage() {
+        String clipped = ChatLineCleaner.mergeKey(
+                "GA Alright Legion 2. We have less I than an hour. Make sure you recall all waiur "
+                + "craane hama and etan stan");
+        String whole = ChatLineCleaner.mergeKey(
+                "(DAI Alright Legion 2. We have less than an hour. Make sure you recall all your "
+                + "troops home and stop auto join before the battle begins. Let's prioritize "
+                + "securing the prototype sites and repair facilities in the beginning.");
+        assertTrue(ChatLineCleaner.sameMessage(clipped, whole));
+    }
+
+    @Test
+    void treatsALineWithBubbleNoiseInItAsTheSameMessage() {
+        assertTrue(ChatLineCleaner.sameMessage(
+                ChatLineCleaner.mergeKey("En 1:45 hora batalla de la fundicion de la legion 2"),
+                ChatLineCleaner.mergeKey("En 1:45 hora batalla de la fundicion q a de la legion 2")));
+    }
+
+    @Test
+    void mergesAShortBodyThatPickedUpAStrayCharacter() {
+        assertTrue(ChatLineCleaner.sameMessage(
+                ChatLineCleaner.mergeKey("y congrats"), ChatLineCleaner.mergeKey("y congrats e")));
+    }
+
+    @Test
+    void keepsGenuinelyDifferentMessagesApart() {
+        assertFalse(ChatLineCleaner.sameMessage(
+                ChatLineCleaner.mergeKey("En 1:45 hora batalla de la fundicion de la legion 2"),
+                ChatLineCleaner.mergeKey("@Blazed562 creo que estabas en la legion 1")));
+    }
+
+    @Test
+    void doesNotSwallowAShortMessageThatAppearsInsideALongerOne() {
+        // "congrats" occurs inside "Congrats!" at the end of the longer message, which shares
+        // almost all of the shorter one's runs. Only the prefix rule keeps them apart.
+        assertFalse(ChatLineCleaner.sameMessage(
+                ChatLineCleaner.mergeKey("y congrats e"),
+                ChatLineCleaner.mergeKey("Oooops. I missed it by Congrats!")));
+    }
+
+    // ---- mention repair ---------------------------------------------------------------------
+
+    @Test
+    void putsBackAnAtSignTheReaderTurnedIntoLetters() {
+        assertEquals("@Maki felicidades!", ChatLineCleaner.repairLeadingMention(
+                "yy Maki felicidades!", List.of("Maki", "CrisdeuS", "AthenaRyu")));
+    }
+
+    @Test
+    void leavesAMessageAloneWhenTheNameOpensIt() {
+        // Nothing precedes the name, so there is no mangled "@" to explain and this is somebody
+        // being talked about rather than addressed.
+        assertEquals("Maki is afk", ChatLineCleaner.repairLeadingMention(
+                "Maki is afk", List.of("Maki")));
+    }
+
+    @Test
+    void leavesANameInTheMiddleOfASentenceAlone() {
+        assertEquals("I think Maki already did", ChatLineCleaner.repairLeadingMention(
+                "I think Maki already did", List.of("Maki")));
+    }
+
+    @Test
+    void ignoresNamesThatAreNotInTheAlliance() {
+        assertEquals("yy Maki felicidades!", ChatLineCleaner.repairLeadingMention(
+                "yy Maki felicidades!", List.of("AthenaRyu")));
+    }
+
+    @Test
+    void doesNotTouchAMentionTheReaderGotRight() {
+        assertEquals("@Blazed562 creo que estabas", ChatLineCleaner.repairLeadingMention(
+                "@Blazed562 creo que estabas", List.of("Blazed562")));
+    }
+
 }

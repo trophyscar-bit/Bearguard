@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
 import javax.imageio.ImageIO;
@@ -117,6 +118,23 @@ public class ChatCaptureRoutine extends DelayedTask {
      * putting stray glyphs into otherwise-Latin text. Foreign chat is handled downstream by
      * translating the read text rather than by widening the reader.
      */
+    /**
+     * A second reading, in the scripts the first one cannot see.
+     *
+     * <p>Loading every script at once measured worse, not better: with ten languages the reader
+     * hedges across alphabets and mangles Latin it had been reading correctly, and sender lines
+     * found on a fixed set of frames fell from 85 to 59 while the pass took two and a half times
+     * as long. So the Latin languages stay the default and this is used only on the lines the
+     * first pass could not make a word out of -- a Chinese message comes back from a Latin-only
+     * reader as a handful of stray punctuation, which is easy to recognise and cheap to re-read.
+     */
+    private static final OcrSettingsData CHAT_CJK_SETTINGS =
+            OcrSettingsData.assembler()
+                    .textLayout(TextLayout.TEXT_BLOCK)
+                    .stripBackground(false)
+                    .language("chi_sim+jpn+kor")
+                    .build();
+
     private static final OcrSettingsData CHAT_TEXT_SETTINGS =
             OcrSettingsData.assembler()
                     .textLayout(TextLayout.TEXT_BLOCK)
@@ -273,6 +291,7 @@ public class ChatCaptureRoutine extends DelayedTask {
 
         // Keyed on the message body so the same line seen on overlapping screens is held once.
         java.util.LinkedHashMap<String, ChatMessage> collected = new java.util.LinkedHashMap<>();
+        java.util.Set<String> roster = new java.util.LinkedHashSet<>();
         int knownBefore = 0;
         int barrenScreens = 0;
 
@@ -293,6 +312,12 @@ public class ChatCaptureRoutine extends DelayedTask {
             List<TextLine> lines;
             try {
                 lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT, CHAT_TEXT_SETTINGS);
+                List<TextLine> latin = lines;
+                lines = ChatScriptRecovery.reread(frame, lines, TEXT_COLUMN_RIGHT, CHAT_CJK_SETTINGS);
+                int recovered = ChatScriptRecovery.recoveredCount(latin, lines);
+                if (recovered > 0) {
+                    logInfo("ChatCaptureRoutine | Re-read " + recovered + " line(s) in another script.");
+                }
             } catch (OcrException e) {
                 logWarning("ChatCaptureRoutine | Could not read " + channel + " screen "
                         + (i + 1) + ": " + e.getMessage());
@@ -305,6 +330,21 @@ public class ChatCaptureRoutine extends DelayedTask {
                 continue;
             }
 
+            // Every sender line names a member, whether or not their message survived reading.
+            // Collected here rather than from the stored messages because the two are not the same
+            // set: "Maki" was on screen as a sender the same afternoon a message addressed to
+            // @Maki went unrepaired, because Maki's own message had not been read that pass.
+            for (TextLine l : lines) {
+                ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(l.text());
+                // The alliance tag is what makes it a sender line rather than a message that
+                // happens to parse like one. Without it "y congrats" joined the roster as a member
+                // called "congrats", and the next message beginning with that word was rewritten
+                // into a mention of them.
+                if (sender.trusted() && !sender.allianceTag().isEmpty() && !sender.name().isBlank()) {
+                    roster.add(sender.name());
+                }
+            }
+
             List<ChatMessage> messages = ChatFrameReader.read(
                     lines, channel, Instant.now(), body -> translator.toEnglish(body));
 
@@ -315,12 +355,9 @@ public class ChatCaptureRoutine extends DelayedTask {
             // which for those messages is the one with no author on it. Keeping the pass together
             // lets the attributed copy win.
             for (ChatMessage m : messages) {
-                String key = ChatLineCleaner.mergeKey(m.body());
-                ChatMessage held = collected.get(key);
-                if (held == null || (held.author().isEmpty() && !m.author().isEmpty())) {
-                    collected.put(key, m);
-                }
+                keep(collected, m);
             }
+
             // Per-screen accounting. Without it a pass is a black box: the only way to tell a
             // successful walk from one that read nothing was the total at the end, which hides
             // where in the scroll-back it stopped finding anything.
@@ -345,7 +382,7 @@ public class ChatCaptureRoutine extends DelayedTask {
         // The pass is written once, in the order it was read, now that every message has had the
         // chance to be seen on a screen that also showed its sender.
         try {
-            return store.append(new java.util.ArrayList<>(collected.values()));
+            return store.append(repairMentions(new java.util.ArrayList<>(collected.values()), roster));
         } catch (IOException e) {
             logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
                     + ": " + e.getMessage());
@@ -354,6 +391,10 @@ public class ChatCaptureRoutine extends DelayedTask {
     }
 
     /** Reads one region of the held frame, returning empty rather than throwing on a bad read. */
+
+    /** Three letters in a row is a word; anything less is the reader guessing at shapes. */
+    private static final int LETTERS_THAT_MAKE_A_WORD = 3;
+
     /**
      * Keeps a frame whose rows could not be stored.
      *
@@ -455,4 +496,69 @@ public class ChatCaptureRoutine extends DelayedTask {
     private Path baseDir() {
         return Paths.get(System.getProperty("user.dir"), "telemetry", "chat");
     }
+
+    /**
+     * Puts back the "@" the reader lost, now that the whole pass has been walked.
+     *
+     * <p>Deliberately last. The names it matches against come from the sender lines of this same
+     * pass, so it needs every screen read before it knows who is in the alliance -- a mention of
+     * somebody whose own messages are further back in the history is only repairable once that far
+     * back has been reached.
+     */
+    private static java.util.List<ChatMessage> repairMentions(java.util.List<ChatMessage> messages,
+                                                              java.util.Set<String> roster) {
+        for (ChatMessage m : messages) {
+            if (!m.author().isBlank()) {
+                roster.add(m.author());
+            }
+            roster.addAll(m.mentions());
+        }
+        java.util.List<ChatMessage> out = new java.util.ArrayList<>(messages.size());
+        for (ChatMessage m : messages) {
+            String repaired = ChatLineCleaner.repairLeadingMention(m.body(), roster);
+            out.add(repaired.equals(m.body()) ? m : m.withBody(repaired));
+        }
+        return out;
+    }
+
+    /**
+     * Files one message against what the pass has already read, treating a re-read as the same
+     * message rather than a new one.
+     *
+     * <p>The exact key is tried first because it is a map lookup; the scan behind it only runs when
+     * that misses, and only that message's own re-reads can match it. Where two copies disagree the
+     * fuller one wins -- a message clipped by the bottom of the screen is still a correct reading of
+     * its first half, so length is the honest tie-break -- except that an attributed copy always
+     * beats an unattributed one, because a message read at the top of a screen has its sender line
+     * above the frame edge and comes back with no author at all.
+     */
+    static void keep(java.util.LinkedHashMap<String, ChatMessage> collected, ChatMessage m) {
+        String key = ChatLineCleaner.mergeKey(m.body());
+        String match = collected.containsKey(key) ? key : null;
+        if (match == null) {
+            for (String seen : collected.keySet()) {
+                if (ChatLineCleaner.sameMessage(seen, key)) {
+                    match = seen;
+                    break;
+                }
+            }
+        }
+        if (match == null) {
+            collected.put(key, m);
+            return;
+        }
+        ChatMessage held = collected.get(match);
+        if (better(m, held)) {
+            collected.remove(match);
+            collected.put(key, m);
+        }
+    }
+
+    static boolean better(ChatMessage candidate, ChatMessage held) {
+        if (held.author().isEmpty() != candidate.author().isEmpty()) {
+            return held.author().isEmpty();
+        }
+        return candidate.body().length() > held.body().length();
+    }
+
 }
