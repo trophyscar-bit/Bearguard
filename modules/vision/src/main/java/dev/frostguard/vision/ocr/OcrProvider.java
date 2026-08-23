@@ -40,4 +40,8 @@ public interface OcrProvider {
      */
     java.util.List<TextLine> recognizeLines(BufferedImage preparedImage, OcrSettingsData cfg)
             throws OcrException;
+
+    /** The same reading reported one word at a time, for callers that need word positions. */
+    java.util.List<TextLine> recognizeWords(BufferedImage preparedImage, OcrSettingsData cfg)
+            throws OcrException;
 }

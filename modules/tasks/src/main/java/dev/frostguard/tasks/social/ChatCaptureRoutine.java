@@ -313,6 +313,12 @@ public class ChatCaptureRoutine extends DelayedTask {
             try {
                 lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT, CHAT_TEXT_SETTINGS);
                 List<TextLine> latin = lines;
+                // Same reading again, one word at a time, so the bubble's furniture can be told
+                // from the sentence by where it sits. Cheap next to the recognition itself, which
+                // has already done the work; this only asks for it reported finer.
+                List<TextLine> words = OcrEngine.recognizeWords(
+                        frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT, CHAT_TEXT_SETTINGS);
+                lines = ChatOrnamentFilter.clean(lines, words, image);
                 lines = ChatScriptRecovery.reread(frame, lines, TEXT_COLUMN_RIGHT, CHAT_CJK_SETTINGS);
                 int recovered = ChatScriptRecovery.recoveredCount(latin, lines);
                 if (recovered > 0) {
@@ -516,7 +522,19 @@ public class ChatCaptureRoutine extends DelayedTask {
         java.util.List<ChatMessage> out = new java.util.ArrayList<>(messages.size());
         for (ChatMessage m : messages) {
             String repaired = ChatLineCleaner.repairLeadingMention(m.body(), roster);
-            out.add(repaired.equals(m.body()) ? m : m.withBody(repaired));
+            if (repaired.equals(m.body())) {
+                out.add(m);
+                continue;
+            }
+            // The English was made from the body as it read before the repair, so it carries the
+            // same wreckage: "@Maki felicidades!" was stored correctly while its translation still
+            // said "yy Maki congratulations!". Repaired the same way rather than translated again,
+            // because the mangled "@" survives translation unchanged and a second lookup would buy
+            // nothing but a request.
+            String english = m.translated() == null || m.translated().isBlank()
+                    ? m.translated()
+                    : ChatLineCleaner.repairLeadingMention(m.translated(), roster);
+            out.add(m.withBody(repaired).withTranslated(english));
         }
         return out;
     }
