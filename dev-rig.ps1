@@ -37,7 +37,7 @@ function Get-BearguardProcesses([string]$root) {
     # 'C:\Bearguard-dev', so a substring test reports dev as prod -- 'stop prod' then closes the
     # dev instance while announcing it closed prod, which is exactly how a deploy ends up building
     # against a running process. Requiring the trailing separator keeps the two roots apart.
-    $needle = $root.TrimEnd('') + ''
+    $needle = $root.TrimEnd('\') + '\'
     @(Get-CimInstance Win32_Process -Filter "Name='javaw.exe'" |
         Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) })
 }
