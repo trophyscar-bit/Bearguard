@@ -44,6 +44,12 @@ public record ChatMessage(
         UNREADABLE
     }
 
+    /** The same message with its body rewritten, keeping the mentions that body now names. */
+    public ChatMessage withBody(String rewritten) {
+        return new ChatMessage(capturedAt, channel, author, allianceTag, vipLevel, rewritten,
+                translated, ChatLineCleaner.mentions(rewritten), kind, quoted);
+    }
+
     /** The text a reader should see: the English rendering when there is one, else the original. */
     public String displayBody() {
         return translated == null || translated.isBlank() ? body : translated;
