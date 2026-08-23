@@ -75,6 +75,37 @@ public final class TesseractOcrProvider implements OcrProvider {
         return recognised;
     }
 
+    /**
+     * Recognises the whole image once and reports each line with its position.
+     *
+     * <p>Page segmentation is forced to AUTO here whatever the caller configured: the single-line
+     * mode the cropping callers rely on tells the engine there is exactly one line, which is the
+     * opposite of what this method is for.
+     */
+    @Override
+    public java.util.List<TextLine> recognizeLines(BufferedImage preparedImage, OcrSettingsData cfg)
+            throws OcrException {
+        requireValidCapture(preparedImage);
+        Tesseract engine = configureTesseract(cfg);
+        engine.setPageSegMode(3); // AUTO -- let it find the lines rather than assert there is one
+        try {
+            java.util.List<net.sourceforge.tess4j.Word> words =
+                    engine.getWords(preparedImage, net.sourceforge.tess4j.ITessAPI.TessPageIteratorLevel.RIL_TEXTLINE);
+            java.util.List<TextLine> lines = new ArrayList<>(words.size());
+            for (net.sourceforge.tess4j.Word w : words) {
+                String text = w.getText() == null ? "" : w.getText().trim();
+                if (text.isEmpty()) {
+                    continue;
+                }
+                java.awt.Rectangle r = w.getBoundingBox();
+                lines.add(new TextLine(text, r.x, r.y, r.width, r.height, w.getConfidence()));
+            }
+            return lines;
+        } catch (RuntimeException e) {
+            throw new OcrException("Line recognition failed", e);
+        }
+    }
+
     // =====================================================================
     //  Tesseract factory
     // =====================================================================
