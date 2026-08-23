@@ -376,20 +376,110 @@ public final class ChatLineCleaner {
         if (body == null || body.isBlank()) {
             return new Body("", "");
         }
-        for (Pattern pattern : new Pattern[] {QUOTE_AT_LINE, QUOTE_INLINE}) {
-            Matcher m = pattern.matcher(body);
-            int start = -1;
-            while (m.find()) {
-                // A quote with nothing before it is the whole bubble, not a reply.
-                if (!body.substring(0, m.start()).isBlank()) {
-                    start = m.start();
-                }
+        int start = quoteStart(body);
+        if (start < 0) {
+            return new Body(collapse(body), "");
+        }
+        return new Body(collapse(body.substring(0, start)), collapse(body.substring(start)));
+    }
+
+    /**
+     * Where the quoted original begins, or -1 when the bubble is not a reply.
+     *
+     * <p>Found by locating the colon and then stepping back over the name, rather than by matching
+     * a name pattern forwards. Matching forwards is what broke it: the name could run to three
+     * words, so in "...trade them in for resource pouches Nicko: have so many..." the earliest
+     * position that could satisfy the pattern was "resource", and the split handed "resource
+     * pouches" to the quote. The sender lost the end of their own sentence, on 116 of 279 replies.
+     *
+     * <p>Stepping back from the colon cannot do that. A name is one word, or two for the handful of
+     * players who have a space in theirs, so at most two are taken and everything before them stays
+     * with the message.
+     */
+    private static int quoteStart(String body) {
+        int found = -1;
+        for (int colon = body.indexOf(':'); colon >= 0; colon = body.indexOf(':', colon + 1)) {
+            // The game writes "Name: text", so a colon with no space after it is punctuation
+            // inside a sentence, or a timestamp.
+            if (colon + 1 >= body.length() || !Character.isWhitespace(body.charAt(colon + 1))) {
+                continue;
             }
-            if (start >= 0) {
-                return new Body(collapse(body.substring(0, start)), collapse(body.substring(start)));
+            int nameStart = walkBackOverName(body, colon);
+            if (nameStart < 0) {
+                continue;
+            }
+            // A quote with nothing before it is the whole bubble, not a reply.
+            if (!body.substring(0, nameStart).isBlank()) {
+                found = nameStart;
             }
         }
-        return new Body(collapse(body), "");
+        return found;
+    }
+
+    /** Start of the one or two words immediately before {@code colon}, or -1 if they are not a name. */
+    private static int walkBackOverName(String body, int colon) {
+        int end = colon;
+        int start = -1;
+        for (int words = 0; words < MAX_WORDS_IN_A_QUOTED_NAME; words++) {
+            int wordEnd = end;
+            while (wordEnd > 0 && Character.isWhitespace(body.charAt(wordEnd - 1))) {
+                wordEnd--;
+            }
+            int wordStart = wordEnd;
+            while (wordStart > 0 && !Character.isWhitespace(body.charAt(wordStart - 1))) {
+                wordStart--;
+            }
+            if (wordStart == wordEnd) {
+                break;
+            }
+            String word = body.substring(wordStart, wordEnd);
+            if (!isNameWord(word)) {
+                break;
+            }
+            start = wordStart;
+            end = wordStart;
+            // One word is the normal case; only keep going for names that really do carry a space.
+            if (words == 0 && !startsLikeContinuedName(body, wordStart)) {
+                break;
+            }
+        }
+        return start;
+    }
+
+    /** Player names are one word, or two for the few that carry a space. */
+    private static final int MAX_WORDS_IN_A_QUOTED_NAME = 2;
+
+    /** A word that could be part of a player name rather than ordinary sentence text. */
+    private static boolean isNameWord(String word) {
+        String bare = word.startsWith("[") && word.contains("]")
+                ? word.substring(word.indexOf(']') + 1) : word;
+        if (bare.isEmpty() || bare.length() > 18 || !Character.isLetter(bare.charAt(0))) {
+            return false;
+        }
+        return bare.chars().allMatch(c -> Character.isLetterOrDigit(c)
+                || c == '_' || c == '\'' || c == '.' || c == '-' || c == '!');
+    }
+
+    /**
+     * Whether the word before this one also looks like part of the same name.
+     *
+     * <p>Only capitalised, so "Mini TyTy" is taken as one name while "for resource" is not -- the
+     * second word of a two-word player name is written as a name, not as sentence text.
+     */
+    private static boolean startsLikeContinuedName(String body, int wordStart) {
+        int end = wordStart;
+        while (end > 0 && Character.isWhitespace(body.charAt(end - 1))) {
+            end--;
+        }
+        int start = end;
+        while (start > 0 && !Character.isWhitespace(body.charAt(start - 1))) {
+            start--;
+        }
+        if (start == end) {
+            return false;
+        }
+        String previous = body.substring(start, end);
+        return isNameWord(previous) && Character.isUpperCase(previous.charAt(0));
     }
 
     /**
