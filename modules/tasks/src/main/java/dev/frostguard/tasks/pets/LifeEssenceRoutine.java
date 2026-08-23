@@ -11,8 +11,8 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
 
+import dev.frostguard.vision.color.ColorBlobFinder;
 import dev.frostguard.vision.convert.GameTimeUtils;
-import dev.frostguard.vision.ocr.OcrEngine;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
@@ -33,14 +33,15 @@ public class LifeEssenceRoutine extends DelayedTask {
 	private static final PointData SHOP_TAB_BUTTON = new PointData(670, 195);
 	private static final PointData EXIT_BUTTON = new PointData(40, 30);
 
-	// Search areas
-	private static final AreaData LIFE_ESSENCE_SEARCH_AREA = new AreaData(
-			new PointData(0, 65),
-			new PointData(720, 1280));
+	// Claim badge identification lives in IslandClaimBadges.
+	//
+	// A claimed badge disappears, so one found again in the same place was not claimed.
+	private static final int SAME_BADGE_RADIUS = 40;
 
 	// Retry limits
-	private static final int MAX_CLAIM_SEARCH_ATTEMPTS = 5;
-	private static final int MAX_CLAIM_RESULTS = 5;
+	private static final int MAX_CLAIM_SCANS = 5;
+	private static final int EMPTY_SCANS_BEFORE_DONE = 2;
+	private static final int CLAIM_SETTLE_MILLIS = 700;
 
 	// Default configuration values
 	private static final int DEFAULT_OFFSET_MINUTES = Integer.parseInt(
@@ -71,7 +72,7 @@ public class LifeEssenceRoutine extends DelayedTask {
 		}
 
 		// Claim available Life Essence
-		int claimedCount = tapFixedLifeTreeSpots();
+		int claimedCount = claimVisibleBadges();
 
 		// Buy weekly free scroll if enabled and available
 		if (buyWeeklyScroll && shouldBuyWeeklyScroll()) {
@@ -143,67 +144,79 @@ public class LifeEssenceRoutine extends DelayedTask {
 	}
 
 	/**
-	 * Claim all available Life Essence items
-	 * 
-	 * Strategy:
-	 * - Search multiple times in case new essence appears after claiming
-	 * - Stop early if no essence found on consecutive attempts
-	 * 
-	 * @return number of essence items claimed
+	 * Taps every claim badge currently on the island and reports how many were claimed.
+	 *
+	 * <p>Rescans after each pass because claiming one badge can uncover another behind its reward
+	 * animation, and stops once a pass adds nothing new. A badge still in place after being tapped is
+	 * reported rather than counted again, so the total stays a real count of what was collected.
 	 */
-	// Caught live via screenshot: template matching kept missing real, visible
-	// claimable badges (0 claimed while 2 badges sat unclaimed on screen). Root cause turned out to
-	// be TWO different badge shapes in play (a white/orange rounded-square badge over buildings, and
-	// a solid-orange speech-bubble/pin badge directly over the tree) -- AND both bounce/animate like
-	// the Custom Armament Chest badge did earlier tonight, so even a freshly-recaptured template only
-	// self-matched at ~0.84, under the 0.90 threshold. Rather than chase more template shapes, switch
-	// to color-blob detection: both badge shapes share the same solid-orange fill, so scanning the
-	// search area for orange pixel clusters and tapping each cluster's centroid finds every claimable
-	// badge regardless of exact shape or animation phase. Same "always look for the [color], not the
-	// exact frame" philosophy the request was for with the red-dot fix.
-	// First cut of the color-blob detection over-fired -- "Claimed 12" when only 2
-	// real badges were on screen. Root cause: the search area also catches OTHER orange UI (an event
-	// banner -- "The battle for the Fortress will start in..." -- was live on screen during that
-	// run), and a wide banner sliver can easily clear a bare pixel-count threshold. Fix: also require
-	// the blob's bounding box to be badge-shaped (compact, roughly square, ~30-75px each side) and
-	// densely filled (fill ratio = pixelCount / bboxArea) -- live-measured real badges score
-	// 0.51/0.58 fill in a ~45-55px square bbox, while a live-measured banner fragment scored 0.10
-	// fill in a non-square bbox. This is a shape check, not just a color count.
-	private static final int ORANGE_R_MIN = 200;
-	private static final int ORANGE_G_MIN = 90;
-	private static final int ORANGE_G_MAX = 180;
-	private static final int ORANGE_B_MAX = 90;
-	private static final int MIN_BLOB_PIXELS = 150;
-	private static final int BADGE_MIN_DIMENSION = 30;
-	private static final int BADGE_MAX_DIMENSION = 75;
-	private static final double BADGE_MIN_FILL_RATIO = 0.35;
+	private int claimVisibleBadges() {
+		logInfo("Scanning the island for claim badges");
+		List<PointData> claimed = new ArrayList<>();
+		int emptyScans = 0;
 
-	// "My Island" (the personal Life Tree screen reached via the Life Essence
-	// menu icon) is a fixed layout -- one tree + two crafting-station badges, nothing that
-	// scrolls or moves -- confirmed live via a screenshot + pixel-level color-blob analysis on the
-	// actual green diamond badge icons (centroids, not eyeballed). The operator's call: hardcoded taps at
-	// these exact positions are simpler and more predictable here than the dynamic orange-blob
-	// search below, which stays in the file unused rather than deleted in case a future screen
-	// needs it. Tap order by design: tree first, then left-to-right across the two workbenches.
-	private static final PointData TREE_CLAIM_BADGE = new PointData(362, 488);
-	private static final PointData WORKBENCH1_CLAIM_BADGE = new PointData(501, 501);
-	private static final PointData WORKBENCH2_CLAIM_BADGE = new PointData(570, 550);
+		for (int scan = 1; scan <= MAX_CLAIM_SCANS; scan++) {
+			List<PointData> badges = locateClaimBadges();
+			int newlyClaimed = 0;
+			int unchanged = 0;
+
+			for (PointData badge : badges) {
+				if (seenBefore(claimed, badge)) {
+					unchanged++;
+					continue;
+				}
+				logDebug("Claiming badge at " + badge);
+				tapNear(badge);
+				sleepTask(CLAIM_SETTLE_MILLIS);
+				claimed.add(badge);
+				newlyClaimed++;
+			}
+
+			if (unchanged > 0) {
+				logWarning(unchanged + " badge(s) still showing after being tapped on scan " + scan
+						+ ". The claim may not be registering; they are not counted again.");
+			}
+
+			if (newlyClaimed == 0) {
+				emptyScans++;
+				if (emptyScans >= EMPTY_SCANS_BEFORE_DONE) {
+					break;
+				}
+				sleepTask(CLAIM_SETTLE_MILLIS);
+				continue;
+			}
+
+			emptyScans = 0;
+			sleepTask(CLAIM_SETTLE_MILLIS);
+		}
+
+		return claimed.size();
+	}
 
 	/**
-	 * Taps the three fixed My Island claim spots in order (tree, then left-to-right). Blind taps
-	 * by design -- the explicit call: tap all three every run regardless of whether a badge is
-	 * currently showing there, since an already-claimed spot is just a harmless no-op tap on the
-	 * tree/workbench itself.
+	 * Returns the centre of every claim badge on the island, logging the green artwork that was
+	 * examined and rejected so a miss can be diagnosed from the account log alone.
 	 */
-	private int tapFixedLifeTreeSpots() {
-		logInfo("Tapping the 3 fixed My Island claim spots (tree, then two workbenches).");
-		int tapped = 0;
-		for (PointData spot : new PointData[] { TREE_CLAIM_BADGE, WORKBENCH1_CLAIM_BADGE, WORKBENCH2_CLAIM_BADGE }) {
-			tapNear(spot);
-			sleepTask(500); // Wait for claim animation
-			tapped++;
+	private List<PointData> locateClaimBadges() {
+		BufferedImage frame = captureFrame();
+		if (frame == null) {
+			return List.of();
 		}
-		return tapped;
+
+		List<PointData> badges = new ArrayList<>();
+		for (ColorBlobFinder.Blob blob : IslandClaimBadges.candidates(frame)) {
+			if (IslandClaimBadges.isClaimBadge(blob)) {
+				badges.add(blob.centre());
+			} else {
+				logDebug("Ignored green blob at " + blob.centre() + ": " + blob.width() + "x" + blob.height()
+						+ " fill=" + String.format("%.2f", blob.fillRatio()));
+			}
+		}
+		return badges;
+	}
+
+	private static boolean seenBefore(List<PointData> claimed, PointData badge) {
+		return claimed.stream().anyMatch(point -> point.manhattanDistanceTo(badge) <= SAME_BADGE_RADIUS);
 	}
 
 	private BufferedImage captureFrame() {
@@ -214,165 +227,6 @@ public class LifeEssenceRoutine extends DelayedTask {
 			logWarning("Failed to capture frame for badge scan: " + e.getMessage());
 			return null;
 		}
-	}
-
-	/**
-	 * Scans the search area for solid-orange pixel clusters (the shared color of both claim badge
-	 * shapes) and returns each cluster's centroid as a tap target. Flood-fill connected components,
-	 * filtered by a minimum pixel count to reject noise.
-	 */
-	private List<PointData> findClaimableBadges(BufferedImage img) {
-		int left = LIFE_ESSENCE_SEARCH_AREA.topLeft().col();
-		int top = LIFE_ESSENCE_SEARCH_AREA.topLeft().row();
-		int right = Math.min(LIFE_ESSENCE_SEARCH_AREA.bottomRight().col(), img.getWidth());
-		int bottom = Math.min(LIFE_ESSENCE_SEARCH_AREA.bottomRight().row(), img.getHeight());
-
-		int width = right - left;
-		int height = bottom - top;
-		if (width <= 0 || height <= 0) {
-			return List.of();
-		}
-
-		boolean[] mask = new boolean[width * height];
-		for (int y = 0; y < height; y++) {
-			for (int x = 0; x < width; x++) {
-				int rgb = img.getRGB(left + x, top + y);
-				int r = (rgb >> 16) & 0xFF;
-				int g = (rgb >> 8) & 0xFF;
-				int b = rgb & 0xFF;
-				if (r > ORANGE_R_MIN && g > ORANGE_G_MIN && g < ORANGE_G_MAX && b < ORANGE_B_MAX) {
-					mask[y * width + x] = true;
-				}
-			}
-		}
-
-		boolean[] visited = new boolean[width * height];
-		int[] stackX = new int[width * height];
-		int[] stackY = new int[width * height];
-		int[] dx = {-1, 1, 0, 0};
-		int[] dy = {0, 0, -1, 1};
-		List<PointData> centroids = new ArrayList<>();
-
-		for (int y = 0; y < height; y++) {
-			for (int x = 0; x < width; x++) {
-				int idx = y * width + x;
-				if (!mask[idx] || visited[idx]) {
-					continue;
-				}
-
-				int sp = 0;
-				stackX[sp] = x;
-				stackY[sp] = y;
-				sp++;
-				visited[idx] = true;
-				long sumX = 0;
-				long sumY = 0;
-				int count = 0;
-				int minX = x, maxX = x, minY = y, maxY = y;
-
-				while (sp > 0) {
-					sp--;
-					int cx = stackX[sp];
-					int cy = stackY[sp];
-					sumX += cx;
-					sumY += cy;
-					count++;
-					if (cx < minX) minX = cx;
-					if (cx > maxX) maxX = cx;
-					if (cy < minY) minY = cy;
-					if (cy > maxY) maxY = cy;
-
-					for (int d = 0; d < 4; d++) {
-						int nx = cx + dx[d];
-						int ny = cy + dy[d];
-						if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
-							continue;
-						}
-						int nidx = ny * width + nx;
-						if (mask[nidx] && !visited[nidx]) {
-							visited[nidx] = true;
-							stackX[sp] = nx;
-							stackY[sp] = ny;
-							sp++;
-						}
-					}
-				}
-
-				int bboxWidth = maxX - minX + 1;
-				int bboxHeight = maxY - minY + 1;
-				double fillRatio = (double) count / (bboxWidth * bboxHeight);
-				boolean badgeShaped = count >= MIN_BLOB_PIXELS
-						&& bboxWidth >= BADGE_MIN_DIMENSION && bboxWidth <= BADGE_MAX_DIMENSION
-						&& bboxHeight >= BADGE_MIN_DIMENSION && bboxHeight <= BADGE_MAX_DIMENSION
-						&& fillRatio >= BADGE_MIN_FILL_RATIO;
-
-				if (badgeShaped) {
-					centroids.add(new PointData(left + (int) (sumX / count), top + (int) (sumY / count)));
-				} else if (count >= MIN_BLOB_PIXELS) {
-					logDebug("Rejected non-badge orange blob: size=" + count + " bbox=" + bboxWidth + "x"
-							+ bboxHeight + " fill=" + String.format("%.2f", fillRatio));
-				}
-			}
-		}
-
-		return centroids;
-	}
-
-	private int claimLifeEssence() {
-		logInfo("Searching for claimable Life Essence");
-		int totalClaimed = 0;
-		int emptySearches = 0;
-
-		for (int searchAttempt = 1; searchAttempt <= MAX_CLAIM_SEARCH_ATTEMPTS; searchAttempt++) {
-			logDebug("Claim search attempt " + searchAttempt + "/" + MAX_CLAIM_SEARCH_ATTEMPTS);
-
-			BufferedImage frame = captureFrame();
-			List<PointData> badges = frame != null ? findClaimableBadges(frame) : List.of();
-
-			if (badges.isEmpty()) {
-				emptySearches++;
-				logDebug("No claimable essence found on attempt " + searchAttempt);
-
-				// If we've had 2 consecutive empty searches, likely done
-				if (emptySearches >= 2) {
-					logDebug("Two consecutive empty searches. Stopping claim attempts.");
-					break;
-				}
-
-				// Wait a bit in case essence is still loading
-				sleepTask(500);
-				continue;
-			}
-
-			// Reset empty counter if we found something
-			emptySearches = 0;
-
-			// Claim each found essence
-			logDebug("Found " + badges.size() + " claimable essence items (color-blob, shape/animation-proof)");
-			for (PointData badge : badges) {
-				tapNear(badge);
-				sleepTask(500); // Wait for claim animation
-				totalClaimed++;
-			}
-
-			// Wait for UI to update after claiming
-			sleepTask(500);
-		}
-
-		logInfo("Claimed " + totalClaimed + " Life Essence items");
-		return totalClaimed;
-	}
-
-	private List<ImageSearchResultData> locateClaimableEssence(TemplatesEnum template) {
-		return templateSearchHelper.locateAllPatterns(
-				template,
-				SearchConfig.builder()
-						.withArea(new AreaData(LIFE_ESSENCE_SEARCH_AREA.topLeft(),
-								LIFE_ESSENCE_SEARCH_AREA.bottomRight()))
-						.withThreshold(90)
-						.withMaxAttempts(1)
-						.withMaxResults(MAX_CLAIM_RESULTS)
-						.build());
 	}
 
 	/**
