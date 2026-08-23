@@ -25,9 +25,21 @@ public final class ChatLineCleaner {
 
     /** {@code VIP7 [THE]Phantom} -- the fullest sender form the game renders. */
     private static final Pattern SENDER = Pattern.compile(
-            "^\\s*(?:VIP\\s*(?<vip>\\d{1,2})\\s*)?"
+            // A mood badge is drawn left of the VIP tag on some senders and reads as stray
+            // punctuation. Anchoring on \s alone pushed the whole line into the name group, so
+            // "& VIP6 [INF]CrisdeuS" was stored verbatim as the author.
+            "^[^\\p{L}\\p{N}\\[\\]()]*(?:VIP\\s*(?<vip>\\d{1,2})\\s*)?"
                     + "(?:[\\[(](?<tag>[A-Za-z0-9]{2,4})[\\])]\\s*)?"
                     + "(?<name>.+?)\\s*$");
+
+    /**
+     * The sender line reduced to its one dependable landmark: the bracketed alliance tag.
+     *
+     * <p>Anything left of the tag is badge and decoration, whatever it happened to read as. The
+     * last tag on the line wins, so a tag mentioned inside a name cannot end the match early.
+     */
+    private static final Pattern TAG_ANCHORED = Pattern.compile(
+            "^.*[\\[(](?<tag>[A-Za-z0-9]{2,4})[\\])]\\s*(?<name>\\p{L}[^\\s].{0,22})\\s*$");
 
     /** {@code @Name} and the spaced {@code @ [TAG]Name} the reader also produces. */
     private static final Pattern MENTION = Pattern.compile(
@@ -39,7 +51,21 @@ public final class ChatLineCleaner {
     /** Game-generated cards, which are events rather than things a player said. */
     private static final Pattern SYSTEM_CARD = Pattern.compile(
             "(?i)\\b(share (coordinates|layout)|lucky pouch|new message\\(s\\)|tap to enter"
-                    + "|help (request|needed)|has joined the alliance|alliance bomb)\\b");
+                    + "|help (request|needed)|has joined the alliance|alliance bomb"
+                    // The alliance poll is pinned above the feed and carries a clipboard icon the
+                    // segmenter reads as an avatar, so it arrives as a message on every pass. Its
+                    // own wording is what identifies it: "Initiator:", "Participants: 49/98",
+                    // "Vote in: 11:29:34".
+                    + "|initiator|participants|vote in|selection"
+                    + "|have not participated|alliance notice)\\b");
+
+    /**
+     * A bubble that is nothing but the word "Vote".
+     *
+     * <p>The poll card's button, caught as a row of its own. Matched whole rather than as a word,
+     * because "vote" inside a sentence is somebody actually talking about the vote.
+     */
+    private static final Pattern VOTE_BUTTON = Pattern.compile("(?i)^\s*vote\s*$");
 
     private static final Pattern EMOJI_ONLY = Pattern.compile("^[\\p{So}\\p{Cn}\\s]+$");
 
@@ -122,19 +148,76 @@ public final class ChatLineCleaner {
             return new Sender("", "", 0, false);
         }
         String cleaned = collapse(ARTIFACTS.matcher(raw).replaceAll(" "));
+
+        // The alliance tag is the one anchor on this line that survives a bad read, so when it is
+        // present everything before it is discarded outright. The VIP badge is why: it is drawn on
+        // some senders and not others, and when the reader mangles "VIP6" into "ViIPO" the exact
+        // VIP group stops matching and the wreckage falls through into the NAME -- which is where
+        // authors like "ViIPO LINE PACHChanyu" and "SS} VirP/ TMejbreach" came from. Anchoring on
+        // the tag means no spelling of the badge can reach the name. VIP rank is not worth keeping
+        // in its own right.
+        Matcher anchored = TAG_ANCHORED.matcher(cleaned);
+        if (anchored.matches()) {
+            String tagged = trimNameNoise(collapse(anchored.group("name")));
+            return new Sender(tagged, anchored.group("tag"), 0, isPlausibleName(tagged));
+        }
+
         Matcher m = SENDER.matcher(cleaned);
         if (!m.matches()) {
             return new Sender(cleaned, "", 0, false);
         }
-        String name = collapse(m.group("name"));
+        String name = trimNameNoise(collapse(m.group("name")));
         String tag = m.group("tag") == null ? "" : m.group("tag");
         int vip = m.group("vip") == null ? 0 : Integer.parseInt(m.group("vip"));
         return new Sender(name, tag, vip, isPlausibleName(name));
     }
 
+    /** Characters that occur in real player names: letters, digits, and the usual name punctuation. */
+    private static final Pattern NAME_ODDITY = Pattern.compile("[^\\p{L}\\p{N} _.'-]");
+
+    /** More than one stray symbol is the reader inventing glyphs, not a player being creative. */
+    private static final int MAX_ODD_CHARS_IN_A_NAME = 1;
+
+    /**
+     * Whether a name strip read cleanly enough to attribute a message to.
+     *
+     * <p>"Starts with a letter and is three characters long" was too permissive. It let through
+     * "S} ViP/ TRejbreach" and "fe MPA) /UIBGeULClICr", which rendered in the transcript as
+     * participants -- the reader mangling a VIP badge and an alliance tag into punctuation. Real
+     * names carry at most an odd character or two; a scattering of braces and slashes is noise.
+     */
     private static boolean isPlausibleName(String name) {
-        return name.length() >= 3 && Character.isLetter(name.charAt(0));
+        if (name.length() < 3 || !Character.isLetter(name.charAt(0))) {
+            return false;
+        }
+        // A bracket surviving into the name means the alliance tag was not parsed off cleanly, so
+        // what is left is the wreckage of the whole line rather than a player -- this is what
+        // "VIPG [INF jAthenaRyu" looks like by the time it gets here.
+        if (UNPARSED_TAG.matcher(name).find()) {
+            return false;
+        }
+        // Likewise a VIP badge still sitting in the name: it is drawn on some senders and not
+        // others, so any spelling of it here means the badge was misread rather than skipped, and
+        // the rest of the line cannot be trusted either.
+        if (STRAY_VIP.matcher(name).find()) {
+            return false;
+        }
+        return NAME_ODDITY.matcher(name).results().count() <= MAX_ODD_CHARS_IN_A_NAME;
     }
+
+    /** Drops the decorations the reader picks up past the end of the name, e.g. "CrisdeuS 7". */
+    private static String trimNameNoise(String name) {
+        return NAME_TRAILING_NOISE.matcher(name).replaceAll("");
+    }
+
+    /** A bracket left in the name means the tag was never separated from it. */
+    private static final Pattern UNPARSED_TAG = Pattern.compile("[\\[\\]()]");
+
+    /** The badge as the reader spells it when it fails: VIP, ViIPO, VIPG, VirP, VIPw. */
+    private static final Pattern STRAY_VIP = Pattern.compile("(?i)\\bV[il1|]{0,2}[PR][0-9A-Za-z]?\\b");
+
+    /** Trailing digits and stray letters the reader picks up from decorations beside the name. */
+    private static final Pattern NAME_TRAILING_NOISE = Pattern.compile("[\\s\\p{N}]+$");
 
     /** Strips the reader's invented characters and collapses the whitespace they leave behind. */
     public static String cleanBody(String raw) {
@@ -165,7 +248,7 @@ public final class ChatLineCleaner {
         if (cleanedBody == null || cleanedBody.isBlank()) {
             return ChatMessage.Kind.UNREADABLE;
         }
-        if (SYSTEM_CARD.matcher(cleanedBody).find()) {
+        if (SYSTEM_CARD.matcher(cleanedBody).find() || VOTE_BUTTON.matcher(cleanedBody).matches()) {
             return ChatMessage.Kind.SYSTEM;
         }
         if (EMOJI_ONLY.matcher(cleanedBody).matches()) {

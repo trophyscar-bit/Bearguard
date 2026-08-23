@@ -67,9 +67,6 @@ public final class ChatDiscordRenderer {
         if (!m.allianceTag().isBlank()) {
             sb.append("<span class=\"tag\">").append(escape(m.allianceTag())).append("</span>");
         }
-        if (m.vipLevel() > 0) {
-            sb.append("<span class=\"vip\">VIP").append(m.vipLevel()).append("</span>");
-        }
         sb.append("<span class=\"chan\">").append(escape(m.channel())).append("</span>");
         sb.append("<span class=\"time\">").append(TIME.format(m.capturedAt().atZone(zone)))
                 .append("</span></div>").append(bodyHtml(m)).append("</div></div>");

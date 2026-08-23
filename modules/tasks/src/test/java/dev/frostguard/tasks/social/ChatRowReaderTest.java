@@ -33,7 +33,8 @@ class ChatRowReaderTest {
     }
 
     private static List<ChatRowSegmenter.Row> oneRow() {
-        return List.of(new ChatRowSegmenter.Row(0, 200, 0, 112));
+        // Name band measured by the segmenter; these are the values it produces for a plain row.
+        return List.of(new ChatRowSegmenter.Row(0, 200, 0, 112, 18, 56, true));
     }
 
     @Test
@@ -46,7 +47,8 @@ class ChatRowReaderTest {
         ChatMessage m = out.get(0);
         assertEquals("Nightjar", m.author());
         assertEquals("BAE", m.allianceTag());
-        assertEquals(5, m.vipLevel());
+        // VIP rank is discarded on the way through; it is not part of the transcript.
+        assertEquals(0, m.vipLevel());
         assertEquals("rally in five minutes", m.body());
     }
 
