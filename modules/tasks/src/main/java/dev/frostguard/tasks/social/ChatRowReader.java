@@ -34,6 +34,9 @@ final class ChatRowReader {
 
     private static final int BODY_TOP_OFFSET = 58;
 
+    /** Clear of the sender line's descenders before the bubble starts. */
+    private static final int BODY_GAP = 4;
+
     /** Beyond this a bubble is a card or a sticker, and its lower half is art, not text. */
     private static final int MAX_BODY_HEIGHT = 260;
 
@@ -63,7 +66,13 @@ final class ChatRowReader {
             // avatar drifted with crowns and rank badges and clipped the glyph tops.
             int nameTop = row.nameTop();
             int nameBottom = Math.min(row.nameBottom(), row.bottom());
-            int bodyTop = Math.min(row.top() + BODY_TOP_OFFSET, row.bottom());
+            // The body has to start below the sender line, not at a fixed offset from the avatar.
+            // Leaving it fixed while the name band moved let the two overlap: the sender line was
+            // read a second time as part of the bubble, so the transcript carried
+            // "VIP6 [INF]CrisdeuS Reclamen recompensas..." as the message and no author at all.
+            int bodyTop = row.hasNameLine()
+                    ? Math.min(nameBottom + BODY_GAP, row.bottom())
+                    : Math.min(row.top() + BODY_TOP_OFFSET, row.bottom());
             int bodyBottom = Math.min(row.bottom(), bodyTop + MAX_BODY_HEIGHT);
             if (nameBottom <= nameTop || bodyBottom <= bodyTop) {
                 continue;
