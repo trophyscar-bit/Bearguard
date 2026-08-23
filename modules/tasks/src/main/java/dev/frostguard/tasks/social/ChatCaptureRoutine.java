@@ -385,14 +385,31 @@ public class ChatCaptureRoutine extends DelayedTask {
      * <p>A little over half a screen buys back the overlap. The cost is duplicates, which cost
      * nothing: de-duplication keys on the message body, so a line seen twice is stored once.
      */
-    private static final double SCROLL_STEP_FRACTION = 0.55;
+    private static final double SCROLL_STEP_FRACTION = 0.50;
+
+    /**
+     * How long the scroll drag takes.
+     *
+     * <p>This is the difference between a drag and a flick. A swipe sent with no duration is a
+     * bare {@code input swipe}, which Android reads as a flick and answers with momentum
+     * scrolling -- the feed keeps travelling after the finger lifts, by an amount that depends on
+     * how quickly the emulator serviced the gesture rather than on anything asked for. That is
+     * what an occasional step "going extra" looks like from the outside: most scrolls land where
+     * they should and every so often one sails past a message, and no reduction in distance fixes
+     * it because the distance was never the problem.
+     *
+     * <p>The same fault was found on the world map, where a pan meant to move one screen ended up
+     * in unrelated rival cities, which is why the duration-aware overload exists at all. Chat had
+     * simply never used it.
+     */
+    private static final int SCROLL_DRAG_MS = 700;
 
     private void swipeUpThroughHistory() {
         // A downward drag reveals content above the current view, i.e. older messages -- the
         // opposite of how a page-down gesture reads.
         int from = FEED_TOP + 120;
         int travel = (int) Math.round(((FEED_BOTTOM - 120) - from) * SCROLL_STEP_FRACTION);
-        swipe(new PointData(FEED_X, from), new PointData(FEED_X, from + travel));
+        swipe(new PointData(FEED_X, from), new PointData(FEED_X, from + travel), SCROLL_DRAG_MS);
         sleepTask(700L);
     }
 
