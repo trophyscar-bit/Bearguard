@@ -87,8 +87,8 @@ public final class ChatFrameBench {
                     w.println(sb);
                 }
             }
+            lines = ChatScriptRecovery.reread(raw, lines, words, 700, cjk);
             lines = ChatOrnamentFilter.clean(lines, words, img);
-            lines = ChatScriptRecovery.reread(raw, lines, 700, cjk);
             for (TextLine l : lines) {
                 ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(l.text());
                 // The alliance tag is what makes it a sender line rather than a message that
