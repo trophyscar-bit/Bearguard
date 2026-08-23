@@ -116,12 +116,17 @@ final class ChatFrameReader {
         if (pending.isEmpty()) {
             return;
         }
+        // Joined with a space, not a line break. The breaks in a captured message are the phone's,
+        // not the writer's: a bubble on a 720-wide screen wraps every few words, so "En 1:45 hora
+        // batalla de la fundicion" and "de la legion 2" are one sentence the handset happened to
+        // split. Carrying those breaks into a window ten times as wide made every message read as
+        // a narrow ragged column with the rest of the panel empty beside it.
         StringBuilder sb = new StringBuilder();
         for (TextLine l : pending) {
             if (sb.length() > 0) {
-                sb.append('\n');
+                sb.append(' ');
             }
-            sb.append(l.text());
+            sb.append(l.text().trim());
         }
         String raw = ChatLineCleaner.cleanBody(sb.toString());
         ChatLineCleaner.Body split = ChatLineCleaner.splitQuotedReply(raw);
