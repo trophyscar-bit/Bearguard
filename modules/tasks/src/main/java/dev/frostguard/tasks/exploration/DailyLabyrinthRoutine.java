@@ -146,8 +146,10 @@ public class DailyLabyrinthRoutine extends DelayedTask {
                     .build();
 
     // -- Squad Config screen --
-    /** "Quick Deploy" button on the Squad Config screen (auto-fills heroes + troops IN PLACE). */
-    private static final PointData LOH_QUICK_DEPLOY_BTN = new PointData(197, 1193);
+    /** "Quick Deploy" button on the Squad Config screen (auto-fills heroes + troops IN PLACE).
+     *  Shared by every two-squad zone -- Land of Heroes and Gaia Heart were separately calibrated to
+     *  this same point, so one constant covers the screen rather than one per zone. */
+    private static final PointData SQUAD_QUICK_DEPLOY_BTN = new PointData(197, 1193);
     /** Squad-1 "Edit Formation" button on the Squad Config screen -> opens the troop-detail screen.
      *  (Quick Deploy only fills the squad in place; the ratio lives one screen deeper.) */
     private static final PointData LOH_EDIT_FORMATION_SQUAD1_BTN = new PointData(360, 357);
@@ -217,7 +219,6 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     // (530/655/800 here vs. 530/675/820 there) -- same popup component, just enough vertical offset
     // that reusing the LOH constants would tap the wrong row. Confirmed live: floor+fill against these
     // Y values landed exactly on target (60/40/0) with zero correction-pass nudges needed.
-    private static final PointData GAIA_QUICK_DEPLOY_BTN = new PointData(197, 1193);
     private static final PointData[] GAIA_SQUAD_EDIT_BTNS = new PointData[] {
             new PointData(360, 357),   // Squad 1
             new PointData(360, 700),   // Squad 2
@@ -902,6 +903,10 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         // OBSERVE: the pre-deploy screen shows the enemy formation for this stage.
         saveLabyrinthFrame("enemy", dungeonNumber);
 
+        // Non-null for Cave of Monsters / Charm Mine, which land on the troop-detail screen instead
+        // of Squad Config -- read here because both branches below depend on which shape this is.
+        ZoneFormation singleSquadZone = DUNGEON_SINGLE_SQUAD_ZONES.get(dungeonNumber);
+
         // Try quick deploy first
         ImageSearchResultData quickDeployResult = templateSearchHelper.locatePattern(
                 TemplatesEnum.LABYRINTH_QUICK_DEPLOY,
@@ -910,11 +915,30 @@ public class DailyLabyrinthRoutine extends DelayedTask {
             logInfo("'Quick Deploy' button found. Deploying for dungeon " + dungeonNumber + ".");
             tapInside(quickDeployResult);
             sleepTask(100);
+        } else if (singleSquadZone == null) {
+            // The template can miss even when the button is right there: on a two-squad zone with
+            // empty squads the game paints its tutorial hand and glow ring directly over the button's
+            // text (lab_d6_enemy_1787501035445.png, Gaia Heart). Nothing then fills the squads, so
+            // Deploy stays greyed out and misses its own template too, and the zone spends the whole
+            // day bailing without ever fighting. The button's position is fixed, so confirm the screen
+            // by its own title and tap the coordinate, which the overlay cannot hide.
+            // Skipped for the single-squad zones, which land on the troop-detail screen and have no
+            // Squad Config screen or Quick Deploy button at all.
+            if (waitForScreen(SQUAD_ANCHOR_TL, SQUAD_ANCHOR_BR, SQUAD_ANCHOR_TEXT)) {
+                logInfo("'Quick Deploy' template missed but Squad Config is on screen for dungeon "
+                        + dungeonNumber + " (the tutorial hand overlays the button); tapping its "
+                        + "coordinate instead to fill the squads.");
+                tapNear(SQUAD_QUICK_DEPLOY_BTN);
+                sleepTask(LABYRINTH_LOAD_DELAY);
+                saveLabyrinthFrame("squad_filled", dungeonNumber);
+            } else {
+                logWarning("'Quick Deploy' not found for dungeon " + dungeonNumber
+                        + " and this is not the Squad Config screen; continuing to Deploy as-is.");
+            }
         }
 
         // For Cave of Monsters / Charm Mine, drive the configured ratio NOW --
         // right before Deploy, since it doesn't persist between visits like Land of Heroes does.
-        ZoneFormation singleSquadZone = DUNGEON_SINGLE_SQUAD_ZONES.get(dungeonNumber);
         if (singleSquadZone != null) {
             setRatioBeforeDeploy(singleSquadZone, dungeonNumber);
         }
@@ -954,7 +978,12 @@ public class DailyLabyrinthRoutine extends DelayedTask {
             return true;
         }
 
-        logWarning("Could not find 'Deploy' button for dungeon " + dungeonNumber + ".");
+        // Deliberately no fallback tap here. The template is cut from the ENABLED blue button, so a
+        // miss usually means Deploy is greyed out because the squads are still empty -- tapping it
+        // would do nothing and hide that. Save where we actually stood instead.
+        logWarning("Could not find 'Deploy' button for dungeon " + dungeonNumber
+                + " -- it is most likely still disabled because the squads are empty.");
+        saveLabyrinthFrame("deploy_missing", dungeonNumber);
         return false;
     }
 
@@ -1312,7 +1341,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         // Step 3: Quick Deploy fills heroes + troops for BOTH squads IN PLACE (stays on Squad Config,
         // so there is no screen change to verify — a short settle is enough).
         logInfo(tag + ": tapping Quick Deploy (fills squads in place).");
-        tapNear(LOH_QUICK_DEPLOY_BTN);
+        tapNear(SQUAD_QUICK_DEPLOY_BTN);
         sleepTask(LABYRINTH_LOAD_DELAY);
         saveLabyrinthFrame("squad_filled", 0);
 
@@ -1390,7 +1419,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         // Quick Deploy fills both squads with REAL troops/heroes in place (not normalized, unlike
         // every other zone) -- idempotent, safe even if squads are already populated from a prior run.
         logInfo(tag + ": tapping Quick Deploy (fills squads with real troops/heroes in place).");
-        tapNear(GAIA_QUICK_DEPLOY_BTN);
+        tapNear(SQUAD_QUICK_DEPLOY_BTN);
         sleepTask(LABYRINTH_LOAD_DELAY);
         saveLabyrinthFrame("gaia_squad_filled", 0);
 
