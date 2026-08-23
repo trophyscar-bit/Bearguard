@@ -11,15 +11,15 @@
             xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
 
     <top>
-        <!-- Two rows. One row could not hold four channel toggles, a checkbox, a status line and two
-             buttons at this panel width: HBox shrank every control to fit and each one collapsed to
-             an ellipsis, so nothing was readable. Controls keep their preferred width (minWidth of
-             -Infinity is USE_PREF_SIZE) and the status line, which is the only part that can lose
-             characters harmlessly, gets its own row. -->
+        <!-- Two rows, and every control pinned to its preferred width. One row let the HBox shrink
+             its children below their text, and JavaFX answers that by drawing "..." -- so at the
+             window size this panel is actually used at, every button read as an ellipsis. Wrapping
+             is the fix rather than a smaller font, because the truncation returns at the next width
+             a smaller font buys. -->
         <VBox spacing="6" style="-fx-padding: 10 16 8 16;">
             <HBox alignment="CENTER_LEFT" spacing="8">
-                <!-- Channels are separate conversations; reading them interleaved is the main reason
-                     the transcript was hard to follow. All stays available for a single feed. -->
+                <!-- Channels are separate conversations; reading them interleaved is the main
+                     reason the transcript was hard to follow. ALL stays available for one feed. -->
                 <ToggleButton fx:id="tabAll" minWidth="-Infinity" mnemonicParsing="false"
                               onAction="#selectChannel" selected="true"
                               styleClass="action-button-timeline" text="All" userData="" />
@@ -32,19 +32,18 @@
                 <ToggleButton fx:id="tabPersonal" minWidth="-Infinity" mnemonicParsing="false"
                               onAction="#selectChannel" styleClass="action-button-timeline"
                               text="Personal" userData="personal" />
-
-                <Pane HBox.hgrow="ALWAYS" minWidth="0" />
-
+                <Separator orientation="VERTICAL" />
                 <CheckBox fx:id="checkHideChatter" minWidth="-Infinity" mnemonicParsing="false"
                           onAction="#refresh" selected="true" text="Hide game chatter" />
-                <Button minWidth="-Infinity" mnemonicParsing="false" onAction="#exportHtml"
-                        styleClass="action-button-timeline" text="Export HTML" />
+                <Pane HBox.hgrow="ALWAYS" />
                 <Button minWidth="-Infinity" mnemonicParsing="false" onAction="#refresh"
                         styleClass="action-button-timeline" text="Refresh" />
+                <Button minWidth="-Infinity" mnemonicParsing="false" onAction="#exportHtml"
+                        styleClass="action-button-timeline" text="Export HTML" />
             </HBox>
-
-            <Label fx:id="statusLabel" styleClass="label-muted" maxWidth="Infinity"
-                   text="Loading transcript..." />
+            <HBox alignment="CENTER_LEFT" spacing="8">
+                <Label fx:id="statusLabel" styleClass="label-muted" text="Loading transcript..." />
+            </HBox>
         </VBox>
     </top>
 
