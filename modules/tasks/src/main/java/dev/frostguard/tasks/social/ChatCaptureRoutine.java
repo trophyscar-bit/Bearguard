@@ -373,10 +373,26 @@ public class ChatCaptureRoutine extends DelayedTask {
                         SearchConfigConstants.QUICK_SEARCH).isFound();
     }
 
+    /**
+     * How far one scroll step travels, as a fraction of the drag the feed height allows.
+     *
+     * <p>A full-height drag moves the feed by very nearly one screen, which sounds efficient and is
+     * actually the bug: measured across consecutive captures, neighbouring frames shared only one
+     * or two lines out of ten to fifteen. That is no margin at all. It holds while every message is
+     * a line or two, and the moment somebody posts a wall of text the drag steps straight over it
+     * and the message is gone with nothing to show it ever existed.
+     *
+     * <p>Three quarters of a screen buys back the overlap. The cost is duplicates, which cost
+     * nothing: de-duplication keys on the message body, so a line seen twice is stored once.
+     */
+    private static final double SCROLL_STEP_FRACTION = 0.75;
+
     private void swipeUpThroughHistory() {
         // A downward drag reveals content above the current view, i.e. older messages -- the
         // opposite of how a page-down gesture reads.
-        swipe(new PointData(FEED_X, FEED_TOP + 120), new PointData(FEED_X, FEED_BOTTOM - 120));
+        int from = FEED_TOP + 120;
+        int travel = (int) Math.round(((FEED_BOTTOM - 120) - from) * SCROLL_STEP_FRACTION);
+        swipe(new PointData(FEED_X, from), new PointData(FEED_X, from + travel));
         sleepTask(700L);
     }
 
