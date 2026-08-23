@@ -90,8 +90,24 @@ public class ChatCaptureRoutine extends DelayedTask {
     private static final int FEED_X = 360;
 
     /** The feed as a rectangle, for reading the whole thing in one recognition. */
-    private static final PointData FEED_TOP_LEFT = new PointData(0, FEED_TOP);
-    private static final PointData FEED_BOTTOM_RIGHT = new PointData(719, FEED_BOTTOM);
+    /**
+     * The strip of the feed that actually holds text.
+     *
+     * <p>It starts at the text column, not at the edge of the screen. Reading from x=0 put the
+     * avatar, its rank badge and the bubble's own left border inside the recognition, and the
+     * reader turned them into letters: "En 1:45 hora batalla" came back as "İd EntA4S hora
+     * batalla", with the bubble edge fused onto the first word, and a bare "y" appeared as a
+     * message of its own where a piece of bubble art sat alone on a line. None of that is text and
+     * none of it needed reading.
+     *
+     * <p>Sender lines begin around x=139, so the column starts a little inside that and still
+     * catches them. The right edge stops before the per-message translate control.
+     */
+    private static final int TEXT_COLUMN_LEFT = 132;
+    private static final int TEXT_COLUMN_RIGHT = 700;
+
+    private static final PointData FEED_TOP_LEFT = new PointData(TEXT_COLUMN_LEFT, FEED_TOP);
+    private static final PointData FEED_BOTTOM_RIGHT = new PointData(TEXT_COLUMN_RIGHT, FEED_BOTTOM);
 
     /**
      * Reader configuration for a chat region.
