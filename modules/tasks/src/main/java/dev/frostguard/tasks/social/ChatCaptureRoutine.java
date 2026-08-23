@@ -27,18 +27,23 @@ import dev.frostguard.engine.chat.ChatTranscriptStore;
 import dev.frostguard.engine.chat.ChatTranslator;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
-import dev.frostguard.vision.layout.ChatRowSegmenter;
 import dev.frostguard.vision.ocr.OcrEngine;
+import dev.frostguard.vision.ocr.OcrException;
+import dev.frostguard.vision.ocr.TextLine;
 
 /**
  * Captures World, Alliance and Personal chat on a schedule and stores it as a readable transcript.
  *
- * <p><b>Rows are found before anything is read.</b> Reading the whole feed as one block and
- * splitting the result afterwards cannot recover message boundaries -- by then the reader has
- * already run several people's lines together, and live captures show exactly that: senders like
- * {@code Ww} and bodies carrying three separate messages. Every message instead owns one avatar
- * tile, so {@link ChatRowSegmenter} finds the tiles geometrically and each row's name strip and
- * bubble are read separately. Two tight reads per row cannot merge anything.
+ * <p><b>The frame is read whole, and position tells the rest.</b> Reading region by region meant
+ * choosing the boundary of every sender line and every bubble before recognising them, and each of
+ * those boundaries was an offset from an avatar edge that moves with crowns and rank badges. A few
+ * pixels of drift clipped the tops of glyphs, so a line that plainly reads {@code [INF]Mini TyTy}
+ * came back as {@code UNF jMini TyTy}; when a band landed high the sender line fell into the bubble
+ * instead and the message was stored with no author. Recognised whole, the same frame reports every
+ * line with where it sat, and the two kinds of line separate themselves by the column they start
+ * in. Measured over 20 live frames that removed every invented name -- seven distinct senders, all
+ * real players, against fourteen of which half were wreckage -- and it costs one recognition per
+ * screen rather than a dozen.
  *
  * <p><b>Frames do not survive the pass.</b> Each screenshot is roughly 394KB, and the schedule this
  * task runs -- around thirty screens across three channels every twenty minutes -- lands near 6,500
@@ -82,6 +87,10 @@ public class ChatCaptureRoutine extends DelayedTask {
     private static final int FEED_TOP = 175;
     private static final int FEED_BOTTOM = 1150;
     private static final int FEED_X = 360;
+
+    /** The feed as a rectangle, for reading the whole thing in one recognition. */
+    private static final PointData FEED_TOP_LEFT = new PointData(0, FEED_TOP);
+    private static final PointData FEED_BOTTOM_RIGHT = new PointData(719, FEED_BOTTOM);
 
     /**
      * Reader configuration for a chat region.
@@ -257,19 +266,28 @@ public class ChatCaptureRoutine extends DelayedTask {
             }
 
             BufferedImage image = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
-            List<ChatRowSegmenter.Row> rows = ChatRowSegmenter.segment(image);
-            if (rows.isEmpty()) {
-                logInfo("ChatCaptureRoutine | " + channel + ": no message rows on this screen.");
+
+            // One recognition for the whole feed, keeping where every line landed. Reading region
+            // by region meant deciding each boundary before recognising it, and those boundaries
+            // were offsets from an avatar edge that moves with crowns and rank badges -- a few
+            // pixels of drift clipped glyph tops, or dropped the sender line into the bubble.
+            List<TextLine> lines;
+            try {
+                lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT, CHAT_TEXT_SETTINGS);
+            } catch (OcrException e) {
+                logWarning("ChatCaptureRoutine | Could not read " + channel + " screen "
+                        + (i + 1) + ": " + e.getMessage());
+                swipeUpThroughHistory();
+                continue;
+            }
+            if (lines.isEmpty()) {
+                logInfo("ChatCaptureRoutine | " + channel + ": no text on this screen.");
                 swipeUpThroughHistory();
                 continue;
             }
 
-            List<ChatMessage> messages = ChatRowReader.read(
-                    rows,
-                    (topLeft, bottomRight) -> readRegion(frame, topLeft, bottomRight),
-                    channel,
-                    Instant.now(),
-                    body -> translator.toEnglish(body));
+            List<ChatMessage> messages = ChatFrameReader.read(
+                    lines, channel, Instant.now(), body -> translator.toEnglish(body));
 
             int fresh;
             try {
@@ -278,7 +296,7 @@ public class ChatCaptureRoutine extends DelayedTask {
                 // successful walk from one that read nothing was the total at the end, which hides
                 // where in the scroll-back it stopped finding anything.
                 logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + scrollBack
-                        + ": " + rows.size() + " row(s), " + messages.size() + " readable, "
+                        + ": " + lines.size() + " line(s), " + messages.size() + " readable, "
                         + fresh + " new.");
             } catch (IOException e) {
                 // The frame is the only remaining copy of anything that failed to store, so keep it
@@ -306,15 +324,6 @@ public class ChatCaptureRoutine extends DelayedTask {
     }
 
     /** Reads one region of the held frame, returning empty rather than throwing on a bad read. */
-    private String readRegion(RawImageData frame, PointData topLeft, PointData bottomRight) {
-        try {
-            String text = OcrEngine.recognizeText(frame, topLeft, bottomRight, CHAT_TEXT_SETTINGS);
-            return text == null ? "" : text;
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
     /**
      * Keeps a frame whose rows could not be stored.
      *
