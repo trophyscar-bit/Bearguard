@@ -143,7 +143,7 @@ final class ChatScriptRecovery {
             // "participantes diminuiu para 9?" became "participantes diminuiu 付 para 9?", which
             // then went to the translator with the character still in it. A real message in
             // another script is not one character long; a hallucination often is.
-            if (best != null && countScriptCharacters(best.text()) >= MIN_SCRIPT_CHARS_TO_ACCEPT) {
+            if (best != null && isMostlyAnotherScript(best.text())) {
                 return new TextLine(best.text(), line.left(), line.top(),
                         line.width(), line.height(), best.confidence());
             }
@@ -167,6 +167,37 @@ final class ChatScriptRecovery {
         }
         return false;
     }
+
+    /**
+     * Whether the second reading found a message in another script, rather than a few glyphs it
+     * liked the look of.
+     *
+     * <p>Counting script characters is not enough on its own. Measured over a live pass, the reader
+     * returns two or three CJK glyphs scattered through Latin text often enough to matter -- an
+     * English sentence came back as "sr 名 sr 名 大 missed you." and a Spanish one as "Buen trabajo
+     * chicos ウラ", and both were stored and sent to the translator that way. A message actually
+     * written in another script is almost entirely in it: the Korean lines this recovers correctly
+     * score 1.0 here. So the test is the share, not the count.
+     */
+    static boolean isMostlyAnotherScript(String text) {
+        int script = 0;
+        int letters = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (!Character.isLetter(c)) {
+                continue;
+            }
+            letters++;
+            if (c > 127 && Character.UnicodeScript.of(c) != Character.UnicodeScript.LATIN) {
+                script++;
+            }
+        }
+        return script >= MIN_SCRIPT_CHARS_TO_ACCEPT
+                && script / (double) Math.max(1, letters) >= SCRIPT_SHARE_TO_ACCEPT;
+    }
+
+    /** The share of a recovered reading's letters that have to be in the other script. */
+    private static final double SCRIPT_SHARE_TO_ACCEPT = 0.60;
 
     /** Characters outside the Latin alphabet, which is what the second reading is looking for. */
     static int countScriptCharacters(String text) {
