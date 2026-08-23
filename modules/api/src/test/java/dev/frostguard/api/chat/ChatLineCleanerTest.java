@@ -333,4 +333,57 @@ class ChatLineCleanerTest {
                 "@Blazed562 creo que estabas", List.of("Blazed562")));
     }
 
+    // ---- names, translation and sender remnants ---------------------------------------------
+
+    @Test
+    void keepsTheDigitsThatArePartOfAName() {
+        assertEquals("Blazed562", ChatLineCleaner.parseSender("VIP8 [INF]Blazed562").name());
+        assertEquals("una116", ChatLineCleaner.parseSender("[INF]una116").name());
+    }
+
+    @Test
+    void stillDropsARankBadgeReadAsASeparateNumber() {
+        assertEquals("CrisdeuS", ChatLineCleaner.parseSender("VIP6 [INF]CrisdeuS 7").name());
+    }
+
+    @Test
+    void doesNotCallShortForeignTextEnglish() {
+        assertFalse(ChatLineCleaner.looksEnglish("Hay evento horita ?"));
+        assertFalse(ChatLineCleaner.looksEnglish("Felicidades!"));
+        assertFalse(ChatLineCleaner.looksEnglish("Ola"));
+    }
+
+    @Test
+    void stillCallsShortEnglishEnglish() {
+        assertTrue(ChatLineCleaner.looksEnglish("congrats"));
+        assertTrue(ChatLineCleaner.looksEnglish("Oooops. I missed it Congrats!"));
+        assertTrue(ChatLineCleaner.looksEnglish("ok ty"));
+    }
+
+    @Test
+    void treatsAGameCardAsSystemRatherThanSomethingSomebodySaid() {
+        assertEquals(ChatMessage.Kind.SYSTEM,
+                ChatLineCleaner.classify("Furnace Upgrade Pack My Furnace has reached Lv. 26!"));
+        assertEquals(ChatMessage.Kind.SYSTEM,
+                ChatLineCleaner.classify("Alliance Label A(n) Triangle label set at [X:457 Y:672]"));
+    }
+
+    @Test
+    void recognisesASenderLineWhoseBadgeWasMisread() {
+        // "VIP5" read as "VIPS", which the badge parser does not see, so the row was stored as a
+        // message reading "FF VIPS".
+        assertTrue(ChatLineCleaner.looksLikeSenderLine("FF VIPS"));
+    }
+
+    @Test
+    void doesNotMistakeARealSentenceForASenderLine() {
+        assertFalse(ChatLineCleaner.looksLikeSenderLine(
+                "En 1:45 hora batalla de la fundicion de la legion 2"));
+    }
+
+    @Test
+    void takesTheBubbleTailOffTheEndOfASentence() {
+        assertEquals("En la 2 no te veo", ChatLineCleaner.cleanBody("En la 2 no te veo e,"));
+    }
+
 }

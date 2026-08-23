@@ -285,7 +285,9 @@ public final class ChatLineCleaner {
 
     /** Drops the decorations the reader picks up past the end of the name, e.g. "CrisdeuS 7". */
     private static String trimNameNoise(String name) {
-        return NAME_TRAILING_NOISE.matcher(name).replaceAll("");
+        String out = NAME_TRAILING_NOISE.matcher(name).replaceAll("");
+        out = NAME_TRAILING_BADGE.matcher(out).replaceAll("");
+        return NAME_TRAILING_NOISE.matcher(out).replaceAll("").trim();
     }
 
     /** Long enough for the longest real name seen, short enough to reject a sentence. */
@@ -306,7 +308,18 @@ public final class ChatLineCleaner {
      * name because the dash on the end fell outside the class meant to strip it.
      */
     private static final Pattern NAME_TRAILING_NOISE =
-            Pattern.compile("[\\s\\p{N}\\p{P}\\p{S}]+$");
+            Pattern.compile("[\\s\\p{P}\\p{S}]+$");
+
+    /**
+     * A rank badge the reader picked up as a separate number after the name.
+     *
+     * <p>Split out from the rule above, which stripped every trailing digit and so took the digits
+     * off the names that end in them -- "Blazed562" was stored as "Blazed", and "una116" and
+     * "champ4u" were one rule away from the same. The badge is its own token with a space in front
+     * of it ("CrisdeuS 7"); digits that are part of the name are not.
+     */
+    private static final Pattern NAME_TRAILING_BADGE =
+            Pattern.compile("\\s+\\p{N}+$");
 
     /** Strips the reader's invented characters and collapses the whitespace they leave behind. */
     public static String cleanBody(String raw) {
@@ -791,9 +804,23 @@ public final class ChatLineCleaner {
      * the message. It shows up as a bubble containing nothing but a tag and a name -- "64
      * [HOD]TheFlyingDutch" -- which is not something anyone said.
      */
+    /** A VIP badge with its digit misread: "VIPS" for VIP5, "VIPO" for VIP0. */
+    private static final Pattern MANGLED_VIP =
+            Pattern.compile("(?i)\\bVIP\\s*[0-9SOl]?\\b");
+    /** A stray sender line is a badge, a tag and a name -- never a sentence. */
+    private static final int MAX_WORDS_IN_A_SENDER_REMNANT = 3;
+
     public static boolean looksLikeSenderLine(String body) {
         if (body == null || body.isBlank()) {
             return false;
+        }
+        // A VIP badge the reader did not get cleanly still marks the row as a name. "VIP5" comes
+        // back as "VIPS" when the 5 is read as an S, which the badge parser does not recognise, so
+        // tsubomi's sender line was stored as a message reading "FF VIPS" -- and being a row with a
+        // gold badge on it, the badge was then rewritten as a mention of the whole alliance.
+        if (MANGLED_VIP.matcher(body).find()
+                && WORDS.matcher(body).results().count() <= MAX_WORDS_IN_A_SENDER_REMNANT) {
+            return true;
         }
         Sender s = parseSender(body);
         // The giveaway is the decoration, not the name: a stray sender line still carries its
