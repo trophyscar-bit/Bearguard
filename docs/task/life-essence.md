@@ -31,12 +31,19 @@ between tasks. Across 60 live frames the counter was present on every island
 frame and absent from every world and city frame.
 
 **The right shape.** `IslandClaimBadges` accepts a `GameColors.isVividGreen`
-blob 28-52 wide, 30-70 tall, at least 0.45 filled, of at least 600 pixels. From
-32 badge sightings across live frames the crystal covers 913-1476 pixels in a
-35-42 x 37-59 box at 0.49-0.70 fill, the height varying because the bubble
-bounces and the tree badge is partly covered by the game's tutorial hand. Every
-other green thing on those island frames topped out at 214 pixels in a 19x21
-box. Green alone does not identify a badge; the size rules do.
+blob 28-46 wide, 30-70 tall, at least 0.38 filled, of at least 600 pixels. From
+live frames the crystal covers 913-1476 pixels in a 35-42 x 37-59 box, the
+height varying because the bubble bounces. Green alone does not identify a
+badge; the size rules do.
+
+Width carries the identification and fill only backs it up. The island holds a
+permanent 50x62 grass patch at 0.33 fill at (545,637) that is otherwise
+badge-sized and present in every frame; width rejects it outright, which is what
+frees the fill floor to sit low. That matters for the badge over the tree,
+because the tutorial hand points at a claimable badge and covers part of the
+crystal while doing so, dropping a real tree badge to 0.486 fill. The floor
+belongs between the grass and that badge, not next to the badge: an earlier 0.45
+left the tree badge clearing by 0.036 while the grass sat 0.12 below it.
 
 **A readable island.** Both captures a scan compares must pass the screen check.
 Claiming triggers a screen transition whose frame is nearly blank and carries no
@@ -58,12 +65,17 @@ roughly 30px.
 `CommonGameAreas.ISLAND_CLAIM_BADGE_AREA` is `(0,200)-(720,1100)`. Both edges
 are load-bearing and neither should be widened.
 
-The top edge sits below the HUD counter, which measures 31x45 at 0.58 fill and
-passes every shape rule - excluding it is the only thing that stops the routine
-tapping the currency counter. It also sits above the badge over the tree, which
-floats higher than any other and reaches y=320. An earlier `y=340` clipped that
-badge to 40x40, costing it a fifth of its pixels and nearly dropping it under
-the height floor.
+The top edge sits below the HUD counter, which is the same crystal artwork,
+passes every shape rule, and ends at y=54 on live frames - excluding it is the
+only thing that stops the routine tapping the currency counter. Everything below
+that and above the island is clear of green, so the window starts at y=100 and
+keeps the rest as headroom for the badge over the tree.
+
+That badge floats higher than any other and reaches y=323 on a level 9 tree. A
+clipped crystal loses pixels and height until it falls out of the shape rules:
+an earlier `y=340` edge cut it to 40x40 and it passed by luck. A taller tree on
+another account puts the badge higher still, which is why the window starts as
+high as the counter allows rather than just above the one tree measured here.
 
 The bottom edge stops short of the chat and navigation bars.
 

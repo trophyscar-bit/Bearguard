@@ -172,11 +172,16 @@ public final class CommonGameAreas {
     // stations wherever they like, so the whole island is searched rather than fixed spots.
     //
     // Both edges are load-bearing. The top HUD's Life Essence counter is the same crystal artwork as
-    // the badges and measures 31x45 at 0.58 fill on a live frame, which passes every shape rule the
-    // detector applies - excluding it here is the only thing that stops the routine tapping the
-    // currency counter. The badge over the tree floats highest of any badge and reaches y=320, so
-    // the window must start above that or the crystal is clipped and loses a fifth of its pixels.
-    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 200, 720, 1100);
+    // the badges and passes every shape rule the detector applies, so excluding it here is the only
+    // thing that stops the routine tapping the currency counter. Measured across live frames that
+    // counter ends at y=54, and the window starts far enough below it to be unambiguous.
+    //
+    // The rest of the headroom is for the badge over the tree, which floats higher than any other.
+    // It reaches y=323 on a level 9 tree, and a clipped crystal loses pixels and height until it
+    // falls out of the shape rules - an earlier y=340 edge cut it to 40x40 and it passed by luck.
+    // Since a taller tree on another account puts that badge higher still, the window starts as
+    // high as the counter allows rather than just above the one tree that has been measured.
+    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 100, 720, 1100);
 
     // The Life Essence counter in the top bar. Being the same crystal artwork as the badges makes it
     // a free proof that the island screen is really open, since no other screen the routine can land

@@ -49,6 +49,30 @@ class IslandClaimBadgesFrameTest {
     }
 
     @Test
+    void acceptsTheTreeBadgeWithTheTutorialHandOverIt() throws Exception {
+        // The game's tutorial hand points at a claimable badge, so a partly covered tree badge is the
+        // normal case rather than a rare one. It must clear the fill floor by a real margin and not
+        // by a hair: on this frame it measures 0.486, and an earlier 0.45 floor left it 0.036 of room.
+        ColorBlobFinder.Blob tree = badges(island()).stream()
+                .filter(blob -> blob.centre().col() < 500)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("the tree badge was not detected at all"));
+
+        assertTrue(tree.fillRatio() >= 0.48, "unexpected fill, recheck the fixture: " + tree);
+        assertTrue(IslandClaimBadges.isClaimBadge(tree));
+    }
+
+    @Test
+    void rejectsThePermanentGrassPatchOnTheIsland() throws Exception {
+        // A 50x62 patch of island grass at 0.33 fill sits at (545,637) in every frame of this screen.
+        // It is badge-sized, so width is what rules it out; if that ever stops being true the routine
+        // would tap the same piece of scenery on every single run.
+        assertTrue(badges(island()).stream().noneMatch(
+                blob -> Math.abs(blob.centre().col() - 545) <= 25 && Math.abs(blob.centre().row() - 637) <= 25),
+                "the island's grass patch must never be taken for a badge");
+    }
+
+    @Test
     void keepsTheTreeBadgeWhollyInsideTheSearchWindow() throws Exception {
         // The badge over the tree floats higher than any other and is the one the window can clip.
         // A clipped crystal loses a fifth of its pixels and shrinks toward the height floor, so every
@@ -91,7 +115,7 @@ class IslandClaimBadgesFrameTest {
 
         assertTrue(hud.stream().anyMatch(IslandClaimBadges::isClaimBadge),
                 "expected the HUD crystal to look exactly like a badge");
-        assertTrue(badges(island()).stream().allMatch(blob -> blob.centre().row() > 200));
+        assertTrue(badges(island()).stream().allMatch(blob -> blob.centre().row() > 100));
     }
 
     @Test

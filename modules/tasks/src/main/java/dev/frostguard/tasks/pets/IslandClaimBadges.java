@@ -19,12 +19,18 @@ import dev.frostguard.vision.color.GameColors;
  * artwork from the ones over the stations. The crystal inside is what every badge shares, and its
  * size identifies it.
  *
- * <p>The thresholds come from 29 badge sightings across 15 live 720x1280 island frames: the crystal
- * covers 913-1476 green pixels in a 35-42 x 37-59 box at 0.54-0.70 fill, the height varying because
- * the bubble bounces. Every other green thing on the same frames topped out at 214 pixels in a
- * 19x21 box, so the gap is more than fourfold on area alone. Do not calibrate this against the
- * bundled claim templates: they are cut at a smaller scale than the game renders and measure only
- * 22-24 x 33, which is why a template-derived window found nothing on real frames.
+ * <p>The thresholds come from live 720x1280 island frames: the crystal covers 913-1476 green pixels
+ * in a 35-42 x 37-59 box, the height varying because the bubble bounces. Do not calibrate this
+ * against the bundled claim templates: they are cut at a smaller scale than the game renders and
+ * measure only 22-24 x 33, which is why a template-derived window found nothing on real frames.
+ *
+ * <p>Width carries the identification and fill only backs it up, because the island itself holds a
+ * permanent grass patch of 50x62 at 0.33 fill that is otherwise badge-sized and present in every
+ * frame. Width rejects it outright, which leaves the fill floor free to sit low. That matters for
+ * the badge over the tree: the game's tutorial hand points at a claimable badge and covers part of
+ * the crystal while doing it, dropping a real tree badge to 0.486 fill. An earlier 0.45 floor left
+ * that badge clearing by 0.036 while the grass it was guarding against sat 0.12 below - the floor
+ * was next to the thing it had to accept rather than between the two.
  *
  * <p>The window also keeps the routine harmless if it ever scans the wrong screen. The city view's
  * green villager markers measure 25x25 and 9x52, both rejected on width and area.
@@ -33,10 +39,10 @@ final class IslandClaimBadges {
 
     private static final int MIN_CRYSTAL_PIXELS = 600;
     private static final int CRYSTAL_MIN_WIDTH = 28;
-    private static final int CRYSTAL_MAX_WIDTH = 52;
+    private static final int CRYSTAL_MAX_WIDTH = 46;
     private static final int CRYSTAL_MIN_HEIGHT = 30;
     private static final int CRYSTAL_MAX_HEIGHT = 70;
-    private static final double CRYSTAL_MIN_FILL_RATIO = 0.45;
+    private static final double CRYSTAL_MIN_FILL_RATIO = 0.38;
     private static final int MIN_ANCHOR_PIXELS = 400;
     private static final int SETTLED_RADIUS = 15;
 
