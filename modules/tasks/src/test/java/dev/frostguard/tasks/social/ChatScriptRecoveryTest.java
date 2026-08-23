@@ -68,4 +68,23 @@ class ChatScriptRecoveryTest {
         assertFalse(ChatScriptRecovery.looksLikeMangledScript("@AthenaRyu thanks for the rally"));
     }
 
+    @Test
+    void doesNotTakeAPlayerNameAsEvidenceOfAnotherAlphabet() {
+        // All three were sent to the Cyrillic reader on a live pass and came back as Cyrillic
+        // nonsense, because a camel-cased name has a capital in the middle just like mangled
+        // Cyrillic does. The Spanish, English and Czech here are what the messages actually were.
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "@AthenaRyu dios mio, sumando aceleracion general? AthenaRyu: @CrisdeuS"));
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "@Candy Thursday Candy: @Mini TyTy"));
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "pro nej je tady vzdycky misto AthenaRyu: @Candy"));
+    }
+
+    @Test
+    void stillSuspectsRealCyrillicBesideAMention() {
+        assertTrue(ChatScriptRecovery.looksLikeMangledScript(
+                "@CrisdeuS a Tome. 3TO Hao HyxeH gusaunep BCE nepecTaBnaTb"));
+    }
+
 }

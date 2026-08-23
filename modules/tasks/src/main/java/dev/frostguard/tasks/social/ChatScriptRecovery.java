@@ -183,6 +183,15 @@ final class ChatScriptRecovery {
             if (word.length() < MIN_WORD_TO_JUDGE_SHAPE || word.equals(word.toUpperCase())) {
                 continue;
             }
+            // Player names are the other thing that puts a capital inside a word, and the feed is
+            // full of them: a mention carries one, and a quoted reply repeats the name it is
+            // quoting with a colon after it. Counting those sent Spanish, English and Czech
+            // messages to the Cyrillic reader, which duly returned Cyrillic -- "AthenaRyu" came
+            // back as "А{ПепаВуи", and because the result was mostly Cyrillic characters it passed
+            // the test meant to catch exactly this. A name is not evidence of another alphabet.
+            if (word.charAt(0) == '@' || word.endsWith(":")) {
+                continue;
+            }
             for (int i = 1; i < word.length(); i++) {
                 if (Character.isUpperCase(word.charAt(i))) {
                     odd++;
