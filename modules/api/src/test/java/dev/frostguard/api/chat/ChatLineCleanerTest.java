@@ -17,13 +17,34 @@ import org.junit.jupiter.api.Test;
 class ChatLineCleanerTest {
 
     @Test
-    void splitsTheFullestSenderFormIntoVipTagAndName() {
+    void splitsTheFullestSenderFormAndDiscardsTheVipBadge() {
         ChatLineCleaner.Sender s = ChatLineCleaner.parseSender("VIP7 [TUN]Snowcrow");
 
         assertEquals("Snowcrow", s.name());
         assertEquals("TUN", s.allianceTag());
-        assertEquals(7, s.vipLevel());
         assertTrue(s.trusted());
+        // VIP rank is not kept. It is shown on some senders and not others, carries nothing worth
+        // recording, and reading it is what let a mangled badge reach the name.
+        assertEquals(0, s.vipLevel());
+    }
+
+    @Test
+    void aMangledVipBadgeCannotReachTheName() {
+        // The exact shapes seen in the live transcript, where a misread badge became the author.
+        for (String line : new String[] {
+            "ViIPO LINE [ICE]Dorvik", "SS} VirP/ [FJR]Kelvinhut", "& VIP6 [ICE]BrimdalS"}) {
+            ChatLineCleaner.Sender s = ChatLineCleaner.parseSender(line);
+            assertTrue(s.trusted(), "should trust the name in " + line);
+            assertEquals(0, s.vipLevel());
+            assertFalse(s.name().toUpperCase(java.util.Locale.ROOT).contains("VIP"),
+                    "badge leaked into the name: " + s.name());
+        }
+    }
+
+    @Test
+    void theNameIsWhateverFollowsTheAllianceTag() {
+        assertEquals("BrimdalS", ChatLineCleaner.parseSender("& VIP6 [ICE]BrimdalS").name());
+        assertEquals("Dorvik", ChatLineCleaner.parseSender("ViIPO LINE [ICE]Dorvik").name());
     }
 
     @Test
@@ -137,6 +158,25 @@ class ChatLineCleanerTest {
 
         assertEquals("TheFrozenBarge same", b.own());
         assertTrue(b.quoted().isEmpty());
+    }
+
+    @Test
+    void theAlliancePollCardIsNotMistakenForConversation() {
+        // Pinned above the feed with a clipboard icon the segmenter reads as an avatar, so it
+        // arrives as a message on every pass. These are its rows exactly as the reader returns them.
+        for (String card : new String[] {
+            "selection] Which Bear Trap do you...",
+            "_ Participants: 49/98 (Have Not Participate",
+            "Initiator: BorealFox",
+            "Vote in: 11:29:34",
+            "Vote"}) {
+            assertEquals(ChatMessage.Kind.SYSTEM, ChatLineCleaner.classify(card), "should be furniture: " + card);
+        }
+    }
+
+    @Test
+    void talkingAboutTheVoteIsStillConversation() {
+        assertEquals(ChatMessage.Kind.TEXT, ChatLineCleaner.classify("did everyone vote yet"));
     }
 
     @Test

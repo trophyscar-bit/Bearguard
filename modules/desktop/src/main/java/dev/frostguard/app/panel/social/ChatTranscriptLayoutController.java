@@ -210,9 +210,6 @@ public class ChatTranscriptLayoutController {
         if (!m.allianceTag().isBlank()) {
             header.getChildren().add(chip(m.allianceTag(), "#4e5058", "#dbdee1"));
         }
-        if (m.vipLevel() > 0) {
-            header.getChildren().add(chip("VIP" + m.vipLevel(), "#faa81a", "#000000"));
-        }
 
         Label channel = new Label(m.channel().toUpperCase(Locale.ROOT));
         channel.setStyle("-fx-font-size: 10px; -fx-text-fill: #949ba4;");
