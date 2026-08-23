@@ -316,7 +316,37 @@ public enum ConfigurationKeyEnum {
     TRAIN_MARKSMAN_BOOL                 ("false",   Boolean.class,  ConfigCategory.TRAINING),
     TRAIN_MINISTRY_APPOINTMENT_BOOL     ("false",   Boolean.class,  ConfigCategory.TRAINING),
     TRAIN_MINISTRY_APPOINTMENT_TIME_LONG("0",       Long.class,     ConfigCategory.TRAINING),
-    TRAIN_PRIORITIZE_PROMOTION_BOOL     ("false",   Boolean.class,  ConfigCategory.TRAINING);
+    TRAIN_PRIORITIZE_PROMOTION_BOOL     ("false",   Boolean.class,  ConfigCategory.TRAINING),
+
+    /* ─────────── chat capture ─────────── */
+
+    // World/Alliance/Personal are read on a schedule and diffed against what
+    // was already captured, so repeat passes only add genuinely new messages
+    // rather than re-saving the same history every cycle.
+    CHAT_CAPTURE_ENABLED_BOOL           ("false",   Boolean.class,  ConfigCategory.SYSTEM),
+    CHAT_CAPTURE_FREQUENCY_MINUTES_INT  ("30",      Integer.class,  ConfigCategory.SYSTEM),
+    CHAT_CAPTURE_INCLUDE_WORLD_BOOL     ("true",    Boolean.class,  ConfigCategory.SYSTEM),
+    CHAT_CAPTURE_INCLUDE_ALLIANCE_BOOL  ("true",    Boolean.class,  ConfigCategory.SYSTEM),
+    CHAT_CAPTURE_INCLUDE_PERSONAL_BOOL  ("false",   Boolean.class,  ConfigCategory.SYSTEM),
+    // TRANSCRIPT keeps the full readable message history; SUMMARY records the
+    // preference for a later condensing pass. Neither is interpreted here --
+    // OCR cannot judge meaning, so summarising is not this bot's job.
+    CHAT_CAPTURE_MODE_STRING            ("TRANSCRIPT", String.class, ConfigCategory.SYSTEM),
+    // Applied live: emote/sticker-only messages (nothing left after stripping
+    // punctuation) are dropped before saving. That much is plain matching.
+    CHAT_CAPTURE_FILTER_NOISE_BOOL      ("true",    Boolean.class,  ConfigCategory.SYSTEM),
+    // How many screens of history each pass walks back. Every screen costs one
+    // capture and one read, and consecutive passes overlap heavily, so this
+    // trades pass duration against how long the bot can be away before chat
+    // scrolls past what it can still reach.
+    CHAT_CAPTURE_SCROLL_BACK_INT        ("30",      Integer.class,  ConfigCategory.SYSTEM),
+    // Renders non-English messages into English over the network. Nothing is
+    // downloaded and no account is needed; a failed lookup leaves the original
+    // text in place.
+    CHAT_TRANSLATE_TO_ENGLISH_BOOL      ("true",    Boolean.class,  ConfigCategory.SYSTEM),
+    // Whole days older than this are deleted from the transcript. Frames are
+    // removed as soon as they are read, so this bounds the text alone.
+    CHAT_TRANSCRIPT_RETENTION_DAYS_INT  ("30",      Integer.class,  ConfigCategory.SYSTEM);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.
