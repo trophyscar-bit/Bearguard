@@ -110,6 +110,41 @@ public final class TesseractOcrProvider implements OcrProvider {
     }
 
     /**
+     * The same reading, reported one word at a time with where each word sat.
+     *
+     * <p>Line boxes are what the transcript is assembled from, but they cannot say which part of a
+     * line is a word and which is a piece of the bubble the reader mistook for one. A snowman
+     * ornament on the bubble's edge is white, the same as the text, so no colour test separates
+     * them -- what separates them is that the ornament is one or two characters sitting on its own
+     * with a gap between it and the sentence. That is a judgement about word positions, so word
+     * positions are what this returns.
+     */
+    @Override
+    public List<TextLine> recognizeWords(BufferedImage preparedImage, OcrSettingsData cfg)
+            throws OcrException {
+        requireValidCapture(preparedImage);
+        Tesseract engine = configureTesseract(cfg);
+        engine.setPageSegMode(3); // AUTO -- same reading as recognizeLines, reported finer
+        try {
+            List<net.sourceforge.tess4j.Word> found = engine.getWords(preparedImage,
+                    net.sourceforge.tess4j.ITessAPI.TessPageIteratorLevel.RIL_WORD);
+            List<TextLine> words = new ArrayList<>(found.size());
+            for (net.sourceforge.tess4j.Word w : found) {
+                if (w.getText() == null || w.getText().isBlank()
+                        || w.getConfidence() < MIN_LINE_CONFIDENCE) {
+                    continue;
+                }
+                java.awt.Rectangle r = w.getBoundingBox();
+                words.add(new TextLine(w.getText().trim(), r.x, r.y, r.width, r.height,
+                        w.getConfidence()));
+            }
+            return words;
+        } catch (RuntimeException e) {
+            throw new OcrException("Word recognition failed", e);
+        }
+    }
+
+    /**
      * Puts the reader's fragments back into the rows they were printed on.
      *
      * <p>A line of chat does not come back as one box. Against the bubble's background the reader

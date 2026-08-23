@@ -113,7 +113,11 @@ public final class ChatLineCleaner {
                     // own wording is what identifies it: "Initiator:", "Participants: 49/98",
                     // "Vote in: 11:29:34".
                     + "|initiator|participants|vote in|selection"
-                    + "|have not participated|alliance notice|alliance label|label set at)\\b");
+                    + "|have not participated|alliance notice|alliance label|label set at"
+                    // Gift and milestone cards the game posts on a player's behalf. They
+                    // carry a player's name and an avatar, so without naming them they read
+                    // as something that player said.
+                    + "|upgrade pack|has reached lv|gift pack|lucky gift)\\b");
 
     /**
      * A bubble that is nothing but the word "Vote".
@@ -168,7 +172,14 @@ public final class ChatLineCleaner {
             "day", "most", "us", "is", "are", "was", "were", "am", "been", "has", "had", "did",
             "does", "dont", "cant", "im", "ive", "youre", "yes", "yeah", "ok", "okay", "thanks",
             "thank", "please", "hi", "hello", "hey", "lol", "sorry", "rally", "join", "help", "need",
-            "more", "bro", "man", "still", "here", "why", "much", "very", "really");
+            "more", "bro", "man", "still", "here", "why", "much", "very", "really",
+            // Short English that carries no function word at all. Before these were listed, the
+            // only thing keeping "congrats" or "gg" from being shipped to a translator was the
+            // blanket assumption that anything short was English -- which cost every short foreign
+            // message its translation. Naming them is the cheaper half of that trade.
+            "congrats", "congratulations", "gg", "nice", "done", "sure", "welcome", "ready",
+            "soon", "later", "wait", "oops", "ty", "thx", "np", "gl", "hf", "afk", "omw",
+            "sent", "sending", "got", "coming", "same", "true", "agree", "nope", "yep", "yup");
 
     private static final Pattern WORDS = Pattern.compile("[A-Za-z']+");
 
@@ -331,6 +342,7 @@ public final class ChatLineCleaner {
         }
         out = TRAILING_ORPHAN.matcher(out).replaceAll("");
         out = TRAILING_LOOSE_CAPS.matcher(out).replaceAll("");
+        out = TRAILING_GLYPH_WITH_PUNCT.matcher(out).replaceAll("");
         if (out.trim().split("\\s+").length >= WORDS_BEFORE_TRIMMING_A_LETTER) {
             out = TRAILING_LONE_LETTER.matcher(out).replaceAll("");
         }
@@ -361,6 +373,19 @@ public final class ChatLineCleaner {
      */
     private static final Pattern TRAILING_LONE_LETTER =
             Pattern.compile("\\s+(?![aeouyiAEOUYI]\\b)\\p{L}\\s*$");
+
+    /**
+     * A single letter carrying punctuation, stranded on the end.
+     *
+     * <p>The lone-letter rule above deliberately spares "a", "e", "y" and "o", because all four end
+     * real sentences in Spanish and Portuguese and deleting a word to tidy a stray one is the worse
+     * trade. That sparing is what left "En la 2 no te veo e," in the transcript: the "e" is the
+     * bubble's tail ornament, read as a letter and given a comma by the border beneath it. A real
+     * sentence does not end on a bare letter with punctuation stuck to it, so this catches the
+     * ornament without touching the words the other rule protects.
+     */
+    private static final Pattern TRAILING_GLYPH_WITH_PUNCT =
+            Pattern.compile("\\s+\\p{L}[.,;:]+\\s*$");
 
     /** Below this a message is too short to risk taking a character off the end of. */
     private static final int WORDS_BEFORE_TRIMMING_A_LETTER = 3;
@@ -625,10 +650,16 @@ public final class ChatLineCleaner {
         while (m.find()) {
             words.add(m.group());
         }
-        if (words.size() < MIN_WORDS_TO_JUDGE) {
-            return true;
-        }
         long known = words.stream().filter(COMMON_ENGLISH::contains).count();
+        // Under the ratio's reach, English has to be shown rather than assumed. Returning true here
+        // -- which is what this did -- meant no short foreign message was ever translated: measured
+        // against a live day's transcript, "Hay evento horita ?", "Felicidades!" and "Ola" were all
+        // called English and never sent, while the longer Spanish around them came back correctly.
+        // The accent that would have settled it is exactly what the reader drops, so "Olá" arrives
+        // as pure ASCII "Ola" and falls in here too.
+        if (words.size() < MIN_WORDS_TO_JUDGE) {
+            return known > 0;
+        }
         return (known / (double) words.size()) >= ENGLISH_WORD_RATIO;
     }
 

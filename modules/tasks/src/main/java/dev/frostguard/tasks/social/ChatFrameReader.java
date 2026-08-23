@@ -136,6 +136,14 @@ final class ChatFrameReader {
         if (kind == ChatMessage.Kind.UNREADABLE || ChatLineCleaner.looksLikeSenderLine(body)) {
             return;
         }
+        // Cards the game posts are not chat. Alliance labels, help requests, gift pouches and
+        // furnace-milestone packs arrive with a player's avatar and name on them, so they read as
+        // something that player said, and they repeat on every pass -- three of the thirteen
+        // messages held from one five-screen walk were the same label card. Nobody reads them in
+        // the transcript and they are not what the feed is being captured for.
+        if (kind == ChatMessage.Kind.SYSTEM || kind == ChatMessage.Kind.STICKER) {
+            return;
+        }
         String english = kind == ChatMessage.Kind.TEXT ? translate.apply(body).orElse("") : "";
         if (english.equalsIgnoreCase(body.trim())) {
             english = "";
