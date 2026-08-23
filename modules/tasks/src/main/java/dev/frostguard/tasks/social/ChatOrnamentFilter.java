@@ -66,6 +66,10 @@ final class ChatOrnamentFilter {
     private static final double ALL_MENTION_MAX_HUE = 60.0;
     /** What the game means by that gold. */
     private static final String ALL_MENTION = "@All";
+    /** Enough words that the row is a sentence rather than a piece of bubble. */
+    private static final int MIN_WORDS_IN_A_SENTENCE_ROW = 4;
+    /** How far left of the text column a fragment must sit to be outside it. */
+    private static final int OUTSIDE_COLUMN_SLACK = 15;
 
     private ChatOrnamentFilter() {
     }
@@ -84,6 +88,11 @@ final class ChatOrnamentFilter {
         // to compare against. Skipping those, which the first version did, left every isolated
         // ornament in the transcript.
         double frameWide = typicalGlyphWidth(words);
+        // Where the bubbles put their text, read off this screen rather than assumed. The
+        // remaining furniture after the width test is the kind that happens to be letter-shaped --
+        // a tail read as "Ll", a corner read as "a" -- and what gives it away is that it sits
+        // outside the column every real word on the screen starts in.
+        int textLeft = dominantTextLeft(lines, words);
         List<TextLine> out = new ArrayList<>(lines.size());
         for (TextLine line : lines) {
             List<TextLine> mine = wordsOn(line, words);
@@ -98,6 +107,9 @@ final class ChatOrnamentFilter {
             boolean senderRow = ChatLineCleaner.parseSender(line.text()).trusted()
                     && !ChatLineCleaner.parseSender(line.text()).allianceTag().isEmpty();
             List<TextLine> kept = dropOddGlyphs(dropEmoji(mine, img), frameWide, img, senderRow);
+            if (!senderRow) {
+                kept = dropOutsideTextColumn(kept, textLeft, img);
+            }
             if (kept.isEmpty()) {
                 continue;
             }
@@ -114,6 +126,64 @@ final class ChatOrnamentFilter {
                             line.confidence()));
         }
         return out;
+    }
+
+    /**
+     * The x the bubbles start their text at, taken from the rows that plainly hold sentences.
+     *
+     * <p>Rows with several words are used because a row that is mostly furniture would otherwise
+     * help decide where furniture is not. Measured on live screens this lands on 171-172, with the
+     * leftover ornaments at 132-157 and sender lines further left again -- but the number is read
+     * from the screen each pass rather than written down, because it moves with the avatar column.
+     */
+    private static int dominantTextLeft(List<TextLine> lines, List<TextLine> words) {
+        List<Integer> lefts = new ArrayList<>();
+        for (TextLine line : lines) {
+            List<TextLine> mine = wordsOn(line, words);
+            if (mine.size() >= MIN_WORDS_IN_A_SENTENCE_ROW) {
+                lefts.add(mine.get(0).left());
+            }
+        }
+        if (lefts.isEmpty()) {
+            return -1;
+        }
+        java.util.Collections.sort(lefts);
+        return lefts.get(lefts.size() / 2);
+    }
+
+    /**
+     * Drops a short fragment sitting left of where this screen's text begins.
+     *
+     * <p>Only the leading word, only when it is short, and only when it is clearly outside rather
+     * than marginally so. A wrapped line of a bubble starts in the same column as every other line
+     * of it; something 15 pixels or more to the left of that is not part of the sentence.
+     */
+    private static List<TextLine> dropOutsideTextColumn(List<TextLine> words, int textLeft,
+                                                        BufferedImage img) {
+        if (textLeft < 0 || words.size() < 2) {
+            return words;
+        }
+        List<TextLine> kept = new ArrayList<>(words);
+        while (kept.size() >= 2) {
+            TextLine first = kept.get(0);
+            if (first.text().length() > ORNAMENT_MAX_CHARS
+                    || first.left() > textLeft - OUTSIDE_COLUMN_SLACK) {
+                break;
+            }
+            // Only white furniture goes. Anything coloured out here is left exactly as it is,
+            // for the two mechanisms that already read colour correctly: the emoji test above, and
+            // the roster repair further downstream, which turns the reader's mangled "@" back into
+            // a mention by recognising the name behind it. Deleting coloured fragments took
+            // "@Maki felicidades!" back to "Maki felicidades!" -- Maki being congratulated rather
+            // than congratulating -- and replacing them with an "@" instead was worse still,
+            // scattering "@" through sentences wherever a border or an emote sat left of a wrapped
+            // row. The furniture this rule is for is the white tail and the white corner.
+            if (colouredShare(first, img) >= EMOJI_COLOURED_SHARE) {
+                break;
+            }
+            kept.remove(0);
+        }
+        return kept;
     }
 
     /** The words printed on this row, in reading order. */
