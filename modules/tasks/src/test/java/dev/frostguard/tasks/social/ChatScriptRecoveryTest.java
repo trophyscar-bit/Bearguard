@@ -39,4 +39,33 @@ class ChatScriptRecoveryTest {
         assertTrue(ChatScriptRecovery.hasReadableWord("congrats"));
         assertFalse(ChatScriptRecovery.hasReadableWord("g2 - E o"));
     }
+    // ---- Cyrillic read as Latin ---------------------------------------------------------------
+    // Every mangled string here is what the reader actually stored for a Russian message. None of
+    // them reached the other-scripts pass, because they are full of things that look like words.
+
+    @Test
+    void suspectsCyrillicThatWasReadAsLatin() {
+        assertTrue(ChatScriptRecovery.looksLikeMangledScript(
+                "MH@ CPOUHO HyxeH gusaunep!!! q BOOOLIS He XOUY 3aHMMaTbCA OCTPOBOM"));
+        assertTrue(ChatScriptRecovery.looksLikeMangledScript(
+                "cneaytoLynh pas nepea perucTpaLWe Hago cHuMaTb BCE"));
+    }
+
+    @Test
+    void leavesOrdinaryLatinAlone() {
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "En 1:45 hora batalla de la fundicion de la legion 2"));
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "Alright Legion 2. We have less than an hour."));
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript("Pq nossos participantes diminuiu"));
+    }
+
+    @Test
+    void isNotFooledByShoutingOrByNames() {
+        // All-caps is a person shouting, not a reader guessing at another alphabet.
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript("GG EVERYONE WELL PLAYED TONIGHT"));
+        // One camel-cased player name is not evidence of anything.
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript("@AthenaRyu thanks for the rally"));
+    }
+
 }
