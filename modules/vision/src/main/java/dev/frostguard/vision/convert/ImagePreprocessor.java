@@ -13,8 +13,13 @@ import java.awt.image.BufferedImage;
  */
 public final class ImagePreprocessor {
 
-    /** Magnification applied before recognition. */
-    private static final int MAGNIFICATION = 4;
+    /**
+     * Magnification applied before recognition.
+     *
+     * <p>Visible because a caller that asks the reader where a line landed gets those coordinates
+     * in the magnified image's space, and has to divide by this to talk about the frame again.
+     */
+    public static final int MAGNIFICATION = 4;
 
     /** Per-channel distance used when isolating text pixels. */
     private static final int CHANNEL_TOLERANCE = 50;
