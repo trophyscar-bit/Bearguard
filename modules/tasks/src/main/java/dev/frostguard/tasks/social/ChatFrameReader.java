@@ -40,6 +40,15 @@ final class ChatFrameReader {
     private static final int FEED_TOP = 250;
     private static final int FEED_BOTTOM = 1160;
 
+    /**
+     * How close to the crop edge a row may sit before it is assumed to have been cut by it.
+     *
+     * <p>Small on purpose. This is not a margin of safety around the feed -- it is the width of the
+     * evidence that a row was sliced, and the two rows it was measured against ended at 1159 and
+     * 1160 against a crop at 1160.
+     */
+    private static final int CLIPPED_ROW_MARGIN = 3;
+
     /** Past this gap the next line belongs to a different message, not the one above. */
     private static final int MESSAGE_GAP = 46;
 
@@ -57,6 +66,18 @@ final class ChatFrameReader {
         List<TextLine> feed = new ArrayList<>();
         for (TextLine l : lines) {
             if (l.top() < FEED_TOP || l.bottom() > FEED_BOTTOM || l.text().isBlank()) {
+                continue;
+            }
+            // A row lying flush against the crop edge was cut by it, and a cut row still reads --
+            // that is what makes it dangerous. It does not fail, it returns something plausible
+            // from the half of the glyphs that survived. Both instances on the frames this was
+            // built from are damage the transcript kept: the bottom of one screen turned "your
+            // troops home and stop auto" into "waiur craane hama and etan stan" and stored it as a
+            // second, truncated copy of the alliance's longest message, and the sliver of the next
+            // bubble below it became "ZA fraiel ....". Nothing is lost by dropping them: the scroll
+            // overlaps by design, so a row cut here is read whole on the screen before or after.
+            if (l.bottom() >= FEED_BOTTOM - CLIPPED_ROW_MARGIN
+                    || l.top() <= FEED_TOP + CLIPPED_ROW_MARGIN) {
                 continue;
             }
             // The game prints a bare time beside each group. It is not something anybody said, and
