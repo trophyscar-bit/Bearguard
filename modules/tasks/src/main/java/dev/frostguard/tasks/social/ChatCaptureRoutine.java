@@ -382,10 +382,10 @@ public class ChatCaptureRoutine extends DelayedTask {
      * a line or two, and the moment somebody posts a wall of text the drag steps straight over it
      * and the message is gone with nothing to show it ever existed.
      *
-     * <p>Three fifths of a screen buys back the overlap. The cost is duplicates, which cost
+     * <p>A little over half a screen buys back the overlap. The cost is duplicates, which cost
      * nothing: de-duplication keys on the message body, so a line seen twice is stored once.
      */
-    private static final double SCROLL_STEP_FRACTION = 0.60;
+    private static final double SCROLL_STEP_FRACTION = 0.55;
 
     private void swipeUpThroughHistory() {
         // A downward drag reveals content above the current view, i.e. older messages -- the
