@@ -130,6 +130,10 @@ public class ChatCaptureRoutine extends DelayedTask {
      */
     private static final OcrSettingsData CHAT_CJK_SETTINGS =
             OcrSettingsData.assembler()
+                    // A block, not a line, though it is handed one row. Measured both ways on a
+                    // live Chinese bubble through the Tesseract CLI: as a block it reads, as a
+                    // single line it returns an empty page. The reasoning that it "is" one line is
+                    // sound and the reader disagrees, so the reader wins.
                     .textLayout(TextLayout.TEXT_BLOCK)
                     .stripBackground(false)
                     .language("chi_sim+jpn+kor")
@@ -318,8 +322,13 @@ public class ChatCaptureRoutine extends DelayedTask {
                 // has already done the work; this only asks for it reported finer.
                 List<TextLine> words = OcrEngine.recognizeWords(
                         frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT, CHAT_TEXT_SETTINGS);
+                // The other-script re-read goes FIRST. It keys on a line the Latin reader could
+                // make no word of, which is exactly what the ornament filter is also looking at:
+                // run the other way round, a Chinese message read as "g2 - E o" had its pieces
+                // thrown out as furniture -- their glyph widths are nothing like a Latin row's --
+                // and the line was gone before anything tried to read it in another script.
+                lines = ChatScriptRecovery.reread(frame, lines, words, TEXT_COLUMN_RIGHT, CHAT_CJK_SETTINGS);
                 lines = ChatOrnamentFilter.clean(lines, words, image);
-                lines = ChatScriptRecovery.reread(frame, lines, TEXT_COLUMN_RIGHT, CHAT_CJK_SETTINGS);
                 int recovered = ChatScriptRecovery.recoveredCount(latin, lines);
                 if (recovered > 0) {
                     logInfo("ChatCaptureRoutine | Re-read " + recovered + " line(s) in another script.");
