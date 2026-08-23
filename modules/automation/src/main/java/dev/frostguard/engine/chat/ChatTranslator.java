@@ -64,13 +64,6 @@ public final class ChatTranslator {
         "https://simplytranslate.aketawi.space/api/translate/?engine=google&from=auto&to=en&text=",
     };
 
-    static final String PRIMARY =
-            "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=";
-
-    /** Documented, keyless, but capped for anonymous callers -- a backstop, not a primary. */
-    static final String FALLBACK =
-            "https://api.mymemory.translated.net/get?langpair=autodetect%7Cen&q=";
-
     private static final int MAX_CHARS = 1200;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -107,9 +100,13 @@ public final class ChatTranslator {
         }
 
         String trimmed = body.length() > MAX_CHARS ? body.substring(0, MAX_CHARS) : body;
-        String result = viaFrontends(trimmed)
-                .or(() -> viaPrimary(trimmed))
-                .orElseGet(() -> viaFallback(trimmed).orElse(""));
+        // One provider, deliberately. The endpoints that used to sit behind this were a Google
+        // address that now answers 429 from here and a service with a daily allowance that ran out
+        // mid-evening and started returning its quota notice where the translation belonged. A
+        // capped provider is not a fallback -- it is a thing that works until it silently does not,
+        // and it stopped translation dead once already. Better to translate through instances that
+        // do not meter, and render nothing at all when none of them answer.
+        String result = viaFrontends(trimmed).orElse("");
 
         // Cache the failure too. A body that cannot be translated will arrive again on the next
         // overlapping scroll-back, and re-requesting it every pass is how a keyless endpoint
@@ -152,34 +149,7 @@ public final class ChatTranslator {
         return Optional.empty();
     }
 
-    private Optional<String> viaPrimary(String body) {
-        return fetch(PRIMARY + URLEncoder.encode(body, StandardCharsets.UTF_8)).flatMap(raw -> {
-            try {
-                // Shape: [[["translated","source",...], ...], ...] -- concatenate the segments.
-                JsonNode segments = MAPPER.readTree(raw).path(0);
-                StringBuilder sb = new StringBuilder();
-                for (JsonNode seg : segments) {
-                    sb.append(seg.path(0).asText(""));
-                }
-                String out = sb.toString().trim();
-                return out.isEmpty() ? Optional.empty() : Optional.of(out);
-            } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
-                return Optional.empty();
-            }
-        });
-    }
 
-    private Optional<String> viaFallback(String body) {
-        return fetch(FALLBACK + URLEncoder.encode(body, StandardCharsets.UTF_8)).flatMap(raw -> {
-            try {
-                String out = MAPPER.readTree(raw).path("responseData").path("translatedText")
-                        .asText("").trim();
-                return out.isEmpty() || isProviderNotice(out) ? Optional.empty() : Optional.of(out);
-            } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
-                return Optional.empty();
-            }
-        });
-    }
 
     private Optional<String> fetch(String url) {
         try {
