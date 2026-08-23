@@ -102,6 +102,26 @@ public final class OcrEngine {
         return onFrame;
     }
 
+    /** The same reading as {@link #recognizeLines}, reported one word at a time. */
+    public static java.util.List<TextLine> recognizeWords(RawImageData capture, PointData c1,
+            PointData c2, OcrSettingsData cfg) throws OcrException {
+        requireValidCapture(capture);
+        int[] clip = computeClipRect(c1, c2, capture);
+        int cx = clip[0], cy = clip[1], cw = clip[2], ch = clip[3];
+
+        BufferedImage prepared = ImagePreprocessor.prepareForOcr(
+                capture, cx, cy, cw, ch, cfg.isolateForeground(), cfg.targetColor());
+
+        java.util.List<TextLine> local = getProvider().recognizeWords(prepared, cfg);
+        java.util.List<TextLine> onFrame = new java.util.ArrayList<>(local.size());
+        int mag = dev.frostguard.vision.convert.ImagePreprocessor.MAGNIFICATION;
+        for (TextLine l : local) {
+            onFrame.add(new TextLine(l.text(), l.left() / mag + cx, l.top() / mag + cy,
+                    l.width() / mag, l.height() / mag, l.confidence()));
+        }
+        return onFrame;
+    }
+
     public static String recognizeText(RawImageData capture, PointData c1, PointData c2, OcrSettingsData cfg)
             throws OcrException {
         requireValidCapture(capture);

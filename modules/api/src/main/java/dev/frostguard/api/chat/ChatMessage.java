@@ -50,6 +50,12 @@ public record ChatMessage(
                 translated, ChatLineCleaner.mentions(rewritten), kind, quoted);
     }
 
+    /** The same message with its English rendering replaced. */
+    public ChatMessage withTranslated(String english) {
+        return new ChatMessage(capturedAt, channel, author, allianceTag, vipLevel, body,
+                english, mentions, kind, quoted);
+    }
+
     /** The text a reader should see: the English rendering when there is one, else the original. */
     public String displayBody() {
         return translated == null || translated.isBlank() ? body : translated;
