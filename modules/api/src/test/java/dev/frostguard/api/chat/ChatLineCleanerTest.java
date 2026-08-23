@@ -101,6 +101,14 @@ class ChatLineCleanerTest {
     }
 
     @Test
+    void aSenderLineWithTheMessageRunIntoItIsNotTrusted() {
+        // Seen live: the reader joins a sender line to the words that follow it, and the whole
+        // sentence was stored as the author. No player name is a sentence long.
+        assertFalse(ChatLineCleaner.parseSender(
+                "[INF]Mojorisinfans se Tengo a Natalia y no la he podido").trusted());
+    }
+
+    @Test
     void ordinaryNamesSurviveTheTighterCheck() {
         for (String ok : new String[] {"TheFlyingDutch", "Kim Jong Um", "Mrs_Lasanha", "Snoopy!R"}) {
             assertTrue(ChatLineCleaner.parseSender(ok).trusted(), "should trust " + ok);
