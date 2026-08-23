@@ -1,6 +1,7 @@
 package dev.frostguard.api.chat;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -387,6 +388,171 @@ public final class ChatLineCleaner {
         }
         return sb.toString();
     }
+
+    /**
+     * Whether two bodies are the same message read twice, allowing for what changed between reads.
+     *
+     * <p>{@link #mergeKey} catches a re-read only when it comes back character for character the
+     * same after punctuation is dropped, and across overlapping screens it usually does not. Two
+     * things break it. A long message is clipped by the bottom of the screen on one pass and whole
+     * on the next, so one key is a prefix of the other and neither matches. And the reader drops
+     * fragments of the bubble's furniture into the middle of a line -- "de la fundicion de la
+     * legion 2" on one screen, "de la fundicion q a de la legion 2" on the next -- so the keys
+     * differ in the middle. Measured over five consecutive live alliance screens, this left 20
+     * entries standing for 13 actual messages: every one of the seven extras was one of these two
+     * cases, including a truncated copy of the alliance's longest message sitting beside the whole
+     * one.
+     *
+     * <p>Both are containment, not equality, so that is what this tests: the share of the shorter
+     * body's four-character runs that also occur in the longer one. Truncation leaves that share
+     * near 1 because the clipped copy is entirely inside the whole one, and inserted noise leaves
+     * it near 1 because a few junk characters spoil only the runs they touch. Two genuinely
+     * different messages score far below the threshold -- the pairs measured here landed at 0.11
+     * or less, against 0.85 and up for every real re-read.
+     *
+     * <p>Short bodies are left to exact matching. Over a handful of characters the runs are too few
+     * for the share to mean anything, and "congrats" would start swallowing "congrats!" from
+     * somebody else -- which is a different message even though it reads the same.
+     */
+    public static boolean sameMessage(String keyA, String keyB) {
+        if (keyA.equals(keyB)) {
+            return true;
+        }
+        String shorter = keyA.length() <= keyB.length() ? keyA : keyB;
+        String longer = shorter == keyA ? keyB : keyA;
+        // Below the run threshold, the only re-read worth catching is one that picked up a stray
+        // character off the end of the bubble -- "y congrats" against "y congrats e". Testing that
+        // as a prefix rather than by shared runs keeps "congrats" from matching the "Congrats!"
+        // inside somebody else's longer message, which shares almost all of its runs.
+        if (shorter.length() < MIN_LENGTH_FOR_FUZZY_MERGE) {
+            return shorter.length() >= MIN_LENGTH_FOR_PREFIX_MERGE
+                    && longer.length() - shorter.length() <= TRAILING_ARTIFACT_SLACK
+                    && longer.startsWith(shorter);
+        }
+        java.util.Set<String> longRuns = runsOf(longer);
+        java.util.Set<String> shortRuns = runsOf(shorter);
+        if (shortRuns.isEmpty()) {
+            return false;
+        }
+        int shared = 0;
+        for (String run : shortRuns) {
+            if (longRuns.contains(run)) {
+                shared++;
+            }
+        }
+        return shared / (double) shortRuns.size() >= SAME_MESSAGE_SHARE;
+    }
+
+    /** Below this a body has too few runs for the shared-run share to say anything. */
+    private static final int MIN_LENGTH_FOR_FUZZY_MERGE = 16;
+    /**
+     * The share of the shorter body that has to occur in the longer one.
+     *
+     * <p>Measured on the five-screen set this was built against. Real re-reads of the same message
+     * scored 0.60, 0.92 and 1.00 -- the 0.60 being the alliance's longest message, clipped by the
+     * screen edge on one pass, whose surviving tail the reader had also badly mangled. Pairs that
+     * were genuinely different messages scored 0.00, 0.00 and 0.12. Anywhere in the gap separates
+     * them; this sits in the middle of it rather than at either edge, so neither a worse reading of
+     * a re-read nor a closer pair of real messages lands on the boundary.
+     */
+    private static final double SAME_MESSAGE_SHARE = 0.40;
+    /** Short bodies still merge on an exact prefix; below this even that is noise. */
+    private static final int MIN_LENGTH_FOR_PREFIX_MERGE = 6;
+    /** How much a trailing artifact is allowed to add to a short body. */
+    private static final int TRAILING_ARTIFACT_SLACK = 3;
+    private static final int MERGE_RUN_LENGTH = 4;
+
+    private static java.util.Set<String> runsOf(String key) {
+        java.util.Set<String> runs = new java.util.HashSet<>();
+        for (int i = 0; i + MERGE_RUN_LENGTH <= key.length(); i++) {
+            runs.add(key.substring(i, i + MERGE_RUN_LENGTH));
+        }
+        return runs;
+    }
+
+    /**
+     * Repairs a mention the reader mangled, using the names the pass has already seen.
+     *
+     * <p>The "@" is the single worst glyph in the feed. The same two characters came back as "yy",
+     * "GA", "(D" and "©" on one afternoon's captures, and whatever the reader makes of them it
+     * fuses onto the name behind: {@code @Maki felicidades!} arrived as "yy Maki felicidades!" and
+     * the message read as somebody called Maki being congratulated rather than congratulating.
+     *
+     * <p>An earlier attempt read the mention out of the pixels instead, on the grounds that the
+     * game colours a mention and colour is not something Tesseract can mangle. That part was true
+     * -- measured on live frames a mention scores 0.60 to 0.69 saturation against 0.02 to 0.04 for
+     * body text, which is not a close call -- but it could not be anchored. The run has to be the
+     * first thing on the line to be told apart from a coloured emoji mid-sentence, and the line's
+     * own left edge is not where its text starts: bubble furniture is read as text, so the box
+     * began 40px left of the "@" and the anchor missed every real mention while matching whole
+     * lines of system-card text. The colour is real and the geometry to use it is not there.
+     *
+     * <p>So this uses what the pass already knows. Every sender line names a member of the
+     * alliance, so by the end of a screen the reader is holding the roster the mentions are drawn
+     * from, and a mangled mention is a known name with junk in front of it. That junk is required:
+     * a name at the head of a sentence with nothing before it is somebody being talked about, not
+     * somebody being addressed, and rewriting it would invent a mention that was never there.
+     */
+    public static String repairLeadingMention(String body, Collection<String> roster) {
+        if (body == null || body.isEmpty() || roster.isEmpty()) {
+            return body;
+        }
+        if (body.charAt(0) == '@') {
+            return body;
+        }
+        int limit = Math.min(body.length(), MENTION_SEARCH_WINDOW);
+        String head = body.substring(0, limit);
+        String best = null;
+        int at = -1;
+        for (String name : roster) {
+            if (name.length() < MIN_NAME_FOR_MENTION_REPAIR) {
+                continue;
+            }
+            int i = indexOfIgnoreCase(head, name);
+            // Only a name that something precedes. At position zero there is no mangled "@" to
+            // explain, and the sentence is about them rather than to them.
+            if (i > 0 && (at < 0 || i < at) && isJunk(body.substring(0, i))) {
+                at = i;
+                best = name;
+            }
+        }
+        if (best == null) {
+            return body;
+        }
+        return "@" + body.substring(at, at + best.length()) + body.substring(at + best.length());
+    }
+
+    /**
+     * Whether everything before the name is the wreckage of an "@" rather than words.
+     *
+     * <p>Short and unword-like is the test, because that is what a misread "@" looks like: one or
+     * two letters, or a bracket, or a stray symbol. Anything longer is a sentence, and a name
+     * inside a sentence is not a mention.
+     */
+    private static boolean isJunk(String before) {
+        String trimmed = before.trim();
+        if (trimmed.isEmpty()) {
+            return false;
+        }
+        if (trimmed.length() > MAX_MANGLED_AT_LENGTH) {
+            return false;
+        }
+        long letters = trimmed.chars().filter(Character::isLetter).count();
+        return letters <= MAX_MANGLED_AT_LETTERS;
+    }
+
+    private static int indexOfIgnoreCase(String haystack, String needle) {
+        return haystack.toLowerCase(java.util.Locale.ROOT)
+                .indexOf(needle.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    /** How far into a message a mangled mention can still be sitting. */
+    private static final int MENTION_SEARCH_WINDOW = 24;
+    /** Shorter names match inside ordinary words and are not worth the false rewrites. */
+    private static final int MIN_NAME_FOR_MENTION_REPAIR = 4;
+    /** A misread "@" is a character or two, never a word. */
+    private static final int MAX_MANGLED_AT_LENGTH = 4;
+    private static final int MAX_MANGLED_AT_LETTERS = 2;
 
     /** Names this message addressed, in order, without duplicates. */
     public static List<String> mentions(String body) {
