@@ -10,6 +10,7 @@ import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import dev.frostguard.vision.color.ColorBlobFinder;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -40,6 +41,7 @@ public class LifeEssenceRoutine extends DelayedTask {
 
 	// Retry limits
 	private static final int MAX_CLAIM_SCANS = 5;
+	private static final int MAX_UNREADABLE_SCANS = 3;
 	private static final int EMPTY_SCANS_BEFORE_DONE = 2;
 	private static final int CLAIM_SETTLE_MILLIS = 700;
 
@@ -158,9 +160,21 @@ public class LifeEssenceRoutine extends DelayedTask {
 		logInfo("Scanning the island for claim badges");
 		List<PointData> claimed = new ArrayList<>();
 		int emptyScans = 0;
+		int readableScans = 0;
+		int unreadableScans = 0;
 
-		for (int scan = 1; scan <= MAX_CLAIM_SCANS; scan++) {
-			List<PointData> badges = locateClaimBadges();
+		while (readableScans < MAX_CLAIM_SCANS && unreadableScans < MAX_UNREADABLE_SCANS) {
+			Optional<List<PointData>> reading = locateClaimBadges();
+			if (reading.isEmpty()) {
+				unreadableScans++;
+				logWarning("Could not read the island on this scan; it was off screen or mid transition."
+						+ " Retrying rather than reading it as an empty island.");
+				sleepTask(CLAIM_SETTLE_MILLIS);
+				continue;
+			}
+
+			readableScans++;
+			List<PointData> badges = reading.get();
 			int newlyClaimed = 0;
 			int unchanged = 0;
 
@@ -177,8 +191,8 @@ public class LifeEssenceRoutine extends DelayedTask {
 			}
 
 			if (unchanged > 0) {
-				logWarning(unchanged + " badge(s) still showing after being tapped on scan " + scan
-						+ ". The claim may not be registering; they are not counted again.");
+				logWarning(unchanged + " badge(s) still showing after being tapped."
+						+ " The claim may not be registering; they are not counted again.");
 			}
 
 			if (newlyClaimed == 0) {
@@ -194,30 +208,32 @@ public class LifeEssenceRoutine extends DelayedTask {
 			sleepTask(CLAIM_SETTLE_MILLIS);
 		}
 
+		if (claimed.isEmpty() && unreadableScans > 0) {
+			logWarning("Claimed nothing, but " + unreadableScans + " scan(s) could not be read."
+					+ " Badges may have been missed rather than absent.");
+		}
+
 		return claimed.size();
 	}
 
 	/**
-	 * Returns the centre of every claim badge on the island.
+	 * The centre of every claim badge on the island, or empty when the island could not be read.
 	 *
-	 * <p>Proves the island screen is open before trusting anything on it, then takes a second capture
-	 * so that only badges holding still are returned. Rejected green artwork is logged so a miss can
-	 * be diagnosed from the account log alone.
+	 * <p>Both captures must show the island. Claiming triggers a screen transition, and a capture
+	 * landing on the blank frame mid transition would otherwise contribute no blobs and be
+	 * indistinguishable from an island with nothing left to claim - which is how a real badge came to
+	 * be reported as "Claimed: 0" on a live run. An unreadable island is unknown, never empty.
 	 */
-	private List<PointData> locateClaimBadges() {
+	private Optional<List<PointData>> locateClaimBadges() {
 		BufferedImage first = captureFrame();
-		if (first == null) {
-			return List.of();
-		}
-		if (!IslandClaimBadges.onIslandScreen(first)) {
-			logWarning("My Island is not open - the essence counter is not on screen. Claiming nothing.");
-			return List.of();
+		if (first == null || !IslandClaimBadges.onIslandScreen(first)) {
+			return Optional.empty();
 		}
 
 		sleepTask(BADGE_SETTLE_MILLIS);
 		BufferedImage second = captureFrame();
-		if (second == null) {
-			return List.of();
+		if (second == null || !IslandClaimBadges.onIslandScreen(second)) {
+			return Optional.empty();
 		}
 
 		List<ColorBlobFinder.Blob> candidates = IslandClaimBadges.candidates(second);
@@ -230,7 +246,7 @@ public class LifeEssenceRoutine extends DelayedTask {
 						+ " fill=" + String.format("%.2f", blob.fillRatio()));
 			}
 		}
-		return badges.stream().map(ColorBlobFinder.Blob::centre).toList();
+		return Optional.of(badges.stream().map(ColorBlobFinder.Blob::centre).toList());
 	}
 
 	private static boolean seenBefore(List<PointData> claimed, PointData badge) {

@@ -95,6 +95,16 @@ class IslandClaimBadgesFrameTest {
     }
 
     @Test
+    void refusesTheBlankFrameTheGameShowsMidTransition() throws Exception {
+        // Claiming triggers a screen transition whose frame is nearly blank. It carries no blobs at
+        // all, so treating it as a reading would report an island with badges still on it as empty -
+        // which is how a real badge was logged as "Claimed: 0" on a live run before the caller
+        // learned to tell unreadable from empty.
+        assertFalse(IslandClaimBadges.onIslandScreen(transition()));
+        assertTrue(badges(transition()).isEmpty());
+    }
+
+    @Test
     void dropsARewardCrystalInFlightAndKeepsABouncingBadge() {
         ColorBlobFinder.Blob badgeBefore = blobAt(400, 500);
         ColorBlobFinder.Blob badgeAfter = blobAt(404, 502);
@@ -131,6 +141,10 @@ class IslandClaimBadgesFrameTest {
 
     private BufferedImage cityView() throws Exception {
         return load("/pets/city-view-not-island-20260823.png");
+    }
+
+    private BufferedImage transition() throws Exception {
+        return load("/pets/screen-transition-blank-20260823.png");
     }
 
     private BufferedImage load(String resource) throws Exception {

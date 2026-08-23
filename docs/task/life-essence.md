@@ -38,6 +38,14 @@ bounces and the tree badge is partly covered by the game's tutorial hand. Every
 other green thing on those island frames topped out at 214 pixels in a 19x21
 box. Green alone does not identify a badge; the size rules do.
 
+**A readable island.** Both captures a scan compares must pass the screen check.
+Claiming triggers a screen transition whose frame is nearly blank and carries no
+blobs at all, so a capture landing on it looks exactly like an island with
+nothing left to claim. On 2026-08-23 that reported a real tree badge as
+"Claimed: 0". An island that cannot be read is unknown, never empty: the scan is
+retried, up to `MAX_UNREADABLE_SCANS`, and a run that claims nothing after any
+unreadable scan says so in the log rather than reporting a clean zero.
+
 **Not moving.** Claiming sends a reward crystal flying from the badge up to the
 counter. It is the same colour and size with no bubble around it, so a scan
 landing mid-flight would count empty sky as a claim and tap it. Each scan
