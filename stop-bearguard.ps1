@@ -15,7 +15,8 @@
 param(
     [string]$Root = $PSScriptRoot,
     [int]$TimeoutSeconds = 20,
-    [switch]$ListOnly
+    [switch]$ListOnly,
+    [string]$Owner
 )
 
 $ErrorActionPreference = 'Continue'
@@ -23,14 +24,32 @@ $Root = (Resolve-Path -LiteralPath $Root).Path
 
 # Warn, never block. Stopping prod is sometimes exactly what has to happen in a hurry, and a lock
 # left behind by a session that has since ended must not stand between anyone and a stuck app.
-# But two sessions stopping and rebuilding this checkout minutes apart has already happened once,
-# so say who else is in here before closing it.
-$lockScript = Join-Path $Root 'prod-lock.ps1'
-if (Test-Path $lockScript) {
-    $held = & $lockScript status -Root $Root 2>&1
-    if ($LASTEXITCODE -eq 1) {
-        Write-Warning "prod is locked by another session -- stopping anyway, but check with them:"
-        $held | ForEach-Object { Write-Host "  $_" }
+#
+# Three cases, and the distinction matters. The first version of this warned whenever ANY lock was
+# held, because it had no -Owner to compare against -- so it told the one session doing it
+# correctly that it was "another session", which is how a warning gets trained into background
+# noise. It also said nothing at all when NO lock was held, which is the case worth catching:
+# stopping prod without claiming it is what leaves a window for someone else to stop or build on
+# top of you.
+if (-not $Owner) { $Owner = $env:BEARGUARD_OWNER }
+$lockFile = Join-Path $Root '.prod-lock'
+$holder = $null
+if (Test-Path $lockFile) {
+    try { $holder = (Get-Content $lockFile -Raw | ConvertFrom-Json) } catch { $holder = $null }
+}
+if (-not $holder) {
+    Write-Warning "stopping prod WITHOUT claiming it. Another session can stop or build on top of you."
+    Write-Host   "  claim it first:  prod-lock.ps1 acquire -Owner <you> -Reason `"<what>`""
+}
+elseif ($Owner -and $holder.owner -eq $Owner) {
+    Write-Host "prod is claimed by you ($Owner) -- proceeding."
+}
+else {
+    Write-Warning "prod is locked by '$($holder.owner)' -- stopping anyway, but check with them:"
+    Write-Host   "  reason : $($holder.reason)"
+    Write-Host   "  since  : $($holder.acquiredUtc) UTC"
+    if (-not $Owner) {
+        Write-Host "  (pass -Owner <you>, or set BEARGUARD_OWNER, so this can tell your own lock from someone else's)"
     }
 }
 
