@@ -11,11 +11,11 @@
             xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
 
     <top>
-        <!-- Two rows, and every control pinned to its preferred width. One row let the HBox shrink
-             its children below their text, and JavaFX answers that by drawing "..." -- so at the
-             window size this panel is actually used at, every button read as an ellipsis. Wrapping
-             is the fix rather than a smaller font, because the truncation returns at the next width
-             a smaller font buys. -->
+        <!-- Two rows, and every control pinned to its preferred width. One row let the HBox
+             shrink its children below their own text, and JavaFX answers that by drawing an
+             ellipsis, so at the window size this panel is actually used at every button read as
+             three dots. Wrapping is the fix rather than a smaller font, because the truncation
+             returns at the next width down. -->
         <VBox spacing="6" style="-fx-padding: 10 16 8 16;">
             <HBox alignment="CENTER_LEFT" spacing="8">
                 <!-- Channels are separate conversations; reading them interleaved is the main
