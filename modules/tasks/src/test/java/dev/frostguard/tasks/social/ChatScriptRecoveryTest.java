@@ -87,4 +87,15 @@ class ChatScriptRecoveryTest {
                 "@BrimdalS a Tome. 3TO Hao HyxeH gusaunep BCE nepecTaBnaTb"));
     }
 
+    @Test
+    void doesNotTakeATwoWordPlayerNameAsEvidence() {
+        // All from one live pass. "Moss Kaka" is one player; only half of it carries the marker.
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "@Moss Kaka uz mi chybi jeho vtipkovani Moss Kaka: he's got a lot"));
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "@Mini moc mu chybi Szymon Moss Kaka: Though it's"));
+        assertFalse(ChatScriptRecovery.looksLikeMangledScript(
+                "@All Duz @Moss Kaka myslela v BAE Moss Kaka: same"));
+    }
+
 }
