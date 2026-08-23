@@ -166,6 +166,14 @@ public final class CommonGameAreas {
     // formation layout, turning "00:00:15" into the valid but false ten-hour value "10:00:15".
     public static final AreaData TRAVEL_TIME_OCR_AREA   = region(500, 1134, 622, 1162);
 
+    // ── My Island (Life Essence) ─────────────────────────────────────
+
+    // Claim badges hang over the tree and over each crafting station, and players place their
+    // stations wherever they like, so the whole island is searched rather than fixed spots. The
+    // window stops short of the top HUD, whose Life Essence counter carries the same green crystal
+    // as the badges, and short of the chat and bottom navigation bars.
+    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 340, 720, 1150);
+
     // ── character identity ───────────────────────────────────────────
 
     public static final AreaData CHARACTER_ID_OCR_AREA   = region(300, 940, 465, 980);
