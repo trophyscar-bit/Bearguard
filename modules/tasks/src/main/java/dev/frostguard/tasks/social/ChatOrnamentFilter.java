@@ -95,6 +95,13 @@ final class ChatOrnamentFilter {
         int textLeft = dominantTextLeft(lines, words);
         List<TextLine> out = new ArrayList<>(lines.size());
         for (TextLine line : lines) {
+            // A line recovered in another script is left alone. Its text no longer corresponds
+            // to the Latin word boxes this works from, and CJK glyphs are square where Latin ones
+            // are not, so every measurement here would be against the wrong reference.
+            if (ChatScriptRecovery.countScriptCharacters(line.text()) > 0) {
+                out.add(line);
+                continue;
+            }
             List<TextLine> mine = wordsOn(line, words);
             if (mine.isEmpty()) {
                 out.add(line);

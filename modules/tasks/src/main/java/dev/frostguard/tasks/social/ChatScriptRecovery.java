@@ -42,6 +42,12 @@ final class ChatScriptRecovery {
     /** A run this long of letters is a word; anything shorter is what noise looks like. */
     private static final int LETTERS_THAT_MAKE_A_WORD = 3;
 
+    /** Fewer script characters than this is a stray glyph, not a message in another script. */
+    private static final int MIN_SCRIPT_CHARS_TO_ACCEPT = 2;
+
+    /** Room around the glyphs, so the reader is not working against its own edge. */
+    private static final int INK_PADDING = 6;
+
     private ChatScriptRecovery() {
     }
 
@@ -52,18 +58,52 @@ final class ChatScriptRecovery {
      *                  bubble furniture
      * @param cjk       the non-Latin reader settings
      */
-    static List<TextLine> reread(RawImageData frame, List<TextLine> lines, int rightEdge,
-                                 OcrSettingsData cjk) {
+    static List<TextLine> reread(RawImageData frame, List<TextLine> lines, List<TextLine> words,
+                                 int rightEdge, OcrSettingsData cjk) {
         List<TextLine> out = new ArrayList<>(lines.size());
         for (TextLine line : lines) {
             if (hasReadableWord(line.text())) {
                 out.add(line);
                 continue;
             }
-            TextLine recovered = readAgain(frame, line, rightEdge, cjk);
+            TextLine recovered = readAgain(frame, line, inkBoxOn(line, words), rightEdge, cjk);
             out.add(recovered != null ? recovered : line);
         }
         return out;
+    }
+
+    /**
+     * The box the ink actually occupies on this row, rather than the row's own box.
+     *
+     * <p>A line box is generous: it runs to the edge of the bubble and takes in the border, the
+     * rounded corner and the translate button beside it. A Latin reader copes, but the CJK reader
+     * does not -- given the full box it reports an empty page, and given a box trimmed to the ink
+     * it reads the same message correctly. Verified against the CLI on a live frame: the 194x77
+     * line box returned nothing, the 182x82 box trimmed to the glyphs returned the characters.
+     *
+     * <p>Taken from the word boxes rather than measured from the pixels, because the reader has
+     * already found the ink -- that is what a word box is -- and its answer needs no threshold.
+     */
+    private static int[] inkBoxOn(TextLine line, List<TextLine> words) {
+        int left = Integer.MAX_VALUE;
+        int top = Integer.MAX_VALUE;
+        int right = Integer.MIN_VALUE;
+        int bottom = Integer.MIN_VALUE;
+        for (TextLine w : words) {
+            int overlap = Math.min(line.bottom(), w.bottom()) - Math.max(line.top(), w.top());
+            if (overlap <= 0 || overlap < 0.5 * Math.min(line.height(), w.height())
+                    || w.left() < line.left() - 4 || w.right() > line.right() + 4) {
+                continue;
+            }
+            left = Math.min(left, w.left());
+            top = Math.min(top, w.top());
+            right = Math.max(right, w.right());
+            bottom = Math.max(bottom, w.bottom());
+        }
+        if (left == Integer.MAX_VALUE) {
+            return null;
+        }
+        return new int[] {left, top, right, bottom};
     }
 
     /** How many lines {@link #reread} would replace, for logging. */
@@ -77,12 +117,16 @@ final class ChatScriptRecovery {
         return changed;
     }
 
-    private static TextLine readAgain(RawImageData frame, TextLine line, int rightEdge,
+    private static TextLine readAgain(RawImageData frame, TextLine line, int[] ink, int rightEdge,
                                       OcrSettingsData cjk) {
+        int x0 = ink != null ? ink[0] : line.left();
+        int y0 = ink != null ? ink[1] : line.top();
+        int x1 = ink != null ? ink[2] : line.right();
+        int y1 = ink != null ? ink[3] : line.bottom();
         try {
             List<TextLine> again = OcrEngine.recognizeLines(frame,
-                    new PointData(Math.max(0, line.left() - 4), Math.max(0, line.top() - 4)),
-                    new PointData(Math.min(rightEdge, line.right() + 4), line.bottom() + 4),
+                    new PointData(Math.max(0, x0 - INK_PADDING), Math.max(0, y0 - INK_PADDING)),
+                    new PointData(Math.min(rightEdge, x1 + INK_PADDING), y1 + INK_PADDING),
                     cjk);
             TextLine best = null;
             for (TextLine candidate : again) {
@@ -94,7 +138,12 @@ final class ChatScriptRecovery {
             // Accepted only when the second reading actually found another script. Without this the
             // CJK pass is free to replace a line of noise with a different line of noise, which
             // reads as progress and is not.
-            if (best != null && countScriptCharacters(best.text()) > 0) {
+            // Two characters, not one. With the stronger model a single stray glyph is easy to
+            // come by, and one was enough to get a fragment of a Portuguese message replaced --
+            // "participantes diminuiu para 9?" became "participantes diminuiu 付 para 9?", which
+            // then went to the translator with the character still in it. A real message in
+            // another script is not one character long; a hallucination often is.
+            if (best != null && countScriptCharacters(best.text()) >= MIN_SCRIPT_CHARS_TO_ACCEPT) {
                 return new TextLine(best.text(), line.left(), line.top(),
                         line.width(), line.height(), best.confidence());
             }
