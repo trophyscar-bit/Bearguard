@@ -38,8 +38,34 @@ if (Test-Path $lockFile) {
     try { $holder = (Get-Content $lockFile -Raw | ConvertFrom-Json) } catch { $holder = $null }
 }
 if (-not $holder) {
-    Write-Warning "stopping prod WITHOUT claiming it. Another session can stop or build on top of you."
-    Write-Host   "  claim it first:  prod-lock.ps1 acquire -Owner <you> -Reason `"<what>`""
+    # Claim it rather than merely complaining. A warning only works on someone who is reading, and
+    # at 16:59 today a stop went out unclaimed with the warning right there in the output; a minute
+    # later a second javaw was launched against the same emulator and the same SQLite file, and the
+    # only thing that prevented two bots running at once was one of them losing the frostguard.lock
+    # race. The unclaimed window is the hazard, so close it instead of narrating it.
+    #
+    # Still never blocks: if the claim fails, say so and stop anyway.
+    if ($ListOnly) {
+        Write-Host "prod is unclaimed (-ListOnly, so not claiming it)."
+    }
+    else {
+        $autoOwner = if ($Owner) { $Owner } else { "$env:USERNAME-stop-$PID" }
+        $lockScript = Join-Path $Root 'prod-lock.ps1'
+        if (Test-Path $lockScript) {
+            & $lockScript acquire -Owner $autoOwner -Reason 'auto-claimed by stop-bearguard' -Root $Root | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                $autoClaimed = $true
+                Write-Host "prod was unclaimed -- claimed it as '$autoOwner' for the duration of this stop."
+                Write-Host "  release it when your work is done:  prod-lock.ps1 release -Owner $autoOwner"
+            }
+            else {
+                Write-Warning "prod is unclaimed and the claim failed (someone raced us) -- stopping anyway."
+            }
+        }
+        else {
+            Write-Warning "stopping prod WITHOUT claiming it (prod-lock.ps1 not found)."
+        }
+    }
 }
 elseif ($Owner -and $holder.owner -eq $Owner) {
     Write-Host "prod is claimed by you ($Owner) -- proceeding."
