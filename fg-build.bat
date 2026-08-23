@@ -14,6 +14,50 @@ echo ==========================================
 echo      Bearguard Quick Recompile Script
 echo ==========================================
 
+REM Refuse to build a working tree that does not match HEAD.
+REM
+REM Maven compiles the WORKING TREE, not HEAD, and three sessions share this checkout. So an
+REM uncommitted edit by anyone ships in the next build by anyone, and the jar silently stops
+REM matching the commit history it appears to represent -- prod ends up running code that was
+REM never committed and nothing in git records it. Only modules\ and packaging\ are checked,
+REM because those are what actually compile; a dirty .gitignore or a stray temp\ png does not
+REM reach the jar. Untracked files count too: a new .java nobody has added yet still compiles.
+REM
+REM This runs BEFORE the stop on purpose. Refusing after stopping would leave prod down for a
+REM build that was never going to happen.
+REM
+REM Escape hatch: fg-build.bat --allow-dirty, for when the dirty state IS what you mean to build.
+set "ALLOW_DIRTY="
+if /i "%~1"=="--allow-dirty" set "ALLOW_DIRTY=1"
+if defined ALLOW_DIRTY echo [WARN] --allow-dirty: building uncommitted changes on purpose.
+if defined ALLOW_DIRTY goto :tree_ok
+
+where git >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] git not on PATH -- cannot verify the tree matches HEAD. Continuing unguarded.
+    goto :tree_ok
+)
+
+set "DIRTY="
+git -C "%~dp0." diff --quiet HEAD -- modules packaging
+if errorlevel 1 set "DIRTY=1"
+for /f "delims=" %%F in ('git -C "%~dp0." ls-files --others --exclude-standard -- modules packaging') do set "DIRTY=1"
+if not defined DIRTY goto :tree_ok
+
+echo.
+echo [ERROR] Refusing to build: modules\ or packaging\ has changes that are not committed.
+echo         Maven compiles the working tree, so these WOULD ship in the jar and prod would
+echo         be running code with no commit behind it.
+echo.
+git -C "%~dp0." status --short -- modules packaging
+echo.
+echo         Commit or stash them, then run this again.
+echo         If you really mean to build them:  fg-build.bat --allow-dirty
+pause
+exit /b 1
+
+:tree_ok
+
 echo.
 echo Stopping Bearguard gracefully (checkpoints the WAL and backs settings up first)...
 REM This used to be taskkill /F on java.exe + javaw.exe. A hard kill strands writes in
