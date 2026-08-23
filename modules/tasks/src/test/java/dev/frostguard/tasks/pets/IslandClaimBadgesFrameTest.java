@@ -20,7 +20,9 @@ import dev.frostguard.vision.color.GameColors;
 /**
  * Real-frame coverage for My Island claim detection.
  *
- * <p>Both frames are live 720x1280 captures taken while the routine itself was running. The island
+ * <p>Every frame is a live 720x1280 capture taken while the routine itself was running. The two
+ * wrong-screen frames are reduced to the regions under test, which also removes the account's
+ * avatar, power and chat rather than masking them. The island
  * frame carries three badges - two over crafting stations and one over the tree, partly covered by
  * the game's own tutorial hand - at positions no fixed-coordinate version of this task could have
  * hit: the routine used to tap (362,488), (501,501) and (570,550) blind.
@@ -72,6 +74,15 @@ class IslandClaimBadgesFrameTest {
     }
 
     @Test
+    void theCityViewCarriesADifferentBadgeShapedIconThatOnlyTheScreenCheckRejects() throws Exception {
+        // The Infirmary's green cross is a second, unrelated decoy, and the city view matters more
+        // than the world map because it is where the bot idles between tasks. Caught live at
+        // (611,484), 36x33 at 0.58 fill.
+        assertFalse(badges(cityView()).isEmpty(), "the decoy must still be present for this to prove anything");
+        assertFalse(IslandClaimBadges.onIslandScreen(cityView()));
+    }
+
+    @Test
     void theHudCounterWouldPassTheShapeRulesIfTheWindowLetItThrough() throws Exception {
         // The counter in the top bar is the same artwork as a badge. Only the search window keeps it
         // from becoming a tap target, so that exclusion must never be widened past it.
@@ -116,6 +127,10 @@ class IslandClaimBadgesFrameTest {
 
     private BufferedImage worldMap() throws Exception {
         return load("/pets/world-map-not-island-20260823.png");
+    }
+
+    private BufferedImage cityView() throws Exception {
+        return load("/pets/city-view-not-island-20260823.png");
     }
 
     private BufferedImage load(String resource) throws Exception {

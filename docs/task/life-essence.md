@@ -22,9 +22,12 @@ A tap needs all of the following, because no one of them is sufficient.
 **The right screen.** `onIslandScreen` requires the Life Essence counter in the
 top bar, which is the same crystal artwork as the badges and appears on no other
 screen the routine can reach. Without it the detector would work on whatever a
-failed navigation left behind, and the world map's marching panel carries a
-36x37 green gathering icon at 0.46 fill that passes every crystal rule - tapping
-it starts a march. Across 30 live frames the counter was present on every island
+failed navigation left behind, and two unrelated decoys have already been caught
+live doing exactly that: the world map's marching panel carries a 36x37 green
+gathering icon at 0.46 fill, and the city view's Infirmary carries a 36x33 green
+cross at 0.58 fill. Both pass every crystal rule. Tapping the first starts a
+march; the second matters more because the city view is where the bot idles
+between tasks. Across 60 live frames the counter was present on every island
 frame and absent from every world and city frame.
 
 **The right shape.** `IslandClaimBadges` accepts a `GameColors.isVividGreen`
@@ -81,3 +84,9 @@ reported "Claimed: 3" each while leaving the counter unchanged.
 Unsupported: badges outside the search window, resolutions other than 720x1280,
 and any island layout where two badges overlap closely enough to merge into one
 blob.
+
+Known risk, observed but not yet seen to cause a miss: the game sometimes opens
+the Tree of Life panel over the island, whose Details/History/Upgrade/Collect
+row and tutorial hand cover part of the lower island. A badge behind that panel
+would be occluded. On the frame where this was seen the island had no badges, so
+whether it can actually hide one is unconfirmed.
