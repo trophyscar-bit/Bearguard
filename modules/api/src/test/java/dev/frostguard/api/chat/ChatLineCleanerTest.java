@@ -124,6 +124,22 @@ class ChatLineCleanerTest {
     }
 
     @Test
+    void aPipeBetweenWordsIsTheWordItRatherThanABorder() {
+        // Live: "Ooooops. I missed it" was stored as "Oooops. missed it" because the I read as a
+        // pipe and the pipe was stripped as a bubble border.
+        assertEquals("Oooops. I missed it", ChatLineCleaner.cleanBody("Oooops. | missed it"));
+    }
+
+    @Test
+    void aMentionSurvivesTheReaderSpellingItsAtSignAsCopyright() {
+        // Live: "@Ruta felicidades!" arrived as "© Ruta Felicidades!" and lost the mention.
+        assertEquals("@Ruta Felicidades!", ChatLineCleaner.cleanBody("©Ruta Felicidades!"));
+        // With a space between them it is an emoji opening a sentence, not a mention, and must
+        // not become an "@" -- "© Oooops. I missed it" was being stored as "@Oooops. I missed it".
+        assertFalse(ChatLineCleaner.cleanBody("© Oooops. I missed it").startsWith("@"));
+    }
+
+    @Test
     void collectsMentionsIncludingTheSpacedTaggedFormTheReaderProduces() {
         List<String> mentions = ChatLineCleaner.mentions("@Snowcrow and @ [ICE]Wrenley please rally");
 
