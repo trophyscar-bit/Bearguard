@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 
+import dev.frostguard.api.chat.ChatLineCleaner;
 import dev.frostguard.vision.ocr.TextLine;
 
 /**
@@ -61,6 +62,10 @@ final class ChatOrnamentFilter {
     private static final double HUE_AGREEMENT = 0.70;
     /** Below this there are too few coloured pixels for their agreement to mean anything. */
     private static final int MIN_PIXELS_TO_JUDGE_HUE = 40;
+    /** Gold, as opposed to the blue of a mention of a person at 205.9 degrees. */
+    private static final double ALL_MENTION_MAX_HUE = 60.0;
+    /** What the game means by that gold. */
+    private static final String ALL_MENTION = "@All";
 
     private ChatOrnamentFilter() {
     }
@@ -86,7 +91,13 @@ final class ChatOrnamentFilter {
                 out.add(line);
                 continue;
             }
-            List<TextLine> kept = dropOddGlyphs(dropEmoji(mine, img), frameWide);
+            // A sender line carries gold of its own -- a VIP badge, a rank crown, the little
+            // aeroplane beside a name -- and the alliance tag is what says the row is a name rather
+            // than something somebody wrote. Without this the aeroplane on tsubomi's sender line
+            // was rewritten as "@All".
+            boolean senderRow = ChatLineCleaner.parseSender(line.text()).trusted()
+                    && !ChatLineCleaner.parseSender(line.text()).allianceTag().isEmpty();
+            List<TextLine> kept = dropOddGlyphs(dropEmoji(mine, img), frameWide, img, senderRow);
             if (kept.isEmpty()) {
                 continue;
             }
@@ -246,7 +257,8 @@ final class ChatOrnamentFilter {
      * <p>Only short fragments are judged. A long word that comes out slightly wide is still a word,
      * and there is nothing to gain from second-guessing it.
      */
-    private static List<TextLine> dropOddGlyphs(List<TextLine> words, double frameWide) {
+    private static List<TextLine> dropOddGlyphs(List<TextLine> words, double frameWide,
+                                                BufferedImage img, boolean senderRow) {
         double normal = typicalGlyphWidth(words);
         if (normal <= 0) {
             normal = frameWide;
@@ -255,7 +267,10 @@ final class ChatOrnamentFilter {
             return words;
         }
         List<TextLine> kept = new ArrayList<>(words.size());
+        boolean first = true;
         for (TextLine w : words) {
+            boolean leading = first;
+            first = false;
             if (w.text().length() > ORNAMENT_MAX_CHARS) {
                 kept.add(w);
                 continue;
@@ -268,9 +283,55 @@ final class ChatOrnamentFilter {
             boolean thin = isAllThinGlyphs(w.text());
             if ((thin || per >= normal * GLYPH_MIN_SHARE) && per <= normal * GLYPH_MAX_SHARE) {
                 kept.add(w);
+                continue;
+            }
+            // Everything else here is furniture and goes. The exception is the one mention that is
+            // not a player: "@All" is drawn gold where a mention of a person is drawn blue, and the
+            // two do not overlap -- measured across frames, @All sits at 28 degrees and every
+            // player mention at 205.9. It is dropped rather than read because the reader cannot
+            // make a word of it ("GA", "(DAI"), and because it is not a name there is no roster
+            // entry to repair it from. So the colour says what it was and it is written back.
+            if (leading && !senderRow && isAllMentionColour(w, img)) {
+                kept.add(new TextLine(ALL_MENTION, w.left(), w.top(), w.width(), w.height(),
+                        w.confidence()));
             }
         }
         return kept;
+    }
+
+    /**
+     * Whether this is the gold the game reserves for addressing the whole alliance.
+     *
+     * <p>A VIP badge is gold too, at 39.8 degrees, and is deliberately not excluded by hue -- the
+     * gap to 28 is too narrow to lean on. What separates them is that a badge is ordinary text and
+     * measures a normal 13 pixels per character, so it never reaches this branch; only a fragment
+     * the width test has already rejected does.
+     */
+    private static boolean isAllMentionColour(TextLine w, BufferedImage img) {
+        int x0 = Math.max(0, w.left());
+        int y0 = Math.max(0, w.top());
+        int x1 = Math.min(img.getWidth(), w.right());
+        int y1 = Math.min(img.getHeight(), w.bottom());
+        double sx = 0;
+        double sy = 0;
+        int n = 0;
+        for (int y = y0; y < y1; y++) {
+            for (int x = x0; x < x1; x++) {
+                int rgb = img.getRGB(x, y);
+                if (!isColoured(rgb)) {
+                    continue;
+                }
+                double h = Math.toRadians(hueOf(rgb));
+                sx += Math.cos(h);
+                sy += Math.sin(h);
+                n++;
+            }
+        }
+        if (n < MIN_PIXELS_TO_JUDGE_HUE) {
+            return false;
+        }
+        double mean = (Math.toDegrees(Math.atan2(sy, sx)) + 360) % 360;
+        return mean <= ALL_MENTION_MAX_HUE;
     }
 
     /** Characters that are a stroke wide by design, and so cannot be judged on width. */
