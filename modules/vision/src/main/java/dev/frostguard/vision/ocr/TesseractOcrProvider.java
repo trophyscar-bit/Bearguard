@@ -76,35 +76,124 @@ public final class TesseractOcrProvider implements OcrProvider {
     }
 
     /**
-     * Recognises the whole image once and reports each line with its position.
+     * Recognises the whole image once and reports each line of text with its position.
      *
-     * <p>Page segmentation is forced to AUTO here whatever the caller configured: the single-line
-     * mode the cropping callers rely on tells the engine there is exactly one line, which is the
-     * opposite of what this method is for.
+     * <p>The reader's own line boxes are used, not word boxes reassembled into lines. Reassembling
+     * was tried, because a line box on a chat frame swallows the avatar beside the text and so
+     * starts far left of where the text visibly starts. It measured worse: grouping words back into
+     * lines has to decide which words share a line, and short words carry no ascender, so "para"
+     * and "las" sit a few pixels off the words around them and land in the neighbouring line. The
+     * sentence then reassembles out of order -- "Por lo menos cumplir con la para puntuacion las
+     * para recompensas diarias". The engine already knows the reading order; taking it apart to put
+     * it back together only loses that.
+     *
+     * <p>The imprecise left edge costs nothing here, because what distinguishes a sender line from
+     * a message is that it carries an alliance tag, not where it starts.
+     *
+     * <p>Page segmentation is forced to AUTO whatever the caller configured: the single-line mode
+     * the cropping callers rely on asserts there is exactly one line, which is the opposite of what
+     * this method is for.
      */
     @Override
-    public java.util.List<TextLine> recognizeLines(BufferedImage preparedImage, OcrSettingsData cfg)
+    public List<TextLine> recognizeLines(BufferedImage preparedImage, OcrSettingsData cfg)
             throws OcrException {
         requireValidCapture(preparedImage);
         Tesseract engine = configureTesseract(cfg);
-        engine.setPageSegMode(3); // AUTO -- let it find the lines rather than assert there is one
+        engine.setPageSegMode(3); // AUTO -- find the text rather than assert its shape
         try {
-            java.util.List<net.sourceforge.tess4j.Word> words =
-                    engine.getWords(preparedImage, net.sourceforge.tess4j.ITessAPI.TessPageIteratorLevel.RIL_TEXTLINE);
-            java.util.List<TextLine> lines = new ArrayList<>(words.size());
-            for (net.sourceforge.tess4j.Word w : words) {
-                String text = w.getText() == null ? "" : w.getText().trim();
-                if (text.isEmpty()) {
-                    continue;
-                }
-                java.awt.Rectangle r = w.getBoundingBox();
-                lines.add(new TextLine(text, r.x, r.y, r.width, r.height, w.getConfidence()));
-            }
-            return lines;
+            List<net.sourceforge.tess4j.Word> found = engine.getWords(preparedImage,
+                    net.sourceforge.tess4j.ITessAPI.TessPageIteratorLevel.RIL_TEXTLINE);
+            return assembleRows(found);
         } catch (RuntimeException e) {
             throw new OcrException("Line recognition failed", e);
         }
     }
+
+    /**
+     * Puts the reader's fragments back into the rows they were printed on.
+     *
+     * <p>A line of chat does not come back as one box. Against the bubble's background the reader
+     * breaks a single printed row into several pieces -- "Por lo menos", "para", "cumplir con la" --
+     * and gives them all but identical tops. Ordered by top, those pieces interleave and the
+     * sentence reassembles scrambled. Ordered by left within the row they were printed on, they
+     * reassemble exactly.
+     *
+     * <p>Rows are found by vertical overlap rather than by distance between edges or centres. Both
+     * of those depend on which glyphs a fragment happens to contain: a piece holding only "para"
+     * has neither ascender nor tall capital and sits a few pixels off its neighbours, which is
+     * enough to throw it into the row above or below. Overlap does not care about that.
+     */
+    private static List<TextLine> assembleRows(List<net.sourceforge.tess4j.Word> found) {
+        List<net.sourceforge.tess4j.Word> usable = new ArrayList<>();
+        for (net.sourceforge.tess4j.Word w : found) {
+            if (w.getText() != null && !w.getText().isBlank()
+                    && w.getConfidence() >= MIN_LINE_CONFIDENCE) {
+                usable.add(w);
+            }
+        }
+        usable.sort((a, b) -> Integer.compare(a.getBoundingBox().y, b.getBoundingBox().y));
+
+        List<List<net.sourceforge.tess4j.Word>> rows = new ArrayList<>();
+        for (net.sourceforge.tess4j.Word w : usable) {
+            java.awt.Rectangle r = w.getBoundingBox();
+            List<net.sourceforge.tess4j.Word> home = null;
+            for (List<net.sourceforge.tess4j.Word> row : rows) {
+                if (overlapsVertically(r, boundsOf(row))) {
+                    home = row;
+                    break;
+                }
+            }
+            if (home == null) {
+                home = new ArrayList<>();
+                rows.add(home);
+            }
+            home.add(w);
+        }
+
+        List<TextLine> out = new ArrayList<>(rows.size());
+        for (List<net.sourceforge.tess4j.Word> row : rows) {
+            row.sort((a, b) -> Integer.compare(a.getBoundingBox().x, b.getBoundingBox().x));
+            StringBuilder text = new StringBuilder();
+            float confidence = 0f;
+            for (net.sourceforge.tess4j.Word w : row) {
+                if (text.length() > 0) {
+                    text.append(' ');
+                }
+                text.append(w.getText().trim().replace((char) 10, ' ').trim());
+                confidence += w.getConfidence();
+            }
+            java.awt.Rectangle b = boundsOf(row);
+            out.add(new TextLine(text.toString().trim(), b.x, b.y, b.width, b.height,
+                    confidence / row.size()));
+        }
+        out.sort((a, b) -> Integer.compare(a.top(), b.top()));
+        return out;
+    }
+
+    /** How much of the shorter box must fall inside the taller one to be the same printed row. */
+    private static final double ROW_OVERLAP_SHARE = 0.5;
+
+    private static boolean overlapsVertically(java.awt.Rectangle a, java.awt.Rectangle b) {
+        int top = Math.max(a.y, b.y);
+        int bottom = Math.min(a.y + a.height, b.y + b.height);
+        int shared = bottom - top;
+        return shared > 0 && shared >= ROW_OVERLAP_SHARE * Math.min(a.height, b.height);
+    }
+
+    private static java.awt.Rectangle boundsOf(List<net.sourceforge.tess4j.Word> row) {
+        int left = Integer.MAX_VALUE, top = Integer.MAX_VALUE, right = 0, bottom = 0;
+        for (net.sourceforge.tess4j.Word w : row) {
+            java.awt.Rectangle r = w.getBoundingBox();
+            left = Math.min(left, r.x);
+            top = Math.min(top, r.y);
+            right = Math.max(right, r.x + r.width);
+            bottom = Math.max(bottom, r.y + r.height);
+        }
+        return new java.awt.Rectangle(left, top, right - left, bottom - top);
+    }
+
+    /** Below this the reader is guessing at noise rather than reading text. */
+    private static final float MIN_LINE_CONFIDENCE = 30f;
 
     // =====================================================================
     //  Tesseract factory
