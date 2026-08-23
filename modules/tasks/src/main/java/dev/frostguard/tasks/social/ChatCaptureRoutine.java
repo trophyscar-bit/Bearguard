@@ -566,9 +566,23 @@ public class ChatCaptureRoutine extends DelayedTask {
             return;
         }
         ChatMessage held = collected.get(match);
-        if (better(m, held)) {
+        ChatMessage winner = better(m, held) ? m : held;
+        ChatMessage other = winner == m ? held : m;
+        // A message read on two screens is not read the same way twice, and the copy with the
+        // fuller body is not always the copy that kept its mention: the long alliance call was
+        // clipped on the screen where "@All" was legible and complete on the screen where it was
+        // not, so whichever copy won, something was lost. The body comes from the fuller reading
+        // and the mention from whichever reading kept one.
+        if (!winner.body().startsWith("@") && other.body().startsWith("@")) {
+            int end = other.body().indexOf(' ');
+            String mention = end < 0 ? other.body() : other.body().substring(0, end);
+            winner = winner.withBody(mention + " " + winner.body());
+        }
+        if (winner != held) {
             collected.remove(match);
-            collected.put(key, m);
+            collected.put(key, winner);
+        } else if (winner != collected.get(match)) {
+            collected.put(match, winner);
         }
     }
 
