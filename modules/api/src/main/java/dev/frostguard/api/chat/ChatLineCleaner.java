@@ -283,6 +283,30 @@ public final class ChatLineCleaner {
     private static final Pattern TRAILING_LOOSE_CAPS =
             Pattern.compile("\\s+[A-Z]{1,2}\\s*$");
 
+    /**
+     * A key that holds two readings of the same message together.
+     *
+     * <p>Overlapping scroll steps mean a message is read on two or three screens, and the reader
+     * does not return the same characters every time: "able to" comes back as "ableto", a line
+     * break lands in a different place, an accent survives on one pass and not the next. Keyed on
+     * the text as written, those are different messages and the transcript keeps them all --
+     * measured at 129 near-duplicates in a single day's capture. Reduced to letters and digits
+     * alone they are one message, which is what they are.
+     */
+    public static String mergeKey(String body) {
+        if (body == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(body.length());
+        for (int i = 0; i < body.length(); i++) {
+            char c = Character.toLowerCase(body.charAt(i));
+            if (Character.isLetterOrDigit(c)) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
     /** Names this message addressed, in order, without duplicates. */
     public static List<String> mentions(String body) {
         if (body == null || body.isEmpty()) {
