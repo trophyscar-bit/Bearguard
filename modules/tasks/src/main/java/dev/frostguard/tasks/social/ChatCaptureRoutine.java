@@ -139,6 +139,22 @@ public class ChatCaptureRoutine extends DelayedTask {
                     .language("chi_sim+jpn+kor")
                     .build();
 
+    /**
+     * The Cyrillic reader, spent only on rows whose Latin reading is the wrong shape.
+     *
+     * <p>Russian is one of the sixteen languages the game ships in. It cannot go in the pass above:
+     * measured on a fixed set of frames, adding it there put a Cyrillic "м" into the middle of a
+     * Spanish sentence and brought back a junk row the filters had removed, because the reader
+     * hedges between two alphabets that share letterforms. Kept apart, it is only ever asked about
+     * a line that already looks like Cyrillic read as Latin.
+     */
+    private static final OcrSettingsData CHAT_CYRILLIC_SETTINGS =
+            OcrSettingsData.assembler()
+                    .textLayout(TextLayout.TEXT_BLOCK)
+                    .stripBackground(false)
+                    .language("rus")
+                    .build();
+
     private static final OcrSettingsData CHAT_TEXT_SETTINGS =
             OcrSettingsData.assembler()
                     .textLayout(TextLayout.TEXT_BLOCK)
@@ -327,7 +343,8 @@ public class ChatCaptureRoutine extends DelayedTask {
                 // run the other way round, a Chinese message read as "g2 - E o" had its pieces
                 // thrown out as furniture -- their glyph widths are nothing like a Latin row's --
                 // and the line was gone before anything tried to read it in another script.
-                lines = ChatScriptRecovery.reread(frame, lines, words, TEXT_COLUMN_RIGHT, CHAT_CJK_SETTINGS);
+                lines = ChatScriptRecovery.reread(frame, lines, words, TEXT_COLUMN_RIGHT, CHAT_CJK_SETTINGS,
+                        CHAT_CYRILLIC_SETTINGS);
                 lines = ChatOrnamentFilter.clean(lines, words, image);
                 int recovered = ChatScriptRecovery.recoveredCount(latin, lines);
                 if (recovered > 0) {

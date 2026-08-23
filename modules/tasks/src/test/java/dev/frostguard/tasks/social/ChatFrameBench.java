@@ -44,6 +44,12 @@ public final class ChatFrameBench {
                 .language("chi_sim+jpn+kor")
                 .build();
 
+        OcrSettingsData cyrillic = OcrSettingsData.assembler()
+                .textLayout(TextLayout.TEXT_BLOCK)
+                .stripBackground(false)
+                .language("rus")
+                .build();
+
         OcrSettingsData latin = OcrSettingsData.assembler()
                 .textLayout(TextLayout.TEXT_BLOCK)
                 .stripBackground(false)
@@ -87,7 +93,7 @@ public final class ChatFrameBench {
                     w.println(sb);
                 }
             }
-            lines = ChatScriptRecovery.reread(raw, lines, words, 700, cjk);
+            lines = ChatScriptRecovery.reread(raw, lines, words, 700, cjk, cyrillic);
             lines = ChatOrnamentFilter.clean(lines, words, img);
             for (TextLine l : lines) {
                 ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(l.text());
