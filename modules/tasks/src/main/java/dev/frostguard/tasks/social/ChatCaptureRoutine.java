@@ -182,6 +182,16 @@ public class ChatCaptureRoutine extends DelayedTask {
     private boolean includePersonal = false;
     private String mode = "TRANSCRIPT";
     private int scrollBack = DEFAULT_SCROLL_BACK;
+
+    /**
+     * As far back as a walk is ever allowed to go.
+     *
+     * <p>Purely a runaway guard. Reaching it means either the game has stopped handing back older
+     * messages -- in which case the walk is scrolling a wall -- or the duplicate check has failed
+     * and the walk would never stop on its own. Neither is a case worth spending an unbounded pass
+     * on, and neither is a case a number chosen here can fix.
+     */
+    private static final int SAFETY_SCREEN_LIMIT = 200;
     private int retentionDays = DEFAULT_RETENTION_DAYS;
 
     private ChatTranscriptStore store;
@@ -346,8 +356,18 @@ public class ChatCaptureRoutine extends DelayedTask {
         ChatPass pass = new ChatPass(channel, body -> translator.toEnglish(body),
                 CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
 
+        // A safety bound, not a setting to get right. The walk already stops on its own the moment
+        // it meets messages it has seen before, so on a quiet channel it ends after three screens
+        // whatever this number is -- the cap costs nothing until it binds, and when it binds it is
+        // cutting the conversation off mid-way. There is nothing to tune here: it only has to be
+        // higher than the busiest gap will ever need.
+        int cap = Math.max(scrollBack, SAFETY_SCREEN_LIMIT);
+        int used = 0;
+        boolean finished = false;
+
         try {
-        for (int i = 0; i < scrollBack; i++) {
+        for (int i = 0; i < cap; i++) {
+            used = i + 1;
             RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
             if (frame == null || !frame.isValid()) {
                 logWarning("ChatCaptureRoutine | Could not capture a frame for " + channel
@@ -402,16 +422,26 @@ public class ChatCaptureRoutine extends DelayedTask {
                     paddle.read(image, l, t, r, b, language, PADDLE_MIN_CONFIDENCE) : null);
             ChatPass.Screen screen = pass.addScreen(frame, image, lines, fromService);
             cacheFrame(channel, i, image);
-            logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + scrollBack
+            logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + cap
                     + ": " + screen.lines() + " line(s), " + screen.readable() + " readable, "
                     + screen.fresh() + " new.");
             if (pass.reachedKnownHistory()) {
                 logInfo("ChatCaptureRoutine | " + channel + ": reached already-captured history.");
+                finished = true;
                 break;
             }
             swipeUpThroughHistory();
         }
 
+            // Running out of screens with messages still arriving means the walk stopped in the
+            // middle of the conversation. It used to do that silently, which is why half a day of
+            // passes lost messages without anybody noticing.
+            if (!finished) {
+                logWarning("ChatCaptureRoutine | " + channel + ": hit the " + cap
+                        + "-screen limit while still finding new messages. Either the game has"
+                        + " stopped serving older history, or messages before this point were"
+                        + " missed.");
+            }
             return store.append(pass.messages());
         } catch (IOException e) {
             logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
