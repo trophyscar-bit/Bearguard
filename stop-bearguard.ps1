@@ -49,14 +49,14 @@ if (-not $holder) {
         Write-Host "prod is unclaimed (-ListOnly, so not claiming it)."
     }
     else {
-        $autoOwner = if ($Owner) { $Owner } else { "$env:USERNAME-stop-$PID" }
+        $script:autoOwner = if ($Owner) { $Owner } else { "$env:USERNAME-stop-$PID" }
         $lockScript = Join-Path $Root 'prod-lock.ps1'
         if (Test-Path $lockScript) {
-            & $lockScript acquire -Owner $autoOwner -Reason 'auto-claimed by stop-bearguard' -Auto -Root $Root | Out-Null
+            & $lockScript acquire -Owner $script:autoOwner -Reason 'auto-claimed by stop-bearguard' -Auto -Root $Root | Out-Null
             if ($LASTEXITCODE -eq 0) {
-                $autoClaimed = $true
-                Write-Host "prod was unclaimed -- claimed it as '$autoOwner' for the duration of this stop."
-                Write-Host "  release it when your work is done:  prod-lock.ps1 release -Owner $autoOwner"
+                $script:autoClaimed = $true
+                Write-Host "prod was unclaimed -- claimed it as '$script:autoOwner' for the duration of this stop."
+                Write-Host "  it will be released automatically when this stop finishes."
             }
             else {
                 Write-Warning "prod is unclaimed and the claim failed (someone raced us) -- stopping anyway."
@@ -123,10 +123,30 @@ foreach ($p in $procs) {
     else { Write-Warning "  PID $($proc.Id) ignored WM_CLOSE after ${TimeoutSeconds}s; not forcing it (WAL)." }
 }
 
+# Give back what this script took. An auto-claim covers the stop and nothing more: it exists to
+# close the window where prod is being shut down with nobody's name on it, not to reserve prod for
+# whatever the caller does next. Claiming without releasing left a lock behind after every stop --
+# one sat for 50 minutes on 2026-08-23 and another session had to force past it -- and a lock that
+# is routinely forced past has stopped being a lock. A claim somebody made deliberately is left
+# exactly where it is; only the automatic one is handed back.
+function Release-AutoClaim {
+    if (-not $script:autoClaimed) { return }
+    $lockScript = Join-Path $Root 'prod-lock.ps1'
+    if (-not (Test-Path $lockScript)) { return }
+    & $lockScript release -Owner $script:autoOwner -Root $Root | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "released the automatic claim '$script:autoOwner'."
+    } else {
+        Write-Warning "could not release the automatic claim '$script:autoOwner' -- release it by hand."
+    }
+}
+
 $left = @(Get-BearguardProcesses $Root).Count
 if ($left -gt 0) {
     Write-Warning "$left Bearguard process(es) still running at $Root."
+    Release-AutoClaim
     exit 1
 }
+Release-AutoClaim
 Write-Host "Bearguard stopped cleanly at $Root."
 exit 0
