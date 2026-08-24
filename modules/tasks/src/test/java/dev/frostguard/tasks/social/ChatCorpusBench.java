@@ -93,9 +93,9 @@ public final class ChatCorpusBench {
             }
             if (System.getenv("QROWS") != null) {
                 for (TextLine l : lines) {
-                    out.printf("   %s y=%4d..%4d | %s%n",
+                    out.printf("   %s y=%4d..%4d x=%3d..%3d | %s%n",
                             ChatQuoteBar.isQuoteRow(img, l) ? "[Q]" : "   ",
-                            l.top(), l.bottom(), l.text());
+                            l.top(), l.bottom(), l.left(), l.right(), l.text());
                 }
             }
             ChatPass.Screen screen = pass.addScreen(raw, img, lines, fromService);

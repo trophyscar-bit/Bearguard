@@ -187,7 +187,16 @@ public final class ChatGarble {
             }
             // One bad token at the very edge is trimmed on its own; a scrap further in only goes
             // when the run around it is mostly wreckage too.
-            int cut = bad * 2 > run ? lastBad + 1 : (readable(tokens.get(fromFront ? 0 : tokens.size() - 1)) ? 0 : 1);
+            int edge = fromFront ? 0 : tokens.size() - 1;
+            if (!fromFront && bad == 1 && isNumber(tokens.get(edge))
+                    && countReadable(tokens) >= WORDS_THAT_MAKE_A_SENTENCE) {
+                // "i have never seen furnace 31" ends in a number because the number is the point
+                // of it. A bare number is noise on its own and content at the end of a sentence,
+                // and the sentence is what tells the two apart -- trimmed blindly, this quietly
+                // changed what people said rather than merely tidying it.
+                return;
+            }
+            int cut = bad * 2 > run ? lastBad + 1 : (readable(tokens.get(edge)) ? 0 : 1);
             if (cut == 0) {
                 return;
             }
@@ -199,6 +208,24 @@ public final class ChatGarble {
 
     /** How far in from an edge a piece of wreckage can still drag its neighbours out with it. */
     private static final int RUN_WINDOW = 4;
+
+    /** Enough words that a number after them is being said about something. */
+    private static final int WORDS_THAT_MAKE_A_SENTENCE = 4;
+
+    private static boolean isNumber(String token) {
+        String bare = token.replaceAll("[^\\p{N}]", "");
+        return !bare.isEmpty() && token.replaceAll("[\\p{N}\\p{Punct}]", "").isEmpty();
+    }
+
+    private static int countReadable(List<String> tokens) {
+        int n = 0;
+        for (String t : tokens) {
+            if (readable(t)) {
+                n++;
+            }
+        }
+        return n;
+    }
 
     /**
      * Whether enough survived to be somebody's words.
@@ -247,6 +274,15 @@ public final class ChatGarble {
         if (token.startsWith("@") && bare.length() >= 2) {
             return true;
         }
+        if (isLink(token)) {
+            // A link is not a word and none of the tests below describe one. Judged as text it
+            // fails nearly all of them -- it has no spaces, so stripping its punctuation leaves a
+            // thirty-letter run that reads as two words the reader ran together, and the whole
+            // address gets trimmed off the front of the message as wreckage. Players post links
+            // constantly, and half a link is worse than none: it looks like something you could
+            // follow.
+            return true;
+        }
         if (bare.isEmpty()) {
             // Punctuation on its own, or a number that lost the sentence it belonged to.
             return false;
@@ -281,6 +317,18 @@ public final class ChatGarble {
 
     /** Longer than this and it is two words the reader ran together, not one word. */
     private static final int LONGEST_PLAUSIBLE_WORD = 16;
+
+    /** Whether this is an address rather than a word. */
+    public static boolean looksLikeLink(String token) {
+        return isLink(token);
+    }
+
+    private static boolean isLink(String token) {
+        return LINK.matcher(token).find();
+    }
+
+    private static final Pattern LINK = Pattern.compile(
+            "(?i)^(https?://|www\\.)|\\.(com|net|org|wiki|io|gg|be|ly|co)([/?#]|$)");
 
     private static String strip(String token) {
         return EDGE_PUNCTUATION.matcher(token).replaceAll("");
