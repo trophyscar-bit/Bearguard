@@ -34,8 +34,11 @@ import dev.frostguard.vision.ocr.TextLine;
  */
 public final class ChatCorpusBench {
 
-    private static final int FEED_TOP = 250;
-    private static final int FEED_BOTTOM = 1160;
+    // Taken from ChatCaptureRoutine, not chosen here. These had drifted to 250/1160 while the
+    // routine read 175/1150, which is the same class of fault the bench exists to prevent: a
+    // measurement of code that is not the code that ships.
+    private static final int FEED_TOP = 175;
+    private static final int FEED_BOTTOM = 1150;
     private static final int TEXT_COLUMN_LEFT = 132;
     private static final int TEXT_COLUMN_RIGHT = 700;
     private static final double MIN_CONFIDENCE = 0.60;
@@ -119,6 +122,9 @@ public final class ChatCorpusBench {
                 o.put("en", m.translated());
                 o.put("quoted", m.quoted());
                 o.put("kind", m.kind().name());
+                // The flag the panel filters on, so a review page shows the default view rather
+                // than a rawer one the app never draws.
+                o.put("chatter", dev.frostguard.api.chat.ChatLineCleaner.isNonSpeech(m.body()));
                 out.println(o.toString());
             } else {
                 out.printf("%3d | %-20s | %s%n", n,
