@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
+import dev.frostguard.api.chat.ChatGarble;
 import dev.frostguard.api.chat.ChatLineCleaner;
 import dev.frostguard.api.chat.ChatMessage;
 import dev.frostguard.vision.ocr.TextLine;
@@ -140,6 +141,38 @@ final class ChatFrameReader {
     private static final java.util.regex.Pattern TIME_ONLY =
             java.util.regex.Pattern.compile("\\d{1,2}[:.]\\d{2}(\\s*[AaPp][Mm])?");
 
+    /**
+     * What goes between two rows of the same bubble: usually a space, sometimes nothing.
+     *
+     * <p>The game wraps prose at a space, so putting one back is right for almost everything. It
+     * wraps a link wherever the line runs out, mid-word and mid-path, and a space put back there
+     * breaks the address into pieces -- players post wiki links constantly, and half a link is
+     * worse than none because it still looks like something you could follow.
+     *
+     * <p>Both conditions are needed. A row that stopped short of the margin ended because the
+     * sentence did, and gluing the next one onto it would run two messages together.
+     */
+    private static String joiner(CharSequence soFar, TextLine previous, int widest) {
+        if (previous == null || previous.right() < widest - WRAP_SLACK) {
+            return " ";
+        }
+        int cut = lastBreak(soFar);
+        return ChatGarble.looksLikeLink(soFar.subSequence(cut, soFar.length()).toString())
+                ? "" : " ";
+    }
+
+    private static int lastBreak(CharSequence text) {
+        for (int i = text.length() - 1; i >= 0; i--) {
+            if (Character.isWhitespace(text.charAt(i))) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
+    /** How far short of the widest row a line can stop and still count as having wrapped. */
+    private static final int WRAP_SLACK = 40;
+
     /** The sender this line names, or null when it is ordinary message text. */
     private static ChatLineCleaner.Sender senderOn(TextLine line) {
         ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(line.text());
@@ -158,12 +191,20 @@ final class ChatFrameReader {
         // batalla de la fundicion" and "de la legion 2" are one sentence the handset happened to
         // split. Carrying those breaks into a window ten times as wide made every message read as
         // a narrow ragged column with the rest of the panel empty beside it.
+        // The widest row in the bubble is where the game wrapped, so a row reaching it ran out of
+        // space rather than ending. That is what tells a wrap from a finished line.
+        int widest = 0;
+        for (TextLine l : pending) {
+            widest = Math.max(widest, l.right());
+        }
         StringBuilder sb = new StringBuilder();
+        TextLine last = null;
         for (TextLine l : pending) {
             if (sb.length() > 0) {
-                sb.append(' ');
+                sb.append(joiner(sb, last, widest));
             }
             sb.append(l.text().trim());
+            last = l;
         }
         StringBuilder q = new StringBuilder();
         for (TextLine l : quotedRows) {
