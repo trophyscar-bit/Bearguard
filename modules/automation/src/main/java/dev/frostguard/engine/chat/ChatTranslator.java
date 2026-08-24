@@ -185,6 +185,40 @@ public final class ChatTranslator {
                 || upper.contains("QUOTA");
     }
 
+    /**
+     * Whether what came back is a translation at all.
+     *
+     * <p>A frontend is a proxy, and when the service behind it fails the frontend does not
+     * necessarily fail with it: it answers 200, with well-formed JSON, and the upstream's HTML
+     * error page sitting in the field where the translation belongs. Probed live, a one-word
+     * Indonesian message came back as two kilobytes of Google's 500 page -- stylesheet, inline
+     * script and all -- which would have been stored as that player's message and shown to a
+     * reader as something they said.
+     *
+     * <p>Two things give it away without knowing any language. Markup is not prose, and a
+     * translation is roughly the length of its source: rendering between these languages moves the
+     * length by a third or so, never by a factor of ten. Both are checked because either alone lets
+     * something through -- a short error string carries no markup, and a legitimately long
+     * translation of a long message carries no tags.
+     */
+    private static boolean isNotATranslation(String out, String source) {
+        if (MARKUP.matcher(out).find()) {
+            return true;
+        }
+        return out.length() > source.length() * LENGTH_BLOWOUT + LENGTH_SLACK;
+    }
+
+    /** Tags and script the upstream's error page is made of; no player types these. */
+    private static final java.util.regex.Pattern MARKUP = java.util.regex.Pattern.compile(
+            "(?i)<\\s*(/?)(html|head|body|style|script|div|span|meta|title|p|a|pre|ins|img)\\b"
+                    + "|<!doctype|function\\s*\\(\\)|document\\.(get|open|close|add)");
+
+    /** How much longer than its source a real translation can plausibly be. */
+    private static final int LENGTH_BLOWOUT = 6;
+
+    /** Room for a very short source, where the ratio alone is too sharp to be fair. */
+    private static final int LENGTH_SLACK = 80;
+
     private Optional<String> viaFrontends(String body) {
         String encoded = URLEncoder.encode(body, StandardCharsets.UTF_8);
         for (String base : FRONTENDS) {
@@ -194,7 +228,7 @@ public final class ChatTranslator {
             }
             try {
                 String out = MAPPER.readTree(raw.get()).path("translated_text").asText("").trim();
-                if (!out.isEmpty() && !isProviderNotice(out)) {
+                if (!out.isEmpty() && !isProviderNotice(out) && !isNotATranslation(out, body)) {
                     return Optional.of(out);
                 }
             } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
