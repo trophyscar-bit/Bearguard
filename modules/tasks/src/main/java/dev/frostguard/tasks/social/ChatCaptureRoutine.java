@@ -396,6 +396,10 @@ public class ChatCaptureRoutine extends DelayedTask {
                 continue;
             }
 
+            // Bound to this frame, because a row's box only means anything against the screen it
+            // was measured on.
+            pass.useRereader(fromService ? (l, t, r, b, language) ->
+                    paddle.read(image, l, t, r, b, language, PADDLE_MIN_CONFIDENCE) : null);
             ChatPass.Screen screen = pass.addScreen(frame, image, lines, fromService);
             cacheFrame(channel, i, image);
             logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + scrollBack

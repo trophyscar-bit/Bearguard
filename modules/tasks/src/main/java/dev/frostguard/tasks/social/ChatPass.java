@@ -87,7 +87,9 @@ final class ChatPass {
     Screen addScreen(RawImageData frame, BufferedImage image, List<TextLine> rows,
                      boolean fromService) {
         List<TextLine> lines = rows;
-        if (!fromService) {
+        if (fromService) {
+            lines = rereadOtherScripts(image, lines);
+        } else {
             List<TextLine> words = readWords(frame);
             lines = ChatScriptRecovery.reread(frame, lines, words, textColumnRight, cjk, cyrillic);
             lines = ChatOrnamentFilter.clean(lines, words, image);
@@ -153,6 +155,90 @@ final class ChatPass {
             out.add(englishQuote(kept));
         }
         return out;
+    }
+
+    /**
+     * Reads a row again in another alphabet when the first reading was in the wrong one.
+     *
+     * <p>A recogniser is built for one script and does not decline to read another -- it returns
+     * the nearest shapes it knows. Handed Cyrillic, the Latin model answers confidently in Latin
+     * lookalikes: "Bcem npnBet" for "Всем привет", "KpncTannoB" for "кристаллов". The result is
+     * unreadable to a person and, worse, invisible to everything downstream, because it is
+     * well-formed Latin text that no language test can place. It is not translated either, since
+     * there is nothing there to translate.
+     *
+     * <p>Only the rows that look wrong are read again, and only they pay for it. Reading every
+     * frame in every alphabet would multiply the pass by the number of languages the alliance
+     * speaks, for the handful of rows that need it.
+     *
+     * <p>The second reading has to prove itself: it is kept only if it comes back in the script it
+     * was asked for. A model given a row that really was Latin all along will answer in Latin
+     * lookalikes of its own, and swapping good text for that would be the same fault in reverse.
+     */
+    private List<TextLine> rereadOtherScripts(BufferedImage image, List<TextLine> lines) {
+        if (rereader == null) {
+            return lines;
+        }
+        List<TextLine> out = new ArrayList<>(lines.size());
+        for (TextLine line : lines) {
+            if (!ChatScriptRecovery.looksLikeMangledScript(line.text())) {
+                out.add(line);
+                continue;
+            }
+            out.add(inAnotherScript(image, line));
+        }
+        return out;
+    }
+
+    private TextLine inAnotherScript(BufferedImage image, TextLine line) {
+        for (String language : OTHER_SCRIPTS) {
+            List<TextLine> again = rereader.read(
+                    Math.max(0, line.left() - REREAD_PADDING),
+                    Math.max(0, line.top() - REREAD_PADDING),
+                    Math.min(image.getWidth(), line.right() + REREAD_PADDING),
+                    Math.min(image.getHeight(), line.bottom() + REREAD_PADDING),
+                    language);
+            String text = joined(again);
+            if (!text.isBlank() && ChatScriptRecovery.isMostlyAnotherScript(text)) {
+                return new TextLine(text, line.left(), line.top(), line.width(), line.height(),
+                        line.confidence());
+            }
+        }
+        return line;
+    }
+
+    private static String joined(List<TextLine> parts) {
+        StringBuilder sb = new StringBuilder();
+        for (TextLine p : parts) {
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(p.text().trim());
+        }
+        return sb.toString().strip();
+    }
+
+    /**
+     * Alphabets to try, in the order the alliance actually uses them.
+     *
+     * <p>Russian first because it is who is in this alliance. The list is short deliberately: each
+     * entry is another request for every suspicious row, and a language nobody here writes costs
+     * that on every pass forever.
+     */
+    private static final String[] OTHER_SCRIPTS = {"ru"};
+
+    /** A row's own box clips its tallest glyphs; a little air around it reads better. */
+    private static final int REREAD_PADDING = 4;
+
+    /** Reads one region of the current frame in a named language, or nothing. */
+    interface Rereader {
+        List<TextLine> read(int left, int top, int right, int bottom, String language);
+    }
+
+    private Rereader rereader;
+
+    void useRereader(Rereader reader) {
+        this.rereader = reader;
     }
 
     /**
