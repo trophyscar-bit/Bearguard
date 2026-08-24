@@ -34,11 +34,12 @@ final class ChatQuoteBar {
     /**
      * Above this a row is something a player wrote; below it, something they were answering.
      *
-     * <p>Set between the quote strips at 162 and the sender lines at 201 rather than just above the
-     * quotes, so that a slightly brighter strip is still read as a quote and a slightly dimmer name
-     * is still read as a name.
+     * <p>Set between the quotes at 180 and the sender lines at 192. That is a narrower gap than it
+     * looks, which is why the reader checks a row for a sender line before asking this: losing an
+     * author is worse than missing a quote, so the question is only put about rows that are not
+     * names.
      */
-    private static final int QUOTE_MAX_INK = 180;
+    private static final int QUOTE_MAX_INK = 186;
 
     /** Bright enough to be a glyph rather than the panel behind it. */
     private static final int INK_THRESHOLD = 140;
@@ -81,14 +82,13 @@ final class ChatQuoteBar {
         if (ink.size() < MIN_INK_PIXELS) {
             return false;
         }
-        // The brightest tenth, because the edges of a white glyph are as dim as a grey one's middle
-        // and averaging the whole stroke buries the difference this depends on.
-        ink.sort(java.util.Collections.reverseOrder());
-        int take = Math.max(1, (int) (ink.size() * BRIGHTEST_SHARE));
-        long total = 0;
-        for (int i = 0; i < take; i++) {
-            total += ink.get(i);
-        }
-        return total / (double) take < QUOTE_MAX_INK;
+        // The middle of the ink, not the brightest of it. The brightest tenth was the first thing
+        // tried and it only works on a quote with no mention in it: the game draws a mention at
+        // full strength even inside a quote, so a quoted reply carrying one peaks at 249 and is
+        // indistinguishable from ordinary writing. The median is not moved by those few bright
+        // pixels -- measured across frames, quotes sit at 172-180 whether or not they carry a
+        // mention, sender lines at 192, and message text at 218-222.
+        java.util.Collections.sort(ink);
+        return ink.get(ink.size() / 2) < QUOTE_MAX_INK;
     }
 }
