@@ -29,6 +29,8 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
     private ComboBox<Integer> comboBoxChatFrequency;
     @FXML
     private ComboBox<String> comboBoxChatMode;
+    @FXML
+    private ComboBox<Integer> comboBoxChatFrameCache;
 
     @FXML
     private void initialize() {
@@ -52,7 +54,30 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
         comboBoxChatMode.setButtonCell(modeCell());
         comboBoxMappings.put(comboBoxChatMode, ConfigurationKeyEnum.CHAT_CAPTURE_MODE_STRING);
 
+        // Off first, and off by default. This writes pictures of the profile's chat to disk, which
+        // is a thing somebody should choose rather than find out about.
+        comboBoxChatFrameCache.getItems().addAll(0, 100, 250, 500, 1000);
+        comboBoxChatFrameCache.setCellFactory(lv -> megabytesCell());
+        comboBoxChatFrameCache.setButtonCell(megabytesCell());
+        comboBoxMappings.put(comboBoxChatFrameCache, ConfigurationKeyEnum.CHAT_FRAME_CACHE_MB_INT);
+
         initializeChangeEvents();
+    }
+
+    /** Reads the budget as a size, and zero as what it means rather than as "0 MB". */
+    private ListCell<Integer> megabytesCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(Integer item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    setText(item == 0 ? "Don't keep any" : item + " MB (about " + item * 5 / 2
+                            + " screens)");
+                }
+            }
+        };
     }
 
     private ListCell<Integer> minutesCell() {

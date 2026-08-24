@@ -250,6 +250,9 @@ public class ChatCaptureRoutine extends DelayedTask {
                 profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSLATE_TO_ENGLISH_BOOL, Boolean.class));
         translator = new ChatTranslator(translate, TRANSLATION_CACHE_SIZE);
         store = new ChatTranscriptStore(baseDir(), ZoneId.systemDefault());
+        Integer cacheMb = profile.getConfig(ConfigurationKeyEnum.CHAT_FRAME_CACHE_MB_INT,
+                Integer.class);
+        frameCache = new ChatFrameCache(baseDir(), cacheMb == null ? 0 : cacheMb);
         paddle = new dev.frostguard.vision.ocr.PaddleOcrClient(PADDLE_HOST, PADDLE_PORT);
     }
 
@@ -394,6 +397,7 @@ public class ChatCaptureRoutine extends DelayedTask {
             }
 
             ChatPass.Screen screen = pass.addScreen(frame, image, lines, fromService);
+            cacheFrame(channel, i, image);
             logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + scrollBack
                     + ": " + screen.lines() + " line(s), " + screen.readable() + " readable, "
                     + screen.fresh() + " new.");
@@ -414,6 +418,28 @@ public class ChatCaptureRoutine extends DelayedTask {
 
     /** Three letters in a row is a word; anything less is the reader guessing at shapes. */
     private static final int LETTERS_THAT_MAKE_A_WORD = 3;
+
+    /**
+     * Files a screen that read cleanly, when the profile asked for a cache.
+     *
+     * <p>Separate from {@link #keepUnstoredFrame}, which is evidence of a failure and is always
+     * written. This is the opposite case -- the frame was read, so it is not needed -- kept only
+     * because reading it again later is otherwise impossible.
+     */
+    private void cacheFrame(String channel, int scrollIndex, BufferedImage image) {
+        if (frameCache == null || !frameCache.isOn()) {
+            return;
+        }
+        try {
+            frameCache.keep(channel, scrollIndex, image);
+        } catch (ChatFrameCache.UncheckedFrameCacheFailure e) {
+            // A cache that cannot write is a cache that is not there; the rows are already stored.
+            logWarning("ChatCaptureRoutine | Could not cache the frame: " + e.getMessage());
+        }
+    }
+
+    /** Keeps the last few hundred megabytes of read screens, when the profile asked for it. */
+    private ChatFrameCache frameCache;
 
     /**
      * Keeps a frame whose rows could not be stored.

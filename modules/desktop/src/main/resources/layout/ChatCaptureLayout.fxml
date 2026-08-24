@@ -66,6 +66,15 @@
                     <Label styleClass="task-card-note" wrapText="true"
                            text="Applied during capture, not just tagged for later: a message with no letters or digits in it (just an emoji or sticker) is dropped before saving." />
 
+                    <Separator style="-fx-opacity: 0.25;" />
+
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Keep screens" minWidth="140" />
+                        <ComboBox fx:id="comboBoxChatFrameCache" prefWidth="220.0" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="Screens are read and thrown away, so nothing is written to disk unless you set a figure here. Keeping some lets a capture be read again later without waiting for the alliance to repeat itself - useful if the reader misses something and you want it retried. These are pictures of your chat: the oldest are deleted once the figure is reached." />
+
                 </VBox>
             </VBox>
 
