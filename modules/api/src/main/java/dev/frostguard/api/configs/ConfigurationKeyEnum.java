@@ -556,7 +556,12 @@ public enum ConfigurationKeyEnum {
 
     // Hides game-generated chatter -- recalled messages, shared layouts and coordinates, rally and
     // formation cards -- so the transcript is the conversation rather than the event feed.
-    CHAT_HIDE_GAME_CHATTER_BOOL         ("true",            Boolean.class,  ConfigCategory.SYSTEM);
+    CHAT_HIDE_GAME_CHATTER_BOOL         ("true",            Boolean.class,  ConfigCategory.SYSTEM),
+
+    // Megabytes of already-read screens to keep, so a pass can be read again without waiting for
+    // the alliance to repeat itself. Zero writes nothing: this saves pictures of a person's chat to
+    // their disk, which somebody should choose rather than discover.
+    CHAT_FRAME_CACHE_MB_INT             ("0",               Integer.class,  ConfigCategory.SYSTEM);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.
