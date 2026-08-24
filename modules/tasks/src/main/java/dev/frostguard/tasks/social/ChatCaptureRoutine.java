@@ -344,6 +344,7 @@ public class ChatCaptureRoutine extends DelayedTask {
     private int captureChannel(String channel, PointData tab) {
         tapNear(tab);
         sleepTask(1000L);
+        foldPinnedCard(channel);
 
         // Keyed on the message body so the same line seen on overlapping screens is held once.
         // Asked once per pass rather than per screen: if it is down it will still be down in four
@@ -364,6 +365,8 @@ public class ChatCaptureRoutine extends DelayedTask {
         int cap = Math.max(scrollBack, SAFETY_SCREEN_LIMIT);
         int used = 0;
         boolean finished = false;
+        BufferedImage previous = null;
+        int stalled = 0;
 
         try {
         for (int i = 0; i < cap; i++) {
@@ -430,6 +433,23 @@ public class ChatCaptureRoutine extends DelayedTask {
                 finished = true;
                 break;
             }
+            // A screen that finds nothing new is normally the walk catching up with itself. It is
+            // also exactly what a feed that refused to move looks like, and the two were
+            // indistinguishable until a pinned poll ate the drag and a whole pass photographed one
+            // screen ninety-two times while reporting success.
+            if (previous != null && screen.fresh() == 0 && !feedMoved(previous, image)) {
+                stalled++;
+                if (stalled >= STALLED_SCREENS_BEFORE_GIVING_UP) {
+                    logWarning("ChatCaptureRoutine | " + channel + ": the feed is not scrolling --"
+                            + " something is sitting on top of it and swallowing the drag. Giving"
+                            + " up on this channel rather than reading one screen repeatedly.");
+                    finished = true;
+                    break;
+                }
+            } else {
+                stalled = 0;
+            }
+            previous = image;
             swipeUpThroughHistory();
         }
 
@@ -452,6 +472,113 @@ public class ChatCaptureRoutine extends DelayedTask {
 
     /** Three letters in a row is a word; anything less is the reader guessing at shapes. */
     private static final int LETTERS_THAT_MAKE_A_WORD = 3;
+
+    /**
+     * Whether the feed actually moved between two screens.
+     *
+     * <p>Compared on the message column alone. The rest of the screen carries animation -- falling
+     * snow, a flickering brazier, a countdown -- that changes on every frame whether or not
+     * anything scrolled, so a whole-screen comparison always says yes.
+     */
+    private static boolean feedMoved(BufferedImage before, BufferedImage after) {
+        int changed = 0;
+        int looked = 0;
+        // Every fourth pixel in each direction. The question is whether the picture moved, which
+        // does not need every pixel to answer, and this runs between two screenshots.
+        for (int y = FEED_TOP; y < FEED_BOTTOM && y < after.getHeight(); y += 4) {
+            for (int x = TEXT_COLUMN_LEFT; x < TEXT_COLUMN_RIGHT && x < after.getWidth(); x += 4) {
+                looked++;
+                int a = before.getRGB(x, y);
+                int b = after.getRGB(x, y);
+                if (Math.abs(((a >> 16) & 0xFF) - ((b >> 16) & 0xFF)) > CHANNEL_NOISE
+                        || Math.abs(((a >> 8) & 0xFF) - ((b >> 8) & 0xFF)) > CHANNEL_NOISE
+                        || Math.abs((a & 0xFF) - (b & 0xFF)) > CHANNEL_NOISE) {
+                    changed++;
+                }
+            }
+        }
+        return looked > 0 && changed / (double) looked >= MOVED_SHARE;
+    }
+
+    /** Below this a difference is compression noise, not a different picture. */
+    private static final int CHANNEL_NOISE = 12;
+
+    /**
+     * How much of the message column has to differ before the feed counts as having moved.
+     *
+     * <p>A real scroll changes about a third of it. A stalled one changes almost nothing -- only a
+     * ticking countdown inside a pinned card -- so this sits far below the first and well above the
+     * second.
+     */
+    private static final double MOVED_SHARE = 0.05;
+
+    /** Two screens that did not move is a stuck feed, not a slow one. */
+    private static final int STALLED_SCREENS_BEFORE_GIVING_UP = 2;
+
+    /**
+     * Folds the alliance poll away, if one is pinned above the feed.
+     *
+     * <p>The poll is not merely in the way. It is pinned across the top of the feed, and the drag
+     * that scrolls chat starts inside it -- so with a poll up, the drag does nothing at all. The
+     * walk then photographs the same screen for its whole run, finds nothing new after the first,
+     * and reports that it reached already-captured history. It looks exactly like a quiet channel,
+     * and polls run for hours.
+     *
+     * <p>Folding it is a tap on the poll's own collapse control, which leaves the card as a badge
+     * in the corner. It does not cast a vote: measured across the tap, the card's participant count
+     * kept its "Have Not Participated" label and only moved as other players voted.
+     *
+     * <p>Checked by whether the feed actually changed. A tap that hit nothing leaves the screen
+     * alone, and there is nothing to be done about that here -- but the scroll check below will
+     * catch what it costs.
+     */
+    private void foldPinnedCard(String channel) {
+        RawImageData before = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (before == null || !before.isValid() || !hasPinnedCard(before)) {
+            return;
+        }
+        tapNear(POLL_COLLAPSE);
+        sleepTask(1200L);
+        logInfo("ChatCaptureRoutine | " + channel + ": folded the pinned poll away so the feed"
+                + " can scroll.");
+    }
+
+    /** Whether the band above the feed is carrying the poll rather than messages. */
+    private boolean hasPinnedCard(RawImageData frame) {
+        try {
+            List<TextLine> rows = OcrEngine.recognizeLines(frame,
+                    new PointData(CARD_LEFT, CARD_TOP), new PointData(CARD_RIGHT, CARD_BOTTOM),
+                    CHAT_TEXT_SETTINGS);
+            for (TextLine row : rows) {
+                if (POLL_CARD.matcher(row.text()).find()) {
+                    return true;
+                }
+            }
+        } catch (OcrException e) {
+            // Not being able to tell means leaving it alone, which is what happened before this
+            // existed. A tap made on a guess would be a tap on somebody's vote.
+            logWarning("ChatCaptureRoutine | Could not check for a pinned poll: " + e.getMessage());
+        }
+        return false;
+    }
+
+    /** The poll's own collapse control, at the bottom right of the card. */
+    private static final PointData POLL_COLLAPSE = new PointData(660, 422);
+
+    /** The band the poll occupies when it is pinned. */
+    private static final int CARD_LEFT = 20;
+    private static final int CARD_TOP = 255;
+    private static final int CARD_RIGHT = 710;
+    private static final int CARD_BOTTOM = 470;
+
+    /**
+     * The poll's wording, which is what identifies it.
+     *
+     * <p>Its own labels rather than its colour or position: the card is drawn where a message could
+     * be, and a player quoting the poll would match a looser test.
+     */
+    private static final java.util.regex.Pattern POLL_CARD = java.util.regex.Pattern.compile(
+            "(?i)initiator|participants|vote in|single selection|have not particip");
 
     /**
      * Files a screen that read cleanly, when the profile asked for a cache.
