@@ -17,7 +17,7 @@
  */
 .chat-root {
     -fx-body:        #dbdee1;   /* what somebody wrote */
-    -fx-muted:       #8a919b;   /* timestamps, the original under a translation */
+    -fx-muted:       #8a919b;   /* timestamps and the alliance label */
     -fx-quote:       #a0a6b0;   /* the message being replied to */
     -fx-rule:        #3f4248;   /* hairlines and accent bars */
     -fx-panel:       #2b2d31;   /* a block that needs its own ground */
@@ -30,22 +30,35 @@
 
 /* ── a message ─────────────────────────────────────────────────────────────────────────────── */
 
-.chat-row {
-    -fx-padding: 5 12 5 12;
+/* One card per message, with a bar in the author's colour down its left edge.
+ *
+ * Messages used to be bare rows, and consecutive ones from the same person shared a single name --
+ * which saved a little height and cost the thing the panel exists for. A block of text with no name
+ * on it cannot be scanned for who said it, and "who is talking" is the first question anyone asks
+ * of a transcript. Every message carries its own name and time now.
+ */
+.chat-card {
+    -fx-background-color: #24272c;
+    -fx-background-radius: 10;
+    -fx-border-color: #31353b;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 0;
 }
 
-/* Messages from one person in a row read as one turn in the conversation, so only the first
- * carries a name and the rest sit under it with the same left edge. */
-.chat-row-grouped {
-    -fx-padding: 0 12 3 12;
+.chat-card:hover {
+    -fx-background-color: #292d33;
 }
 
-/* Hovering a message tints its whole row, which is the cheapest way to make a dense list
- * scannable -- the eye gets a line to follow without any rules being drawn between messages. */
-.chat-row:hover,
-.chat-row-grouped:hover {
-    -fx-background-color: #262a2f;
-    -fx-background-radius: 6;
+/* The author's colour, carried down the edge of their message. */
+.chat-gutter {
+    -fx-min-width: 3;
+    -fx-pref-width: 3;
+    -fx-max-width: 3;
+}
+
+.chat-card-body {
+    -fx-padding: 8 13 9 12;
 }
 
 .chat-author {
@@ -75,37 +88,24 @@
     -fx-font-size: 20px;
 }
 
-/* The source text under a machine translation. Present so a reader who speaks the language can
- * check the rendering, quiet so it does not compete with it. */
-.chat-original {
-    -fx-fill: -fx-muted;
-    -fx-font-size: 11px;
-}
-
 /* ── the message being replied to ───────────────────────────────────────────────────────────
  * A quote is context, not something this player said, so it is set above the reply, dimmer, and
  * behind an accent bar -- the shape a reader already knows from every chat client.
  */
+/* A quote and a long message were both grey rounded boxes, so the feed gave no way to tell
+ * something a player wrote from something they were answering. They are now opposites: a quote is
+ * INSET -- no ground of its own, a thick coloured bar down its left, text dimmer and smaller -- and
+ * a long message is RAISED, a panel with a ground and a border and no bar. */
 .chat-quote {
-    -fx-background-color: #26282c;
-    -fx-background-radius: 0 6 6 0;
-    -fx-border-color: transparent transparent transparent #5a6172;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent transparent #6b7a99;
     -fx-border-width: 0 0 0 3;
-    -fx-border-radius: 0 6 6 0;
-    -fx-padding: 4 8 4 8;
+    -fx-padding: 0 0 0 8;
 }
 
 .chat-quote-text {
     -fx-fill: -fx-quote;
-    -fx-font-size: 11.5px;
-}
-
-/* Who is being quoted, so the eye can tell a reply to one person from a reply to another
- * without reading the whole strip. */
-.chat-quote-who {
-    -fx-fill: -fx-quote;
-    -fx-font-size: 11.5px;
-    -fx-font-weight: bold;
+    -fx-font-size: 11px;
 }
 
 /* ── a long message ─────────────────────────────────────────────────────────────────────────
@@ -120,6 +120,39 @@
     -fx-border-radius: 8;
     -fx-border-width: 1;
     -fx-padding: 8 10 8 10;
+}
+
+/* The word "replying to" ahead of the quote. The bar alone said "this is set apart" without saying
+ * why, and a reader scanning the feed had to work out the relationship from the text. */
+/* "REPLYING TO" ahead of the quote. The bar alone said "this is set apart" without saying why,
+ * and the reader had to work the relationship out from the words. */
+.chat-reply-marker {
+    -fx-fill: #5f6b80;
+    -fx-font-size: 9px;
+    -fx-font-weight: bold;
+}
+
+/* The name being answered, lighter than the quoted words so it reads first. */
+.chat-quote-who {
+    -fx-fill: #b6bdc9;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+/* Folds a pasted strategy dump down to a few lines. One player's copy-paste runs to five lines
+ * and buries the conversation either side of it; folded, it is still there to open. */
+.chat-more {
+    -fx-text-fill: #6b7a99;
+    -fx-font-size: 9.5px;
+    -fx-font-weight: bold;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 2 0 0 0;
+    -fx-cursor: hand;
+}
+
+.chat-more:hover {
+    -fx-text-fill: #8ba3c9;
 }
 
 /* ── people ─────────────────────────────────────────────────────────────────────────────────

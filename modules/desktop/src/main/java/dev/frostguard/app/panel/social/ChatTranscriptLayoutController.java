@@ -174,14 +174,9 @@ public class ChatTranscriptLayoutController {
             return;
         }
 
-        String previousAuthor = null;
-        String previousChannel = null;
         for (ChatMessage m : messages) {
             String author = m.author().isBlank() ? "unknown" : m.author();
-            boolean grouped = author.equals(previousAuthor) && m.channel().equals(previousChannel);
-            messageList.getChildren().add(grouped ? groupedRow(m) : leadRow(m, author));
-            previousAuthor = author;
-            previousChannel = m.channel();
+            messageList.getChildren().add(card(m, author));
         }
 
         statusLabel.setText(sizeLine(messages.size()));
@@ -199,105 +194,111 @@ public class ChatTranscriptLayoutController {
         }
     }
 
-    private HBox leadRow(ChatMessage m, String author) {
-        HBox header = new HBox(8);
-        header.setAlignment(Pos.BASELINE_LEFT);
+    /**
+     * One message as a card, with a bar in the author's colour down its left edge.
+     *
+     * <p>Every message carries its own name and time. Consecutive messages from one person used to
+     * share a single name, which saved a little height and cost the thing the panel exists for: a
+     * block of text with no name on it cannot be scanned for who said it, and that is the first
+     * question anyone asks of a transcript.
+     */
+    private HBox card(ChatMessage m, String author) {
+        Region gutter = new Region();
+        gutter.getStyleClass().add("chat-gutter");
+        gutter.setStyle("-fx-background-color: " + colourFor(author) + ";");
+
+        VBox content = new VBox(3);
+        content.getStyleClass().add("chat-card-body");
+        content.setMaxWidth(Double.MAX_VALUE);
+        content.setFillWidth(true);
+        HBox.setHgrow(content, Priority.ALWAYS);
+
+        content.getChildren().add(header(m, author));
+        if (m.hasQuote()) {
+            content.getChildren().add(quoteNode(m.quoted()));
+        }
+        content.getChildren().add(bodyNode(m));
+
+        HBox row = new HBox(gutter, content);
+        row.getStyleClass().add("chat-card");
+        // Without this the card is only ever as wide as the text it happens to hold: a box's
+        // maximum defaults to its computed size, so it never grows into the space beside it and
+        // the message wraps into a narrow column with the rest of the panel left empty.
+        row.setMaxWidth(Double.MAX_VALUE);
+        return row;
+    }
+
+    private HBox header(ChatMessage m, String author) {
+        HBox head = new HBox(7);
+        head.setAlignment(Pos.BASELINE_LEFT);
 
         Label name = new Label(author);
         name.getStyleClass().add("chat-author");
         // The colour is per-author and computed, so it stays in Java; everything else about the
         // name lives in the stylesheet.
         name.setStyle("-fx-text-fill: " + colourFor(author) + ";");
-        header.getChildren().add(name);
+        head.getChildren().add(name);
 
         if (!m.allianceTag().isBlank()) {
-            header.getChildren().add(chip(m.allianceTag()));
+            head.getChildren().add(chip(m.allianceTag()));
         }
 
-        Label channel = new Label(m.channel().toUpperCase(Locale.ROOT));
-        channel.getStyleClass().add("chat-channel");
+        // The time is pushed to the far edge by a spacer rather than laid beside the name, so it
+        // cannot end up sitting on top of the words when a name runs long.
+        Region gap = new Region();
+        HBox.setHgrow(gap, Priority.ALWAYS);
         Label time = new Label(TIME.format(m.capturedAt().atZone(ZoneId.systemDefault())));
         time.getStyleClass().add("chat-time");
-        header.getChildren().addAll(channel, time);
-
-        VBox content = new VBox(2, header, bodyNode(m));
-        content.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(content, Priority.ALWAYS);
-
-        // No avatar disc. A coloured circle carrying one letter of a name that is already written
-        // in full on the next line adds nothing to read.
-        HBox row = new HBox(10, content);
-        // Without this the row is only ever as wide as the text it happens to hold. A box's
-        // maximum defaults to its computed size, so it never grows into the space beside it, and
-        // the message wraps into a narrow column with the rest of the panel left empty.
-        row.setMaxWidth(Double.MAX_VALUE);
-        row.getStyleClass().add("chat-row");
-        return row;
-    }
-
-    private HBox groupedRow(ChatMessage m) {
-        // Grouped messages used to indent past the avatar column; with no avatar there is nothing
-        // to clear, so they line up with the message above them.
-        Region spacer = new Region();
-        spacer.setMinWidth(0);
-        spacer.setPrefWidth(0);
-
-        VBox content = new VBox(bodyNode(m));
-        content.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(content, Priority.ALWAYS);
-
-        HBox row = new HBox(10, spacer, content);
-        row.setMaxWidth(Double.MAX_VALUE);
-        row.getStyleClass().add("chat-row-grouped");
-        return row;
+        head.getChildren().addAll(gap, time);
+        head.setMaxWidth(Double.MAX_VALUE);
+        return head;
     }
 
     /**
-     * The message body: the quote it answers, what was said, and the source under a translation.
+     * The message body: what was said, folded if it is a wall of it.
      *
-     * <p>A reader who speaks the language should not have to take the machine's word for it, and a
-     * bad rendering is obvious when its source sits beside it.
+     * <p>English only. The source text used to sit under every translation, and at a glance it read
+     * as a second person talking rather than the same message twice. Nobody reading this speaks
+     * every language in the alliance, which is the whole reason the translation is there.
      */
     private VBox bodyNode(ChatMessage m) {
-        VBox box = new VBox(3);
+        VBox box = new VBox(2);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setFillWidth(true);
 
-        // The quote goes above the reply, the way a chat client shows it, so it reads as context
-        // rather than as part of what this player said. Behind an accent bar and dimmer, because
-        // a reader scanning the feed needs to skip it as easily as read it.
-        if (m.hasQuote()) {
-            box.getChildren().add(quoteNode(m.quoted()));
-        }
+        String shown = m.displayBody();
+        box.getChildren().add(flowFor(shown, m));
 
-        TextFlow flow = withMentions(m.displayBody(), bodyClass(m));
-        flow.setMaxWidth(Double.MAX_VALUE);
-
-        // A long message given a ground of its own reads as one object that can be stopped at or
-        // skipped. Set as loose text it swallows the messages either side of it, which is what an
-        // alliance call running to a hundred words was doing to the whole afternoon around it.
-        if (m.displayBody().length() >= BLOCK_LENGTH) {
-            VBox block = new VBox(flow);
-            block.getStyleClass().add("chat-block");
-            block.setMaxWidth(Double.MAX_VALUE);
-            block.setFillWidth(true);
-            box.getChildren().add(block);
-        } else {
-            box.getChildren().add(flow);
-        }
-
-        if (!m.translated().isBlank()) {
-            Text original = new Text(m.body());
-            original.getStyleClass().add("chat-original");
-            TextFlow originalFlow = new TextFlow(original);
-            originalFlow.setMaxWidth(Double.MAX_VALUE);
-            box.getChildren().add(originalFlow);
+        // A pasted strategy dump is one player's copy-paste and runs to five lines, burying the
+        // conversation either side of it. Folded, it is still there to open.
+        if (shown.length() > FOLD_LENGTH) {
+            box.getChildren().set(0, flowFor(fold(shown), m));
+            Label more = new Label(SHOW_MORE);
+            more.getStyleClass().add("chat-more");
+            more.setOnMouseClicked(e -> {
+                boolean folded = SHOW_MORE.equals(more.getText());
+                box.getChildren().set(0, flowFor(folded ? shown : fold(shown), m));
+                more.setText(folded ? SHOW_LESS : SHOW_MORE);
+            });
+            box.getChildren().add(more);
         }
         return box;
     }
 
-    /** Past this a message is a block rather than a line, and is given its own ground. */
-    private static final int BLOCK_LENGTH = 180;
+    private TextFlow flowFor(String text, ChatMessage m) {
+        TextFlow flow = withMentions(text, bodyClass(m), m.mentions());
+        flow.setMaxWidth(Double.MAX_VALUE);
+        return flow;
+    }
+
+    private static String fold(String text) {
+        return text.substring(0, FOLD_LENGTH).trim() + "\u2026";
+    }
+
+    /** Past this a message is a wall of text and is folded. */
+    private static final int FOLD_LENGTH = 260;
+    private static final String SHOW_MORE = "SHOW MORE";
+    private static final String SHOW_LESS = "SHOW LESS";
 
     private static String bodyClass(ChatMessage m) {
         return switch (m.kind()) {
@@ -308,24 +309,32 @@ public class ChatTranscriptLayoutController {
     }
 
     /**
-     * The message being replied to, with the name it belongs to picked out.
+     * The message being replied to, named and set behind a bar.
      *
-     * <p>The game writes a quote as "Name: what they said". Setting the name apart lets a reader
-     * tell a reply to one person from a reply to another without reading the strip.
+     * <p>The game writes a quote as "Name: what they said". Saying "replying to" outright, and
+     * setting the name apart from the words, lets a reader tell a reply to one person from a reply
+     * to another without reading the strip. It sits under the header rather than above it --
+     * emitted first, the person being quoted read as the person speaking, which is the single
+     * thing that made the panel hardest to follow.
      */
     private VBox quoteNode(String quoted) {
-        int colon = quoted.indexOf(':');
         TextFlow flow = new TextFlow();
+        Text marker = new Text("REPLYING TO  ");
+        marker.getStyleClass().add("chat-reply-marker");
+        flow.getChildren().add(marker);
+
+        int colon = quoted.indexOf(':');
         if (colon > 0 && colon < MAX_QUOTED_NAME) {
-            Text who = new Text(quoted.substring(0, colon + 1) + " ");
+            Text who = new Text(quoted.substring(0, colon).trim() + "  ");
             who.getStyleClass().add("chat-quote-who");
             flow.getChildren().add(who);
             flow.getChildren().addAll(mentionParts(quoted.substring(colon + 1).trim(),
-                    "chat-quote-text"));
+                    "chat-quote-text", List.of()));
         } else {
-            flow.getChildren().addAll(mentionParts(quoted, "chat-quote-text"));
+            flow.getChildren().addAll(mentionParts(quoted, "chat-quote-text", List.of()));
         }
         flow.setMaxWidth(Double.MAX_VALUE);
+
         VBox wrap = new VBox(flow);
         wrap.getStyleClass().add("chat-quote");
         wrap.setMaxWidth(Double.MAX_VALUE);
@@ -337,8 +346,8 @@ public class ChatTranscriptLayoutController {
     private static final int MAX_QUOTED_NAME = 24;
 
     /** A line of text with the people in it picked out from the words around them. */
-    private TextFlow withMentions(String body, String bodyStyle) {
-        return new TextFlow(mentionParts(body, bodyStyle).toArray(Text[]::new));
+    private TextFlow withMentions(String body, String bodyStyle, List<String> named) {
+        return new TextFlow(mentionParts(body, bodyStyle, named).toArray(Text[]::new));
     }
 
     /**
@@ -349,21 +358,22 @@ public class ChatTranscriptLayoutController {
      * whole alliance gets its own colour because the game draws it as its own thing, and a
      * transcript that flattens the two loses the difference between a broadcast and a reply.
      */
-    private java.util.List<Text> mentionParts(String body, String bodyStyle) {
+    private java.util.List<Text> mentionParts(String body, String bodyStyle, List<String> named) {
         java.util.List<Text> parts = new java.util.ArrayList<>();
         java.util.regex.Matcher m = MENTION.matcher(body);
         int at = 0;
         while (m.find()) {
+            String name = longestNamed(body, m.start(), m.group(), named);
             if (m.start() > at) {
                 Text plain = new Text(body.substring(at, m.start()));
                 plain.getStyleClass().add(bodyStyle);
                 parts.add(plain);
             }
-            Text mention = new Text(m.group());
-            mention.getStyleClass().add(m.group().equalsIgnoreCase("@All")
+            Text mention = new Text(name);
+            mention.getStyleClass().add(name.equalsIgnoreCase("@All")
                     ? "chat-mention-all" : "chat-mention");
             parts.add(mention);
-            at = m.end();
+            at = m.start() + name.length();
         }
         if (at < body.length()) {
             Text tail = new Text(body.substring(at));
@@ -378,9 +388,31 @@ public class ChatTranscriptLayoutController {
         return parts;
     }
 
-    /** A name the game wrote with an "@" in front of it, including the few that carry a space. */
+    /**
+     * How far a mention actually runs.
+     *
+     * <p>Some players' names carry a space, so a mention cannot simply stop at the first one --
+     * but nor can it always take the next capitalised word, which turned {@code "@Martinn No
+     * worries"} into a mention of somebody called "Martinn No". The message already knows who it
+     * named, parsed where the sender lines were available to check against, so the answer is looked
+     * up rather than guessed: the longest name this message actually mentions wins, and where none
+     * matches the mention is the one word.
+     */
+    private static String longestNamed(String body, int start, String oneWord,
+            List<String> named) {
+        String best = oneWord;
+        for (String name : named) {
+            String at = "@" + name;
+            if (at.length() > best.length() && body.regionMatches(true, start, at, 0, at.length())) {
+                best = body.substring(start, start + at.length());
+            }
+        }
+        return best;
+    }
+
+    /** A name the game wrote with an "@" in front of it: one word unless the roster says longer. */
     private static final java.util.regex.Pattern MENTION = java.util.regex.Pattern.compile(
-            "@[A-Za-z0-9_.-]{2,16}(?: [A-Z][A-Za-z0-9_.-]{1,12})?");
+            "@[A-Za-z0-9_.-]{2,16}");
 
     private Label chip(String text) {
         Label chip = new Label(text);
