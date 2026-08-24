@@ -204,6 +204,26 @@ public final class ChatLineCleaner {
      * Short messages now rely on the diacritic and script checks, which need no word evidence.
      */
     private static final int MIN_WORDS_TO_JUDGE = 5;
+
+    /** How much English structure a short message has to show before it is left untranslated. */
+    private static final int MIN_ENGLISH_WORDS_WHEN_SHORT = 2;
+
+    /**
+     * English's own grammar, as opposed to its vocabulary.
+     *
+     * <p>Articles, pronouns, auxiliaries and prepositions. These are the words a language does not
+     * borrow: an alliance writing Spanish still says "rally" and "gg", but it does not say "the" or
+     * "have". That is what makes them the evidence worth counting -- and it is deliberately
+     * narrower than {@link #COMMON_ENGLISH}, which stays as it is for other callers.
+     */
+    private static final java.util.Set<String> ENGLISH_STRUCTURE = java.util.Set.of(
+            "the", "is", "are", "was", "were", "been", "have", "has", "had", "having", "does",
+            "did", "doing", "dont", "cant", "wont", "im", "ive", "youre", "its", "of", "to", "and",
+            "that", "for", "with", "this", "these", "those", "they", "you", "your", "yours", "his",
+            "her", "hers", "him", "them", "their", "she", "what", "when", "why", "how", "who",
+            "which", "there", "would", "could", "should", "about", "from", "but", "not", "will",
+            "just", "than", "then", "because", "into", "only", "also", "any", "much", "many",
+            "more", "our", "ours", "whose", "while", "after", "before", "still", "every");
     private static final Pattern REPEATED_SPACE = Pattern.compile("\\s{2,}");
 
     private ChatLineCleaner() {
@@ -684,7 +704,12 @@ public final class ChatLineCleaner {
         while (m.find()) {
             words.add(m.group());
         }
-        long known = words.stream().filter(COMMON_ENGLISH::contains).count();
+        // Counted against English's own structure rather than its vocabulary. The wider list holds
+        // the game's jargon -- "rally", "gg", "join", "ready", "afk" -- and every language in the
+        // alliance borrows those verbatim, so they are evidence of playing this game, not of
+        // writing English. "Llenen los rally abiertos" is four Spanish words and one loanword, and
+        // that loanword was enough to call it English and never translate it.
+        long known = words.stream().filter(ENGLISH_STRUCTURE::contains).count();
         // Under the ratio's reach, English has to be shown rather than assumed. Returning true here
         // -- which is what this did -- meant no short foreign message was ever translated: measured
         // against a live day's transcript, "Hay evento horita ?", "Felicidades!" and "Ola" were all
@@ -692,7 +717,12 @@ public final class ChatLineCleaner {
         // The accent that would have settled it is exactly what the reader drops, so "Olá" arrives
         // as pure ASCII "Ola" and falls in here too.
         if (words.size() < MIN_WORDS_TO_JUDGE) {
-            return known > 0;
+            // Two, not one. A single structural word can turn up by chance in another language --
+            // Dutch and German share several outright -- and the cost of the two calls is not
+            // symmetric. Sending English text returns it unchanged and is discarded a line below;
+            // failing to send foreign text leaves it in the transcript in a language the reader
+            // does not speak, which is the one thing the translation is there to prevent.
+            return known >= MIN_ENGLISH_WORDS_WHEN_SHORT;
         }
         return (known / (double) words.size()) >= ENGLISH_WORD_RATIO;
     }
