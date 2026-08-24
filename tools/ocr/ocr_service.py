@@ -66,8 +66,13 @@ def reader(lang: str) -> PaddleOCR:
             # Bigger is not better here -- the crop is 568x910, and past four threads the work is
             # too small to divide, so eight and sixteen both measured slower than two.
             cpu_threads=CPU_THREADS,
+            # The detector is language-agnostic -- it finds where text is, not what it says -- so it
+            # is pinned for speed. The RECOGNISER must follow the language, and pinning it was a
+            # real bug: with the Latin recogniser named explicitly, asking for "ru" quietly kept
+            # reading Latin, so every Cyrillic message came back as lookalikes and the language
+            # setting appeared to do nothing at all.
             text_detection_model_name="PP-OCRv5_mobile_det",
-            text_recognition_model_name="PP-OCRv5_mobile_rec",
+            **({"text_recognition_model_name": "PP-OCRv5_mobile_rec"} if lang == "en" else {}),
         )
         print("loaded %s reader in %.1fs" % (lang, time.time() - started), flush=True)
     return _readers[lang]
@@ -96,24 +101,102 @@ async def ocr(request: Request,
     else:
         ox, oy = 0, 0
 
-    lines = []
-    for result in reader(lang).predict(np.array(image)):
-        for text, score, poly in zip(result["rec_texts"], result["rec_scores"],
-                                     result["rec_polys"]):
-            if not text.strip():
-                continue
-            xs = [int(p[0]) for p in poly]
-            ys = [int(p[1]) for p in poly]
-            lines.append({
-                "text": text,
-                "left": min(xs) + ox,
-                "top": min(ys) + oy,
-                "width": max(xs) - min(xs),
-                "height": max(ys) - min(ys),
-                "conf": round(float(score), 4),
-            })
+    # More than one language may be asked for at once, comma separated. Each model answers in the
+    # script it knows whether or not the screen was written in it -- shown Russian, the English
+    # model returns confident Latin lookalikes -- so neither answer can be trusted on its own. Asked
+    # together, the same row is read by each and the reading the model was surest of is kept, which
+    # is a comparison the reader itself supports and the previous engine never offered.
+    found = []
+    for one in [l.strip() for l in lang.split(",") if l.strip()]:
+        for result in reader(one).predict(np.array(image)):
+            for text, score, poly in zip(result["rec_texts"], result["rec_scores"],
+                                         result["rec_polys"]):
+                if not text.strip():
+                    continue
+                xs = [int(p[0]) for p in poly]
+                ys = [int(p[1]) for p in poly]
+                found.append({
+                    "text": text,
+                    "left": min(xs) + ox,
+                    "top": min(ys) + oy,
+                    "width": max(xs) - min(xs),
+                    "height": max(ys) - min(ys),
+                    "conf": round(float(score), 4),
+                    "lang": one,
+                })
+
+    lines = best_per_row(found)
     lines.sort(key=lambda line: (line["top"], line["left"]))
     return {"lines": lines}
+
+
+def overlaps(a, b):
+    """Whether two readings are of the same row.
+
+    Both models run the same detector, so the boxes for one row land in almost the same place; the
+    test is generous rather than exact because a row's box shifts a pixel or two with the glyphs
+    each model thinks it sees.
+    """
+    ay0, ay1 = a["top"], a["top"] + a["height"]
+    by0, by1 = b["top"], b["top"] + b["height"]
+    shared = min(ay1, by1) - max(ay0, by0)
+    if shared <= 0 or shared < 0.5 * min(a["height"], b["height"]):
+        return False
+    ax0, ax1 = a["left"], a["left"] + a["width"]
+    bx0, bx1 = b["left"], b["left"] + b["width"]
+    across = min(ax1, bx1) - max(ax0, bx0)
+    return across > 0 and across >= 0.5 * min(a["width"], b["width"])
+
+
+def mangled_words(text):
+    """How many words carry a capital in the middle of them.
+
+    This is what a reader does to a script it was not given. Half the Cyrillic alphabet has Latin
+    lookalikes, so an English model shown Russian returns "9 To>ke yKe nouTn Hayana" -- matching
+    letterforms one at a time, with no idea where a capital belongs. It does so *confidently*,
+    because the shapes really are those letters, which is why the score it reports cannot be used
+    to choose between two readings on its own.
+    """
+    odd = 0
+    for word in text.split():
+        if len(word) < 3 or word == word.upper():
+            continue
+        if any(c.isupper() for c in word[1:]):
+            odd += 1
+    return odd
+
+
+def better_reading(a, b):
+    """Which of two readings of the same row to keep.
+
+    Shape first, confidence second. Both models are sure of themselves; only one of them is
+    producing words.
+    """
+    if mangled_words(a["text"]) != mangled_words(b["text"]):
+        return a if mangled_words(a["text"]) < mangled_words(b["text"]) else b
+    return a if a["conf"] >= b["conf"] else b
+
+
+def best_per_row(found):
+    """One reading per row: whichever model produced words rather than letterforms."""
+    # Only readings from DIFFERENT models are ever compared. Two rows from the same model are two
+    # rows -- a wrapped bubble puts them close enough to overlap, and grouping them threw one away,
+    # which silently cost whole lines of every message that ran to a second line.
+    groups = []
+    for item in found:
+        for group in groups:
+            if all(g["lang"] != item["lang"] for g in group) and overlaps(group[0], item):
+                group.append(item)
+                break
+        else:
+            groups.append([item])
+    kept = []
+    for group in groups:
+        best = group[0]
+        for other in group[1:]:
+            best = better_reading(best, other)
+        kept.append(best)
+    return kept
 
 
 if __name__ == "__main__":
