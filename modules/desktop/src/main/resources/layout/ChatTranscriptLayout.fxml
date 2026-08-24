@@ -6,7 +6,8 @@
 <!-- Live transcript - the chat itself, laid out like a chat client. Drawn with ordinary controls
      rather than a browser view: javafx-web would carry WebKit natives, and this feature has to add
      no meaningful install size. -->
-<BorderPane maxHeight="Infinity" maxWidth="Infinity"
+<BorderPane maxHeight="Infinity" maxWidth="Infinity" styleClass="chat-root"
+            stylesheets="@chat.css"
             HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
             xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
 
