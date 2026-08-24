@@ -98,6 +98,8 @@ public final class ChatCorpusBench {
                             l.top(), l.bottom(), l.left(), l.right(), l.text());
                 }
             }
+            pass.useRereader(fromService ? (l, t, r, b, language) ->
+                    service.read(img, l, t, r, b, language, MIN_CONFIDENCE) : null);
             ChatPass.Screen screen = pass.addScreen(raw, img, lines, fromService);
             for (int i = known; i < known + screen.fresh(); i++) {
                 firstSeen.add(f.getName().replace(".png", ""));

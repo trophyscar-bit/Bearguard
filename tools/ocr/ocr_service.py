@@ -51,6 +51,19 @@ CPU_THREADS = 4
 _readers = {}
 
 
+# The recogniser each language needs, named rather than inferred.
+#
+# Letting PaddleOCR choose from the language code alone looked right and was not: asking for "ru"
+# built a reader that answered in Latin. Cyrillic came back as its Latin lookalikes -- "Bcem npnBet"
+# for a greeting -- which is not a failure anything downstream can see, because it is well-formed
+# Latin text that no language test can place and no translator can render. The East Slavic model
+# was on disk the whole time, downloaded and never used.
+RECOGNISERS = {
+    "en": {"text_recognition_model_name": "PP-OCRv5_mobile_rec"},
+    "ru": {"text_recognition_model_name": "eslav_PP-OCRv5_mobile_rec"},
+}
+
+
 def reader(lang: str) -> PaddleOCR:
     if lang not in _readers:
         started = time.time()
@@ -72,7 +85,7 @@ def reader(lang: str) -> PaddleOCR:
             # reading Latin, so every Cyrillic message came back as lookalikes and the language
             # setting appeared to do nothing at all.
             text_detection_model_name="PP-OCRv5_mobile_det",
-            **({"text_recognition_model_name": "PP-OCRv5_mobile_rec"} if lang == "en" else {}),
+            **RECOGNISERS.get(lang, {}),
         )
         print("loaded %s reader in %.1fs" % (lang, time.time() - started), flush=True)
     return _readers[lang]
