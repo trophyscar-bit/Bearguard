@@ -62,7 +62,12 @@ public final class ChatCorpusBench {
         java.io.PrintStream out = new java.io.PrintStream(System.out, true, "UTF-8");
         out.println("reader: " + (serviceUp ? "OCR service" : "built-in"));
 
-        ChatPass pass = new ChatPass("alliance", body -> Optional.empty(),
+        // The real translator, not a stub. Stubbing it made every message on the review page look
+        // untranslated, which is not what production stores and sent matt looking for a bug that
+        // was in the bench.
+        dev.frostguard.engine.chat.ChatTranslator translator =
+                new dev.frostguard.engine.chat.ChatTranslator(true, 512);
+        ChatPass pass = new ChatPass("alliance", translator::toEnglish,
                 latin, cjk, cyrillic, TEXT_COLUMN_RIGHT);
 
         // Which screen each message was first seen on, so a review page can show a message beside
@@ -76,7 +81,7 @@ public final class ChatCorpusBench {
             RawImageData raw = toRaw(img);
             List<TextLine> lines = serviceUp
                     ? service.read(img, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT, FEED_BOTTOM,
-                            "en", MIN_CONFIDENCE)
+                            System.getProperty("ocr.lang", "en"), MIN_CONFIDENCE)
                     : List.of();
             boolean fromService = !lines.isEmpty();
             if (lines.isEmpty()) {
