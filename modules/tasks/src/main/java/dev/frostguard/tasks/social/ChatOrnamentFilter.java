@@ -66,6 +66,8 @@ final class ChatOrnamentFilter {
     private static final double ALL_MENTION_MAX_HUE = 60.0;
     /** What the game means by that gold. */
     private static final String ALL_MENTION = "@All";
+    /** A mention of everyone is followed by the message it addresses to them. */
+    private static final int MIN_WORDS_AFTER_ALL = 2;
     /** Enough words that the row is a sentence rather than a piece of bubble. */
     private static final int MIN_WORDS_IN_A_SENTENCE_ROW = 4;
     /** How far left of the text column a fragment must sit to be outside it. */
@@ -102,6 +104,13 @@ final class ChatOrnamentFilter {
                 out.add(line);
                 continue;
             }
+            // The dimmer strip under a bubble is the message being replied to. It is kept as it
+            // reads, mentions and all, because it is shown as context rather than parsed as
+            // somebody's words -- and stripping its mentions made the context useless.
+            if (ChatQuoteBar.isQuoteRow(img, line)) {
+                out.add(line);
+                continue;
+            }
             List<TextLine> mine = wordsOn(line, words);
             if (mine.isEmpty()) {
                 out.add(line);
@@ -113,7 +122,12 @@ final class ChatOrnamentFilter {
             // was rewritten as "@All".
             boolean senderRow = ChatLineCleaner.parseSender(line.text()).trusted()
                     && !ChatLineCleaner.parseSender(line.text()).allianceTag().isEmpty();
-            List<TextLine> kept = dropOddGlyphs(dropEmoji(mine, img), frameWide, img, senderRow);
+            // Furniture goes first, then colour. A mention is kept because it opens the row, and an
+            // artifact sitting in front of it takes that position away: "N @AthenaRyu dekuji" had
+            // its mention dropped as though it were an emoji mid-sentence, because a one-character
+            // scrap of bubble was standing where the mention should have been. Removing the scrap
+            // before asking what opens the row puts the mention back.
+            List<TextLine> kept = dropEmoji(dropOddGlyphs(mine, frameWide, img, senderRow, textLeft), img);
             if (!senderRow) {
                 kept = dropOutsideTextColumn(kept, textLeft, img);
             }
@@ -335,7 +349,7 @@ final class ChatOrnamentFilter {
      * and there is nothing to gain from second-guessing it.
      */
     private static List<TextLine> dropOddGlyphs(List<TextLine> words, double frameWide,
-                                                BufferedImage img, boolean senderRow) {
+                                                BufferedImage img, boolean senderRow, int textLeft) {
         double normal = typicalGlyphWidth(words);
         if (normal <= 0) {
             normal = frameWide;
@@ -368,7 +382,15 @@ final class ChatOrnamentFilter {
             // player mention at 205.9. It is dropped rather than read because the reader cannot
             // make a word of it ("GA", "(DAI"), and because it is not a name there is no roster
             // entry to repair it from. So the colour says what it was and it is written back.
-            if (leading && !senderRow && isAllMentionColour(w, img)) {
+            // Gold at the head of a row is only "@All" when it is genuinely at the head of a
+            // message: sitting where the text column starts, with a message after it. Without
+            // those two conditions the gold crown drawn on the corner of a bubble was being read
+            // as a mention of the whole alliance -- one message was stored as nothing but "@All",
+            // and two others had it invented in front of what the player actually wrote.
+            boolean atTextStart = Math.abs(w.left() - textLeft) <= OUTSIDE_COLUMN_SLACK;
+            boolean somethingFollows = words.size() - words.indexOf(w) > MIN_WORDS_AFTER_ALL;
+            if (leading && !senderRow && atTextStart && somethingFollows
+                    && isAllMentionColour(w, img)) {
                 kept.add(new TextLine(ALL_MENTION, w.left(), w.top(), w.width(), w.height(),
                         w.confidence()));
             }
