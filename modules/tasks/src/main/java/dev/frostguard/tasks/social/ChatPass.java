@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
+import dev.frostguard.api.chat.ChatGarble;
 import dev.frostguard.api.chat.ChatLineCleaner;
 import dev.frostguard.api.chat.ChatMessage;
 import dev.frostguard.api.domain.OcrSettingsData;
@@ -136,19 +137,48 @@ final class ChatPass {
                 continue;
             }
             String repaired = ChatLineCleaner.repairLeadingMention(m.body(), roster);
-            if (repaired.equals(m.body())) {
-                out.add(m);
+            // What the reader could not actually read is worse than nothing: a fragment is
+            // indistinguishable from a player who types strangely, so it costs the reader trust in
+            // the lines either side of it as well as its own.
+            String legible = ChatGarble.repair(repaired);
+            if (legible.isBlank()) {
                 continue;
             }
-            // The English was made from the body as it read before the repair, so it carries the
-            // same wreckage. Repaired the same way rather than translated again.
-            String english = m.translated() == null || m.translated().isBlank()
-                    ? m.translated()
-                    : ChatLineCleaner.repairLeadingMention(m.translated(), roster);
-            out.add(m.withBody(repaired).withTranslated(english));
+            ChatMessage kept = legible.equals(m.body()) ? m : m.withBody(legible);
+            if (!legible.equals(m.body())) {
+                // The English was made from the body as it read before the repair, so it carries
+                // the same wreckage. Read again from the repaired text rather than patched.
+                kept = kept.withTranslated(translate.apply(legible).orElse(""));
+            }
+            out.add(englishQuote(kept));
         }
         return out;
     }
+
+    /**
+     * The message being replied to, in English.
+     *
+     * <p>A reply and the thing it answers are one exchange, and a reader who needs the reply
+     * translated needs the quote translated too -- otherwise the half of the conversation that
+     * explains the other half is the half they cannot read. The game writes a quote as
+     * "Name: what they said", and only the second part is language.
+     */
+    private ChatMessage englishQuote(ChatMessage m) {
+        if (!m.hasQuote()) {
+            return m;
+        }
+        String quote = ChatGarble.repair(m.quoted());
+        if (quote.isBlank()) {
+            return m.withQuoted("");
+        }
+        int colon = quote.indexOf(':');
+        String who = colon > 0 && colon < MAX_QUOTED_NAME ? quote.substring(0, colon + 1) : "";
+        String said = quote.substring(who.length()).strip();
+        return m.withQuoted(translate.apply(said).map(en -> (who + " " + en).strip()).orElse(quote));
+    }
+
+    /** Longer than this before a colon and it is a sentence, not the name being answered. */
+    private static final int MAX_QUOTED_NAME = 24;
 
     private List<TextLine> readWords(RawImageData frame) {
         try {

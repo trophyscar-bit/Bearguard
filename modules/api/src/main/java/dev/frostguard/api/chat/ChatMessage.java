@@ -56,6 +56,18 @@ public record ChatMessage(
                 english, mentions, kind, quoted);
     }
 
+    /**
+     * The same message with the quoted original replaced by its English rendering.
+     *
+     * <p>The quote is replaced rather than carried alongside its source, unlike the body. Nobody
+     * reading this speaks every language in the alliance, and a strip of untranslated text set
+     * above a translated reply is the one part of the exchange the reader cannot follow.
+     */
+    public ChatMessage withQuoted(String rewritten) {
+        return new ChatMessage(capturedAt, channel, author, allianceTag, vipLevel, body,
+                translated, mentions, kind, rewritten);
+    }
+
     /** The text a reader should see: the English rendering when there is one, else the original. */
     public String displayBody() {
         return translated == null || translated.isBlank() ? body : translated;
