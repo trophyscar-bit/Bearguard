@@ -117,7 +117,12 @@ public final class ChatLineCleaner {
                     // Gift and milestone cards the game posts on a player's behalf. They
                     // carry a player's name and an avatar, so without naming them they read
                     // as something that player said.
-                    + "|upgrade pack|has reached lv|gift pack|lucky gift)\\b");
+                    + "|upgrade pack|has reached lv|gift pack|lucky gift"
+                    // Cards the game posts about the alliance rather than to it: rank changes,
+                    // event countdowns and hunt announcements. Each carries a player's name and
+                    // an avatar, so left unnamed they read as that player talking.
+                    + "|has been (promoted|demoted) to|event reminder|respected chief|bear hunt"
+                    + "|hunting trap|alliance rank)\\b");
 
     /**
      * A bubble that is nothing but the word "Vote".
@@ -154,7 +159,12 @@ public final class ChatLineCleaner {
             "(?i)\\b(recalled a message|share (layout|coordinates)|state\\s*#\\s*\\d+"
                     + "|has joined the alliance|left your alliance|new message\\(s\\)"
                     + "|hold(ing)? a rally|join(ed)? the rally|rally (started|is starting)"
-                    + "|defeat the beast|gather together|formation shared)\\b");
+                    + "|defeat the beast|gather together|formation shared"
+                    // The rally card's own wording. "Raging" is spelt loosely because the reader
+                    // returns "Raqing" about as often as it returns the real thing, and a card
+                    // that hides only when it happens to read cleanly is a card that does not
+                    // hide.
+                    + "|ra[gq]ing bear|defeat ra[gq]ing|rally together now)\\b");
 
     /**
      * The most common English function words. Enough of them in a message means it is English;
@@ -322,6 +332,17 @@ public final class ChatLineCleaner {
             Pattern.compile("\\s+\\p{N}+$");
 
     /** Strips the reader's invented characters and collapses the whitespace they leave behind. */
+    /**
+     * The VIP badge, when the sender line bled into the body.
+     *
+     * <p>The badge is drawn immediately left of the name, and a segment boundary a few pixels out
+     * carries it into the message instead. It is already parsed off the sender line, so in the body
+     * it is not information -- it is the same fact in the wrong place, reading as though the player
+     * had typed their own rank into what they said.
+     */
+    private static final Pattern LEAKED_VIP = Pattern.compile(
+            "(?i)(?<![\\p{L}\\p{N}])V[IiLl1|]{1,2}P\\s?\\d{1,2}(?![\\p{L}\\p{N}])");
+
     public static String cleanBody(String raw) {
         if (raw == null) {
             return "";
@@ -331,7 +352,7 @@ public final class ChatLineCleaner {
                 MISREAD_I.matcher(raw).replaceAll("I")).replaceAll("@");
         String body = collapse(TRANSLATE_CONTROL.matcher(
                 ARTIFACTS.matcher(restored).replaceAll(" ")).replaceAll(" "));
-        return trimOrphanGlyphs(body);
+        return trimOrphanGlyphs(collapse(LEAKED_VIP.matcher(body).replaceAll(" ")));
     }
 
     /**
