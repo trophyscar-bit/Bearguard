@@ -62,7 +62,8 @@ final class ChatFrameReader {
      * @param translate resolves a foreign body to English; empty when already English
      */
     static List<ChatMessage> read(List<TextLine> lines, String channel, Instant at,
-                                  Function<String, Optional<String>> translate) {
+                                  Function<String, Optional<String>> translate,
+                                  java.util.function.Predicate<TextLine> isQuoteRow) {
         List<TextLine> feed = new ArrayList<>();
         for (TextLine l : lines) {
             if (l.top() < FEED_TOP || l.bottom() > FEED_BOTTOM || l.text().isBlank()) {
@@ -95,14 +96,24 @@ final class ChatFrameReader {
         String author = "";
         String tag = "";
         List<TextLine> pending = new ArrayList<>();
+        List<TextLine> quoted = new ArrayList<>();
         TextLine previous = null;
 
         for (TextLine line : feed) {
+            // The dimmer strip under a bubble is the message being replied to, not a new one. It
+            // belongs to the bubble above it, so it is held and handed to that message when it is
+            // flushed rather than being read as text somebody wrote.
+            if (isQuoteRow.test(line)) {
+                quoted.add(line);
+                previous = line;
+                continue;
+            }
             ChatLineCleaner.Sender sender = senderOn(line);
             if (sender != null) {
                 // A sender line closes whatever was being collected and names what follows.
-                flush(out, pending, author, tag, channel, at, translate);
+                flush(out, pending, quoted, author, tag, channel, at, translate);
                 pending.clear();
+                quoted.clear();
                 author = sender.name();
                 tag = sender.allianceTag();
                 previous = line;
@@ -111,13 +122,14 @@ final class ChatFrameReader {
             // A long drop means the bubble above has ended, even without a new sender line: the
             // game prints the name once and omits it on the messages that follow from one person.
             if (previous != null && line.top() - previous.bottom() > MESSAGE_GAP) {
-                flush(out, pending, author, tag, channel, at, translate);
+                flush(out, pending, quoted, author, tag, channel, at, translate);
                 pending.clear();
+                quoted.clear();
             }
             pending.add(line);
             previous = line;
         }
-        flush(out, pending, author, tag, channel, at, translate);
+        flush(out, pending, quoted, author, tag, channel, at, translate);
         return out;
     }
 
@@ -131,7 +143,8 @@ final class ChatFrameReader {
         return sender.trusted() && !sender.allianceTag().isEmpty() ? sender : null;
     }
 
-    private static void flush(List<ChatMessage> out, List<TextLine> pending, String author,
+    private static void flush(List<ChatMessage> out, List<TextLine> pending,
+                              List<TextLine> quotedRows, String author,
                               String tag, String channel, Instant at,
                               Function<String, Optional<String>> translate) {
         if (pending.isEmpty()) {
@@ -149,9 +162,20 @@ final class ChatFrameReader {
             }
             sb.append(l.text().trim());
         }
+        StringBuilder q = new StringBuilder();
+        for (TextLine l : quotedRows) {
+            if (q.length() > 0) {
+                q.append(' ');
+            }
+            q.append(l.text().trim());
+        }
+
         String raw = ChatLineCleaner.cleanBody(sb.toString());
         ChatLineCleaner.Body split = ChatLineCleaner.splitQuotedReply(raw);
         String body = split.own();
+        String quotedText = q.length() > 0
+                ? ChatLineCleaner.cleanBody(q.toString())
+                : split.quoted();
 
         ChatMessage.Kind kind = ChatLineCleaner.classify(body);
         if (kind == ChatMessage.Kind.UNREADABLE || ChatLineCleaner.looksLikeSenderLine(body)) {
@@ -170,6 +194,6 @@ final class ChatFrameReader {
             english = "";
         }
         out.add(new ChatMessage(at, channel, author, tag, 0, body, english,
-                ChatLineCleaner.mentions(body), kind, split.quoted()));
+                ChatLineCleaner.mentions(body), kind, quotedText));
     }
 }

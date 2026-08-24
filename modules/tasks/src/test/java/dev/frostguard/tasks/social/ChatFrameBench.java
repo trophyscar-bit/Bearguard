@@ -94,7 +94,24 @@ public final class ChatFrameBench {
                 }
             }
             lines = ChatScriptRecovery.reread(raw, lines, words, 700, cjk, cyrillic);
+            if (System.getenv("QUOTE_DEBUG") != null) {
+                for (TextLine l : lines) {
+                    if (ChatQuoteBar.isQuoteRow(img, l)) {
+                        System.err.println("  QUOTE row: " + l.text().trim());
+                    }
+                }
+            }
+            if (System.getenv("TRACE_LINES") != null) {
+                for (TextLine l : lines) {
+                    System.err.printf("  BEFORE %s%n", l.text().trim());
+                }
+            }
             lines = ChatOrnamentFilter.clean(lines, words, img);
+            if (System.getenv("TRACE_LINES") != null) {
+                for (TextLine l : lines) {
+                    System.err.printf("  AFTER  %s%s%n", ChatQuoteBar.isQuoteRow(img, l) ? "[Q] " : "    ", l.text().trim());
+                }
+            }
             for (TextLine l : lines) {
                 ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(l.text());
                 // The alliance tag is what makes it a sender line rather than a message that
@@ -105,8 +122,8 @@ public final class ChatFrameBench {
                     roster.add(sender.name());
                 }
             }
-            List<ChatMessage> msgs = ChatFrameReader.read(lines, "alliance", Instant.now(),
-                    translate);
+            List<ChatMessage> msgs = ChatFrameReader.read(lines, "alliance", Instant.now(), translate,
+                    line -> ChatQuoteBar.isQuoteRow(img, line));
             for (ChatMessage m : msgs) {
                 ChatCaptureRoutine.keep(collected, m);
             }
@@ -122,6 +139,9 @@ public final class ChatFrameBench {
         java.io.PrintStream out = new java.io.PrintStream(System.out, true, "UTF-8");
         int n = 0;
         for (ChatMessage held : collected.values()) {
+            if (held.author().isBlank()) {
+                continue;
+            }
             String fixed = ChatLineCleaner.repairLeadingMention(held.body(), roster);
             ChatMessage m = held.withBody(fixed);
             if (!held.translated().isBlank()) {
@@ -129,6 +149,20 @@ public final class ChatFrameBench {
                         ChatLineCleaner.repairLeadingMention(held.translated(), roster));
             }
             n++;
+            if (System.getenv("JSON_OUT") != null) {
+                com.fasterxml.jackson.databind.ObjectMapper om =
+                        new com.fasterxml.jackson.databind.ObjectMapper();
+                com.fasterxml.jackson.databind.node.ObjectNode o = om.createObjectNode();
+                o.put("n", n);
+                o.put("author", m.author());
+                o.put("tag", m.allianceTag());
+                o.put("body", m.body());
+                o.put("en", m.translated());
+                o.put("quoted", m.quoted());
+                o.put("kind", m.kind().name());
+                out.println(o.toString());
+                continue;
+            }
             out.printf("%3d | %-22s | %-8s | %s%n", n,
                     m.allianceTag().isEmpty() ? m.author() : "[" + m.allianceTag() + "]" + m.author(),
                     m.kind(), m.body());
