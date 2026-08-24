@@ -52,7 +52,7 @@ if (-not $holder) {
         $autoOwner = if ($Owner) { $Owner } else { "$env:USERNAME-stop-$PID" }
         $lockScript = Join-Path $Root 'prod-lock.ps1'
         if (Test-Path $lockScript) {
-            & $lockScript acquire -Owner $autoOwner -Reason 'auto-claimed by stop-bearguard' -Root $Root | Out-Null
+            & $lockScript acquire -Owner $autoOwner -Reason 'auto-claimed by stop-bearguard' -Auto -Root $Root | Out-Null
             if ($LASTEXITCODE -eq 0) {
                 $autoClaimed = $true
                 Write-Host "prod was unclaimed -- claimed it as '$autoOwner' for the duration of this stop."
