@@ -94,3 +94,6 @@ telemetry/
 # Live capture frames used to diagnose Intel navigation. Kept out of the repo:
 # they are account screenshots, not fixtures.
 intel-debug/
+
+tools/ocr/venv/
+tools/ocr/models/

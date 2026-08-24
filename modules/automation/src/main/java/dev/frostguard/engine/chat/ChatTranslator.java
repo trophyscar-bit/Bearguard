@@ -99,7 +99,17 @@ public final class ChatTranslator {
             return hit.isEmpty() ? Optional.empty() : Optional.of(hit);
         }
 
-        String trimmed = body.length() > MAX_CHARS ? body.substring(0, MAX_CHARS) : body;
+        // Mentions are names, and a name is not a word to be translated. Sent whole, "@AfinaValkyrie
+        // quando finalizar" came back with the name itself rendered into English, which turns a
+        // player nobody can now identify into gibberish in the middle of a sentence. The mentions
+        // are taken off, the sentence is translated, and they go back exactly as the game wrote
+        // them.
+        String head = leadingMentions(body);
+        String rest = body.substring(head.length());
+        if (rest.isBlank()) {
+            return Optional.empty();
+        }
+        String trimmed = rest.length() > MAX_CHARS ? rest.substring(0, MAX_CHARS) : rest;
         // One provider, deliberately. The endpoints that used to sit behind this were a Google
         // address that now answers 429 from here and a service with a daily allowance that ran out
         // mid-evening and started returning its quota notice where the translation belonged. A
@@ -112,7 +122,52 @@ public final class ChatTranslator {
         // overlapping scroll-back, and re-requesting it every pass is how a keyless endpoint
         // starts refusing service.
         cache.put(key, result);
-        return result.isEmpty() ? Optional.empty() : Optional.of(result);
+        if (result.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(head.isEmpty() ? result : head + result);
+    }
+
+    /**
+     * The run of mentions a message opens with, exactly as the game wrote them.
+     *
+     * <p>Only the leading run. A name inside a sentence is rare and cannot be lifted out without
+     * changing the word order the translator needs, whereas the "@Name" a reply opens with carries
+     * no meaning for it at all.
+     */
+    static String leadingMentions(String body) {
+        int i = 0;
+        while (i < body.length()) {
+            int start = i;
+            while (start < body.length() && Character.isWhitespace(body.charAt(start))) {
+                start++;
+            }
+            if (start >= body.length() || body.charAt(start) != '@') {
+                break;
+            }
+            int end = start;
+            // A name can carry a space -- "@Mini TyTy" -- so take a following capitalised word too.
+            for (int word = 0; word < 2; word++) {
+                while (end < body.length() && !Character.isWhitespace(body.charAt(end))) {
+                    end++;
+                }
+                int peek = end;
+                while (peek < body.length() && Character.isWhitespace(body.charAt(peek))) {
+                    peek++;
+                }
+                if (word == 0 && peek < body.length() && Character.isUpperCase(body.charAt(peek))
+                        && body.charAt(peek) != '@') {
+                    end = peek;
+                    continue;
+                }
+                break;
+            }
+            i = end;
+            while (i < body.length() && Character.isWhitespace(body.charAt(i))) {
+                i++;
+            }
+        }
+        return body.substring(0, i);
     }
 
     /**
