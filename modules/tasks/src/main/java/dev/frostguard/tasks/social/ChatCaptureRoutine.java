@@ -338,11 +338,12 @@ public class ChatCaptureRoutine extends DelayedTask {
         boolean paddleUp = paddle != null && paddle.isUp();
         logInfo("ChatCaptureRoutine | Reader: " + (paddleUp ? "OCR service" : "built-in"));
 
-        java.util.LinkedHashMap<String, ChatMessage> collected = new java.util.LinkedHashMap<>();
-        java.util.Set<String> roster = new java.util.LinkedHashSet<>();
-        int knownBefore = 0;
-        int barrenScreens = 0;
+        // One object holds the walk, and the bench drives the same one. Two copies of this loop
+        // is how a change measured at 90% clean scored 72% in production.
+        ChatPass pass = new ChatPass(channel, body -> translator.toEnglish(body),
+                CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
 
+        try {
         for (int i = 0; i < scrollBack; i++) {
             RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
             if (frame == null || !frame.isValid()) {
@@ -358,15 +359,15 @@ public class ChatCaptureRoutine extends DelayedTask {
             // were offsets from an avatar edge that moves with crowns and rank badges -- a few
             // pixels of drift clipped glyph tops, or dropped the sender line into the bubble.
             List<TextLine> lines;
+            boolean fromService;
             try {
-                // The better reader first, Tesseract behind it. Measured over twenty live screens,
-                // Paddle returns the diacritics correctly, finds every quoted-reply strip, and
-                // scores bubble decoration below 0.2 where real writing sits above 0.94 -- so the
-                // junk that needed rules about glyph widths and colours sorts itself out. It is a
-                // separate process though, so it can be down, and a reader being unavailable
-                // should cost a fallback rather than the pass.
-                boolean usingService = paddle != null && paddleUp;
-                lines = usingService
+                // The better reader first, the built-in one behind it. Measured over twenty live
+                // screens, the service returns the diacritics correctly, finds every quoted-reply
+                // strip, and scores bubble decoration below 0.2 where real writing sits above 0.94.
+                // It is a separate process though, so it can be down, and a reader being
+                // unavailable should cost a fallback rather than the pass.
+                fromService = paddle != null && paddleUp;
+                lines = fromService
                         ? paddle.read(image, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT,
                                 FEED_BOTTOM, PADDLE_LANG, PADDLE_MIN_CONFIDENCE)
                         : java.util.List.of();
@@ -375,65 +376,10 @@ public class ChatCaptureRoutine extends DelayedTask {
                         logWarning("ChatCaptureRoutine | The OCR service returned nothing; "
                                 + "falling back to the built-in reader for the rest of this pass.");
                         paddleUp = false;
-                        usingService = false;
                     }
+                    fromService = false;
                     lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT,
                             CHAT_TEXT_SETTINGS);
-                }
-                List<TextLine> latin = lines;
-                // Everything below this point exists to repair Tesseract's reading, and none of it
-                // applies to the other reader's. The word boxes come from Tesseract, so matching
-                // them against rows the OCR service produced compares two different readings of
-                // the same screen: measured live, that interleaved words into each other --
-                // "Complete na the daily ns. challenges" -- and put CJK into a Spanish name. The
-                // service already reports its own confidence, which is what the furniture rules
-                // were reconstructing from glyph widths and colours, and it reads other scripts
-                // without being asked twice.
-                if (usingService) {
-                    List<ChatMessage> read = ChatFrameReader.read(
-                            lines, channel, Instant.now(), body -> translator.toEnglish(body),
-                            line -> ChatQuoteBar.isQuoteRow(image, line));
-                    for (TextLine l : lines) {
-                        ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(l.text());
-                        if (sender.trusted() && !sender.allianceTag().isEmpty()
-                                && !sender.name().isBlank()) {
-                            roster.add(sender.name());
-                        }
-                    }
-                    for (ChatMessage m : read) {
-                        keep(collected, m);
-                    }
-                    int freshHere = collected.size() - knownBefore;
-                    logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/"
-                            + scrollBack + ": " + lines.size() + " line(s), " + read.size()
-                            + " readable, " + freshHere + " new.");
-                    knownBefore = collected.size();
-                    barrenScreens = freshHere == 0 ? barrenScreens + 1 : 0;
-                    if (barrenScreens >= BARREN_SCREENS_BEFORE_STOP) {
-                        logInfo("ChatCaptureRoutine | " + channel
-                                + ": reached already-captured history.");
-                        break;
-                    }
-                    swipeUpThroughHistory();
-                    continue;
-                }
-
-                // Same reading again, one word at a time, so the bubble's furniture can be told
-                // from the sentence by where it sits. Cheap next to the recognition itself, which
-                // has already done the work; this only asks for it reported finer.
-                List<TextLine> words = OcrEngine.recognizeWords(
-                        frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT, CHAT_TEXT_SETTINGS);
-                // The other-script re-read goes FIRST. It keys on a line the Latin reader could
-                // make no word of, which is exactly what the ornament filter is also looking at:
-                // run the other way round, a Chinese message read as "g2 - E o" had its pieces
-                // thrown out as furniture -- their glyph widths are nothing like a Latin row's --
-                // and the line was gone before anything tried to read it in another script.
-                lines = ChatScriptRecovery.reread(frame, lines, words, TEXT_COLUMN_RIGHT, CHAT_CJK_SETTINGS,
-                        CHAT_CYRILLIC_SETTINGS);
-                lines = ChatOrnamentFilter.clean(lines, words, image);
-                int recovered = ChatScriptRecovery.recoveredCount(latin, lines);
-                if (recovered > 0) {
-                    logInfo("ChatCaptureRoutine | Re-read " + recovered + " line(s) in another script.");
                 }
             } catch (OcrException e) {
                 logWarning("ChatCaptureRoutine | Could not read " + channel + " screen "
@@ -447,70 +393,24 @@ public class ChatCaptureRoutine extends DelayedTask {
                 continue;
             }
 
-            // Every sender line names a member, whether or not their message survived reading.
-            // Collected here rather than from the stored messages because the two are not the same
-            // set: "Maki" was on screen as a sender the same afternoon a message addressed to
-            // @Maki went unrepaired, because Maki's own message had not been read that pass.
-            for (TextLine l : lines) {
-                ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(l.text());
-                // The alliance tag is what makes it a sender line rather than a message that
-                // happens to parse like one. Without it "y congrats" joined the roster as a member
-                // called "congrats", and the next message beginning with that word was rewritten
-                // into a mention of them.
-                if (sender.trusted() && !sender.allianceTag().isEmpty() && !sender.name().isBlank()) {
-                    roster.add(sender.name());
-                }
-            }
-
-            List<ChatMessage> messages = ChatFrameReader.read(
-                    lines, channel, Instant.now(), body -> translator.toEnglish(body),
-                    line -> ChatQuoteBar.isQuoteRow(image, line));
-
-            // Hold the pass in memory rather than writing each screen as it is read. Scroll steps
-            // overlap by design, so most messages are seen on two or three screens -- and a message
-            // sitting at the top of one screen has its sender line above the frame edge, while the
-            // next screen back shows both. Writing immediately stored whichever copy arrived first,
-            // which for those messages is the one with no author on it. Keeping the pass together
-            // lets the attributed copy win.
-            for (ChatMessage m : messages) {
-                keep(collected, m);
-            }
-
-            // Per-screen accounting. Without it a pass is a black box: the only way to tell a
-            // successful walk from one that read nothing was the total at the end, which hides
-            // where in the scroll-back it stopped finding anything.
-            int freshOnScreen = collected.size() - knownBefore;
+            ChatPass.Screen screen = pass.addScreen(frame, image, lines, fromService);
             logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + scrollBack
-                    + ": " + lines.size() + " line(s), " + messages.size() + " readable, "
-                    + freshOnScreen + " new.");
-            knownBefore = collected.size();
-
-            // Overlapping scroll-backs mean most screens repeat the one before. Two consecutive
-            // screens contributing nothing means this pass has reached history it has already
-            // walked, and going further only spends captures re-reading it.
-            barrenScreens = freshOnScreen == 0 ? barrenScreens + 1 : 0;
-            if (barrenScreens >= BARREN_SCREENS_BEFORE_STOP) {
+                    + ": " + screen.lines() + " line(s), " + screen.readable() + " readable, "
+                    + screen.fresh() + " new.");
+            if (pass.reachedKnownHistory()) {
                 logInfo("ChatCaptureRoutine | " + channel + ": reached already-captured history.");
                 break;
             }
-
             swipeUpThroughHistory();
         }
 
-        // The pass is written once, in the order it was read, now that every message has had the
-        // chance to be seen on a screen that also showed its sender.
-        try {
-            java.util.List<ChatMessage> held = repairMentions(
-                    new java.util.ArrayList<>(collected.values()), roster);
-            return store.append(withAnAuthor(held));
+            return store.append(pass.messages());
         } catch (IOException e) {
             logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
                     + ": " + e.getMessage());
             return 0;
         }
     }
-
-    /** Reads one region of the held frame, returning empty rather than throwing on a bad read. */
 
     /** Three letters in a row is a word; anything less is the reader guessing at shapes. */
     private static final int LETTERS_THAT_MAKE_A_WORD = 3;

@@ -43,6 +43,37 @@ public final class PaddleOcrClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /** Readers whose output should be Latin script and nothing else. */
+    private static final java.util.Set<String> LATIN_MODELS =
+            java.util.Set.of("en", "es", "pt", "fr", "de", "it", "pl", "id", "tr");
+
+    /**
+     * Whether a reading contains letters from a script the reader was not asked to read.
+     *
+     * <p>Accented Latin does not count -- "děkuji" and "decoração" are exactly what this is meant
+     * to preserve. Only a genuinely different alphabet does.
+     */
+    /** Whether a reading contains anything that could be a word rather than a mark. */
+    private static boolean hasLetterOrDigit(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            if (Character.isLetterOrDigit(text.charAt(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasForeignScript(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (Character.isLetter(c) && c > 127
+                    && Character.UnicodeScript.of(c) != Character.UnicodeScript.LATIN) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(3))
             .build();
@@ -94,13 +125,30 @@ public final class PaddleOcrClient {
                 return List.of();
             }
             JsonNode body = MAPPER.readTree(response.body());
+            boolean latinModel = LATIN_MODELS.contains(lang);
             List<TextLine> lines = new ArrayList<>();
             for (JsonNode n : body.path("lines")) {
                 double confidence = n.path("conf").asDouble();
                 if (confidence < minConfidence) {
                     continue;
                 }
-                lines.add(new TextLine(n.path("text").asText(),
+                String text = n.path("text").asText();
+                // A Latin reader that returns Chinese has not read Chinese. It was shown a picture
+                // -- an emoji, an icon, the corner of a bubble -- and offered the closest glyph it
+                // knows. Live, that put "国国" into the middle of a Spanish sentence, which then
+                // went to the translator in that state. Whatever script was asked for is the only
+                // script the answer can be in.
+                if (latinModel && hasForeignScript(text)) {
+                    continue;
+                }
+                // Nothing but symbols is not writing. The feed is full of small marks the reader
+                // will name if asked -- the translate button beside every bubble comes back as an
+                // arrow, a rank badge as a star -- and left in they land in the middle of a
+                // sentence: "pro nej je tady vzdycky <- misto".
+                if (!hasLetterOrDigit(text)) {
+                    continue;
+                }
+                lines.add(new TextLine(text,
                         n.path("left").asInt(), n.path("top").asInt(),
                         n.path("width").asInt(), n.path("height").asInt(),
                         (float) (confidence * 100)));

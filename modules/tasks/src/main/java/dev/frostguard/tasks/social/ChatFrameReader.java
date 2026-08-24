@@ -100,15 +100,18 @@ final class ChatFrameReader {
         TextLine previous = null;
 
         for (TextLine line : feed) {
+            // Sender lines are settled first. A name is dimmer than message text and not far off a
+            // quote, and losing the author of a message is worse than missing the message it was
+            // answering, so the brightness question is only asked about rows that are not names.
+            ChatLineCleaner.Sender sender = senderOn(line);
             // The dimmer strip under a bubble is the message being replied to, not a new one. It
             // belongs to the bubble above it, so it is held and handed to that message when it is
             // flushed rather than being read as text somebody wrote.
-            if (isQuoteRow.test(line)) {
+            if (sender == null && isQuoteRow.test(line)) {
                 quoted.add(line);
                 previous = line;
                 continue;
             }
-            ChatLineCleaner.Sender sender = senderOn(line);
             if (sender != null) {
                 // A sender line closes whatever was being collected and names what follows.
                 flush(out, pending, quoted, author, tag, channel, at, translate);
