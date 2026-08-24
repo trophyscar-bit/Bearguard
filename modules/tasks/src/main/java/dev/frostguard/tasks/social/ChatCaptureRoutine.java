@@ -365,7 +365,8 @@ public class ChatCaptureRoutine extends DelayedTask {
                 // junk that needed rules about glyph widths and colours sorts itself out. It is a
                 // separate process though, so it can be down, and a reader being unavailable
                 // should cost a fallback rather than the pass.
-                lines = paddle != null && paddleUp
+                boolean usingService = paddle != null && paddleUp;
+                lines = usingService
                         ? paddle.read(image, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT,
                                 FEED_BOTTOM, PADDLE_LANG, PADDLE_MIN_CONFIDENCE)
                         : java.util.List.of();
@@ -374,11 +375,49 @@ public class ChatCaptureRoutine extends DelayedTask {
                         logWarning("ChatCaptureRoutine | The OCR service returned nothing; "
                                 + "falling back to the built-in reader for the rest of this pass.");
                         paddleUp = false;
+                        usingService = false;
                     }
                     lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT,
                             CHAT_TEXT_SETTINGS);
                 }
                 List<TextLine> latin = lines;
+                // Everything below this point exists to repair Tesseract's reading, and none of it
+                // applies to the other reader's. The word boxes come from Tesseract, so matching
+                // them against rows the OCR service produced compares two different readings of
+                // the same screen: measured live, that interleaved words into each other --
+                // "Complete na the daily ns. challenges" -- and put CJK into a Spanish name. The
+                // service already reports its own confidence, which is what the furniture rules
+                // were reconstructing from glyph widths and colours, and it reads other scripts
+                // without being asked twice.
+                if (usingService) {
+                    List<ChatMessage> read = ChatFrameReader.read(
+                            lines, channel, Instant.now(), body -> translator.toEnglish(body),
+                            line -> ChatQuoteBar.isQuoteRow(image, line));
+                    for (TextLine l : lines) {
+                        ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(l.text());
+                        if (sender.trusted() && !sender.allianceTag().isEmpty()
+                                && !sender.name().isBlank()) {
+                            roster.add(sender.name());
+                        }
+                    }
+                    for (ChatMessage m : read) {
+                        keep(collected, m);
+                    }
+                    int freshHere = collected.size() - knownBefore;
+                    logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/"
+                            + scrollBack + ": " + lines.size() + " line(s), " + read.size()
+                            + " readable, " + freshHere + " new.");
+                    knownBefore = collected.size();
+                    barrenScreens = freshHere == 0 ? barrenScreens + 1 : 0;
+                    if (barrenScreens >= BARREN_SCREENS_BEFORE_STOP) {
+                        logInfo("ChatCaptureRoutine | " + channel
+                                + ": reached already-captured history.");
+                        break;
+                    }
+                    swipeUpThroughHistory();
+                    continue;
+                }
+
                 // Same reading again, one word at a time, so the bubble's furniture can be told
                 // from the sentence by where it sits. Cheap next to the recognition itself, which
                 // has already done the work; this only asks for it reported finer.
