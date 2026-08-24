@@ -574,6 +574,25 @@ public class DailyLabyrinthRoutine extends DelayedTask {
             // the streak rather than assuming a win.
             // Tracks whether the previous battle left us standing on the zone's stage screen, so the
             // next turn can press Challenge again instead of exiting to the map and walking back in.
+            // Once per zone per run, before any attempt: put the configured ratio on the squads.
+            // These zones persist their formation, so this is a repair pass rather than a
+            // per-battle cost -- it matters after a weekly reset, and it closes the gap where the
+            // app's configured percentages were never applied on the daily path at all.
+            ZoneFormation twoSquadZone = DUNGEON_TWO_SQUAD_ZONES.get(dungeonNumber);
+            if (twoSquadZone != null) {
+                logInfo("Dungeon " + dungeonNumber + ": applying the configured troop ratio once "
+                        + "before this run's attempts.");
+                setupZoneFormation(twoSquadZone);
+                // setupZoneFormation finishes inside the zone, not on the outer map, and the battle
+                // loop below starts from the map. Fail open: a ratio we could not set is a worse
+                // formation, but skipping the fight entirely spends the day's attempts on nothing.
+                if (!settleAndNavigateToLabyrinthMenu(dungeonNumber)) {
+                    logWarning("Dungeon " + dungeonNumber + ": could not get back to the Labyrinth map "
+                            + "after setting the ratio; skipping this zone rather than tapping blind.");
+                    continue;
+                }
+            }
+
             boolean onStageScreen = false;
             int battlesFought = 0;
 
@@ -1049,6 +1068,25 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     );
 
     /**
+     * Land of Heroes (1) and Gaia Heart (6). Unlike Cave and Charm these zones genuinely SAVE a
+     * formation, so the ratio does not need re-driving before every attempt -- but nothing was
+     * applying it on the daily path at all, and the only thing that could was the formation-test
+     * harness behind LABYRINTH_FORMATION_TEST_BOOL, which is off by default. Land of Heroes was
+     * therefore fighting on whatever the game defaulted to rather than the ratio configured in the
+     * app, silently and with nothing in the log to say so (matt, 2026-08-23: "this isn't setting
+     * them correct? i just saw it quick deploy and call it a day").
+     *
+     * <p>Applied ONCE per zone per run rather than per attempt. Driving two squads costs roughly
+     * 100 seconds of deterministic slider taps, so per-attempt would spend most of a five-battle
+     * streak tapping instead of fighting; once per run is enough for a formation that persists, and
+     * still repairs it after a weekly reset clears it.
+     */
+    private static final java.util.Map<Integer, ZoneFormation> DUNGEON_TWO_SQUAD_ZONES = java.util.Map.of(
+            1, ZONE_FORMATIONS[0],  // Land of Heroes
+            6, ZONE_FORMATIONS[3]   // Gaia Heart
+    );
+
+    /**
      * (Land of Heroes), extended 2026-08-13 to Cave of Monsters + Charm Mine —
      * TEST harness (free, no battle). From the Labyrinth menu this opens the given zone's stage
      * screen and sets up the deploy formation to its configured troop ratio, then SAVES it and
@@ -1467,12 +1505,15 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         }
         saveLabyrinthFrame("gaia_balance_popup", 0);
 
-        floorRowToZero("Infantry", GAIA_INFANTRY_ROW_Y);
-        floorRowToZero("Lancer",   GAIA_LANCER_ROW_Y);
-        floorRowToZero("Marksman", GAIA_MARKSMAN_ROW_Y);
-        fillRowToTarget("Infantry", GAIA_INFANTRY_ROW_Y, GAIA_INF_PCT_TL, GAIA_INF_PCT_BR, ratio[0]);
-        fillRowToTarget("Lancer",   GAIA_LANCER_ROW_Y,   GAIA_LAN_PCT_TL, GAIA_LAN_PCT_BR, ratio[1]);
-        fillRowToTarget("Marksman", GAIA_MARKSMAN_ROW_Y, GAIA_MRK_PCT_TL, GAIA_MRK_PCT_BR, ratio[2]);
+        if (!ratioAlreadyMatches(tag, label, ratio, GAIA_INF_PCT_TL, GAIA_INF_PCT_BR,
+                GAIA_LAN_PCT_TL, GAIA_LAN_PCT_BR, GAIA_MRK_PCT_TL, GAIA_MRK_PCT_BR)) {
+            floorRowToZero("Infantry", GAIA_INFANTRY_ROW_Y);
+            floorRowToZero("Lancer",   GAIA_LANCER_ROW_Y);
+            floorRowToZero("Marksman", GAIA_MARKSMAN_ROW_Y);
+            fillRowToTarget("Infantry", GAIA_INFANTRY_ROW_Y, GAIA_INF_PCT_TL, GAIA_INF_PCT_BR, ratio[0]);
+            fillRowToTarget("Lancer",   GAIA_LANCER_ROW_Y,   GAIA_LAN_PCT_TL, GAIA_LAN_PCT_BR, ratio[1]);
+            fillRowToTarget("Marksman", GAIA_MARKSMAN_ROW_Y, GAIA_MRK_PCT_TL, GAIA_MRK_PCT_BR, ratio[2]);
+        }
 
         Integer vi = readPercent(GAIA_INF_PCT_TL, GAIA_INF_PCT_BR);
         Integer vl = readPercent(GAIA_LAN_PCT_TL, GAIA_LAN_PCT_BR);
@@ -1645,12 +1686,15 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         // blocked by the 100% cap. 1 tap == 1% (verified live). No mid-drive OCR — the small stroked
         // digits only read reliably on a settled/static frame, so OCR is used ONLY for the correction
         // pass in fillRowToTarget (which re-adds any taps the game dropped).
-        floorRowToZero("Infantry", LOH_INFANTRY_ROW_Y);
-        floorRowToZero("Lancer",   LOH_LANCER_ROW_Y);
-        floorRowToZero("Marksman", LOH_MARKSMAN_ROW_Y);
-        fillRowToTarget("Infantry", LOH_INFANTRY_ROW_Y, LOH_INF_PCT_TL, LOH_INF_PCT_BR, ratio[0]);
-        fillRowToTarget("Lancer",   LOH_LANCER_ROW_Y,   LOH_LAN_PCT_TL, LOH_LAN_PCT_BR, ratio[1]);
-        fillRowToTarget("Marksman", LOH_MARKSMAN_ROW_Y, LOH_MRK_PCT_TL, LOH_MRK_PCT_BR, ratio[2]);
+        if (!ratioAlreadyMatches(tag, label, ratio, LOH_INF_PCT_TL, LOH_INF_PCT_BR,
+                LOH_LAN_PCT_TL, LOH_LAN_PCT_BR, LOH_MRK_PCT_TL, LOH_MRK_PCT_BR)) {
+            floorRowToZero("Infantry", LOH_INFANTRY_ROW_Y);
+            floorRowToZero("Lancer",   LOH_LANCER_ROW_Y);
+            floorRowToZero("Marksman", LOH_MARKSMAN_ROW_Y);
+            fillRowToTarget("Infantry", LOH_INFANTRY_ROW_Y, LOH_INF_PCT_TL, LOH_INF_PCT_BR, ratio[0]);
+            fillRowToTarget("Lancer",   LOH_LANCER_ROW_Y,   LOH_LAN_PCT_TL, LOH_LAN_PCT_BR, ratio[1]);
+            fillRowToTarget("Marksman", LOH_MARKSMAN_ROW_Y, LOH_MRK_PCT_TL, LOH_MRK_PCT_BR, ratio[2]);
+        }
 
         // Best-effort verify readback (logged) + a frame for eyeballing the final ratio.
         Integer vi = readPercent(LOH_INF_PCT_TL, LOH_INF_PCT_BR);
@@ -1788,6 +1832,37 @@ public class DailyLabyrinthRoutine extends DelayedTask {
      * borderline-OCR (small, stroked font, and the slider briefly animates after a nudge), so this
      * RE-READS a few times before giving up — a fresh frame each attempt smooths over transient misses.
      */
+    /**
+     * True only when all three rows read cleanly AND already hold the target.
+     *
+     * <p>Driving a ratio that is already correct costs roughly 50 seconds a squad in deterministic
+     * slider taps for no change at all, which is the whole reason to look first. But an unreadable
+     * row is UNKNOWN, never "already right": skipping on a bad read would silently leave the wrong
+     * formation in place, and the cost of being wrong that way is a lost battle, while the cost of
+     * driving unnecessarily is only time.
+     */
+    private boolean ratioAlreadyMatches(String tag, String label, int[] ratio,
+                                        PointData infTl, PointData infBr,
+                                        PointData lanTl, PointData lanBr,
+                                        PointData mrkTl, PointData mrkBr) {
+        // The stroked digits only read reliably on a settled frame -- same reason the correction
+        // pass in fillRowToTarget waits before each read.
+        sleepTask(LOH_SETTLE_BEFORE_READ);
+        Integer inf = readPercent(infTl, infBr);
+        Integer lan = readPercent(lanTl, lanBr);
+        Integer mrk = readPercent(mrkTl, mrkBr);
+        if (inf == null || lan == null || mrk == null) {
+            logInfo(tag + ": " + label + " -- current ratio unreadable (" + inf + "/" + lan + "/" + mrk
+                    + "); setting it rather than assuming it is already correct.");
+            return false;
+        }
+        boolean match = inf == ratio[0] && lan == ratio[1] && mrk == ratio[2];
+        logInfo(tag + ": " + label + " reads " + inf + "/" + lan + "/" + mrk + ", target "
+                + ratio[0] + "/" + ratio[1] + "/" + ratio[2]
+                + (match ? " -- already set, leaving the sliders alone." : " -- driving the sliders."));
+        return match;
+    }
+
     private Integer readPercent(PointData tl, PointData br) {
         String lastRaw = null;
         for (int attempt = 1; attempt <= LOH_PCT_READ_ATTEMPTS; attempt++) {
