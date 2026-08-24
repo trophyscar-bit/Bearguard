@@ -378,7 +378,8 @@ public class ChatCaptureRoutine extends DelayedTask {
             }
 
             List<ChatMessage> messages = ChatFrameReader.read(
-                    lines, channel, Instant.now(), body -> translator.toEnglish(body));
+                    lines, channel, Instant.now(), body -> translator.toEnglish(body),
+                    line -> ChatQuoteBar.isQuoteRow(image, line));
 
             // Hold the pass in memory rather than writing each screen as it is read. Scroll steps
             // overlap by design, so most messages are seen on two or three screens -- and a message
@@ -414,7 +415,9 @@ public class ChatCaptureRoutine extends DelayedTask {
         // The pass is written once, in the order it was read, now that every message has had the
         // chance to be seen on a screen that also showed its sender.
         try {
-            return store.append(repairMentions(new java.util.ArrayList<>(collected.values()), roster));
+            java.util.List<ChatMessage> held = repairMentions(
+                    new java.util.ArrayList<>(collected.values()), roster);
+            return store.append(withAnAuthor(held));
         } catch (IOException e) {
             logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
                     + ": " + e.getMessage());
@@ -527,6 +530,27 @@ public class ChatCaptureRoutine extends DelayedTask {
 
     private Path baseDir() {
         return Paths.get(System.getProperty("user.dir"), "telemetry", "chat");
+    }
+
+    /**
+     * Drops what the pass never managed to attribute to anybody.
+     *
+     * <p>Scroll steps overlap by design, so a real message is seen on two or three screens and the
+     * holding map prefers whichever copy carried a sender line. A message that reaches the end of a
+     * pass still unattributed is therefore one that was never seen with a name on it at all, and
+     * measured over a fixed twenty-screen set every one of those was either a game announcement --
+     * an event card, a pinned notice -- or a strip of a message whose readable half was somewhere
+     * else. None of them were anybody's words. Storing them puts unattributable text in a
+     * transcript whose whole purpose is who said what.
+     */
+    private static java.util.List<ChatMessage> withAnAuthor(java.util.List<ChatMessage> messages) {
+        java.util.List<ChatMessage> out = new java.util.ArrayList<>(messages.size());
+        for (ChatMessage m : messages) {
+            if (!m.author().isBlank()) {
+                out.add(m);
+            }
+        }
+        return out;
     }
 
     /**
