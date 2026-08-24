@@ -179,16 +179,67 @@ final class ChatPass {
         if (rereader == null) {
             return lines;
         }
+        boolean[] suspect = new boolean[lines.size()];
+        for (int i = 0; i < lines.size(); i++) {
+            suspect[i] = ChatScriptRecovery.looksLikeMangledScript(lines.get(i).text());
+        }
+        spreadToNeighbours(lines, suspect);
+
         List<TextLine> out = new ArrayList<>(lines.size());
-        for (TextLine line : lines) {
-            if (!ChatScriptRecovery.looksLikeMangledScript(line.text())) {
-                out.add(line);
-                continue;
-            }
-            out.add(inAnotherScript(image, line));
+        for (int i = 0; i < lines.size(); i++) {
+            out.add(suspect[i] ? inAnotherScript(image, lines.get(i)) : lines.get(i));
         }
         return out;
     }
+
+    /**
+     * Carries suspicion from a flagged row to the rest of its bubble.
+     *
+     * <p>The test needs two words it cannot account for, which a wrapped line often does not hold:
+     * "Bce BpaueHng" is two words and reads as one, and "Oooo.Cnacn6o.A Hakonnnn" hides behind a
+     * Latin opening. Judged alone they pass as Latin and stay unreadable, while the line above them
+     * in the same bubble is caught.
+     *
+     * <p>Nobody writes half a message in another alphabet. So the unit of judgement is the bubble,
+     * not the line: one confidently wrong row makes its neighbours suspect too. Lowering the word
+     * threshold instead would have bought the same rows at the cost of every short Latin line in
+     * the transcript.
+     *
+     * <p>It stops at a sender line and at a vertical gap, which is what separates one person's
+     * bubble from the next. Without that a single Cyrillic message would drag the whole screen into
+     * being read again.
+     */
+    private static void spreadToNeighbours(List<TextLine> lines, boolean[] suspect) {
+        boolean[] seeded = suspect.clone();
+        for (int i = 0; i < lines.size(); i++) {
+            if (!seeded[i]) {
+                continue;
+            }
+            for (int step = -1; step <= 1; step += 2) {
+                for (int j = i + step; j >= 0 && j < lines.size(); j += step) {
+                    TextLine near = lines.get(j);
+                    TextLine from = lines.get(j - step);
+                    if (endsTheBubble(near) || gapBetween(near, from) > SAME_BUBBLE_GAP) {
+                        break;
+                    }
+                    suspect[j] = true;
+                }
+            }
+        }
+    }
+
+    /** A sender line belongs to nobody's message text; it names the person about to speak. */
+    private static boolean endsTheBubble(TextLine line) {
+        ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(line.text());
+        return sender.trusted() && !sender.allianceTag().isEmpty();
+    }
+
+    private static int gapBetween(TextLine a, TextLine b) {
+        return a.top() > b.top() ? a.top() - b.bottom() : b.top() - a.bottom();
+    }
+
+    /** Wrapped lines of one bubble sit within a few pixels; the next bubble is far below. */
+    private static final int SAME_BUBBLE_GAP = 46;
 
     private TextLine inAnotherScript(BufferedImage image, TextLine line) {
         for (String language : OTHER_SCRIPTS) {
@@ -198,7 +249,7 @@ final class ChatPass {
                     Math.min(image.getWidth(), line.right() + REREAD_PADDING),
                     Math.min(image.getHeight(), line.bottom() + REREAD_PADDING),
                     language);
-            String text = joined(again);
+            String text = keepMention(joined(again), line.text());
             if (!text.isBlank() && ChatScriptRecovery.isMostlyAnotherScript(text)) {
                 return new TextLine(text, line.left(), line.top(), line.width(), line.height(),
                         line.confidence());
@@ -206,6 +257,27 @@ final class ChatPass {
         }
         return line;
     }
+
+    /**
+     * Puts the addressed player's name back as it was first read.
+     *
+     * <p>A Cyrillic recogniser reads a Latin name in Cyrillic: "@CrisdeuS" came back as
+     * "@Crisdеu S" with a Cyrillic "е" in the middle of it. The letter looks identical and is not,
+     * so the name stops matching the person -- it drops out of the roster, breaks the mention
+     * colouring, and cannot be searched for. The name is the one part of the row the first reading
+     * had right, because the game draws it in Latin whatever the message is written in.
+     */
+    private static String keepMention(String reread, String original) {
+        java.util.regex.Matcher was = LEADING_MENTION.matcher(original);
+        java.util.regex.Matcher now = LEADING_MENTION.matcher(reread);
+        if (!was.find() || !now.find()) {
+            return reread;
+        }
+        return was.group() + reread.substring(now.end());
+    }
+
+    private static final java.util.regex.Pattern LEADING_MENTION =
+            java.util.regex.Pattern.compile("^\\s*@\\S+");
 
     private static String joined(List<TextLine> parts) {
         StringBuilder sb = new StringBuilder();
