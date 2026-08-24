@@ -167,14 +167,21 @@ final class ChatPass {
         if (!m.hasQuote()) {
             return m;
         }
-        String quote = ChatGarble.repair(m.quoted());
-        if (quote.isBlank()) {
-            return m.withQuoted("");
-        }
+        // Folded before the name is looked for, not after: the reader writes the game's CJK colon
+        // for the one between a quoted name and its text, and searching the raw string for ":"
+        // finds nothing, so the whole strip is read as the thing that was said.
+        String quote = ChatGarble.normalise(m.quoted()).strip();
         int colon = quote.indexOf(':');
         String who = colon > 0 && colon < MAX_QUOTED_NAME ? quote.substring(0, colon + 1) : "";
-        String said = quote.substring(who.length()).strip();
-        return m.withQuoted(translate.apply(said).map(en -> (who + " " + en).strip()).orElse(quote));
+        // The name is judged separately from what was said, because it is not evidence that
+        // anything was said. A strip that read as nothing but "CrisdeuS:" used to survive on the
+        // strength of the name alone, and showed the reader a reply to an empty message.
+        String said = ChatGarble.repair(quote.substring(who.length()));
+        if (said.isBlank()) {
+            return m.withQuoted("");
+        }
+        return m.withQuoted(translate.apply(said).map(en -> (who + " " + en).strip())
+                .orElse((who + " " + said).strip()));
     }
 
     /** Longer than this before a colon and it is a sentence, not the name being answered. */

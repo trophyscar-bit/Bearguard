@@ -37,7 +37,7 @@ public final class ChatGarble {
         if (body == null || body.isBlank()) {
             return "";
         }
-        List<String> tokens = new ArrayList<>(List.of(WHITESPACE.split(body.strip())));
+        List<String> tokens = new ArrayList<>(List.of(WHITESPACE.split(normalise(body).strip())));
         stripTagPrefix(tokens);
         dropDuplicateMention(tokens);
         dropForeignRuns(tokens);
@@ -48,6 +48,19 @@ public final class ChatGarble {
             return "";
         }
         return String.join(" ", tokens).strip();
+    }
+
+    /**
+     * Folds full-width punctuation onto its ASCII twin.
+     *
+     * <p>The reader emits these when it meets the CJK glyphs the game draws around a quoted strip,
+     * and they are the same marks -- a colon is a colon. Left as they are they defeat every test
+     * downstream that looks for a colon or a full stop, so a quote reading "wind:," parses as a
+     * name with no punctuation in it rather than as a name followed by nothing.
+     */
+    public static String normalise(String body) {
+        return body.replace('：', ':').replace('，', ',').replace('。', '.')
+                .replace('！', '!').replace('？', '?').replace('．', '.');
     }
 
     /** True when nothing legible survived, so the message should not be stored at all. */
@@ -203,7 +216,10 @@ public final class ChatGarble {
                 continue;
             }
             String bare = strip(t).toLowerCase(java.util.Locale.ROOT);
-            if (bare.isEmpty() || t.startsWith("@")) {
+            // Anywhere in the token, not just at the front: the reader puts the game's punctuation
+            // in front of a mention often enough that ":@wind." arrives as one token, and naming
+            // somebody is not the same as saying something to them either way.
+            if (bare.isEmpty() || t.indexOf('@') >= 0) {
                 continue;
             }
             words++;
