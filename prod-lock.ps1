@@ -27,7 +27,9 @@ param(
     [string]$Owner,
     [string]$Reason = '',
     [switch]$Force,
+    [switch]$Auto,
     [int]$StaleMinutes = 20,
+    [int]$AutoStaleMinutes = 10,
     [string]$Root
 )
 
@@ -53,6 +55,7 @@ function Show-Lock($lock) {
     Write-Host ("  since   : {0} UTC ({1} min ago)" -f $lock.acquiredUtc, $age)
     Write-Host ("  reason  : {0}" -f $lock.reason)
     Write-Host ("  pid     : {0}" -f $lock.pid)
+    if ($lock.auto) { Write-Host "  kind    : auto-claim (expires sooner than a deliberate lock)" }
     return $age
 }
 
@@ -91,7 +94,12 @@ switch ($Action) {
                 Write-Host "prod already locked by you ($Owner); continuing."
                 exit 0
             }
-            if (-not $Force -and $age -lt $StaleMinutes) {
+            # An auto-claim is a safety net taken on someone's behalf by stop-bearguard, not a
+            # reservation they chose to make -- three were left behind in one evening because
+            # nothing in the caller's flow releases them. Expire those sooner than a deliberate
+            # claim so a forgotten one blocks people for minutes rather than a third of an hour.
+            $limit = if ($lock.auto) { $AutoStaleMinutes } else { $StaleMinutes }
+            if (-not $Force -and $age -lt $limit) {
                 Write-Host "[BLOCKED] prod is in use by '$($lock.owner)'. Ask them before proceeding."
                 Write-Host "          If they are definitely gone: -Force"
                 exit 1
@@ -109,6 +117,7 @@ switch ($Action) {
             acquiredUtc = (Get-Date).ToUniversalTime().ToString('s')
             pid         = $PID
             host        = $env:COMPUTERNAME
+            auto        = [bool]$Auto
         } | ConvertTo-Json -Compress
 
         # CreateNew is atomic, so two sessions racing here cannot both win. Only reached when the
