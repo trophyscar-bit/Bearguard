@@ -185,6 +185,28 @@ public class ChatCaptureRoutine extends DelayedTask {
     private int retentionDays = DEFAULT_RETENTION_DAYS;
 
     private ChatTranscriptStore store;
+
+    /**
+     * The local reading service, or null when it was never configured.
+     *
+     * <p>Held rather than made per pass so the HTTP client and its connection pool survive between
+     * captures.
+     */
+    private dev.frostguard.vision.ocr.PaddleOcrClient paddle;
+
+    /** Where the service listens. Loopback only -- nothing about this leaves the machine. */
+    private static final String PADDLE_HOST = "127.0.0.1";
+    private static final int PADDLE_PORT = 6975;
+    private static final String PADDLE_LANG = "en";
+
+    /**
+     * Rows the reader was less sure of than this are not text.
+     *
+     * <p>Measured on twenty live screens: writing scores 0.94 to 1.00, and the ornaments, emoji and
+     * frame corners it cannot read score 0.00 to 0.18. The threshold sits in the middle of a gap
+     * wide enough that it does not have to be judged finely.
+     */
+    private static final double PADDLE_MIN_CONFIDENCE = 0.60;
     private ChatTranslator translator;
 
     public ChatCaptureRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
@@ -228,6 +250,7 @@ public class ChatCaptureRoutine extends DelayedTask {
                 profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSLATE_TO_ENGLISH_BOOL, Boolean.class));
         translator = new ChatTranslator(translate, TRANSLATION_CACHE_SIZE);
         store = new ChatTranscriptStore(baseDir(), ZoneId.systemDefault());
+        paddle = new dev.frostguard.vision.ocr.PaddleOcrClient(PADDLE_HOST, PADDLE_PORT);
     }
 
     @Override
@@ -310,6 +333,11 @@ public class ChatCaptureRoutine extends DelayedTask {
         sleepTask(1000L);
 
         // Keyed on the message body so the same line seen on overlapping screens is held once.
+        // Asked once per pass rather than per screen: if it is down it will still be down in four
+        // seconds, and forty-eight failed connections is a slow way to find that out.
+        boolean paddleUp = paddle != null && paddle.isUp();
+        logInfo("ChatCaptureRoutine | Reader: " + (paddleUp ? "OCR service" : "built-in"));
+
         java.util.LinkedHashMap<String, ChatMessage> collected = new java.util.LinkedHashMap<>();
         java.util.Set<String> roster = new java.util.LinkedHashSet<>();
         int knownBefore = 0;
@@ -331,7 +359,25 @@ public class ChatCaptureRoutine extends DelayedTask {
             // pixels of drift clipped glyph tops, or dropped the sender line into the bubble.
             List<TextLine> lines;
             try {
-                lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT, CHAT_TEXT_SETTINGS);
+                // The better reader first, Tesseract behind it. Measured over twenty live screens,
+                // Paddle returns the diacritics correctly, finds every quoted-reply strip, and
+                // scores bubble decoration below 0.2 where real writing sits above 0.94 -- so the
+                // junk that needed rules about glyph widths and colours sorts itself out. It is a
+                // separate process though, so it can be down, and a reader being unavailable
+                // should cost a fallback rather than the pass.
+                lines = paddle != null && paddleUp
+                        ? paddle.read(image, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT,
+                                FEED_BOTTOM, PADDLE_LANG, PADDLE_MIN_CONFIDENCE)
+                        : java.util.List.of();
+                if (lines.isEmpty()) {
+                    if (paddleUp) {
+                        logWarning("ChatCaptureRoutine | The OCR service returned nothing; "
+                                + "falling back to the built-in reader for the rest of this pass.");
+                        paddleUp = false;
+                    }
+                    lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT,
+                            CHAT_TEXT_SETTINGS);
+                }
                 List<TextLine> latin = lines;
                 // Same reading again, one word at a time, so the bubble's furniture can be told
                 // from the sentence by where it sits. Cheap next to the recognition itself, which
