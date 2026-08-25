@@ -59,8 +59,22 @@ _readers = {}
 # Latin text that no language test can place and no translator can render. The East Slavic model
 # was on disk the whole time, downloaded and never used.
 RECOGNISERS = {
+    # Latin and Chinese share one model: its dictionary carries both, which is why English chat
+    # reads correctly out of a recogniser named for Chinese.
     "en": {"text_recognition_model_name": "PP-OCRv5_mobile_rec"},
     "ru": {"text_recognition_model_name": "eslav_PP-OCRv5_mobile_rec"},
+    # The rest of what the game is played in. Every one of these is named rather than inferred:
+    # asking for a language PaddleOCR does not recognise does not fail, it quietly hands back the
+    # Latin recogniser, and Korean read by a Latin model returns nothing at all while reporting
+    # itself loaded.
+    "korean": {"text_recognition_model_name": "korean_PP-OCRv5_mobile_rec"},
+        # Japanese and traditional Chinese never got a v5 recogniser; v3 is what exists.
+    "japan": {"text_recognition_model_name": "japan_PP-OCRv3_mobile_rec"},
+    "chinese_cht": {"text_recognition_model_name": "chinese_cht_PP-OCRv3_mobile_rec"},
+    "arabic": {"text_recognition_model_name": "arabic_PP-OCRv5_mobile_rec"},
+    "th": {"text_recognition_model_name": "th_PP-OCRv5_mobile_rec"},
+    "latin": {"text_recognition_model_name": "latin_PP-OCRv5_mobile_rec"},
+    "el": {"text_recognition_model_name": "el_PP-OCRv5_mobile_rec"},
 }
 
 

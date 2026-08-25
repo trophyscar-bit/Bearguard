@@ -112,7 +112,11 @@ public final class OnnxOcrReader implements ChatTextReader, AutoCloseable {
         List<Box> boxes = boxesFrom(probability, region.getWidth(), region.getHeight());
         Recogniser recogniser = recogniserFor(language);
 
-        boolean latinModel = !CYRILLIC.equals(language);
+        // The foreign-script filter only makes sense for a model whose own alphabet is Latin.
+        // Applied to the Korean or Arabic model it would throw away everything they read.
+        String alphabet = ALPHABETS.getOrDefault(
+                language == null ? "" : language.toLowerCase(java.util.Locale.ROOT), "latin");
+        boolean latinModel = "latin".equals(alphabet) || "european".equals(alphabet);
         List<TextLine> lines = new ArrayList<>();
         for (Box box : boxes) {
             Reading reading = recognise(recogniser, region, box);
@@ -387,7 +391,8 @@ public final class OnnxOcrReader implements ChatTextReader, AutoCloseable {
      * falls back to the Latin one, which is what the service does.
      */
     private Recogniser recogniserFor(String language) throws OrtException {
-        String key = CYRILLIC.equals(language) ? "cyrillic" : "latin";
+        String key = ALPHABETS.getOrDefault(
+                language == null ? "" : language.toLowerCase(java.util.Locale.ROOT), "latin");
         Recogniser known = recognisers.get(key);
         if (known != null) {
             return known;
@@ -402,7 +407,33 @@ public final class OnnxOcrReader implements ChatTextReader, AutoCloseable {
         return built;
     }
 
-    private static final String CYRILLIC = "ru";
+    /**
+     * Which alphabet each language is read in.
+     *
+     * <p>Most of the alliance writes in one of a handful of scripts, and one model covers a whole
+     * script rather than a language: Spanish, Portuguese, Turkish and Polish are all the European
+     * model, Russian and Ukrainian are both the Cyrillic one. Anything not named here falls to the
+     * Latin model, which is also the one that carries Chinese.
+     *
+     * <p>Naming them matters more than it looks. A recogniser handed a script it does not know does
+     * not decline -- it answers in the nearest shapes it has, so Korean read by a Latin model comes
+     * back as nothing at all while reporting itself perfectly loaded.
+     */
+    private static final Map<String, String> ALPHABETS = Map.ofEntries(
+            Map.entry("en", "latin"), Map.entry("zh", "latin"), Map.entry("ch", "latin"),
+            Map.entry("es", "european"), Map.entry("pt", "european"),
+            Map.entry("fr", "european"), Map.entry("de", "european"),
+            Map.entry("it", "european"), Map.entry("pl", "european"),
+            Map.entry("tr", "european"), Map.entry("id", "european"),
+            Map.entry("vi", "european"), Map.entry("latin", "european"),
+            Map.entry("ru", "cyrillic"), Map.entry("uk", "cyrillic"),
+            Map.entry("cyrillic", "cyrillic"),
+            Map.entry("ko", "korean"), Map.entry("korean", "korean"),
+            Map.entry("ja", "japanese"), Map.entry("japan", "japanese"),
+            Map.entry("ar", "arabic"), Map.entry("arabic", "arabic"),
+            Map.entry("th", "thai"), Map.entry("thai", "thai"),
+            Map.entry("el", "greek"), Map.entry("greek", "greek"),
+            Map.entry("cht", "chinese_cht"), Map.entry("chinese_cht", "chinese_cht"));
 
     /**
      * The alphabet a recogniser emits, in the order its output classes are numbered.
