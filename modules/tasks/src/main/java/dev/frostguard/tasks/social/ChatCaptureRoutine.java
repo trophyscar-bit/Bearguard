@@ -403,10 +403,29 @@ public class ChatCaptureRoutine extends DelayedTask {
      * honest answer: it is already late, and pretending otherwise would only make it later.
      */
     private LocalDateTime nextRunAfter(LocalDateTime began) {
-        LocalDateTime due = began.plusMinutes(frequencyMinutes);
+        // Anchored to when this pass was due rather than to when it got going. Between the queue
+        // picking the task up and the routine starting work there is half a minute of walking back
+        // to the world map, and adding the interval to the later of those two moments pushes every
+        // pass a little further out than the last -- half-hourly passes landed thirty-one minutes
+        // apart, every time, for the same reason they used to land thirty-six.
+        //
+        // Measuring from the due time makes the cadence exact and self-correcting: a pass that
+        // starts late still books the next one on the original beat rather than carrying its own
+        // lateness forward.
+        LocalDateTime anchor = dueAt != null ? dueAt : began;
+        LocalDateTime due = anchor.plusMinutes(frequencyMinutes);
         LocalDateTime now = LocalDateTime.now();
-        return due.isAfter(now) ? due : now;
+        // A pass that overran its whole interval is already late; the next is due immediately, and
+        // the beat restarts from here rather than from a time that has long gone.
+        if (!due.isAfter(now)) {
+            due = now;
+        }
+        dueAt = due;
+        return due;
     }
+
+    /** When this pass was due, so the next can be timed from the beat rather than from the work. */
+    private LocalDateTime dueAt;
 
     /**
      * Walks one channel from the newest message backwards, storing what has not been seen before.
