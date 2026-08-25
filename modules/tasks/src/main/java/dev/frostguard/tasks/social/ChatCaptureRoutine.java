@@ -216,6 +216,41 @@ public class ChatCaptureRoutine extends DelayedTask {
      */
     private dev.frostguard.vision.ocr.PaddleOcrClient paddle;
 
+    /** SERVICE or JAVA: which reader this profile turns screens into text with. */
+    private String readerChoice = "SERVICE";
+
+    /** Reads in this process. Built once, because each model costs seconds to open. */
+    private dev.frostguard.vision.ocr.OnnxOcrReader onnx;
+
+    /** Where the ONNX models live, beside the service that shares them. */
+    private static java.nio.file.Path onnxDir() {
+        return Paths.get(System.getProperty("user.dir"), "tools", "ocr", "onnx");
+    }
+
+    /**
+     * The reader this pass should use, or null when none can read.
+     *
+     * <p>The Java reader is preferred when asked for and falls back to the service rather than
+     * failing: a missing model directory is a setup that has not been done, not a reason to lose a
+     * pass of chat.
+     */
+    private dev.frostguard.vision.ocr.ChatTextReader reader() {
+        if ("JAVA".equals(readerChoice)) {
+            if (onnx == null && dev.frostguard.vision.ocr.OnnxOcrReader.isAvailable(onnxDir())) {
+                try {
+                    onnx = new dev.frostguard.vision.ocr.OnnxOcrReader(onnxDir());
+                } catch (Exception e) {
+                    logWarning("ChatCaptureRoutine | Could not open the in-process reader: "
+                            + e.getMessage() + " -- falling back to the service.");
+                }
+            }
+            if (onnx != null) {
+                return onnx;
+            }
+        }
+        return paddle;
+    }
+
     /** Where the service listens. Loopback only -- nothing about this leaves the machine. */
     private static final String PADDLE_HOST = "127.0.0.1";
     private static final int PADDLE_PORT = 6975;
@@ -271,7 +306,11 @@ public class ChatCaptureRoutine extends DelayedTask {
         boolean translate = Boolean.TRUE.equals(
                 profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSLATE_TO_ENGLISH_BOOL, Boolean.class));
         translator = new ChatTranslator(translate, TRANSLATION_CACHE_SIZE);
-        store = new ChatTranscriptStore(baseDir(), ZoneId.systemDefault());
+        String choice = profile.getConfig(ConfigurationKeyEnum.CHAT_READER_STRING, String.class);
+        readerChoice = choice == null || choice.isBlank() ? "SERVICE" : choice.trim().toUpperCase();
+        // Separate transcripts, because the point of having two readers is to compare them and a
+        // shared file would merge their answers into one indistinguishable feed.
+        store = new ChatTranscriptStore(transcriptDir(readerChoice), ZoneId.systemDefault());
         Integer cacheMb = profile.getConfig(ConfigurationKeyEnum.CHAT_FRAME_CACHE_MB_INT,
                 Integer.class);
         frameCache = new ChatFrameCache(baseDir(), cacheMb == null ? 0 : cacheMb);
@@ -517,8 +556,9 @@ public class ChatCaptureRoutine extends DelayedTask {
      * already covers, and keeping them would only mean reading them again next pass.
      */
     private int read(String channel, List<Path> shots) {
-        boolean paddleUp = paddle != null && paddle.isUp();
-        logInfo("ChatCaptureRoutine | Reader: " + (paddleUp ? "OCR service" : "built-in"));
+        dev.frostguard.vision.ocr.ChatTextReader engine = reader();
+        boolean engineUp = engine != null && engine.isUp();
+        logInfo("ChatCaptureRoutine | Reader: " + (engineUp ? engine.name() : "built-in"));
 
         // One object holds the walk, and the bench drives the same one. Two copies of this loop
         // is how a change measured at 90% clean scored 72% in production.
@@ -546,17 +586,17 @@ public class ChatCaptureRoutine extends DelayedTask {
                 List<TextLine> lines;
                 boolean fromService;
                 try {
-                    fromService = paddle != null && paddleUp;
+                    fromService = engineUp;
                     lines = fromService
-                            ? paddle.read(image, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT,
+                            ? engine.read(image, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT,
                                     FEED_BOTTOM, PADDLE_LANG, PADDLE_MIN_CONFIDENCE)
                             : java.util.List.of();
                     if (lines.isEmpty()) {
-                        if (paddleUp) {
+                        if (engineUp) {
                             logWarning("ChatCaptureRoutine | The OCR service returned nothing;"
                                     + " falling back to the built-in reader for the rest of this"
                                     + " pass.");
-                            paddleUp = false;
+                            engineUp = false;
                         }
                         fromService = false;
                         lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT,
@@ -574,7 +614,7 @@ public class ChatCaptureRoutine extends DelayedTask {
                 // Bound to this frame, because a row's box only means anything against the screen
                 // it was measured on.
                 pass.useRereader(fromService ? (l, t, r, b, language) ->
-                        paddle.read(image, l, t, r, b, language, PADDLE_MIN_CONFIDENCE) : null);
+                        engine.read(image, l, t, r, b, language, PADDLE_MIN_CONFIDENCE) : null);
                 ChatPass.Screen screen = pass.addScreen(frame, image, lines, fromService);
                 cacheFrame(channel, screensRead, image);
                 logInfo("ChatCaptureRoutine | " + channel + " screen " + screensRead + "/"
@@ -852,6 +892,18 @@ public class ChatCaptureRoutine extends DelayedTask {
         int travel = (int) Math.round(((FEED_BOTTOM - 120) - from) * SCROLL_STEP_FRACTION);
         swipe(new PointData(FEED_X, from), new PointData(FEED_X, from + travel), SCROLL_DRAG_MS);
         sleepTask(700L);
+    }
+
+    /**
+     * Where a reader's transcript is kept.
+     *
+     * <p>One directory per reader. Screens are photographed once and could be read by either, so
+     * the only thing that distinguishes their output is which reader produced it -- and a shared
+     * file would lose exactly that.
+     */
+    static Path transcriptDir(String reader) {
+        Path base = Paths.get(System.getProperty("user.dir"), "telemetry", "chat");
+        return "JAVA".equals(reader) ? base.resolveSibling("chat-java") : base;
     }
 
     private Path baseDir() {

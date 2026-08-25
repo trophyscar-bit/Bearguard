@@ -69,6 +69,15 @@
                     <Separator style="-fx-opacity: 0.25;" />
 
                     <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Reader" minWidth="140" />
+                        <ComboBox fx:id="comboBoxChatReader" prefWidth="220.0" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="What turns screens into text. In-process needs nothing installed and ships with the app. Local service is the Python one on port 6975, which reads a shade better on some scripts but has to be set up separately. The two keep separate transcripts so the Chat tab can show either." />
+
+                    <Separator style="-fx-opacity: 0.25;" />
+
+                    <HBox alignment="CENTER_LEFT" spacing="14">
                         <Label styleClass="task-field-label" text="Keep screens" minWidth="140" />
                         <ComboBox fx:id="comboBoxChatFrameCache" prefWidth="220.0" />
                     </HBox>

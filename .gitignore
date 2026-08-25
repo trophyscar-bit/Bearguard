@@ -97,3 +97,12 @@ intel-debug/
 
 tools/ocr/venv/
 tools/ocr/models/
+
+# Live chat frames captured for OCR iteration -- account screenshots, not fixtures.
+chat-corpus/
+chat-debug/
+
+# ONNX weights and the throwaway venv used to fetch them: large binaries that are downloaded
+# rather than authored, and a Python environment that exists only to convert models.
+tools/ocr/onnx/*.onnx
+tools/ocr/convert-venv/
