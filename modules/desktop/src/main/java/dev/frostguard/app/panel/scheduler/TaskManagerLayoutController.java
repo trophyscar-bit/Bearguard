@@ -657,16 +657,15 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 	}
 
 	private ImageView statusIconFor(TaskManagerAux task) {
-		boolean waiting = !task.isExecuting()
-				&& !task.hasReadyTask()
-				&& task.isScheduled()
-				&& task.getNextExecution() != null
-				&& ChronoUnit.SECONDS.between(LocalDateTime.now(), task.getNextExecution()) >= 60;
-		if (waiting) {
-			return iconView(iconWaiting);
-		}
-		if (task.scheduledProperty().get()) {
+		// Green means running. It used to mean "due within the minute", which is indistinguishable
+		// on screen from a task that has stalled -- a row counting down from fifty seconds looked
+		// exactly like one stuck forever, and the only way to tell them apart was to read the log.
+		// The countdown beside it already says how soon; the colour is for what it is doing now.
+		if (task.isExecuting()) {
 			return iconView(iconTrue);
+		}
+		if (task.isScheduled()) {
+			return iconView(iconWaiting);
 		}
 		return iconView(iconIdle);
 	}
