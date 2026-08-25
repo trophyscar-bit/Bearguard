@@ -60,10 +60,18 @@ public final class ChatCorpusBench {
         OcrSettingsData cjk = settings("chi_sim+jpn+kor");
         OcrSettingsData cyrillic = settings("rus");
 
-        PaddleOcrClient service = new PaddleOcrClient("127.0.0.1", 6975);
+        // Which reader to measure, so the two can be run over the same frames and diffed. The
+        // service is still the default; nothing changes unless it is asked for.
+        dev.frostguard.vision.ocr.ChatTextReader service;
+        if ("java".equalsIgnoreCase(System.getProperty("ocr.reader", ""))) {
+            service = new dev.frostguard.vision.ocr.OnnxOcrReader(
+                    java.nio.file.Path.of("C:/Bearguard/tools/ocr/onnx"));
+        } else {
+            service = new PaddleOcrClient("127.0.0.1", 6975);
+        }
         boolean serviceUp = service.isUp();
         java.io.PrintStream out = new java.io.PrintStream(System.out, true, "UTF-8");
-        out.println("reader: " + (serviceUp ? "OCR service" : "built-in"));
+        out.println("reader: " + (serviceUp ? service.name() : "built-in"));
 
         // The real translator, not a stub. Stubbing it made every message on the review page look
         // untranslated, which is not what production stores and sent matt looking for a bug that

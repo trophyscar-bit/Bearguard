@@ -35,7 +35,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * expected to fall back to Tesseract rather than lose the pass. Nothing leaves the machine -- the
  * service listens on loopback and holds the models locally.
  */
-public final class PaddleOcrClient {
+public final class PaddleOcrClient implements ChatTextReader {
+
+    @Override
+    public String name() {
+        return "OCR service";
+    }
+
 
     /** Long enough for a full screen on a busy machine, short enough not to stall a pass. */
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(30);
@@ -84,6 +90,7 @@ public final class PaddleOcrClient {
     }
 
     /** Whether the service is up. Cheap, and the only safe thing to ask before a pass. */
+    @Override
     public boolean isUp() {
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(base + "/health"))
@@ -107,6 +114,7 @@ public final class PaddleOcrClient {
      *                      real writing scores 0.94 and up and decoration scores under 0.2, so the
      *                      threshold has a wide gap to sit in.
      */
+    @Override
     public List<TextLine> read(BufferedImage frame, int left, int top, int right, int bottom,
                                String lang, double minConfidence) {
         try {

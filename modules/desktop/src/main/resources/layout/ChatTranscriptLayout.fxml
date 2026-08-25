@@ -34,6 +34,15 @@
                               onAction="#selectChannel" styleClass="action-button-timeline"
                               text="Personal" userData="personal" />
                 <Separator orientation="VERTICAL" />
+                <!-- Which reader's transcript is on screen. The two read the same screens and are
+                     stored apart so they can be compared rather than argued about. -->
+                <ToggleButton fx:id="tabReaderPython" minWidth="-Infinity" mnemonicParsing="false"
+                              onAction="#selectReader" selected="true"
+                              styleClass="action-button-timeline" text="Python" userData="SERVICE" />
+                <ToggleButton fx:id="tabReaderJava" minWidth="-Infinity" mnemonicParsing="false"
+                              onAction="#selectReader" styleClass="action-button-timeline"
+                              text="Java" userData="JAVA" />
+                <Separator orientation="VERTICAL" />
                 <CheckBox fx:id="checkHideChatter" minWidth="-Infinity" mnemonicParsing="false"
                           onAction="#refresh" selected="true" text="Hide game chatter" />
                 <Pane HBox.hgrow="ALWAYS" />

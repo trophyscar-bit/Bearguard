@@ -78,17 +78,39 @@ public class ChatTranscriptLayoutController {
     private ToggleButton tabPersonal;
     @FXML
     private CheckBox checkHideChatter;
+    @FXML
+    private ToggleButton tabReaderPython;
+    @FXML
+    private ToggleButton tabReaderJava;
 
     /** Which conversation is on screen. Alliance is what the panel opens on. */
     private String channelFilter = "alliance";
 
-    private final ChatTranscriptStore store =
-            new ChatTranscriptStore(baseDir(), ZoneId.systemDefault());
+    /**
+     * Which reader's transcript is being shown, and the store that reads it.
+     *
+     * <p>Rebuilt when the reader changes rather than held for both, because a store is bound to one
+     * directory and the whole point of the switch is that the two directories hold different
+     * answers to the same screens.
+     */
+    private String readerFilter = "SERVICE";
+
+    private ChatTranscriptStore store = new ChatTranscriptStore(baseDir("SERVICE"),
+            ZoneId.systemDefault());
 
     @FXML
     private void initialize() {
         // One channel at a time by default. World, Alliance and Personal are separate
         // conversations, and interleaving them is what made the transcript hard to follow.
+        ToggleGroup readers = new ToggleGroup();
+        tabReaderPython.setToggleGroup(readers);
+        tabReaderJava.setToggleGroup(readers);
+        readers.selectedToggleProperty().addListener((obs, was, now) -> {
+            if (now == null && was != null) {
+                was.setSelected(true);
+            }
+        });
+
         ToggleGroup channels = new ToggleGroup();
         for (ToggleButton t : new ToggleButton[] {tabWorld, tabAlliance, tabPersonal}) {
             t.setToggleGroup(channels);
@@ -114,6 +136,15 @@ public class ChatTranscriptLayoutController {
     private Timeline follow;
 
     private static final int REFRESH_MINUTES = 30;
+
+    @FXML
+    private void selectReader() {
+        Toggle selected = tabReaderPython.getToggleGroup().getSelectedToggle();
+        Object data = selected == null ? null : ((ToggleButton) selected).getUserData();
+        readerFilter = data == null ? "SERVICE" : data.toString();
+        store = new ChatTranscriptStore(baseDir(readerFilter), ZoneId.systemDefault());
+        refresh();
+    }
 
     @FXML
     private void selectChannel() {
@@ -168,7 +199,7 @@ public class ChatTranscriptLayoutController {
     private void exportHtml() {
         try {
             List<ChatMessage> messages = store.recent(VIEW_LIMIT);
-            Path out = baseDir().resolve("transcript.html");
+            Path out = baseDir(readerFilter).resolve("transcript.html");
             Files.writeString(out, ChatDiscordRenderer.render(messages, ZoneId.systemDefault()),
                     StandardCharsets.UTF_8);
             statusLabel.setText("Exported " + messages.size() + " message(s) to " + out);
@@ -447,7 +478,15 @@ public class ChatTranscriptLayoutController {
         return AUTHOR_COLOURS[Math.floorMod(h, AUTHOR_COLOURS.length)];
     }
 
-    private static Path baseDir() {
-        return Paths.get(System.getProperty("user.dir"), "telemetry", "chat");
+    /**
+     * Where a reader keeps its transcript.
+     *
+     * <p>Mirrors what the capture routine writes. Kept as a plain path rather than shared with it
+     * because the panel and the routine live in different modules, and one small duplicated string
+     * is cheaper than a dependency between them.
+     */
+    private static Path baseDir(String reader) {
+        Path base = Paths.get(System.getProperty("user.dir"), "telemetry", "chat");
+        return "JAVA".equals(reader) ? base.resolveSibling("chat-java") : base;
     }
 }

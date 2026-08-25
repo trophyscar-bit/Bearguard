@@ -561,7 +561,12 @@ public enum ConfigurationKeyEnum {
     // Megabytes of already-read screens to keep, so a pass can be read again without waiting for
     // the alliance to repeat itself. Zero writes nothing: this saves pictures of a person's chat to
     // their disk, which somebody should choose rather than discover.
-    CHAT_FRAME_CACHE_MB_INT             ("0",               Integer.class,  ConfigCategory.SYSTEM);
+    CHAT_FRAME_CACHE_MB_INT             ("0",               Integer.class,  ConfigCategory.SYSTEM),
+
+    // Which reader turns screens into text: SERVICE for the Python one on a local port, JAVA for
+    // the same models running in this process. They read very nearly the same and are kept apart
+    // so the two can be compared on the same chat rather than argued about.
+    CHAT_READER_STRING                  ("SERVICE",         String.class,   ConfigCategory.SYSTEM);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.

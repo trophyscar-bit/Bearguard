@@ -31,6 +31,8 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
     private ComboBox<String> comboBoxChatMode;
     @FXML
     private ComboBox<Integer> comboBoxChatFrameCache;
+    @FXML
+    private ComboBox<String> comboBoxChatReader;
 
     @FXML
     private void initialize() {
@@ -61,7 +63,28 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
         comboBoxChatFrameCache.setButtonCell(megabytesCell());
         comboBoxMappings.put(comboBoxChatFrameCache, ConfigurationKeyEnum.CHAT_FRAME_CACHE_MB_INT);
 
+        // Values are the stored strings; the cell factory only changes what is displayed.
+        comboBoxChatReader.getItems().addAll("JAVA", "SERVICE");
+        comboBoxChatReader.setCellFactory(lv -> readerCell());
+        comboBoxChatReader.setButtonCell(readerCell());
+        comboBoxMappings.put(comboBoxChatReader, ConfigurationKeyEnum.CHAT_READER_STRING);
+
         initializeChangeEvents();
+    }
+
+    private ListCell<String> readerCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    setText("JAVA".equals(item) ? "In-process (ships with the app)"
+                            : "Local service (needs setting up)");
+                }
+            }
+        };
     }
 
     /** Reads the budget as a size, and zero as what it means rather than as "0 MB". */
