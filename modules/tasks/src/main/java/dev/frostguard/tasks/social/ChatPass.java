@@ -198,7 +198,10 @@ final class ChatPass {
         }
         boolean[] suspect = new boolean[lines.size()];
         for (int i = 0; i < lines.size(); i++) {
-            suspect[i] = ChatScriptRecovery.looksLikeMangledScript(lines.get(i).text());
+            TextLine line = lines.get(i);
+            suspect[i] = ChatScriptRecovery.looksLikeMangledScript(line.text())
+                    || barelyRead(line)
+                    || nameFailedToRead(line);
         }
         spreadToNeighbours(lines, suspect);
 
@@ -245,6 +248,50 @@ final class ChatPass {
         }
     }
 
+    /**
+     * Whether a row came back with far less text than its box can hold.
+     *
+     * <p>Two ways a reader fails on a script it does not know, and they look nothing alike. Handed
+     * Cyrillic it answers in Latin lookalikes -- confident, wrong, and detectable because the
+     * letters fall where writing does not put them. Handed Korean it answers with almost nothing:
+     * the box is there, three hundred pixels of it, and four characters come out. Nothing about
+     * those four characters is suspicious on its own; what gives it away is the emptiness around
+     * them.
+     *
+     * <p>So this measures the box rather than the text. A line of chat runs about nine to fourteen
+     * pixels per character, and a row spending five times that on each one has not been read.
+     */
+    private static boolean barelyRead(TextLine line) {
+        int characters = line.text().trim().length();
+        if (characters == 0) {
+            return line.width() > EMPTY_BOX_WIDTH;
+        }
+        return line.width() / (double) characters > PIXELS_PER_CHARACTER_WHEN_UNREAD
+                && line.width() > EMPTY_BOX_WIDTH;
+    }
+
+    /**
+     * A sender line whose alliance tag read but whose name did not.
+     *
+     * <p>The tag is Latin and always reads; the name is whatever the player chose, and a Korean one
+     * handed to a Latin model comes back as nothing at all. What is left is "[INF]" on its own,
+     * which is not a name anybody has -- and left that way the message underneath it is filed
+     * against whoever spoke last, so one person's words end up attributed to another.
+     */
+    private static boolean nameFailedToRead(TextLine line) {
+        String text = line.text().trim();
+        return TAG_WITHOUT_NAME.matcher(text).matches();
+    }
+
+    private static final java.util.regex.Pattern TAG_WITHOUT_NAME =
+            java.util.regex.Pattern.compile("^\\W*\\[?[A-Za-z0-9]{2,4}\\]?\\W*$");
+
+    /** Narrower than this and there was never much to read, whatever came back. */
+    private static final int EMPTY_BOX_WIDTH = 90;
+
+    /** Writing runs 9-14 pixels a character; five times that is a box with nothing in it. */
+    private static final double PIXELS_PER_CHARACTER_WHEN_UNREAD = 50.0;
+
     /** A sender line belongs to nobody's message text; it names the person about to speak. */
     private static boolean endsTheBubble(TextLine line) {
         ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(line.text());
@@ -267,6 +314,10 @@ final class ChatPass {
                     Math.min(image.getHeight(), line.bottom() + REREAD_PADDING),
                     language);
             String text = keepMention(joined(again), line.text());
+            // Kept only if it comes back in a script the first reading could not produce. Adding a
+            // "and it must be longer" test here looked like a cheap safeguard and silently undid
+            // Cyrillic recovery: "Bcem npnBet" and "Всем привет" are the same length, so every
+            // Russian message was rejected and the count went from four to nought.
             if (!text.isBlank() && ChatScriptRecovery.isMostlyAnotherScript(text)) {
                 return new TextLine(text, line.left(), line.top(), line.width(), line.height(),
                         line.confidence());
@@ -314,7 +365,7 @@ final class ChatPass {
      * entry is another request for every suspicious row, and a language nobody here writes costs
      * that on every pass forever.
      */
-    private static final String[] OTHER_SCRIPTS = {"ru"};
+    private static final String[] OTHER_SCRIPTS = {"ru", "ko", "ja", "th", "ar"};
 
     /** A row's own box clips its tallest glyphs; a little air around it reads better. */
     private static final int REREAD_PADDING = 4;
