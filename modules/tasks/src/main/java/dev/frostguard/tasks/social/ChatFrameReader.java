@@ -173,6 +173,35 @@ final class ChatFrameReader {
     /** How far short of the widest row a line can stop and still count as having wrapped. */
     private static final int WRAP_SLACK = 40;
 
+    /**
+     * Whether what came back is the same message it was given.
+     *
+     * <p>An exact match was the only case caught, and near-misses are worse than exact ones.
+     * "bana garezi var rhaegarin" -- Turkish, and read correctly -- came back as "bana garage var
+     * rhegarin": not translated, and two of its words broken in the attempt. Stored as the English
+     * rendering, that is shown to a reader in place of text that was right to begin with, under a
+     * label saying it has been translated.
+     *
+     * <p>Compared by shared runs of characters rather than by equality, because that is what
+     * separates a rendering from a mangling. A real translation of a sentence shares very little
+     * with its source; a failed one is the source with a word knocked out of it.
+     */
+    private static boolean didNotTranslate(String english, String body) {
+        String a = english.trim();
+        String b = body.trim();
+        if (a.isEmpty() || a.equalsIgnoreCase(b)) {
+            return true;
+        }
+        if (a.length() < SHORTEST_WORTH_COMPARING || b.length() < SHORTEST_WORTH_COMPARING) {
+            return false;
+        }
+        return ChatLineCleaner.sameMessage(ChatLineCleaner.mergeKey(a),
+                ChatLineCleaner.mergeKey(b));
+    }
+
+    /** Below this, two strings share runs by coincidence rather than because one came from the other. */
+    private static final int SHORTEST_WORTH_COMPARING = 16;
+
     /** The sender this line names, or null when it is ordinary message text. */
     private static ChatLineCleaner.Sender senderOn(TextLine line) {
         ChatLineCleaner.Sender sender = ChatLineCleaner.parseSender(line.text());
@@ -234,7 +263,7 @@ final class ChatFrameReader {
             return;
         }
         String english = kind == ChatMessage.Kind.TEXT ? translate.apply(body).orElse("") : "";
-        if (english.equalsIgnoreCase(body.trim())) {
+        if (didNotTranslate(english, body)) {
             english = "";
         }
         out.add(new ChatMessage(at, channel, author, tag, 0, body, english,
