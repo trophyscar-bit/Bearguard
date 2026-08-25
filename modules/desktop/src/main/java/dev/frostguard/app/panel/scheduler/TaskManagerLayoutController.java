@@ -204,8 +204,49 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 			LocalDateTime now = LocalDateTime.now();
 			globalClock.set(now);
 			tasks.values().forEach(dataList -> refreshCountdowns(dataList, now));
+			reloadIfAnythingLooksOverdue(now);
 		});
 	}
+
+	/**
+	 * Reloads a profile's rows when one of them has been sitting at "Ready" without running.
+	 *
+	 * <p>The countdown ticks against a time held in memory, read once when the rows were built. A
+	 * task that finishes reschedules itself in the database and nothing tells the table, so the row
+	 * keeps counting down towards a moment that has already been superseded, reaches it, and says
+	 * "Ready" from then on. It is not ready and will not run: the queue is holding a later time
+	 * that the screen never learned about.
+	 *
+	 * <p>Reading the row back is what settles it, and it is only worth doing when the display has
+	 * something to be wrong about -- a task showing Ready that is not executing. A short grace
+	 * period first, because a task genuinely due is briefly Ready before the queue picks it up, and
+	 * reloading in that instant would be reloading to learn nothing.
+	 */
+	private void reloadIfAnythingLooksOverdue(LocalDateTime now) {
+		if (lastOverdueReload != null
+				&& ChronoUnit.SECONDS.between(lastOverdueReload, now) < RELOAD_EVERY_SECONDS) {
+			return;
+		}
+		for (Map.Entry<Long, ObservableList<TaskManagerAux>> entry : tasks.entrySet()) {
+			boolean stuck = entry.getValue().stream().anyMatch(t ->
+					t.hasReadyTask() && !t.isExecuting()
+							&& t.getNextExecution() != null
+							&& ChronoUnit.SECONDS.between(t.getNextExecution(), now) > READY_GRACE_SECONDS);
+			if (!stuck) {
+				continue;
+			}
+			lastOverdueReload = now;
+			refreshProfileRows(taskManagerActionController.findProfileById(entry.getKey()));
+		}
+	}
+
+	private LocalDateTime lastOverdueReload;
+
+	/** How long a task may sit at "Ready" before the screen doubts itself and re-reads the row. */
+	private static final int READY_GRACE_SECONDS = 45;
+
+	/** And how often it is allowed to do that, so a genuinely queued task is not re-read every tick. */
+	private static final int RELOAD_EVERY_SECONDS = 20;
 
 	private void refreshCountdowns(ObservableList<TaskManagerAux> dataList, LocalDateTime now) {
 		boolean needsReorder = false;
