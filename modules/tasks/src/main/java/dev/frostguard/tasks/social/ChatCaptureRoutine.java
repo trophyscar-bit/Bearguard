@@ -184,14 +184,26 @@ public class ChatCaptureRoutine extends DelayedTask {
     private int scrollBack = DEFAULT_SCROLL_BACK;
 
     /**
-     * As far back as a walk is ever allowed to go.
+     * How long one channel gets before the walk gives up and leaves the rest for next time.
      *
-     * <p>Purely a runaway guard. Reaching it means either the game has stopped handing back older
-     * messages -- in which case the walk is scrolling a wall -- or the duplicate check has failed
-     * and the walk would never stop on its own. Neither is a case worth spending an unbounded pass
-     * on, and neither is a case a number chosen here can fix.
+     * <p>The real constraint is the schedule, not the screen count. Two channels at this budget fit
+     * inside five minutes, which sits comfortably inside a half-hourly pass however slow reading
+     * happens to be that day -- and a pass that overruns its own schedule is the failure that
+     * compounds, because the next one starts late with more to catch up on.
+     *
+     * <p>Nothing is lost by stopping early that would not also have been lost by running long. The
+     * walk reads newest first, so what it does not reach is the oldest end, and the next pass
+     * starts from the newest again.
      */
-    private static final int SAFETY_SCREEN_LIMIT = 200;
+    private static final long CHANNEL_TIME_BUDGET_MS = 150_000L;
+
+    /**
+     * As far back as a walk is ever allowed to go, whatever the clock says.
+     *
+     * <p>Purely a runaway guard behind the time budget. Reaching it means the duplicate check has
+     * failed and the walk would never stop on its own.
+     */
+    private static final int SAFETY_SCREEN_LIMIT = 500;
     private int retentionDays = DEFAULT_RETENTION_DAYS;
 
     private ChatTranscriptStore store;
@@ -341,109 +353,148 @@ public class ChatCaptureRoutine extends DelayedTask {
      *
      * @return how many genuinely new messages were stored
      */
+    /**
+     * Walks one channel: photograph the whole way back, then read what was photographed.
+     *
+     * <p>These used to be one loop -- capture a screen, read it, swipe, repeat -- which meant the
+     * emulator was held for the reading as well as the scrolling. Reading is by far the larger
+     * half: a screen takes about a second and a half to photograph and eight to fourteen seconds
+     * to read, so nine tenths of the time the device was locked, it was locked waiting on OCR that
+     * did not need it.
+     *
+     * <p>Split, the same two and a half minutes on the device buys ninety screens instead of
+     * fifteen, and the reading happens afterwards from disk while the bot gets on with something
+     * else. The cost is that the walk can no longer stop the moment it recognises a message it
+     * already has -- knowing that requires reading -- so it photographs its whole budget and the
+     * reader stops early instead. Frames past the point where the reader caught up are deleted
+     * unread.
+     */
     private int captureChannel(String channel, PointData tab) {
+        List<Path> shots = photograph(channel, tab);
+        if (shots.isEmpty()) {
+            return 0;
+        }
+        handOffForReading(channel, shots);
+        return 0;
+    }
+
+    /**
+     * Hands the photographs to the reader and returns, rather than waiting for it.
+     *
+     * <p>Splitting the walk freed the device but not the bot. Reading still ran on the task thread,
+     * so the queue stayed blocked for as long as the reading took -- a pass photographed for five
+     * minutes and then sat there for another twenty, and nothing else the bot was supposed to do
+     * could start. Freeing the device is worth nothing if the schedule is still held.
+     *
+     * <p>Reading is now somebody else's problem: it happens on its own thread, off the queue, while
+     * the bot gets on with the next task. Only one read runs at a time -- they share a transcript
+     * file and a translator, and two at once would be racing over both -- so a pass whose reading
+     * is still going when the next one photographs will queue behind it.
+     */
+    private void handOffForReading(String channel, List<Path> shots) {
+        if (PENDING_READS.get() >= MAX_QUEUED_READS) {
+            logWarning("ChatCaptureRoutine | " + channel + ": the reader is still working through"
+                    + " earlier screens, so these " + shots.size() + " are being dropped rather"
+                    + " than piled on. Reading is not keeping up with capturing.");
+            clear(shots.get(0).getParent());
+            return;
+        }
+        PENDING_READS.incrementAndGet();
+        READER.submit(() -> {
+            try {
+                int stored = read(channel, shots);
+                logInfo("ChatCaptureRoutine | " + channel + ": reading finished, " + stored
+                        + " new message(s) stored.");
+            } catch (RuntimeException e) {
+                logError("ChatCaptureRoutine | " + channel + ": reading failed: " + e, e);
+            } finally {
+                PENDING_READS.decrementAndGet();
+            }
+        });
+    }
+
+    /**
+     * The one thread that reads photographs, shared by every channel and every pass.
+     *
+     * <p>Single, not a pool. Readers append to the same transcript and share one translation cache,
+     * and the OCR service is already using every core it is going to use -- a second reader would
+     * contend for all three and finish no sooner.
+     */
+    private static final java.util.concurrent.ExecutorService READER =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "chat-reader");
+                // Daemon so a half-read pass cannot keep the application from closing. The
+                // photographs survive on disk either way.
+                t.setDaemon(true);
+                return t;
+            });
+
+    private static final java.util.concurrent.atomic.AtomicInteger PENDING_READS =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * How far reading may fall behind capturing before screens start being dropped.
+     *
+     * <p>Dropping is the honest failure. The alternative is a queue that grows every pass, reading
+     * screens that are hours stale while the live conversation goes uncaptured -- the transcript
+     * would fall further behind with every pass and never recover.
+     */
+    private static final int MAX_QUEUED_READS = 2;
+
+    /**
+     * Photographs the way back through a channel, holding the device and nothing else.
+     *
+     * <p>Nothing here reads a word. The only judgement made is whether the feed is moving at all,
+     * which is a comparison of two pictures and costs nothing -- and without it a screen that
+     * refuses to scroll produces a hundred identical photographs.
+     */
+    private List<Path> photograph(String channel, PointData tab) {
         tapNear(tab);
         sleepTask(1000L);
         foldPinnedCard(channel);
 
-        // Keyed on the message body so the same line seen on overlapping screens is held once.
-        // Asked once per pass rather than per screen: if it is down it will still be down in four
-        // seconds, and forty-eight failed connections is a slow way to find that out.
-        boolean paddleUp = paddle != null && paddle.isUp();
-        logInfo("ChatCaptureRoutine | Reader: " + (paddleUp ? "OCR service" : "built-in"));
+        List<Path> shots = new ArrayList<>();
+        // Stamped per pass, because the previous pass's photographs may still be being read and
+        // clearing the directory out from under that reader would delete the screens mid-pass.
+        Path dir = baseDir().resolve("pending")
+                .resolve(channel + "-" + LocalDateTime.now().format(FILE_STAMP));
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            logWarning("ChatCaptureRoutine | Could not make room for " + channel + " frames: "
+                    + e.getMessage());
+            return shots;
+        }
 
-        // One object holds the walk, and the bench drives the same one. Two copies of this loop
-        // is how a change measured at 90% clean scored 72% in production.
-        ChatPass pass = new ChatPass(channel, body -> translator.toEnglish(body),
-                CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
-
-        // A safety bound, not a setting to get right. The walk already stops on its own the moment
-        // it meets messages it has seen before, so on a quiet channel it ends after three screens
-        // whatever this number is -- the cap costs nothing until it binds, and when it binds it is
-        // cutting the conversation off mid-way. There is nothing to tune here: it only has to be
-        // higher than the busiest gap will ever need.
-        int cap = Math.max(scrollBack, SAFETY_SCREEN_LIMIT);
-        int used = 0;
-        boolean finished = false;
+        long deadline = System.currentTimeMillis() + CHANNEL_TIME_BUDGET_MS;
         BufferedImage previous = null;
         int stalled = 0;
 
-        try {
-        for (int i = 0; i < cap; i++) {
-            used = i + 1;
+        for (int i = 0; i < SAFETY_SCREEN_LIMIT && System.currentTimeMillis() < deadline; i++) {
             RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
             if (frame == null || !frame.isValid()) {
                 logWarning("ChatCaptureRoutine | Could not capture a frame for " + channel
                         + "; stopping this channel.");
                 break;
             }
-
-            BufferedImage image = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
-
-            // One recognition for the whole feed, keeping where every line landed. Reading region
-            // by region meant deciding each boundary before recognising it, and those boundaries
-            // were offsets from an avatar edge that moves with crowns and rank badges -- a few
-            // pixels of drift clipped glyph tops, or dropped the sender line into the bubble.
-            List<TextLine> lines;
-            boolean fromService;
+            BufferedImage image =
+                    dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
             try {
-                // The better reader first, the built-in one behind it. Measured over twenty live
-                // screens, the service returns the diacritics correctly, finds every quoted-reply
-                // strip, and scores bubble decoration below 0.2 where real writing sits above 0.94.
-                // It is a separate process though, so it can be down, and a reader being
-                // unavailable should cost a fallback rather than the pass.
-                fromService = paddle != null && paddleUp;
-                lines = fromService
-                        ? paddle.read(image, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT,
-                                FEED_BOTTOM, PADDLE_LANG, PADDLE_MIN_CONFIDENCE)
-                        : java.util.List.of();
-                if (lines.isEmpty()) {
-                    if (paddleUp) {
-                        logWarning("ChatCaptureRoutine | The OCR service returned nothing; "
-                                + "falling back to the built-in reader for the rest of this pass.");
-                        paddleUp = false;
-                    }
-                    fromService = false;
-                    lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT,
-                            CHAT_TEXT_SETTINGS);
-                }
-            } catch (OcrException e) {
-                logWarning("ChatCaptureRoutine | Could not read " + channel + " screen "
-                        + (i + 1) + ": " + e.getMessage());
-                swipeUpThroughHistory();
-                continue;
-            }
-            if (lines.isEmpty()) {
-                logInfo("ChatCaptureRoutine | " + channel + ": no text on this screen.");
-                swipeUpThroughHistory();
-                continue;
-            }
-
-            // Bound to this frame, because a row's box only means anything against the screen it
-            // was measured on.
-            pass.useRereader(fromService ? (l, t, r, b, language) ->
-                    paddle.read(image, l, t, r, b, language, PADDLE_MIN_CONFIDENCE) : null);
-            ChatPass.Screen screen = pass.addScreen(frame, image, lines, fromService);
-            cacheFrame(channel, i, image);
-            logInfo("ChatCaptureRoutine | " + channel + " screen " + (i + 1) + "/" + cap
-                    + ": " + screen.lines() + " line(s), " + screen.readable() + " readable, "
-                    + screen.fresh() + " new.");
-            if (pass.reachedKnownHistory()) {
-                logInfo("ChatCaptureRoutine | " + channel + ": reached already-captured history.");
-                finished = true;
+                Path out = dir.resolve(String.format("%04d.png", i));
+                ImageIO.write(image, "png", out.toFile());
+                shots.add(out);
+            } catch (IOException e) {
+                logWarning("ChatCaptureRoutine | Could not save a " + channel + " frame: "
+                        + e.getMessage());
                 break;
             }
-            // A screen that finds nothing new is normally the walk catching up with itself. It is
-            // also exactly what a feed that refused to move looks like, and the two were
-            // indistinguishable until a pinned poll ate the drag and a whole pass photographed one
-            // screen ninety-two times while reporting success.
-            if (previous != null && screen.fresh() == 0 && !feedMoved(previous, image)) {
+
+            if (previous != null && !feedMoved(previous, image)) {
                 stalled++;
                 if (stalled >= STALLED_SCREENS_BEFORE_GIVING_UP) {
                     logWarning("ChatCaptureRoutine | " + channel + ": the feed is not scrolling --"
-                            + " something is sitting on top of it and swallowing the drag. Giving"
-                            + " up on this channel rather than reading one screen repeatedly.");
-                    finished = true;
+                            + " something is sitting on top of it and swallowing the drag."
+                            + " Stopping rather than photographing one screen repeatedly.");
                     break;
                 }
             } else {
@@ -453,20 +504,123 @@ public class ChatCaptureRoutine extends DelayedTask {
             swipeUpThroughHistory();
         }
 
-            // Running out of screens with messages still arriving means the walk stopped in the
-            // middle of the conversation. It used to do that silently, which is why half a day of
-            // passes lost messages without anybody noticing.
+        logInfo("ChatCaptureRoutine | " + channel + ": photographed " + shots.size()
+                + " screen(s) in " + (CHANNEL_TIME_BUDGET_MS / 1000) + "s; reading them now.");
+        return shots;
+    }
+
+    /**
+     * Reads the saved screens, newest first, and stops as soon as it recognises history.
+     *
+     * <p>The device is free by the time this runs, so nothing here is racing anything. Frames it
+     * never reaches are deleted along with the rest: they are older than the point the transcript
+     * already covers, and keeping them would only mean reading them again next pass.
+     */
+    private int read(String channel, List<Path> shots) {
+        boolean paddleUp = paddle != null && paddle.isUp();
+        logInfo("ChatCaptureRoutine | Reader: " + (paddleUp ? "OCR service" : "built-in"));
+
+        // One object holds the walk, and the bench drives the same one. Two copies of this loop
+        // is how a change measured at 90% clean scored 72% in production.
+        ChatPass pass = new ChatPass(channel, body -> translator.toEnglish(body),
+                CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
+
+        int screensRead = 0;
+        boolean finished = false;
+        try {
+            for (Path shot : shots) {
+                BufferedImage image;
+                try {
+                    image = ImageIO.read(shot.toFile());
+                } catch (IOException e) {
+                    logWarning("ChatCaptureRoutine | Could not reopen " + shot.getFileName()
+                            + ": " + e.getMessage());
+                    continue;
+                }
+                if (image == null) {
+                    continue;
+                }
+                screensRead++;
+                RawImageData frame = ChatFrames.toRaw(image);
+
+                List<TextLine> lines;
+                boolean fromService;
+                try {
+                    fromService = paddle != null && paddleUp;
+                    lines = fromService
+                            ? paddle.read(image, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT,
+                                    FEED_BOTTOM, PADDLE_LANG, PADDLE_MIN_CONFIDENCE)
+                            : java.util.List.of();
+                    if (lines.isEmpty()) {
+                        if (paddleUp) {
+                            logWarning("ChatCaptureRoutine | The OCR service returned nothing;"
+                                    + " falling back to the built-in reader for the rest of this"
+                                    + " pass.");
+                            paddleUp = false;
+                        }
+                        fromService = false;
+                        lines = OcrEngine.recognizeLines(frame, FEED_TOP_LEFT, FEED_BOTTOM_RIGHT,
+                                CHAT_TEXT_SETTINGS);
+                    }
+                } catch (OcrException e) {
+                    logWarning("ChatCaptureRoutine | Could not read " + channel + " screen "
+                            + screensRead + ": " + e.getMessage());
+                    continue;
+                }
+                if (lines.isEmpty()) {
+                    continue;
+                }
+
+                // Bound to this frame, because a row's box only means anything against the screen
+                // it was measured on.
+                pass.useRereader(fromService ? (l, t, r, b, language) ->
+                        paddle.read(image, l, t, r, b, language, PADDLE_MIN_CONFIDENCE) : null);
+                ChatPass.Screen screen = pass.addScreen(frame, image, lines, fromService);
+                cacheFrame(channel, screensRead, image);
+                logInfo("ChatCaptureRoutine | " + channel + " screen " + screensRead + "/"
+                        + shots.size() + ": " + screen.lines() + " line(s), " + screen.readable()
+                        + " readable, " + screen.fresh() + " new.");
+                if (pass.reachedKnownHistory()) {
+                    logInfo("ChatCaptureRoutine | " + channel + ": reached already-captured"
+                            + " history after " + screensRead + " of " + shots.size()
+                            + " screen(s).");
+                    finished = true;
+                    break;
+                }
+            }
+
+            // Reading every screen photographed and still finding new messages means the walk did
+            // not reach the end of what was said. It used to do that silently, which is why half a
+            // day of passes lost messages without anybody noticing.
             if (!finished) {
-                logWarning("ChatCaptureRoutine | " + channel + ": hit the " + cap
-                        + "-screen limit while still finding new messages. Either the game has"
-                        + " stopped serving older history, or messages before this point were"
-                        + " missed.");
+                logWarning("ChatCaptureRoutine | " + channel + ": read all " + shots.size()
+                        + " photographed screen(s) and was still finding new messages. Anything"
+                        + " older than that was not read this pass.");
             }
             return store.append(pass.messages());
         } catch (IOException e) {
             logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
                     + ": " + e.getMessage());
             return 0;
+        } finally {
+            clear(shots.get(0).getParent());
+        }
+    }
+
+    /** Drops the photographs once they have been read; they are worth nothing twice. */
+    private void clear(Path dir) {
+        try (var listing = Files.list(dir)) {
+            for (Path p : listing.toList()) {
+                Files.deleteIfExists(p);
+            }
+        } catch (IOException e) {
+            logWarning("ChatCaptureRoutine | Could not clear " + dir + ": " + e.getMessage());
+            return;
+        }
+        try {
+            Files.deleteIfExists(dir);
+        } catch (IOException e) {
+            logWarning("ChatCaptureRoutine | Could not remove " + dir + ": " + e.getMessage());
         }
     }
 

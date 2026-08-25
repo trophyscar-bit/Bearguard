@@ -19,16 +19,16 @@
              returns at the next width down. -->
         <VBox spacing="6" style="-fx-padding: 10 16 8 16;">
             <HBox alignment="CENTER_LEFT" spacing="8">
-                <!-- Channels are separate conversations; reading them interleaved is the main
-                     reason the transcript was hard to follow. ALL stays available for one feed. -->
-                <ToggleButton fx:id="tabAll" minWidth="-Infinity" mnemonicParsing="false"
-                              onAction="#selectChannel" selected="true"
-                              styleClass="action-button-timeline" text="All" userData="" />
+                <!-- Channels are separate conversations, and reading them interleaved is the main
+                     reason the transcript was hard to follow. There is no combined view: one feed
+                     mixing world chatter into an alliance conversation is the thing the tabs exist
+                     to undo. Alliance opens first because it is the one worth reading. -->
                 <ToggleButton fx:id="tabWorld" minWidth="-Infinity" mnemonicParsing="false"
                               onAction="#selectChannel" styleClass="action-button-timeline"
                               text="World" userData="world" />
                 <ToggleButton fx:id="tabAlliance" minWidth="-Infinity" mnemonicParsing="false"
-                              onAction="#selectChannel" styleClass="action-button-timeline"
+                              onAction="#selectChannel" selected="true"
+                              styleClass="action-button-timeline"
                               text="Alliance" userData="alliance" />
                 <ToggleButton fx:id="tabPersonal" minWidth="-Infinity" mnemonicParsing="false"
                               onAction="#selectChannel" styleClass="action-button-timeline"

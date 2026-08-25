@@ -14,6 +14,9 @@ import dev.frostguard.api.chat.ChatDiscordRenderer;
 import dev.frostguard.api.chat.ChatMessage;
 import dev.frostguard.engine.chat.ChatTranscriptStore;
 
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.util.Duration;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.fxml.FXML;
@@ -52,6 +55,9 @@ public class ChatTranscriptLayoutController {
     /** Enough to scroll through a session without building a node for every message ever stored. */
     private static final int VIEW_LIMIT = 400;
 
+    /** Close enough to the bottom to count as reading the newest message. */
+    private static final double NEWEST_ENOUGH = 0.98;
+
     /** One stable colour per author, so a player is recognisable down the list. */
     private static final String[] AUTHOR_COLOURS = {
             "#5865f2", "#57f287", "#fee75c", "#eb459e", "#ed4245",
@@ -65,8 +71,6 @@ public class ChatTranscriptLayoutController {
     @FXML
     private ScrollPane scrollPane;
     @FXML
-    private ToggleButton tabAll;
-    @FXML
     private ToggleButton tabWorld;
     @FXML
     private ToggleButton tabAlliance;
@@ -75,8 +79,8 @@ public class ChatTranscriptLayoutController {
     @FXML
     private CheckBox checkHideChatter;
 
-    /** Empty means every channel in one feed. */
-    private String channelFilter = "";
+    /** Which conversation is on screen. Alliance is what the panel opens on. */
+    private String channelFilter = "alliance";
 
     private final ChatTranscriptStore store =
             new ChatTranscriptStore(baseDir(), ZoneId.systemDefault());
@@ -86,7 +90,7 @@ public class ChatTranscriptLayoutController {
         // One channel at a time by default. World, Alliance and Personal are separate
         // conversations, and interleaving them is what made the transcript hard to follow.
         ToggleGroup channels = new ToggleGroup();
-        for (ToggleButton t : new ToggleButton[] {tabAll, tabWorld, tabAlliance, tabPersonal}) {
+        for (ToggleButton t : new ToggleButton[] {tabWorld, tabAlliance, tabPersonal}) {
             t.setToggleGroup(channels);
         }
         // A toggle group lets the selected button be clicked off, which would leave no channel
@@ -96,12 +100,24 @@ public class ChatTranscriptLayoutController {
                 was.setSelected(true);
             }
         });
+        // Capture runs on its own schedule, so a panel left open goes stale without saying so --
+        // it shows a quiet afternoon that ended half an hour ago. Reloading on the same cadence as
+        // the capture keeps the two in step.
+        follow = new Timeline(new KeyFrame(Duration.minutes(REFRESH_MINUTES), e -> refresh()));
+        follow.setCycleCount(Timeline.INDEFINITE);
+        follow.play();
+
         refresh();
     }
 
+    /** Reloads on the capture's own cadence, so an open panel does not quietly go stale. */
+    private Timeline follow;
+
+    private static final int REFRESH_MINUTES = 30;
+
     @FXML
     private void selectChannel() {
-        Toggle selected = tabAll.getToggleGroup().getSelectedToggle();
+        Toggle selected = tabWorld.getToggleGroup().getSelectedToggle();
         Object data = selected == null ? null : ((ToggleButton) selected).getUserData();
         channelFilter = data == null ? "" : data.toString();
         refresh();
@@ -180,9 +196,12 @@ public class ChatTranscriptLayoutController {
         }
 
         statusLabel.setText(sizeLine(messages.size()));
-        // A chat view is only useful pinned to the newest message; anything else means scrolling
-        // past everything already read to find what arrived.
-        Platform.runLater(() -> scrollPane.setVvalue(1.0));
+        // Pinned to the newest message, unless the reader had scrolled back to look at something.
+        // A view that reloads itself every half hour and yanks you to the bottom while you are
+        // reading is worse than one that never reloads at all.
+        double was = scrollPane.getVvalue();
+        boolean wasAtNewest = was >= NEWEST_ENOUGH || messageList.getChildren().size() <= 1;
+        Platform.runLater(() -> scrollPane.setVvalue(wasAtNewest ? 1.0 : was));
     }
 
     private String sizeLine(int shown) {
