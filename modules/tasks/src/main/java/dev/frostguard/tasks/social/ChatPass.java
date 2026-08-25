@@ -110,10 +110,27 @@ final class ChatPass {
             keep(m);
         }
 
-        int fresh = collected.size() - knownBefore;
-        knownBefore = collected.size();
+        int fresh = unseen - knownBefore;
+        knownBefore = unseen;
         barrenScreens = fresh == 0 ? barrenScreens + 1 : 0;
         return new Screen(lines.size(), read.size(), fresh);
+    }
+
+    /** Messages found that the transcript did not already hold. */
+    private int unseen;
+
+    /** What the transcript already holds, when the caller can say. */
+    private java.util.function.Predicate<ChatMessage> known;
+
+    /**
+     * Tells the walk what has already been stored, so it can stop when it reaches it.
+     *
+     * <p>Without this the walk only knows what it has seen since it started, and "nothing new on
+     * this screen" means the scroll stalled rather than that the conversation has been caught up
+     * with.
+     */
+    void useKnownHistory(java.util.function.Predicate<ChatMessage> alreadyStored) {
+        this.known = alreadyStored;
     }
 
     /** Whether this walk has reached history it has already read. */
@@ -376,6 +393,12 @@ final class ChatPass {
         }
         if (match == null) {
             collected.put(key, m);
+            // Counted separately from the walk's own novelty. A message the transcript already
+            // holds is not news, however new it is to this scroll, and treating it as news is what
+            // kept a busy channel reading all seventy-six of its screens every pass for a night.
+            if (known == null || !known.test(m)) {
+                unseen++;
+            }
             return;
         }
         ChatMessage held = collected.get(match);

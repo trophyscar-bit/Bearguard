@@ -564,6 +564,7 @@ public class ChatCaptureRoutine extends DelayedTask {
         // is how a change measured at 90% clean scored 72% in production.
         ChatPass pass = new ChatPass(channel, body -> translator.toEnglish(body),
                 CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
+        pass.useKnownHistory(store::alreadyStored);
 
         int screensRead = 0;
         boolean finished = false;
