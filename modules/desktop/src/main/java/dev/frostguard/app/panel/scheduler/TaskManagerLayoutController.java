@@ -228,10 +228,7 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 			return;
 		}
 		for (Map.Entry<Long, ObservableList<TaskManagerAux>> entry : tasks.entrySet()) {
-			boolean stuck = entry.getValue().stream().anyMatch(t ->
-					t.hasReadyTask() && !t.isExecuting()
-							&& t.getNextExecution() != null
-							&& ChronoUnit.SECONDS.between(t.getNextExecution(), now) > READY_GRACE_SECONDS);
+			boolean stuck = entry.getValue().stream().anyMatch(t -> looksStuck(t, now));
 			if (!stuck) {
 				continue;
 			}
@@ -239,6 +236,33 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 			refreshProfileRows(taskManagerActionController.findProfileById(entry.getKey()));
 		}
 	}
+
+	/**
+	 * Whether a row has stopped telling the truth about itself.
+	 *
+	 * <p>Two ways it happens, and the second is the one that bit. A row can sit at "Ready" holding
+	 * a moment that has already been superseded, which is merely stale. Or it can sit marked as
+	 * executing long after the task finished -- and that one is worse, because a row that believes
+	 * it is running is not a row anybody thinks to re-read: it looks busy rather than broken. Chat
+	 * Capture showed a green dot and an hours-old timestamp for exactly that reason, and the first
+	 * version of this check skipped it, because it only looked at rows that were idle.
+	 *
+	 * <p>Nothing here holds the device for anything like this long, so a row claiming otherwise is
+	 * reporting on a task that ended without the screen being told.
+	 */
+	private boolean looksStuck(TaskManagerAux task, LocalDateTime now) {
+		if (task.isExecuting()) {
+			LocalDateTime since = task.getLastExecution();
+			return since != null
+					&& ChronoUnit.MINUTES.between(since, now) > LONGEST_PLAUSIBLE_RUN_MINUTES;
+		}
+		return task.hasReadyTask()
+				&& task.getNextExecution() != null
+				&& ChronoUnit.SECONDS.between(task.getNextExecution(), now) > READY_GRACE_SECONDS;
+	}
+
+	/** Longer than any task actually holds the device, so a row still claiming to run has stalled. */
+	private static final int LONGEST_PLAUSIBLE_RUN_MINUTES = 12;
 
 	private LocalDateTime lastOverdueReload;
 
