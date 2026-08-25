@@ -656,18 +656,46 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 		return iconView(image);
 	}
 
+	/** What a task row's indicator is saying. See {@link #rowStatusFor}. */
+	enum RowStatus {
+		/** Green: the queue is dealing with this row now, or will as soon as the one ahead ends. */
+		ACTIVE,
+		/** Yellow: scheduled, with time still on the clock beside it. */
+		WAITING,
+		/** Grey: not scheduled. */
+		IDLE
+	}
+
+	/**
+	 * Decides a row's indicator from the three facts the row already knows.
+	 *
+	 * <p>Yellow means "waiting on a clock", so it must only ever appear next to a clock. The colour
+	 * and the Next Execution text are both read off {@code ready}, which is set in the one place
+	 * that measures the gap. Deriving them separately is what let a row read "Ready" beside a
+	 * yellow dot: the text had reached zero while the dot was still describing the schedule.
+	 *
+	 * <p>Green therefore covers running and ready alike. To the operator those are the same
+	 * statement, and neither has any time left to show. But ready only counts while the row is
+	 * still scheduled: a disabled task can hold a next-execution time from before it was switched
+	 * off, and that stale timestamp is in the past, so it would otherwise light up green for work
+	 * nobody is going to do.
+	 *
+	 * <p>Kept static and free of JavaFX on purpose. This rule has been rewritten several times and
+	 * was never expressed anywhere a test could reach it.
+	 */
+	static RowStatus rowStatusFor(boolean executing, boolean scheduled, boolean ready) {
+		if (executing || (scheduled && ready)) {
+			return RowStatus.ACTIVE;
+		}
+		return scheduled ? RowStatus.WAITING : RowStatus.IDLE;
+	}
+
 	private ImageView statusIconFor(TaskManagerAux task) {
-		// Green means running. It used to mean "due within the minute", which is indistinguishable
-		// on screen from a task that has stalled -- a row counting down from fifty seconds looked
-		// exactly like one stuck forever, and the only way to tell them apart was to read the log.
-		// The countdown beside it already says how soon; the colour is for what it is doing now.
-		if (task.isExecuting()) {
-			return iconView(iconTrue);
-		}
-		if (task.isScheduled()) {
-			return iconView(iconWaiting);
-		}
-		return iconView(iconIdle);
+		return switch (rowStatusFor(task.isExecuting(), task.isScheduled(), task.hasReadyTask())) {
+			case ACTIVE -> iconView(iconTrue);
+			case WAITING -> iconView(iconWaiting);
+			case IDLE -> iconView(iconIdle);
+		};
 	}
 
 	public void updateTaskStatus(Long profileId, int taskNameId, TaskStateData taskState) {
