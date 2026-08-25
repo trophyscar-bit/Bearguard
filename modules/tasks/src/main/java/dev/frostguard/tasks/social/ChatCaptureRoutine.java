@@ -319,12 +319,15 @@ public class ChatCaptureRoutine extends DelayedTask {
 
     @Override
     protected void execute() {
+        // When this pass began, so the next one can be timed from here rather than from whenever
+        // this one happens to finish.
+        LocalDateTime began = LocalDateTime.now();
         loadSettings();
 
         if (!includeWorld && !includeAlliance && !includePersonal) {
             logInfo("ChatCaptureRoutine | No channels selected; nothing to capture.");
-            reschedule(LocalDateTime.now().plusMinutes(frequencyMinutes));
             setRecurring(true);
+            reschedule(nextRunAfter(began));
             return;
         }
 
@@ -384,7 +387,25 @@ public class ChatCaptureRoutine extends DelayedTask {
                 + translator.cachedPhrases() + " phrase(s) cached.");
 
         setRecurring(true);
-        reschedule(LocalDateTime.now().plusMinutes(frequencyMinutes));
+        reschedule(nextRunAfter(began));
+    }
+
+    /**
+     * When the next pass is due, measured from when this one started.
+     *
+     * <p>Timed from the start rather than the finish because a pass is not instantaneous: it holds
+     * the device for five minutes, and adding the interval to the end of that pushes every pass
+     * later than the one before. Asked for every half hour, the passes drifted to thirty-six
+     * minutes apart -- and would have kept drifting, an extra five minutes lost each time, until
+     * the schedule bore no relation to what was set.
+     *
+     * <p>If a pass somehow overruns its own interval the next one is due immediately, which is the
+     * honest answer: it is already late, and pretending otherwise would only make it later.
+     */
+    private LocalDateTime nextRunAfter(LocalDateTime began) {
+        LocalDateTime due = began.plusMinutes(frequencyMinutes);
+        LocalDateTime now = LocalDateTime.now();
+        return due.isAfter(now) ? due : now;
     }
 
     /**
