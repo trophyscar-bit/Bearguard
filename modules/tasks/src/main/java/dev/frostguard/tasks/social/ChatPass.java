@@ -306,6 +306,8 @@ final class ChatPass {
     private static final int SAME_BUBBLE_GAP = 46;
 
     private TextLine inAnotherScript(BufferedImage image, TextLine line) {
+        String best = null;
+        double bestScore = 0;
         for (String language : OTHER_SCRIPTS) {
             List<TextLine> again = rereader.read(
                     Math.max(0, line.left() - REREAD_PADDING),
@@ -314,16 +316,66 @@ final class ChatPass {
                     Math.min(image.getHeight(), line.bottom() + REREAD_PADDING),
                     language);
             String text = keepMention(joined(again), line.text());
-            // Kept only if it comes back in a script the first reading could not produce. Adding a
-            // "and it must be longer" test here looked like a cheap safeguard and silently undid
-            // Cyrillic recovery: "Bcem npnBet" and "Всем привет" are the same length, so every
-            // Russian message was rejected and the count went from four to nought.
-            if (!text.isBlank() && ChatScriptRecovery.isMostlyAnotherScript(text)) {
-                return new TextLine(text, line.left(), line.top(), line.width(), line.height(),
-                        line.confidence());
+            if (text.isBlank() || !ChatScriptRecovery.isMostlyAnotherScript(withoutLatinFurniture(text))) {
+                continue;
+            }
+            double score = confidence(again) * lettersIn(text);
+            if (score > bestScore) {
+                bestScore = score;
+                best = text;
             }
         }
-        return line;
+        if (best == null) {
+            return line;
+        }
+        return new TextLine(best, line.left(), line.top(), line.width(), line.height(),
+                line.confidence());
+    }
+
+    /**
+     * The text with the parts that are always Latin taken out.
+     *
+     * <p>The alliance tag and the "@" names are drawn in Latin whatever the message is written in,
+     * so counting them when asking "is this mostly another script" answers a question about the
+     * game's furniture rather than about the player's words. A sender line is the worst case:
+     * "[INF]왕눈이" is three Latin letters and three Korean ones, which is exactly half and half,
+     * so a test wanting a clear majority rejected every Korean name -- and a name that will not
+     * read files that person's messages against whoever spoke last.
+     */
+    private static String withoutLatinFurniture(String text) {
+        return text.replaceAll("\\[[A-Za-z0-9]{2,4}\\]", " ")
+                .replaceAll("@[A-Za-z0-9_.-]+", " ");
+    }
+
+    /**
+     * Every alphabet is tried and the most convincing answer wins, rather than the first that is
+     * merely not Latin.
+     *
+     * <p>Taking the first was wrong in a way that only showed on Korean names. Asked to re-read
+     * "[INF]왕눈이", the Cyrillic model answers before Korean is ever tried -- it produces Cyrillic,
+     * which passes a test for "some other script", and the walk stops there holding nonsense. The
+     * model that actually knows the script says more and is far surer of it, so how much it read
+     * and how sure it was, multiplied, separates the two cleanly.
+     */
+    private static double confidence(List<TextLine> parts) {
+        if (parts.isEmpty()) {
+            return 0;
+        }
+        double total = 0;
+        for (TextLine p : parts) {
+            total += p.confidence();
+        }
+        return total / parts.size();
+    }
+
+    private static int lettersIn(String text) {
+        int n = 0;
+        for (int i = 0; i < text.length(); i++) {
+            if (Character.isLetter(text.charAt(i))) {
+                n++;
+            }
+        }
+        return n;
     }
 
     /**
