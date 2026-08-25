@@ -541,6 +541,17 @@ public final class ChatLineCleaner {
     private static final int TRAILING_ARTIFACT_SLACK = 3;
     private static final int MERGE_RUN_LENGTH = 4;
 
+    /**
+     * The runs a key is made of, for anything that needs to index by them.
+     *
+     * <p>Exposed because comparing one message against every message already stored is quadratic
+     * and gets slow at a few thousand: a caller holding many keys wants to look up the handful that
+     * could possibly match rather than testing them all. The runs are exactly that lookup.
+     */
+    public static java.util.Set<String> mergeRuns(String key) {
+        return runsOf(key);
+    }
+
     private static java.util.Set<String> runsOf(String key) {
         java.util.Set<String> runs = new java.util.HashSet<>();
         for (int i = 0; i + MERGE_RUN_LENGTH <= key.length(); i++) {
