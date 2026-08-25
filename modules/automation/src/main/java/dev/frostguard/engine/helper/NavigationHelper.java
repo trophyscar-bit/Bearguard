@@ -89,7 +89,7 @@ public class NavigationHelper {
     }
 
     public boolean openSidebarSection(SidebarSection section) {
-        return sidebar.openSectionAtTop(section);
+        return sidebar.openSection(section);
     }
 
     public boolean navigateToSidebarDestination(SidebarDestination destination) {
@@ -100,6 +100,11 @@ public class NavigationHelper {
             broadcastWarn("Sidebar navigation failed: " + destination);
         }
         return reached;
+    }
+
+    public ImageSearchResultData findSidebarDestinationRow(SidebarDestination destination) {
+        ensureCorrectScreenLocation(LaunchPoint.ANY);
+        return sidebar.findRow(destination);
     }
 
     public boolean closeSidebar() {
