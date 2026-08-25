@@ -4,30 +4,34 @@ import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.ImageSearchResultData;
-import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.engine.emulator.EmulatorController;
 import dev.frostguard.engine.error.HomeNotFoundException;
 import dev.frostguard.engine.input.TapInteractionService;
-import dev.frostguard.engine.nav.CommonGameAreas;
-import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.engine.nav.SearchConfigConstants;
-import dev.frostguard.engine.nav.SidebarSection;
+import dev.frostguard.engine.nav.SidebarDestination;
 import dev.frostguard.engine.schedule.LaunchPoint;
+import dev.frostguard.vision.color.GameColors;
+import dev.frostguard.vision.color.PixelStats;
+import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.logging.ProfileContextLogger;
-import dev.frostguard.vision.ocr.OcrException;
 
-import java.io.IOException;
-import java.util.OptionalInt;
-import java.util.function.BooleanSupplier;
-import java.util.regex.Matcher;
+import java.awt.image.BufferedImage;
 
-// Verifies the Intel panel is on-screen; navigates there when it is not.
+/** Verifies the Intel panel and reaches it through the Wilderness shortcut. */
 public class IntelScreenHelper {
 
     private static final int MAX_NAV_PASSES = 3;
-    private static final int LIGHTHOUSE_ROW_X = 46;
-    private static final int LIGHTHOUSE_ROW_Y = 649;
+    private static final int INTEL_AVAILABLE_GREEN_MIN = 150;
+    private static final long MISSION_RETURN_SETTLE_MILLIS = 1_000L;
+    private static final AreaData WORLD_INTEL_BUTTON_AREA = AreaData.of(615, 800, 715, 930);
+    private static final TemplateSearchHelper.SearchConfig WORLD_INTEL_BUTTON_SEARCH =
+            TemplateSearchHelper.SearchConfig.builder()
+                    .withMaxAttempts(2)
+                    .withDelay(250)
+                    .withThreshold(88)
+                    .withArea(WORLD_INTEL_BUTTON_AREA)
+                    .build();
 
     private final EmulatorController emu;
     private final String dev;
@@ -47,454 +51,142 @@ public class IntelScreenHelper {
         this.log = new ProfileContextLogger(IntelScreenHelper.class, profile);
     }
 
+    /** Uses Daily only as an OCR-free availability gate, then enters Intel from Wilderness. */
+    public boolean enterIntelFromDailyIfAvailable() {
+        nav.ensureCorrectScreenLocation(LaunchPoint.ANY);
+        ImageSearchResultData lighthouseRow = nav.findSidebarDestinationRow(
+                SidebarDestination.LIGHTHOUSE_INTEL);
+        if (lighthouseRow == null || !lighthouseRow.isFound()) {
+            log.info("Lighthouse Intel row icon is absent after the bounded Daily scan; "
+                    + "the completed row may be hidden, so Intel is unavailable.");
+            if (!nav.closeSidebar()) {
+                throw new HomeNotFoundException(
+                        "Failed to close Daily after the Lighthouse Intel row was absent");
+            }
+            return false;
+        }
+
+        ImageSearchResultData availablePattern = tpl.locatePattern(TemplatesEnum.INTEL_GAIN_AVAILABLE,
+                dailyIntelGainSearch(lighthouseRow));
+        boolean available = false;
+        if (availablePattern != null && availablePattern.isFound()) {
+            BufferedImage frame = ImageConverter.toBufferedImage(emu.captureScreen(dev));
+            int greenPixels = availableGreenPixels(frame, availablePattern);
+            available = greenPixels >= INTEL_AVAILABLE_GREEN_MIN;
+            log.info("Daily Intel availability evidence: greenGainPattern=true, greenPixels=" + greenPixels
+                    + ", available=" + available);
+        } else {
+            log.info("Daily Intel availability evidence: greenGainPattern=false, available=false");
+        }
+
+        if (!nav.closeSidebar()) {
+            throw new HomeNotFoundException("Failed to close Daily sidebar after Intel availability check");
+        }
+        if (!available) {
+            return false;
+        }
+
+        enterIntelFromWilderness();
+        return true;
+    }
+
+    /** Returns from a mission's Wilderness end state without routing through City or Daily. */
     public void ensureOnIntelScreen() {
-        ensureOnIntelScreenAndReadGain();
+        pause(300);
+        if (!isIntelScreenActive()) {
+            enterIntelFromWilderness();
+        }
     }
 
-    /**
-     * Opens Intel through the Daily sidebar and returns its advertised mission count when readable.
-     * The sidebar value is captured before entering Intel, because the marker map alone is not a
-     * reliable availability signal across Furnace eras.
-     */
-    public OptionalInt ensureOnIntelScreenAndReadGain() {
-        pause(500);
-        log.info("Checking Intel screen");
-        if (isIntelScreenActive()) {
-            log.info("Already on Intel");
-            return OptionalInt.empty();
-        }
-
-        nav.ensureCorrectScreenLocation(LaunchPoint.HOME);
-
-
-        log.info("Not on Intel - checking for the Lighthouse Intel bubble in City");
-        if (reachIntelScreen()) {
-            log.info("Intel reached directly from the City Lighthouse bubble");
-            return OptionalInt.empty();
-        }
-
-        log.info("Lighthouse Intel bubble not available in City - routing through Daily sidebar");
-        return enterIntelFromOpenSidebarAndReadGain();
+    /** Re-enters Intel after a mission transition known to finish in Wilderness. */
+    public void returnToIntelFromWilderness() {
+        pause(MISSION_RETURN_SETTLE_MILLIS);
+        enterIntelFromWilderness();
     }
 
-    /** Continues Intel navigation while the sidebar is already open after a March Queue scan. */
-    public OptionalInt enterIntelFromOpenSidebarAndReadGain() {
-        if (!nav.openSidebarSection(SidebarSection.DAILY)) {
-            throw new HomeNotFoundException("Failed to open Daily sidebar for Intel navigation");
-        }
-
-        log.info("Scrolling Daily sidebar to its bottom position");
-        emu.swipeScreen(dev, CommonGameAreas.SIDEBAR_SCROLL_FROM,
-                CommonGameAreas.SIDEBAR_SCROLL_TO, 400);
-        pause(600);
-
-        ImageSearchResultData lighthouseRow = locateLighthouseRow();
-        if (lighthouseRow == null) {
-            throw new HomeNotFoundException("Lighthouse row not present in the Daily sidebar");
-        }
-
-        OptionalInt advertisedGain = readAdvertisedGain(lighthouseRow);
-        advertisedGain.ifPresent(value -> log.info("Daily sidebar reports Intel Gain: " + value));
-        if (advertisedGain.isEmpty()) {
-            log.warn("Daily sidebar Intel Gain was not readable; marker detection will remain the fallback");
-        }
-
-        AreaData go = SidebarNavigator.goButtonFor(lighthouseRow);
-        log.info("Opening Lighthouse from Daily sidebar");
-        taps.tapInside(go);
-        waitForCameraToSettle();
-
-        if (reachIntelScreen()) {
-            log.info("Intel reached");
-            return advertisedGain;
-        }
-        log.error("Intel unreachable after " + MAX_NAV_PASSES + " passes");
-        throw new HomeNotFoundException("Failed to navigate to Intel screen");
+    /** Continues a previously started Intel cycle after Daily no longer reports new missions. */
+    public void resumeIntelCycleFromWilderness() {
+        enterIntelFromWilderness();
     }
 
-    /**
-     * Gets onto the Intel map, whether or not the Lighthouse is advertising anything.
-     *
-     * <p>The bubble answers "is there NEW intel", which is a question about content. Whether the
-     * map can be opened is a question about navigation. Requiring the bubble before entering
-     * conflates the two, and the consequence is not a missed reward -- it is that the refresh
-     * timer becomes unreadable in exactly the state that most needs it.
-     *
-     * <p>Observed live: a Fire Beast nothing can beat sits on the board for hours. It is already
-     * known intel, so the Lighthouse shows no bubble; navigation therefore reports "unreachable"
-     * and throws, the caller backs off a fixed 15 minutes, and the real "Refreshes In: 02:26:45"
-     * banner -- sitting in plain view on the screen we refused to open -- is never read. That
-     * repeated 163 times over two days without one success.
-     *
-     * <p>So the screen check comes first: tapping Go frequently lands on the map already, and when
-     * it does there is nothing left to look for. The bubble is only hunted when we are demonstrably
-     * not there yet, which is the one case it was ever needed for.
-     *
-     * <p>The two unconditional Back presses that used to run here are gone. They existed to clear a
-     * tutorial overlay, but fired whether or not one was present, so on the ordinary path they
-     * navigated away from whatever Go had just opened -- pressing Back on the assumption that
-     * something is there is the same class of guess as reading a value without an anchor.
-     */
-    private boolean reachIntelScreen() {
-        for (int i = 1; i <= MAX_NAV_PASSES; i++) {
-            if (isIntelScreenActive()) {
-                return true;
-            }
-
-            // The Lighthouse is a CITY building, so the city has to be on screen before anything
-            // goes looking for it.
-            if (!ensureInCity()) {
-                log.warn("Not in the city and could not switch to it; the Lighthouse is not "
-                        + "reachable from the kingdom map.");
-                return false;
-            }
-
-            // With intel already collected the Lighthouse carries no bubble, but the building is
-            // still there and still opens the map -- which is where the refresh timer lives. So the
-            // building itself is tried before giving up, rather than treating "nothing new to
-            // collect" as "cannot navigate".
-            if (tapLighthouse()) {
-                return true;
-            }
-
-            ImageSearchResultData hit = tpl.locatePattern(TemplatesEnum.LIGHTHOUSE_INTEL_BUBBLE,
-                    SearchConfigConstants.DEFAULT_SINGLE);
-            if (!hit.isFound()) {
-                log.debug("Not on Intel and no bubble to tap, pass " + i);
-                pause(300);
+    private void enterIntelFromWilderness() {
+        nav.ensureCorrectScreenLocation(LaunchPoint.WORLD);
+        for (int pass = 1; pass <= MAX_NAV_PASSES; pass++) {
+            ImageSearchResultData button = tpl.locatePattern(TemplatesEnum.GAME_HOME_INTEL,
+                    WORLD_INTEL_BUTTON_SEARCH);
+            if (button == null || !button.isFound()) {
+                log.warn("Wilderness Intel shortcut absent, pass " + pass);
+                pause(350);
                 continue;
             }
 
-            log.info("Tapping Intel button");
-            taps.tapInside(hit);
-            pause(1000);
+            log.info("Opening Intel from the Wilderness shortcut");
+            taps.tapInside(button);
+            pause(800);
             if (isIntelScreenActive()) {
-                return true;
+                return;
             }
-
-            log.warn("Intel bubble tap did not open the Intel map, pass " + i);
-            pause(500);
+            log.warn("Wilderness Intel shortcut did not open the Intel map, pass " + pass);
+            pause(400);
         }
-        return false;
+        throw new HomeNotFoundException("Failed to open Intel from the Wilderness shortcut");
     }
 
-    static AreaData gainAreaFor(ImageSearchResultData rowIcon) {
-        PointData center = rowIcon.getPoint();
+    static AreaData availabilityAreaFor(ImageSearchResultData gainPattern) {
+        PointData center = gainPattern.getPoint();
         if (center == null) {
-            throw new IllegalArgumentException("A located Lighthouse row icon is required");
+            throw new IllegalArgumentException("A located Intel Gain pattern is required");
         }
-        return AreaData.of(center.getX() + 70, center.getY() - 5,
-                center.getX() + 310, center.getY() + 38);
+        AreaData matchedArea = gainPattern.getMatchedArea();
+        return matchedArea != null ? matchedArea : AreaData.of(
+                center.getX() - 50, center.getY() - 18,
+                center.getX() + 49, center.getY() + 17);
     }
 
-    /** Vertical spacing between rows in the Daily sidebar, measured on a live capture. */
-    private static final int SIDEBAR_ROW_PITCH = 113;
-
-    /** Row centres to try, bottom-up: the Lighthouse sits near the end of the Daily list. */
-    private static final int[] ROW_CENTRE_CANDIDATES = {836, 723, 610, 497, 384};
-
-    /** A row label is two short lines (name above, state below), so it is read as a block. A
-     *  single-line layout clips the longer word and the match misses. */
-    private static final OcrSettingsData ROW_LABEL_SETTINGS = OcrSettingsData.assembler()
-            .textLayout(OcrSettingsData.TextLayout.TEXT_BLOCK)
-            .stripBackground(false)
-            .language("eng")
-            .build();
-
-    /** Label column, clear of the row icon on the left and the Go button on the right. */
-    private static final int ROW_LABEL_X0 = 90;
-    private static final int ROW_LABEL_X1 = 390;
-    private static final int ROW_LABEL_ABOVE = 33;
-    private static final int ROW_LABEL_BELOW = 32;
-
-    /**
-     * Finds the Lighthouse row by reading the sidebar, instead of assuming where it sits.
-     *
-     * <p>This used to return a fabricated hit at a fixed {@code (46, 649)} carrying 100% confidence
-     * -- a coordinate dressed up as a search result, so every caller downstream treated a guess as
-     * a measurement. The Daily list has no fixed length: entries appear and disappear with what is
-     * active, so any constant row position is only ever right by luck.
-     *
-     * <p>It was not right. Measured live, the Lighthouse row sits at y=723 and y=649 lands on
-     * "Daily Activity Triumph" -- so the Go button being tapped belonged to Alliance Triumph, the
-     * Intel map never opened, and the routine reported "Intel unreachable" 163 times across two
-     * days without a single success.
-     *
-     * <p>Returning null when the row is not found is deliberate. The caller backs off rather than
-     * tapping a Go button belonging to whatever else happens to be there.
-     */
-    /** A row handle at a known centre. Test-visible so fixtures can pin geometry at their own
-     *  captured position -- production never assumes one, it locates the row. */
-    static ImageSearchResultData rowAt(int centreY) {
-        return ImageSearchResultData.hit(LIGHTHOUSE_ROW_X, centreY, 100.0, 44, 44);
+    static int availableGreenPixels(BufferedImage frame, ImageSearchResultData gainPattern) {
+        return PixelStats.count(frame, availabilityAreaFor(gainPattern), GameColors::isVividGreen);
     }
 
-    ImageSearchResultData locateLighthouseRow() {
-        for (int centre : ROW_CENTRE_CANDIDATES) {
-            String label = readRowLabel(centre);
-            // Matched on "intel" rather than "lighthouse": it is the only word unique to this row
-            // among the Daily entries, and it survives a partial read of the longer word, which
-            // the reader does clip on this font at this size.
-            if (label != null && label.toLowerCase().contains("intel")) {
-                log.info("Lighthouse row found at y=" + centre + " (\"" + label.trim() + "\")");
-                return rowAt(centre);
-            }
+    static AreaData intelGainRowArea(ImageSearchResultData lighthouseRow) {
+        PointData center = lighthouseRow.getPoint();
+        if (center == null) {
+            throw new IllegalArgumentException("A located Lighthouse Intel row icon is required");
         }
-        log.warn("Lighthouse row not found in the Daily sidebar -- not tapping a Go button that "
-                + "belongs to some other row.");
-        return null;
+        return AreaData.of(80, Math.max(300, center.getY() - 8),
+                360, Math.min(880, center.getY() + 45));
     }
 
-    private String readRowLabel(int centre) {
-        try {
-            return emu.readText(dev,
-                    new PointData(ROW_LABEL_X0, centre - ROW_LABEL_ABOVE),
-                    new PointData(ROW_LABEL_X1, centre + ROW_LABEL_BELOW),
-                    ROW_LABEL_SETTINGS);
-        } catch (IOException | OcrException e) {
-            log.debug("Sidebar row label OCR failed at y=" + centre + ": " + e.getMessage());
-            return null;
-        }
-    }
-
-    static OptionalInt parseAdvertisedGain(String text) {
-        if (text == null) {
-            return OptionalInt.empty();
-        }
-        Matcher matcher = CommonOCRSettings.NUMBER_PATTERN.matcher(text.replaceAll("\\s+", ""));
-        if (!matcher.matches()) {
-            return OptionalInt.empty();
-        }
-        try {
-            return OptionalInt.of(Integer.parseInt(matcher.group(1)));
-        } catch (NumberFormatException ignored) {
-            return OptionalInt.empty();
-        }
-    }
-
-    private OptionalInt readAdvertisedGain(ImageSearchResultData rowIcon) {
-        AreaData area = gainAreaFor(rowIcon);
-        try {
-            return parseAdvertisedGain(emu.readText(dev, area.topLeft(), area.bottomRight(),
-                    CommonOCRSettings.INTEL_GAIN_SETTINGS));
-        } catch (IOException | OcrException e) {
-            log.warn("Intel Gain OCR failed: " + e.getMessage());
-            return OptionalInt.empty();
-        }
+    private static TemplateSearchHelper.SearchConfig dailyIntelGainSearch(
+            ImageSearchResultData lighthouseRow) {
+        return TemplateSearchHelper.SearchConfig.builder()
+                .withMaxAttempts(2)
+                .withDelay(250)
+                .withThreshold(88)
+                .withArea(intelGainRowArea(lighthouseRow))
+                .build();
     }
 
     public boolean isIntelScreenActive() {
-        // Two quick probes with a short gap
         for (int i = 0; i < 2; i++) {
-            if (screenMatchesIntel()) { log.debug("Intel confirmed, probe " + (i + 1)); return true; }
-            if (i == 0) pause(300);
+            if (tpl.locatePattern(TemplatesEnum.INTEL_SCREEN_1,
+                    SearchConfigConstants.DEFAULT_SINGLE).isFound()
+                    || tpl.locatePattern(TemplatesEnum.INTEL_SCREEN_2,
+                            SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
+                log.debug("Intel confirmed, probe " + (i + 1));
+                return true;
+            }
+            if (i == 0) {
+                pause(300);
+            }
         }
         return false;
     }
-
-    // Merged: checks both template variants and OCR fallback in one pass
-    private boolean screenMatchesIntel() {
-        BooleanSupplier[] checks = {
-                () -> tpl.locatePattern(TemplatesEnum.INTEL_SCREEN_1, SearchConfigConstants.DEFAULT_SINGLE).isFound(),
-                () -> tpl.locatePattern(TemplatesEnum.INTEL_SCREEN_2, SearchConfigConstants.DEFAULT_SINGLE).isFound(),
-                this::ocrShowsIntel
-        };
-        for (BooleanSupplier check : checks) {
-            if (check.getAsBoolean()) return true;
-        }
-        return false;
-    }
-
-    private boolean ocrShowsIntel() {
-        try {
-            String txt = emu.readText(dev, new PointData(85, 15), new PointData(171, 62));
-            return txt != null && txt.toLowerCase().contains("intel");
-        } catch (IOException | OcrException e) {
-            log.warn("OCR check failed: " + e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Waits until the view stops moving, rather than guessing how long a pan takes.
-     *
-     * <p>The sidebar's Go button pans the camera across the city, and measured live that takes
-     * around eight seconds. The old fixed 1.5s wait expired mid-pan, so every check that followed
-     * ran against a screen that was still sliding -- which is why a building sitting in plain view
-     * was reported absent. Comparing consecutive frames ends the wait when the movement actually
-     * ends, on a fast machine and a slow one alike.
-     */
-    private void waitForCameraToSettle() {
-        byte[] previous = null;
-        for (int i = 0; i < CAMERA_SETTLE_MAX_POLLS; i++) {
-            pause(CAMERA_SETTLE_POLL_MS);
-            byte[] current;
-            try {
-                current = emu.captureScreen(dev).getFrameBytes();
-            } catch (RuntimeException e) {
-                return;
-            }
-            if (previous != null) {
-                double delta = frameDelta(previous, current);
-                // Logged so the threshold can be set from what the scene actually does rather than
-                // from a guess about it.
-                log.debug("Camera delta " + String.format(java.util.Locale.ROOT, "%.2f", delta)
-                        + " (settle below " + CAMERA_SETTLE_MAX_DELTA + ")");
-                if (delta <= CAMERA_SETTLE_MAX_DELTA) {
-                    log.debug("Camera settled after " + ((i + 1) * CAMERA_SETTLE_POLL_MS) + "ms");
-                    return;
-                }
-            }
-            previous = current;
-        }
-        log.debug("Camera still moving after the settle budget; continuing anyway");
-    }
-
-    /**
-     * How different two frames are, as a mean absolute byte difference (0 = identical).
-     *
-     * <p>Counting bytes that differ at all does not work on this scene: falling snow and the
-     * lighthouse beam nudge a large share of pixels by a small amount, so a stationary view still
-     * shows most bytes changing. What separates a still camera from a panning one is the SIZE of
-     * the change, not how many pixels are involved, which is what an average captures.
-     */
-    private static double frameDelta(byte[] a, byte[] b) {
-        if (a.length != b.length) {
-            return Double.MAX_VALUE;
-        }
-        long total = 0;
-        // Every fourth byte is enough: a full pass over a 720x1280 RGBA frame is ~3.7M comparisons
-        // several times a second, and the answer does not change.
-        int sampled = 0;
-        for (int i = 0; i < a.length; i += 4) {
-            total += Math.abs((a[i] & 0xFF) - (b[i] & 0xFF));
-            sampled++;
-        }
-        return sampled == 0 ? 0 : total / (double) sampled;
-    }
-
-    /** Long enough to cover the observed ~8s Go pan without stalling a pass that lands instantly. */
-    private static final int CAMERA_SETTLE_POLL_MS = 600;
-    private static final int CAMERA_SETTLE_MAX_POLLS = 20;
-
-    /**
-     * Where a Lighthouse that is comfortably in frame sits, measured from a live capture that
-     * matched at 100%. Used as the target to drag a partly-visible one towards.
-     */
-    private static final PointData LIGHTHOUSE_FRAMED_AT = new PointData(395, 760);
-
-    /** How close to {@link #LIGHTHOUSE_FRAMED_AT} counts as framed, so a good view is not dragged. */
-    private static final int FRAMED_TOLERANCE_PX = 140;
-
-    /** Above this the building is fully in frame and can be tapped as it stands. */
-    private static final double TAP_DIRECTLY_SCORE = 80.0;
-
-    /** How many locate-and-centre rounds before giving up. */
-    private static final int VIEW_ATTEMPTS = 3;
-
-    /** The map keeps sliding after a swipe; this is the wait for it to stop. */
-    private static final int MAP_SETTLE_MS = 1_200;
-
-    /**
-     * Finds the Lighthouse in the city view and opens it.
-     *
-     * <p>The caller has usually just used the Daily sidebar's "Lighthouse Intel" row, whose Go
-     * arrow pans the camera onto the building and puts the game's own tap prompt on it. That prompt
-     * is where this used to come unstuck: the Go arrow does not open Intel by itself, it only
-     * travels there and waits to be tapped, so the last step was always this one.
-     *
-     * <p>It failed for a reason no threshold could fix. The template was cropped from the lamp
-     * housing, which carries an animated rotating beam, so the same building photographed twice
-     * does not match itself -- real hits scored 69% against a 68% noise floor. Recut to the static
-     * stone tower, a Lighthouse in frame scores 88-100% and an empty view scores 23-32%.
-     *
-     * <p>The remaining wrinkle is that the pointing-hand prompt sits over the tower and drags a
-     * genuine match down to about 60%. That is still far above the noise floor and lands within a
-     * screen's width of where a framed Lighthouse sits, so it is treated as located rather than
-     * missing, and tapped where it was found -- measured at (360, 674), which opened Intel.
-     *
-     * <p>There is deliberately no city-wide search here. The city view scrolls far past the built
-     * area into empty snow, so a building that is not in frame cannot be found by dragging around
-     * looking for it -- an attempt at that wandered six large drags into blank terrain. When the
-     * Lighthouse is genuinely not on screen the honest answer is to say so and let the sidebar route
-     * put the camera back on it.
-     */
-    private boolean tapLighthouse() {
-        for (int attempt = 1; attempt <= VIEW_ATTEMPTS; attempt++) {
-            ImageSearchResultData found = tpl.locatePatternMultiScale(
-                    TemplatesEnum.LIGHTHOUSE_BUILDING,
-                    SearchConfigConstants.LIGHTHOUSE_BUILDING_SEARCH);
-
-            if (!found.isFound()) {
-                log.debug("Lighthouse not in frame on attempt " + attempt + ".");
-                return false;
-            }
-
-            PointData at = found.getPoint();
-            double score = found.getMatchPercentage();
-
-            if (score >= TAP_DIRECTLY_SCORE || isFramed(at)) {
-                log.info(String.format(java.util.Locale.ROOT,
-                        "Tapping the Lighthouse at %s (match %.1f%%)", at, score));
-                taps.tapInside(found);
-                pause(1_500);
-                if (isIntelScreenActive()) {
-                    return true;
-                }
-                log.warn("Tapping the Lighthouse did not open Intel; re-centring and retrying.");
-            } else {
-                log.debug(String.format(java.util.Locale.ROOT,
-                        "Lighthouse off to one side at %s (match %.1f%%); centring it.", at, score));
-            }
-
-            dragMap(at, LIGHTHOUSE_FRAMED_AT);
-        }
-        return false;
-    }
-
-    private boolean isFramed(PointData at) {
-        return Math.abs(at.getX() - LIGHTHOUSE_FRAMED_AT.getX()) <= FRAMED_TOLERANCE_PX
-                && Math.abs(at.getY() - LIGHTHOUSE_FRAMED_AT.getY()) <= FRAMED_TOLERANCE_PX;
-    }
-
-    private void dragMap(PointData from, PointData to) {
-        emu.swipeScreen(dev, from, to, MAP_DRAG_MS);
-        pause(MAP_SETTLE_MS);
-    }
-
-    /** Slow enough that the map follows the finger instead of being flicked. */
-    private static final int MAP_DRAG_MS = 600;
-
-    /** Provisional: tightened or relaxed once the logged deltas show what this scene really does. */
-    private static final double CAMERA_SETTLE_MAX_DELTA = 6.0;
-
-    /**
-     * Puts the game in the base city, which is where the Lighthouse lives.
-     *
-     * <p>Checked positively rather than assumed: the city anchor has to be visible before anything
-     * goes looking for a building in it. Asking the navigator to switch and trusting that it worked
-     * is the same guess this method exists to remove.
-     */
-    private boolean ensureInCity() {
-        if (tpl.locatePattern(TemplatesEnum.GAME_HOME_FURNACE,
-                SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
-            return true;
-        }
-
-        log.info("On the kingdom map rather than the city; switching to the city for the Lighthouse.");
-        nav.ensureCorrectScreenLocation(LaunchPoint.HOME);
-        pause(CITY_SWITCH_SETTLE_MS);
-
-        boolean inCity = tpl.locatePattern(TemplatesEnum.GAME_HOME_FURNACE,
-                SearchConfigConstants.DEFAULT_SINGLE).isFound();
-        log.info(inCity ? "City confirmed." : "Still not in the city after switching.");
-        return inCity;
-    }
-
-    /** The city/map transition animates; the anchor is not up the instant the switch returns. */
-    private static final int CITY_SWITCH_SETTLE_MS = 1_500;
 
     private static void pause(long ms) {
-        try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }
