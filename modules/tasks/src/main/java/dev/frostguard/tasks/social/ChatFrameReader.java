@@ -192,11 +192,30 @@ final class ChatFrameReader {
         if (a.isEmpty() || a.equalsIgnoreCase(b)) {
             return true;
         }
+        // Compare only the words. A mention survives translation unchanged -- it is somebody's
+        // name -- so it is identical on both sides and counts as evidence that nothing was
+        // translated, which is exactly backwards. On a short reply it is most of the text:
+        // "@AthenaRyu no te preocupes" against "@AthenaRyu don't worry" is four fifths mention,
+        // and a good translation was thrown away for looking too much like its source. The same
+        // phrase with a shorter name attached was kept three times over.
+        a = withoutNames(a);
+        b = withoutNames(b);
+        if (a.isEmpty() || b.isEmpty() || a.equalsIgnoreCase(b)) {
+            return a.equalsIgnoreCase(b);
+        }
         if (a.length() < SHORTEST_WORTH_COMPARING || b.length() < SHORTEST_WORTH_COMPARING) {
             return false;
         }
         return ChatLineCleaner.sameMessage(ChatLineCleaner.mergeKey(a),
                 ChatLineCleaner.mergeKey(b));
+    }
+
+    /** Drops the parts a translator leaves alone: the alliance label and any @mention. */
+    private static String withoutNames(String text) {
+        return text.replaceAll("\\[[A-Za-z0-9]{2,4}\\]", " ")
+                .replaceAll("@[A-Za-z0-9_.-]+", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     /** Below this, two strings share runs by coincidence rather than because one came from the other. */
