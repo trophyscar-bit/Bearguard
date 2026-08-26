@@ -46,21 +46,51 @@ def is_chatter(body):
         r"|share (layout|coordinates)|new message\(s\))\b", body or ""))
 
 
+def runs(text):
+    key = re.sub(r"[^a-z0-9]", "", text.lower())
+    return {key[i:i + 4] for i in range(len(key) - 3)}
+
+
+def translated_anything(english, original):
+    """Whether the rendering is actually different text rather than the source with a word broken."""
+    if english.lower() == original.lower():
+        return False
+    if len(english) < 16 or len(original) < 16:
+        return True
+    a, b = runs(english), runs(original)
+    if not a or not b:
+        return True
+    shared = len(a & b) / float(min(len(a), len(b)))
+    return shared < 0.40
+
+
 def main():
     msgs = [m for m in load() if (m.get("body") or "").strip()]
+    # Alliance only. World chat is a different conversation between strangers, and mixing the two
+    # is what the channel tabs exist to undo -- a sample meant to show what the alliance is saying
+    # should not be half filled with people nobody here knows.
+    msgs = [m for m in msgs if m.get("channel") == "alliance"]
     msgs = [m for m in msgs if not is_chatter(m.get("body"))]
     msgs = [m for m in msgs if (m.get("author") or "").strip()]
     recent = msgs[-HOW_MANY:]
 
     rows = []
     for m in recent:
-        body = (m.get("en") or m.get("body") or "").strip()
+        english = (m.get("en") or "").strip()
+        original = (m.get("body") or "").strip()
+        # The same judgement the capture now makes, applied here too. Messages stored before that
+        # guard existed still carry translations that translated nothing -- "bana garezi var
+        # rhaegarin" kept as "bana garage var rhegarin" -- and showing one under a badge saying it
+        # is English is the part that misleads.
+        if english and not translated_anything(english, original):
+            english = ""
+        body = english or original
         rows.append({
             "who": m.get("author", "?"),
             "tag": m.get("tag", ""),
             "body": body,
             # Kept so the page can show that a translation happened rather than asserting it.
-            "translated": bool((m.get("en") or "").strip()),
+            "translated": bool(english),
             "quoted": (m.get("quoted") or "").strip(),
             "at": (m.get("at") or "")[11:16],
         })
