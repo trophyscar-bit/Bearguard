@@ -260,3 +260,18 @@
     -fx-background-color: #57f287;
     -fx-background-radius: 3;
 }
+
+/* A message matching the find field. Every hit is tinted so the density of matches is visible
+   while scrolling; the one the view is parked on gets a left edge as well, because in a run of
+   twenty tinted cards "which one am I on" is the only question left. */
+.chat-card:found {
+    -fx-background-color: rgba(240, 178, 50, 0.14);
+    -fx-background-radius: 5;
+}
+
+.chat-card:current-match {
+    -fx-background-color: rgba(240, 178, 50, 0.30);
+    -fx-background-radius: 5;
+    -fx-border-color: transparent transparent transparent #f0b232;
+    -fx-border-width: 0 0 0 3;
+}

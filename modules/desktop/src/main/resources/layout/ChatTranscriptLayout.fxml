@@ -6,7 +6,7 @@
 <!-- Live transcript - the chat itself, laid out like a chat client. Drawn with ordinary controls
      rather than a browser view: javafx-web would carry WebKit natives, and this feature has to add
      no meaningful install size. -->
-<BorderPane maxHeight="Infinity" maxWidth="Infinity" styleClass="chat-root"
+<BorderPane fx:id="root" maxHeight="Infinity" maxWidth="Infinity" styleClass="chat-root"
             stylesheets="@chat.css"
             HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
             xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
@@ -47,6 +47,20 @@
                         text="Capture Now" />
                 <Button minWidth="-Infinity" mnemonicParsing="false" onAction="#exportHtml"
                         styleClass="action-button-timeline" text="Export HTML" />
+            </HBox>
+            <!-- Hidden until Ctrl+F. managed follows visible so it takes no height when closed,
+                 rather than leaving a band of empty toolbar above the conversation. -->
+            <HBox fx:id="findBar" alignment="CENTER_LEFT" spacing="6" visible="false"
+                  managed="false">
+                <Label styleClass="label-muted" text="Find" />
+                <TextField fx:id="findField" prefWidth="240" promptText="text, name or @mention" />
+                <Label fx:id="findCount" minWidth="-Infinity" styleClass="label-muted" text="" />
+                <Button minWidth="-Infinity" mnemonicParsing="false" onAction="#findPrevious"
+                        styleClass="action-button-timeline" text="Prev" />
+                <Button minWidth="-Infinity" mnemonicParsing="false" onAction="#findNext"
+                        styleClass="action-button-timeline" text="Next" />
+                <Button minWidth="-Infinity" mnemonicParsing="false" onAction="#closeFind"
+                        styleClass="action-button-timeline" text="Close" />
             </HBox>
             <HBox alignment="CENTER_LEFT" spacing="8">
                 <Label fx:id="statusLabel" styleClass="label-muted" text="Loading transcript..." />
