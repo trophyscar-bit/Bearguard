@@ -582,7 +582,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
             if (twoSquadZone != null) {
                 logInfo("Dungeon " + dungeonNumber + ": applying the configured troop ratio once "
                         + "before this run's attempts.");
-                setupZoneFormation(twoSquadZone);
+                setupZoneFormation(twoSquadZone, dungeonNumber);
                 // setupZoneFormation finishes inside the zone, not on the outer map, and the battle
                 // loop below starts from the map. Fail open: a ratio we could not set is a worse
                 // formation, but skipping the fight entirely spends the day's attempts on nothing.
@@ -1308,6 +1308,10 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     }
 
     private void setupZoneFormation(ZoneFormation zone) {
+        setupZoneFormation(zone, null);
+    }
+
+    private void setupZoneFormation(ZoneFormation zone, Integer dungeonNumber) {
         String tag = zone.zoneName() + " formation";
         logInfo(tag + ": starting formation setup (setup only, no battle).");
 
@@ -1349,7 +1353,28 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         }
         logInfo(tag + ": label confirms the zone is present and open — tapping its banner to enter.");
         // Step 1: banner -> stage screen (poll for the "Challenge" button).
-        if (!navStep(zone.banner(), STAGE_ANCHOR_TL, STAGE_ANCHOR_BR, STAGE_ANCHOR_TEXT, tag + " banner->stage")) {
+        //
+        // Find the banner the same way the daily path does, by template, rather than tapping a
+        // stored coordinate. On 2026-08-25 this aborted twice on Land of Heroes: the label OCR read
+        // 'Land of Heroes' correctly at the stored point, the tap went out, and the map was still
+        // showing afterwards -- while the daily path walked into that same stage screen seconds
+        // later using the template. The map scrolls, so a point that still reads the right label is
+        // not necessarily a point that opens the zone. The coordinate stays as the fallback for the
+        // setup-only harness, which has no dungeon number to look a template up with.
+        boolean entered = false;
+        if (dungeonNumber != null) {
+            ImageSearchResultData bannerHit = templateSearchHelper.locatePattern(
+                    getDungeonTemplate(dungeonNumber), SearchConfigConstants.DEFAULT_SINGLE);
+            if (bannerHit.isFound()) {
+                tapInside(bannerHit);
+                entered = waitForScreen(STAGE_ANCHOR_TL, STAGE_ANCHOR_BR, STAGE_ANCHOR_TEXT);
+                logInfo(tag + ": entered by banner template -- reached the stage screen: " + entered + ".");
+            } else {
+                logInfo(tag + ": banner template not found; falling back to the stored coordinate.");
+            }
+        }
+        if (!entered && !navStep(zone.banner(), STAGE_ANCHOR_TL, STAGE_ANCHOR_BR, STAGE_ANCHOR_TEXT,
+                tag + " banner->stage")) {
             logWarning(tag + ": never reached the stage screen; aborting.");
             return;
         }
