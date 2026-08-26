@@ -471,15 +471,27 @@ public final class ChatLineCleaner {
         if (body == null) {
             return "";
         }
-        StringBuilder sb = new StringBuilder(body.length());
-        for (int i = 0; i < body.length(); i++) {
-            char c = Character.toLowerCase(body.charAt(i));
+        // The mention is dropped, not folded in. The game draws it as a pill rather than as words,
+        // and the reader does not always place it where it sat last time: the same alliance notice
+        // came back as "@AI para finalizar el dia recuerden actualizar" on one pass and as
+        // "para finalizar el dia recuerden @AI actualizar" on the next. Keyed with the pill inline
+        // those are two different messages, and the transcript kept both -- the same notice three
+        // times across one evening. The words are what identify a message; who it was aimed at is
+        // carried separately.
+        String words = MENTION_PILL.matcher(body).replaceAll(" ");
+        StringBuilder sb = new StringBuilder(words.length());
+        for (int i = 0; i < words.length(); i++) {
+            char c = Character.toLowerCase(words.charAt(i));
             if (Character.isLetterOrDigit(c)) {
                 sb.append(c);
             }
         }
         return sb.toString();
     }
+
+    /** An @mention as the game draws it, including the ones the reader spells wrong (@AIl, @AI). */
+    private static final Pattern MENTION_PILL =
+            Pattern.compile("@[A-Za-z0-9_.-]+");
 
     /**
      * Whether two bodies are the same message read twice, allowing for what changed between reads.
