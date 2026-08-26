@@ -102,7 +102,6 @@ tools/ocr/models/
 chat-corpus/
 chat-debug/
 
-# ONNX weights and the throwaway venv used to fetch them: large binaries that are downloaded
-# rather than authored, and a Python environment that exists only to convert models.
-tools/ocr/onnx/*.onnx
+# The venv exists only to convert models and is rebuilt from requirements when it is needed.
+# The converted weights themselves are committed -- see the note in tools/ocr/onnx/README.md.
 tools/ocr/convert-venv/
