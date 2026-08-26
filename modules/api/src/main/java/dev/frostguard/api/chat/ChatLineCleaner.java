@@ -372,6 +372,7 @@ public final class ChatLineCleaner {
                 MISREAD_I.matcher(raw).replaceAll("I")).replaceAll("@");
         String body = collapse(TRANSLATE_CONTROL.matcher(
                 ARTIFACTS.matcher(restored).replaceAll(" ")).replaceAll(" "));
+        body = collapse(HELP_NOTICE.matcher(body).replaceAll(" "));
         body = collapse(FEEDBACK_BUTTON.matcher(body).replaceAll(" "));
         return trimOrphanGlyphs(collapse(LEAKED_VIP.matcher(body).replaceAll(" ")));
     }
@@ -385,6 +386,25 @@ public final class ChatLineCleaner {
      * Feedback". Matched only at the end and only standing alone, because somebody asking the
      * alliance for feedback is saying a real thing.
      */
+    /**
+     * The alliance-help card the game posts when somebody speeds your build up.
+     *
+     * <p>It is drawn in the feed like a message and read as one, and when it lands in the same
+     * region as real chat the two arrive welded together: "gave your Lv.27 Coal Mine a
+     * construction Speedup! 20/48 @SvetLana muito tedio" is a notification with somebody's actual
+     * message stuck to the end of it -- filed under the wrong author, because the name on the card
+     * is whoever received the help rather than whoever spoke.
+     *
+     * <p>Removed rather than the whole line dropped, so the message riding on the back of it
+     * survives. When the card was all there was, nothing is left and the line is discarded as
+     * unreadable, which is what should happen to it anyway.
+     *
+     * <p>The middle is matched without allowing an @, so it cannot eat past the notification and
+     * into the mention that begins the real message.
+     */
+    private static final Pattern HELP_NOTICE = Pattern.compile(
+            "(?i)\\bgave your\\b[^@]{0,60}?\\bspeed\\s?ups?!?(\\s*\\d{1,3}\\s*/\\s*\\d{1,3})?");
+
     private static final Pattern FEEDBACK_BUTTON =
             Pattern.compile("(?i)(?<=[\\p{L}\\p{N}?!.,\\s])\\s+Feedback\\s*$");
 
