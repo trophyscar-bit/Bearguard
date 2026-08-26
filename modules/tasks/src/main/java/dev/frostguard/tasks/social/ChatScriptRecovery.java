@@ -206,18 +206,70 @@ final class ChatScriptRecovery {
         int odd = 0;
         for (int i = 0; i < words.length; i++) {
             String word = words[i];
-            if (isName[i] || word.length() < MIN_WORD_TO_JUDGE_SHAPE
-                    || word.equals(word.toUpperCase())) {
+            if (isName[i]) {
                 continue;
             }
-            for (int c = 1; c < word.length(); c++) {
-                if (Character.isUpperCase(word.charAt(c))) {
-                    odd++;
-                    break;
-                }
+            // Tested before the all-capitals skip, because the words this catches are usually all
+            // capitals: "MH@" is "мне". A capitalised Latin word is ordinary and says nothing, but
+            // an @ in the middle of one is not a word at all.
+            if (atInsideWord(word)) {
+                odd++;
+                continue;
+            }
+            if (word.length() < MIN_WORD_TO_JUDGE_SHAPE || word.equals(word.toUpperCase())) {
+                continue;
+            }
+            if (capitalInside(word) || digitInside(word)) {
+                odd++;
             }
         }
         return odd >= MANGLED_WORDS_TO_SUSPECT;
+    }
+
+    /**
+     * An @ anywhere but the front of a word.
+     *
+     * <p>Leading, it is a mention. Inside, it is the reader reaching for a Latin shape to stand in
+     * for a Cyrillic one and finding no letter that fits -- "MH@" for "мне". Nothing anybody types
+     * into game chat puts an @ in the middle of a word, so unlike the capital and digit tells this
+     * one needs no corroboration to be worth counting.
+     */
+    private static boolean atInsideWord(String word) {
+        return word.lastIndexOf('@') > 0;
+    }
+
+    private static boolean capitalInside(String word) {
+        for (int c = 1; c < word.length(); c++) {
+            if (Character.isUpperCase(word.charAt(c))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A digit with letters either side of it -- the other half of the same tell.
+     *
+     * <p>Counting mid-word capitals alone was one short on real messages. Cyrillic б and ч have no
+     * Latin letter that resembles them, so the reader answers with the digits that do: "Te6g" for
+     * "тебя", "Cky4HO" for "скучно". Neither word carries a capital anywhere but its first letter,
+     * so a line reading "y MeHg xopowo) y Te6g Irotoba?" scored a single oddity and was never
+     * offered to the Cyrillic reader -- one below the threshold, in a message that is Russian from
+     * end to end.
+     *
+     * <p>Letters are required on both sides. A digit at either end of a word is ordinary in a game
+     * where people write "Lv.27", "500k" and "T9", and counting those would send half the chat for
+     * a second reading.
+     */
+    private static boolean digitInside(String word) {
+        for (int c = 1; c < word.length() - 1; c++) {
+            if (Character.isDigit(word.charAt(c))
+                    && Character.isLetter(word.charAt(c - 1))
+                    && Character.isLetter(word.charAt(c + 1))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean startsCapitalised(String word) {
