@@ -75,6 +75,10 @@ public class ChatDigestLayoutController {
 
     @FXML
     private void initialize() {
+        // The busiest-hour figure is a statement about a clock, so it has to be recomputed
+        // rather than merely relabelled when the clock changes.
+        ChatClock.zoneProperty().addListener((obs, was, now) -> rebuild());
+
         ToggleGroup channels = new ToggleGroup();
         for (ToggleButton t : new ToggleButton[] {tabWorld, tabAlliance, tabPersonal}) {
             t.setToggleGroup(channels);
@@ -136,7 +140,7 @@ public class ChatDigestLayoutController {
                 List<ChatMessage> all = store.recent(reach).stream()
                         .filter(m -> channelFilter.equals(m.channel()))
                         .toList();
-                return ChatDigest.of(all, window, Instant.now(), ZoneId.systemDefault());
+                return ChatDigest.of(all, window, Instant.now(), ChatClock.zone());
             }
         };
         work.setOnSucceeded(e -> Platform.runLater(() -> show(work.getValue(), window)));
@@ -289,7 +293,7 @@ public class ChatDigestLayoutController {
         } else {
             for (ChatDigest.Callout c : r.callouts().stream()
                     .skip(Math.max(0, r.callouts().size() - TOP_ROWS)).toList()) {
-                list.getChildren().add(muted(TIME.format(c.at().atZone(ZoneId.systemDefault()))
+                list.getChildren().add(muted(TIME.format(c.at().atZone(ChatClock.zone()))
                         + "   " + c.who() + "   " + c.coordinates()));
             }
         }
@@ -308,7 +312,7 @@ public class ChatDigestLayoutController {
             list.getChildren().add(muted("Everything asked got a reply."));
         } else {
             for (ChatDigest.Unanswered u : r.unanswered().stream().limit(TOP_ROWS).toList()) {
-                Label who = new Label(DAY_TIME.format(u.at().atZone(ZoneId.systemDefault()))
+                Label who = new Label(DAY_TIME.format(u.at().atZone(ChatClock.zone()))
                         + "   " + u.who());
                 who.getStyleClass().add("digest-caption");
                 Label what = new Label(u.text());

@@ -62,6 +62,15 @@
                     <Separator style="-fx-opacity: 0.25;" />
 
                     <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Show times in" minWidth="140" />
+                        <ComboBox fx:id="comboBoxChatTimezone" prefWidth="260.0" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="Changes how times are displayed in the Chat and Digest tabs, nothing else. Messages are stored as exact moments, so switching this re-labels what is already captured rather than re-reading anything - useful for reading an alliance spread across timezones in the hours they actually keep." />
+
+                    <Separator style="-fx-opacity: 0.25;" />
+
+                    <HBox alignment="CENTER_LEFT" spacing="14">
                         <Label styleClass="task-field-label" text="Show in Chat tab" minWidth="140" />
                         <ComboBox fx:id="comboBoxChatViewMessages" prefWidth="220.0" />
                     </HBox>
