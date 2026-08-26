@@ -1,5 +1,8 @@
 package dev.frostguard.tasks.exploration;
 
+import java.awt.image.BufferedImage;
+import java.io.File;
+import javax.imageio.ImageIO;
 import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -9,6 +12,7 @@ import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
 import dev.frostguard.engine.schedule.DelayedTask;
@@ -497,6 +501,33 @@ public class LabyrinthRaidRoutine extends DelayedTask {
      *
      * @return number of Raid claims made in this zone this pass
      */
+    /**
+     * Dumps the screen when the action button cannot be read.
+     *
+     * <p>This routine has claimed nothing for four days running -- Research Center reads blank and
+     * Gear Forge reads 'jingCustom' -- and reported only what the OCR said, never what it was
+     * looking at. Text that garbled is not a threshold a notch away from working; it suggests the
+     * crop is over the wrong thing entirely, possibly the wrong screen. Without the frame that is
+     * unanswerable except by guessing at coordinates, which is the trap this project has paid for
+     * repeatedly.
+     *
+     * <p>Only fires on the two give-up paths, so a healthy pass writes nothing.
+     */
+    private void saveRaidFrame(String zoneName, String label) {
+        try {
+            RawImageData frame = emuManager.captureScreen(String.valueOf(EMULATOR_NUMBER));
+            BufferedImage img = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
+            File dir = new File(System.getProperty("user.dir"), "labyrinth-debug");
+            dir.mkdirs();
+            String zone = zoneName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
+            File out = new File(dir, "raid_" + zone + "_" + label + "_" + System.currentTimeMillis() + ".png");
+            ImageIO.write(img, "png", out);
+            logWarning(logLine(zoneName + ": saved the frame it could not read -> " + out.getName()));
+        } catch (Exception e) {
+            logWarning(logLine(zoneName + ": failed to save the unreadable frame: " + e.getMessage()));
+        }
+    }
+
     private int raidZone(String zoneName, PointData buildingPoint) {
         tapWithJitter(buildingPoint);
         sleepTask(PANEL_SETTLE_MS);
@@ -512,6 +543,7 @@ public class LabyrinthRaidRoutine extends DelayedTask {
             if (buttonText == null) {
                 logWarning(logLine(zoneName + ": could not read the action button text -- stopping here "
                         + "rather than tapping blind."));
+                saveRaidFrame(zoneName, "unreadable");
                 break;
             }
 
@@ -531,6 +563,7 @@ public class LabyrinthRaidRoutine extends DelayedTask {
             } else {
                 logWarning(logLine(zoneName + ": action button read as '" + buttonText + "' -- neither "
                         + "Raid nor Challenge recognized, stopping here rather than guessing."));
+                saveRaidFrame(zoneName, "unrecognized");
                 break;
             }
         }
