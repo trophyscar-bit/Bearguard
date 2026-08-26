@@ -1505,8 +1505,9 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         }
         saveLabyrinthFrame("gaia_balance_popup", 0);
 
-        if (!ratioAlreadyMatches(tag, label, ratio, GAIA_INF_PCT_TL, GAIA_INF_PCT_BR,
-                GAIA_LAN_PCT_TL, GAIA_LAN_PCT_BR, GAIA_MRK_PCT_TL, GAIA_MRK_PCT_BR)) {
+        if (!adjustRowsToTarget(tag, ratio, GAIA_INFANTRY_ROW_Y, GAIA_INF_PCT_TL, GAIA_INF_PCT_BR,
+                GAIA_LANCER_ROW_Y, GAIA_LAN_PCT_TL, GAIA_LAN_PCT_BR,
+                GAIA_MARKSMAN_ROW_Y, GAIA_MRK_PCT_TL, GAIA_MRK_PCT_BR)) {
             floorRowToZero("Infantry", GAIA_INFANTRY_ROW_Y);
             floorRowToZero("Lancer",   GAIA_LANCER_ROW_Y);
             floorRowToZero("Marksman", GAIA_MARKSMAN_ROW_Y);
@@ -1633,12 +1634,26 @@ public class DailyLabyrinthRoutine extends DelayedTask {
             return;
         }
 
-        floorRowToZero("Infantry", LOH_INFANTRY_ROW_Y);
-        floorRowToZero("Lancer",   LOH_LANCER_ROW_Y);
-        floorRowToZero("Marksman", LOH_MARKSMAN_ROW_Y);
-        fillRowToTarget("Infantry", LOH_INFANTRY_ROW_Y, LOH_INF_PCT_TL, LOH_INF_PCT_BR, ratio[0]);
-        fillRowToTarget("Lancer",   LOH_LANCER_ROW_Y,   LOH_LAN_PCT_TL, LOH_LAN_PCT_BR, ratio[1]);
-        fillRowToTarget("Marksman", LOH_MARKSMAN_ROW_Y, LOH_MRK_PCT_TL, LOH_MRK_PCT_BR, ratio[2]);
+        // Look before driving. Flooring three rows to zero and refilling them costs about three and
+        // three quarter MINUTES against a battle that lasts ten seconds, measured live on Cave of
+        // Monsters 2026-08-25 (20:39:50 set -> 20:43:36 readback). This check costs a settle and
+        // three OCR reads, so it pays for itself the first time the ratio is already right.
+        //
+        // This path was originally left unguarded on the belief that these zones always reset to
+        // 33/33/33, so a check could never match. That was an assumption, never measured -- and the
+        // streak path stays on the stage screen between attempts without re-entering the zone, which
+        // is exactly the case the belief did not cover. Reading is cheap enough that being wrong
+        // about it costs two seconds, while being wrong the other way costs four minutes a fight.
+        if (!adjustRowsToTarget(tag, ratio, LOH_INFANTRY_ROW_Y, LOH_INF_PCT_TL, LOH_INF_PCT_BR,
+                LOH_LANCER_ROW_Y, LOH_LAN_PCT_TL, LOH_LAN_PCT_BR,
+                LOH_MARKSMAN_ROW_Y, LOH_MRK_PCT_TL, LOH_MRK_PCT_BR)) {
+            floorRowToZero("Infantry", LOH_INFANTRY_ROW_Y);
+            floorRowToZero("Lancer",   LOH_LANCER_ROW_Y);
+            floorRowToZero("Marksman", LOH_MARKSMAN_ROW_Y);
+            fillRowToTarget("Infantry", LOH_INFANTRY_ROW_Y, LOH_INF_PCT_TL, LOH_INF_PCT_BR, ratio[0]);
+            fillRowToTarget("Lancer",   LOH_LANCER_ROW_Y,   LOH_LAN_PCT_TL, LOH_LAN_PCT_BR, ratio[1]);
+            fillRowToTarget("Marksman", LOH_MARKSMAN_ROW_Y, LOH_MRK_PCT_TL, LOH_MRK_PCT_BR, ratio[2]);
+        }
 
         Integer vi = readPercent(LOH_INF_PCT_TL, LOH_INF_PCT_BR);
         Integer vl = readPercent(LOH_LAN_PCT_TL, LOH_LAN_PCT_BR);
@@ -1686,8 +1701,9 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         // blocked by the 100% cap. 1 tap == 1% (verified live). No mid-drive OCR — the small stroked
         // digits only read reliably on a settled/static frame, so OCR is used ONLY for the correction
         // pass in fillRowToTarget (which re-adds any taps the game dropped).
-        if (!ratioAlreadyMatches(tag, label, ratio, LOH_INF_PCT_TL, LOH_INF_PCT_BR,
-                LOH_LAN_PCT_TL, LOH_LAN_PCT_BR, LOH_MRK_PCT_TL, LOH_MRK_PCT_BR)) {
+        if (!adjustRowsToTarget(tag, ratio, LOH_INFANTRY_ROW_Y, LOH_INF_PCT_TL, LOH_INF_PCT_BR,
+                LOH_LANCER_ROW_Y, LOH_LAN_PCT_TL, LOH_LAN_PCT_BR,
+                LOH_MARKSMAN_ROW_Y, LOH_MRK_PCT_TL, LOH_MRK_PCT_BR)) {
             floorRowToZero("Infantry", LOH_INFANTRY_ROW_Y);
             floorRowToZero("Lancer",   LOH_LANCER_ROW_Y);
             floorRowToZero("Marksman", LOH_MARKSMAN_ROW_Y);
@@ -1832,35 +1848,72 @@ public class DailyLabyrinthRoutine extends DelayedTask {
      * borderline-OCR (small, stroked font, and the slider briefly animates after a nudge), so this
      * RE-READS a few times before giving up — a fresh frame each attempt smooths over transient misses.
      */
+
     /**
-     * True only when all three rows read cleanly AND already hold the target.
+     * Nudges each row to its target by tapping only the DIFFERENCE, instead of flooring all three
+     * to zero and refilling them.
      *
-     * <p>Driving a ratio that is already correct costs roughly 50 seconds a squad in deterministic
-     * slider taps for no change at all, which is the whole reason to look first. But an unreadable
-     * row is UNKNOWN, never "already right": skipping on a bad read would silently leave the wrong
-     * formation in place, and the cost of being wrong that way is a lost battle, while the cost of
-     * driving unnecessarily is only time.
+     * <p>Floor-and-refill costs 315 minus taps plus roughly 100 plus taps -- measured live at three
+     * to four MINUTES per squad on Cave of Monsters (2026-08-25), against a battle that lasts about
+     * ten seconds. Going 33/33/33 -> 50/10/40 is +17/-23/+7, which is 47 taps: the same result in
+     * seconds rather than minutes.
+     *
+     * <p>Decreases are applied BEFORE increases. The three rows share a 100% budget, so raising one
+     * before lowering another can hit the cap and silently drop taps -- which is the exact problem
+     * flooring to zero first was written to avoid. Taking the reductions first keeps the running
+     * total at or below where it started, so an increase can never be blocked.
+     *
+     * @return false when any row could not be read, so the caller can fall back to floor-and-refill.
+     *         An unreadable row means the deltas are unknown, and tapping an unknown delta is worse
+     *         than paying for the slow path.
      */
-    private boolean ratioAlreadyMatches(String tag, String label, int[] ratio,
-                                        PointData infTl, PointData infBr,
-                                        PointData lanTl, PointData lanBr,
-                                        PointData mrkTl, PointData mrkBr) {
-        // The stroked digits only read reliably on a settled frame -- same reason the correction
-        // pass in fillRowToTarget waits before each read.
+    private boolean adjustRowsToTarget(String tag, int[] ratio,
+                                       int infRowY, PointData infTl, PointData infBr,
+                                       int lanRowY, PointData lanTl, PointData lanBr,
+                                       int mrkRowY, PointData mrkTl, PointData mrkBr) {
         sleepTask(LOH_SETTLE_BEFORE_READ);
         Integer inf = readPercent(infTl, infBr);
         Integer lan = readPercent(lanTl, lanBr);
         Integer mrk = readPercent(mrkTl, mrkBr);
         if (inf == null || lan == null || mrk == null) {
-            logInfo(tag + ": " + label + " -- current ratio unreadable (" + inf + "/" + lan + "/" + mrk
-                    + "); setting it rather than assuming it is already correct.");
+            logInfo(tag + ": could not read the current split (" + inf + "/" + lan + "/" + mrk
+                    + "); falling back to flooring and refilling.");
             return false;
         }
-        boolean match = inf == ratio[0] && lan == ratio[1] && mrk == ratio[2];
-        logInfo(tag + ": " + label + " reads " + inf + "/" + lan + "/" + mrk + ", target "
-                + ratio[0] + "/" + ratio[1] + "/" + ratio[2]
-                + (match ? " -- already set, leaving the sliders alone." : " -- driving the sliders."));
-        return match;
+
+        int[] rowY = { infRowY, lanRowY, mrkRowY };
+        int[] now = { inf, lan, mrk };
+        String[] names = { "Infantry", "Lancer", "Marksman" };
+        if (inf == ratio[0] && lan == ratio[1] && mrk == ratio[2]) {
+            logInfo(tag + ": already at " + ratio[0] + "/" + ratio[1] + "/" + ratio[2]
+                    + " -- leaving the sliders alone.");
+            return true;
+        }
+        logInfo(tag + ": at " + inf + "/" + lan + "/" + mrk + ", target "
+                + ratio[0] + "/" + ratio[1] + "/" + ratio[2] + " -- nudging by the difference.");
+
+        for (int pass = 0; pass < 2; pass++) {
+            boolean decreases = (pass == 0);
+            for (int i = 0; i < 3; i++) {
+                int delta = ratio[i] - now[i];
+                if (delta == 0 || (decreases ? delta > 0 : delta < 0)) continue;
+                int x = decreases ? LOH_MINUS_X : LOH_PLUS_X;
+                logInfo(tag + " [" + names[i] + "]: " + now[i] + " -> " + ratio[i]
+                        + " (" + (delta > 0 ? "+" : "") + delta + ").");
+                tapRowTimes(rowY[i], x, Math.abs(delta));
+            }
+        }
+        return true;
+    }
+
+    /** Taps one row's plus or minus control {@code times}, with the same jittered cadence the
+     *  deterministic floor/fill drivers use so the taps still register and do not look mechanical. */
+    private void tapRowTimes(int rowY, int x, int times) {
+        PointData target = new PointData(x, rowY);
+        for (int i = 0; i < times; i++) {
+            tapNear(target);
+            sleepTask(TapJitterPolicy.sampleDelay(LOH_DET_TAP_DELAY));
+        }
     }
 
     private Integer readPercent(PointData tl, PointData br) {
