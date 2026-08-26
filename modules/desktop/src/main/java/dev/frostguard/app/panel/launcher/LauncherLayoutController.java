@@ -668,6 +668,11 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         // on, so it leads.
         ChatTranscriptLayoutController transcriptCtrl = new ChatTranscriptLayoutController();
         Parent transcriptPane = loadNode("ChatTranscriptLayout", transcriptCtrl);
+        // The transcript reads the profile too, now that it can queue a capture and takes its
+        // message limit from the same settings the Configure tab writes.
+        if (transcriptCtrl instanceof IProfileLoadListener) {
+            profileManagerLayoutController.addProfileLoadListener((IProfileLoadListener) transcriptCtrl);
+        }
 
         ChatCaptureLayoutController chatConfigCtrl = new ChatCaptureLayoutController();
         if (chatConfigCtrl instanceof IProfileObserverInjectable) {

@@ -34,25 +34,34 @@
                               onAction="#selectChannel" styleClass="action-button-timeline"
                               text="Personal" userData="personal" />
                 <Separator orientation="VERTICAL" />
-                <!-- Which reader's transcript is on screen. The two read the same screens and are
-                     stored apart so they can be compared rather than argued about. -->
-                <ToggleButton fx:id="tabReaderPython" minWidth="-Infinity" mnemonicParsing="false"
-                              onAction="#selectReader" selected="true"
-                              styleClass="action-button-timeline" text="Python" userData="SERVICE" />
-                <ToggleButton fx:id="tabReaderJava" minWidth="-Infinity" mnemonicParsing="false"
-                              onAction="#selectReader" styleClass="action-button-timeline"
-                              text="Java" userData="JAVA" />
-                <Separator orientation="VERTICAL" />
                 <CheckBox fx:id="checkHideChatter" minWidth="-Infinity" mnemonicParsing="false"
                           onAction="#refresh" selected="true" text="Hide game chatter" />
                 <Pane HBox.hgrow="ALWAYS" />
+                <!-- Reload reads what is already stored; Capture Now sends the bot to go and get
+                     more. Two different waits, so two different buttons rather than one that
+                     sometimes takes five minutes. -->
                 <Button minWidth="-Infinity" mnemonicParsing="false" onAction="#refresh"
-                        styleClass="action-button-timeline" text="Refresh" />
+                        styleClass="action-button-timeline" text="Reload" />
+                <Button fx:id="captureNowButton" minWidth="-Infinity" mnemonicParsing="false"
+                        onAction="#captureNow" styleClass="action-button-timeline"
+                        text="Capture Now" />
                 <Button minWidth="-Infinity" mnemonicParsing="false" onAction="#exportHtml"
                         styleClass="action-button-timeline" text="Export HTML" />
             </HBox>
             <HBox alignment="CENTER_LEFT" spacing="8">
                 <Label fx:id="statusLabel" styleClass="label-muted" text="Loading transcript..." />
+                <Pane HBox.hgrow="ALWAYS" />
+                <!-- Re-reads the stored transcript on a timer. It does not capture: nothing is
+                     sent to the emulator, so this is safe to leave on a short interval. -->
+                <Label styleClass="label-muted" text="Auto-reload" />
+                <ComboBox fx:id="autoReloadBox" minWidth="-Infinity" prefWidth="110" />
+                <Separator orientation="VERTICAL" />
+                <!-- Chat is read for a long time on a small panel, so the size it is drawn at is
+                     worth being able to change without changing it everywhere else. -->
+                <Label styleClass="label-muted" text="Zoom" />
+                <Slider fx:id="zoomSlider" blockIncrement="10" majorTickUnit="25" max="200"
+                        min="70" minWidth="-Infinity" prefWidth="130" value="100" />
+                <Label fx:id="zoomLabel" minWidth="-Infinity" styleClass="label-muted" text="100%" />
             </HBox>
         </VBox>
     </top>

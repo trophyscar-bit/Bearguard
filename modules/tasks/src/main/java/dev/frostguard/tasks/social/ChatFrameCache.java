@@ -36,6 +36,7 @@ final class ChatFrameCache {
 
     private final Path dir;
     private final long budgetBytes;
+    private final boolean keepEverything;
 
     /** A frame is roughly 400KB, so a megabyte figure lands within a frame or two of the truth. */
     private static final long BYTES_PER_MB = 1024L * 1024L;
@@ -45,11 +46,15 @@ final class ChatFrameCache {
 
     ChatFrameCache(Path baseDir, int budgetMb) {
         this.dir = baseDir.resolve("frames");
+        // A negative figure is the panel's "never delete". Kept as a distinct state rather than as
+        // a very large budget so prune() can skip the walk entirely instead of measuring a
+        // directory that is only going to grow.
+        this.keepEverything = budgetMb < 0;
         this.budgetBytes = Math.max(0, budgetMb) * BYTES_PER_MB;
     }
 
     boolean isOn() {
-        return budgetBytes > 0;
+        return keepEverything || budgetBytes > 0;
     }
 
     /**
@@ -79,6 +84,9 @@ final class ChatFrameCache {
 
     /** Drops the oldest frames until the directory fits its budget. */
     private void prune() throws IOException {
+        if (keepEverything) {
+            return;
+        }
         List<Path> frames = new ArrayList<>();
         try (var listing = Files.list(dir)) {
             listing.filter(p -> p.getFileName().toString().endsWith(".png")).forEach(frames::add);

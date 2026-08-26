@@ -5,6 +5,8 @@ import dev.frostguard.api.configs.ConfigurationKeyEnum;
 
 import javafx.fxml.FXML;
 import javafx.scene.control.CheckBox;
+import java.util.Objects;
+import javafx.scene.control.Alert;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.ListCell;
 
@@ -32,7 +34,10 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
     @FXML
     private ComboBox<Integer> comboBoxChatFrameCache;
     @FXML
-    private ComboBox<String> comboBoxChatReader;
+    private ComboBox<Integer> comboBoxChatViewMessages;
+
+    /** Keeps every screen for ever. Stored as a figure no real budget would reach. */
+    private static final int UNLIMITED_FRAMES = -1;
 
     @FXML
     private void initialize() {
@@ -58,30 +63,49 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
 
         // Off first, and off by default. This writes pictures of the profile's chat to disk, which
         // is a thing somebody should choose rather than find out about.
-        comboBoxChatFrameCache.getItems().addAll(0, 100, 250, 500, 1000);
+        comboBoxChatFrameCache.getItems().addAll(0, 100, 250, 500, 1000, UNLIMITED_FRAMES);
         comboBoxChatFrameCache.setCellFactory(lv -> megabytesCell());
         comboBoxChatFrameCache.setButtonCell(megabytesCell());
         comboBoxMappings.put(comboBoxChatFrameCache, ConfigurationKeyEnum.CHAT_FRAME_CACHE_MB_INT);
+        // Said once, when it is picked, and not again. Every other figure here has a ceiling; this
+        // one does not, and the thing being written is pictures of a person's chat on a schedule
+        // that never stops. Roughly 400 KB a screen, a few hundred screens a pass, every pass --
+        // it reaches tens of gigabytes in a month and nothing prunes it.
+        comboBoxChatFrameCache.valueProperty().addListener((obs, was, now) -> {
+            if (now == null || now != UNLIMITED_FRAMES || Objects.equals(was, now)) {
+                return;
+            }
+            Alert warn = new Alert(Alert.AlertType.WARNING);
+            warn.setTitle("Keep every screen");
+            warn.setHeaderText("Nothing will ever be deleted.");
+            warn.setContentText("Screens are about 400 KB each and a pass reads a few hundred of "
+                    + "them, so this grows by roughly a gigabyte a day and keeps going. They are "
+                    + "pictures of your chat, and the only thing that will ever remove them is you."
+                    + "\\n\\nSet a figure instead unless you have a reason to keep the lot.");
+            warn.showAndWait();
+        });
 
-        // Values are the stored strings; the cell factory only changes what is displayed.
-        comboBoxChatReader.getItems().addAll("JAVA", "SERVICE");
-        comboBoxChatReader.setCellFactory(lv -> readerCell());
-        comboBoxChatReader.setButtonCell(readerCell());
-        comboBoxMappings.put(comboBoxChatReader, ConfigurationKeyEnum.CHAT_READER_STRING);
+        // A limit on what the panel draws, not on what was captured. Four hundred is what the tab
+        // used before this was offered, so an existing profile opens looking the same.
+        comboBoxChatViewMessages.getItems().addAll(100, 200, 400, 800, 2000);
+        comboBoxChatViewMessages.setCellFactory(lv -> messageCountCell());
+        comboBoxChatViewMessages.setButtonCell(messageCountCell());
+        comboBoxMappings.put(comboBoxChatViewMessages,
+                ConfigurationKeyEnum.CHAT_VIEW_MESSAGES_INT);
 
         initializeChangeEvents();
     }
 
-    private ListCell<String> readerCell() {
+    /** Reads a count as messages, and the largest as the warning it is. */
+    private ListCell<Integer> messageCountCell() {
         return new ListCell<>() {
             @Override
-            protected void updateItem(String item, boolean empty) {
+            protected void updateItem(Integer item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
                     setText(null);
                 } else {
-                    setText("JAVA".equals(item) ? "In-process (ships with the app)"
-                            : "Local service (needs setting up)");
+                    setText(item + " messages" + (item >= 2000 ? " (slower to open)" : ""));
                 }
             }
         };
@@ -96,8 +120,9 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
                 if (empty || item == null) {
                     setText(null);
                 } else {
-                    setText(item == 0 ? "Don't keep any" : item + " MB (about " + item * 5 / 2
-                            + " screens)");
+                    setText(item == 0 ? "Don't keep any"
+                            : item == UNLIMITED_FRAMES ? "INSANE - never delete"
+                            : item + " MB (about " + item * 5 / 2 + " screens)");
                 }
             }
         };

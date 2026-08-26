@@ -23,7 +23,24 @@ import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.CheckBox;
+import dev.frostguard.engine.schedule.TaskQueue;
+import dev.frostguard.engine.service.ScheduleService;
+import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.Label;
+import javafx.scene.control.Slider;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyCodeCombination;
+import javafx.scene.input.KeyCombination;
+import dev.frostguard.api.configs.ConfigurationKeyEnum;
+import dev.frostguard.api.configs.TpDailyTaskEnum;
+import dev.frostguard.app.panel.profile.IProfileLoadListener;
+import dev.frostguard.app.panel.profile.ProfileAux;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Toggle;
 import javafx.scene.control.ToggleButton;
@@ -48,12 +65,15 @@ import javafx.scene.text.TextFlow;
  * rebuilt with controls that are already on the classpath. {@link ChatDiscordRenderer} still
  * produces the browser version, which the export button writes out.
  */
-public class ChatTranscriptLayoutController {
+public class ChatTranscriptLayoutController implements IProfileLoadListener {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
 
-    /** Enough to scroll through a session without building a node for every message ever stored. */
-    private static final int VIEW_LIMIT = 400;
+    /** How many messages to draw, from the profile. A limit on the panel, not on the transcript. */
+    private int viewLimit = DEFAULT_VIEW_LIMIT;
+
+    /** What the tab drew before the figure was offered as a setting. */
+    private static final int DEFAULT_VIEW_LIMIT = 400;
 
     /** Close enough to the bottom to count as reading the newest message. */
     private static final double NEWEST_ENOUGH = 0.98;
@@ -79,37 +99,63 @@ public class ChatTranscriptLayoutController {
     @FXML
     private CheckBox checkHideChatter;
     @FXML
-    private ToggleButton tabReaderPython;
+    private Slider zoomSlider;
     @FXML
-    private ToggleButton tabReaderJava;
+    private Label zoomLabel;
+    @FXML
+    private Button captureNowButton;
 
     /** Which conversation is on screen. Alliance is what the panel opens on. */
     private String channelFilter = "alliance";
 
     /**
-     * Which reader's transcript is being shown, and the store that reads it.
+     * The transcript on screen is the in-process reader's.
      *
-     * <p>Rebuilt when the reader changes rather than held for both, because a store is bound to one
-     * directory and the whole point of the switch is that the two directories hold different
-     * answers to the same screens.
+     * <p>There used to be a Python/Java switch here. The service is not something a person who
+     * downloads this has, so for everyone but us the other side of that switch was an empty panel,
+     * and the reader it named was not the one doing the reading. The service still writes its own
+     * directory when it is deliberately turned on for comparison work; the panel just no longer
+     * offers a choice that only means something on a developer's machine.
      */
-    private String readerFilter = "SERVICE";
+    private static final String READER = "JAVA";
 
-    private ChatTranscriptStore store = new ChatTranscriptStore(baseDir("SERVICE"),
+    private final ChatTranscriptStore store = new ChatTranscriptStore(baseDir(READER),
             ZoneId.systemDefault());
 
     @FXML
     private void initialize() {
         // One channel at a time by default. World, Alliance and Personal are separate
         // conversations, and interleaving them is what made the transcript hard to follow.
-        ToggleGroup readers = new ToggleGroup();
-        tabReaderPython.setToggleGroup(readers);
-        tabReaderJava.setToggleGroup(readers);
-        readers.selectedToggleProperty().addListener((obs, was, now) -> {
-            if (now == null && was != null) {
-                was.setSelected(true);
+        // Zoom scales the message list alone, so the controls above it stay the size the rest of
+        // the application draws them at. A percentage is what people expect a zoom to be.
+        zoomSlider.valueProperty().addListener((obs, was, now) -> {
+            double scale = now.doubleValue() / 100.0;
+            messageList.setScaleX(scale);
+            messageList.setScaleY(scale);
+            // Scaling pivots on the centre by default, which walks the text off the left edge as
+            // it grows. Anchored top-left it grows the way a page does.
+            messageList.setTranslateX(messageList.getWidth() * (scale - 1) / 2);
+            messageList.setTranslateY(messageList.getHeight() * (scale - 1) / 2);
+            zoomLabel.setText(Math.round(now.doubleValue()) + "%");
+        });
+
+        // Copy out of the panel. JavaFX will not select across a column of separate text nodes
+        // the way a browser does, and the alternative -- one editable field per message -- gives
+        // up the names, colours and quote blocks that make this readable in the first place. So
+        // selection is per message: click one to pick it, Ctrl+C or the right-click menu to take
+        // it, and Ctrl+A then Ctrl+C for the conversation.
+        messageList.setOnKeyPressed(e -> {
+            if (COPY.match(e)) {
+                copySelection();
+                e.consume();
+            } else if (SELECT_ALL.match(e)) {
+                selected.clear();
+                selected.addAll(shown);
+                repaintSelection();
+                e.consume();
             }
         });
+        messageList.setFocusTraversable(true);
 
         ToggleGroup channels = new ToggleGroup();
         for (ToggleButton t : new ToggleButton[] {tabWorld, tabAlliance, tabPersonal}) {
@@ -125,26 +171,67 @@ public class ChatTranscriptLayoutController {
         // Capture runs on its own schedule, so a panel left open goes stale without saying so --
         // it shows a quiet afternoon that ended half an hour ago. Reloading on the same cadence as
         // the capture keeps the two in step.
-        follow = new Timeline(new KeyFrame(Duration.minutes(REFRESH_MINUTES), e -> refresh()));
-        follow.setCycleCount(Timeline.INDEFINITE);
-        follow.play();
+        // Zero is off and comes first, so leaving it alone costs nothing.
+        autoReloadBox.getItems().addAll(0, 1, 2, 5, 15, 30);
+        autoReloadBox.setCellFactory(lv -> intervalCell());
+        autoReloadBox.setButtonCell(intervalCell());
+        autoReloadBox.setValue(REFRESH_MINUTES);
+        autoReloadBox.valueProperty().addListener((obs, was, now) -> restartFollow());
+
+        // Only while the panel is actually on screen. A timer that keeps firing behind a tab
+        // nobody is looking at reads day files off disk every minute for no reader at all, on a
+        // machine that is also running an emulator.
+        messageList.sceneProperty().addListener((obs, was, now) -> restartFollow());
+        messageList.visibleProperty().addListener((obs, was, now) -> restartFollow());
+        restartFollow();
 
         refresh();
     }
 
-    /** Reloads on the capture's own cadence, so an open panel does not quietly go stale. */
+    /** Reloads on a cadence the reader chooses, so an open panel does not quietly go stale. */
     private Timeline follow;
 
+    /** What the panel reloaded at before the interval was offered as a choice. */
     private static final int REFRESH_MINUTES = 30;
 
-    @FXML
-    private void selectReader() {
-        Toggle selected = tabReaderPython.getToggleGroup().getSelectedToggle();
-        Object data = selected == null ? null : ((ToggleButton) selected).getUserData();
-        readerFilter = data == null ? "SERVICE" : data.toString();
-        store = new ChatTranscriptStore(baseDir(readerFilter), ZoneId.systemDefault());
-        refresh();
+    /**
+     * Starts, stops or re-times the reload timer to match the dropdown and what is on screen.
+     *
+     * <p>Called from every input that can change either, and it rebuilds rather than adjusts: a
+     * Timeline's period is fixed once it is running, and a stopped one costs nothing to replace.
+     */
+    private void restartFollow() {
+        if (follow != null) {
+            follow.stop();
+            follow = null;
+        }
+        Integer minutes = autoReloadBox.getValue();
+        boolean onScreen = messageList.getScene() != null && messageList.isVisible();
+        if (minutes == null || minutes <= 0 || !onScreen) {
+            return;
+        }
+        follow = new Timeline(new KeyFrame(Duration.minutes(minutes), e -> refresh()));
+        follow.setCycleCount(Timeline.INDEFINITE);
+        follow.play();
     }
+
+    /** Reads the interval as time, and zero as off rather than as "0 min". */
+    private ListCell<Integer> intervalCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(Integer item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    setText(item == 0 ? "Off" : item == 1 ? "Every minute" : "Every " + item + " min");
+                }
+            }
+        };
+    }
+
+    @FXML
+    private ComboBox<Integer> autoReloadBox;
 
     @FXML
     private void selectChannel() {
@@ -168,7 +255,7 @@ public class ChatTranscriptLayoutController {
             protected List<ChatMessage> call() throws IOException {
                 // Read wider than the view limit before filtering, otherwise selecting one channel
                 // shows only the handful of its messages that fell inside the last N overall.
-                List<ChatMessage> all = store.recent(VIEW_LIMIT * 4);
+                List<ChatMessage> all = store.recent(viewLimit * 4);
                 boolean hideChatter = checkHideChatter.isSelected();
                 List<ChatMessage> kept = new java.util.ArrayList<>();
                 for (ChatMessage m : all) {
@@ -181,8 +268,8 @@ public class ChatTranscriptLayoutController {
                     }
                     kept.add(m);
                 }
-                return kept.size() > VIEW_LIMIT
-                        ? kept.subList(kept.size() - VIEW_LIMIT, kept.size())
+                return kept.size() > viewLimit
+                        ? kept.subList(kept.size() - viewLimit, kept.size())
                         : kept;
             }
         };
@@ -198,8 +285,8 @@ public class ChatTranscriptLayoutController {
     @FXML
     private void exportHtml() {
         try {
-            List<ChatMessage> messages = store.recent(VIEW_LIMIT);
-            Path out = baseDir(readerFilter).resolve("transcript.html");
+            List<ChatMessage> messages = store.recent(viewLimit);
+            Path out = baseDir(READER).resolve("transcript.html");
             Files.writeString(out, ChatDiscordRenderer.render(messages, ZoneId.systemDefault()),
                     StandardCharsets.UTF_8);
             statusLabel.setText("Exported " + messages.size() + " message(s) to " + out);
@@ -210,6 +297,8 @@ public class ChatTranscriptLayoutController {
 
     private void show(List<ChatMessage> messages) {
         messageList.getChildren().clear();
+        assignedColours.clear();
+        lastColour = null;
 
         if (messages.isEmpty()) {
             Label empty = new Label("No chat captured yet. Turn capture on in the Configure tab and "
@@ -221,9 +310,15 @@ public class ChatTranscriptLayoutController {
             return;
         }
 
+        shown.clear();
+        cards.clear();
+        selected.clear();
         for (ChatMessage m : messages) {
             String author = m.author().isBlank() ? "unknown" : m.author();
-            messageList.getChildren().add(card(m, author));
+            HBox row = card(m, author);
+            shown.add(m);
+            cards.put(m, row);
+            messageList.getChildren().add(row);
         }
 
         statusLabel.setText(sizeLine(messages.size()));
@@ -271,6 +366,35 @@ public class ChatTranscriptLayoutController {
 
         HBox row = new HBox(gutter, content);
         row.getStyleClass().add("chat-card");
+        row.setOnMouseClicked(e -> {
+            if (!e.isShortcutDown()) {
+                selected.clear();
+            }
+            if (!selected.remove(m)) {
+                selected.add(m);
+            }
+            repaintSelection();
+            messageList.requestFocus();
+        });
+        ContextMenu menu = new ContextMenu();
+        MenuItem copyOne = new MenuItem("Copy message");
+        copyOne.setOnAction(e -> {
+            if (!selected.contains(m)) {
+                selected.clear();
+                selected.add(m);
+                repaintSelection();
+            }
+            copySelection();
+        });
+        MenuItem copyAll = new MenuItem("Copy everything shown");
+        copyAll.setOnAction(e -> {
+            selected.clear();
+            selected.addAll(shown);
+            repaintSelection();
+            copySelection();
+        });
+        menu.getItems().addAll(copyOne, copyAll);
+        row.setOnContextMenuRequested(e -> menu.show(row, e.getScreenX(), e.getScreenY()));
         // Without this the card is only ever as wide as the text it happens to hold: a box's
         // maximum defaults to its computed size, so it never grows into the space beside it and
         // the message wraps into a narrow column with the rest of the panel left empty.
@@ -293,13 +417,16 @@ public class ChatTranscriptLayoutController {
             head.getChildren().add(chip(m.allianceTag()));
         }
 
-        // The time is pushed to the far edge by a spacer rather than laid beside the name, so it
-        // cannot end up sitting on top of the words when a name runs long.
-        Region gap = new Region();
-        HBox.setHgrow(gap, Priority.ALWAYS);
+        // Beside the name rather than out at the far edge. Against the right margin the time sat
+        // a long way from the person it belonged to, and on a wide window the eye had to travel
+        // the width of the panel to pair them up.
         Label time = new Label(TIME.format(m.capturedAt().atZone(ZoneId.systemDefault())));
         time.getStyleClass().add("chat-time");
-        head.getChildren().addAll(gap, time);
+        head.getChildren().add(time);
+
+        Region gap = new Region();
+        HBox.setHgrow(gap, Priority.ALWAYS);
+        head.getChildren().add(gap);
         head.setMaxWidth(Double.MAX_VALUE);
         return head;
     }
@@ -470,12 +597,151 @@ public class ChatTranscriptLayoutController {
         return chip;
     }
 
-    private static String colourFor(String author) {
-        int h = 0;
-        for (int i = 0; i < author.length(); i++) {
-            h = h * 31 + author.charAt(i);
+    private String colourFor(String author) {
+        return assignedColours.computeIfAbsent(author, name -> {
+            int h = 0;
+            for (int i = 0; i < name.length(); i++) {
+                h = h * 31 + name.charAt(i);
+            }
+            int first = Math.floorMod(h, AUTHOR_COLOURS.length);
+            // The hash alone puts two greens or two reds side by side often enough to be the
+            // thing you notice first, and the colour is here so a name can be picked out of the
+            // list. Walking forward from the hashed slot keeps a person's colour stable for the
+            // whole render while refusing one that neighbours the last speaker's.
+            for (int step = 0; step < AUTHOR_COLOURS.length; step++) {
+                String candidate = AUTHOR_COLOURS[(first + step) % AUTHOR_COLOURS.length];
+                if (!sameFamily(candidate, lastColour) && !assignedColours.containsValue(candidate)) {
+                    lastColour = candidate;
+                    return candidate;
+                }
+            }
+            // Everything is taken or adjacent -- more speakers than colours. Any is better than
+            // none, so fall back to the hashed one rather than leaving the name unpainted.
+            lastColour = AUTHOR_COLOURS[first];
+            return lastColour;
+        });
+    }
+
+    /**
+     * Whether two swatches read as the same colour at a glance.
+     *
+     * <p>Compared by hue rather than by distance in RGB, because RGB distance calls a dark green
+     * and a bright green far apart when the eye files them together, which is the whole complaint.
+     */
+    private static boolean sameFamily(String a, String b) {
+        if (b == null) {
+            return false;
         }
-        return AUTHOR_COLOURS[Math.floorMod(h, AUTHOR_COLOURS.length)];
+        double gap = Math.abs(hueOf(a) - hueOf(b));
+        return Math.min(gap, 360 - gap) < DISTINCT_HUE_DEGREES;
+    }
+
+    private static double hueOf(String hex) {
+        return javafx.scene.paint.Color.web(hex).getHue();
+    }
+
+    /** Closer than this around the wheel and two names look like the same colour. */
+    private static final double DISTINCT_HUE_DEGREES = 40;
+
+    /** One colour per author for as long as this render lasts. */
+    private final java.util.Map<String, String> assignedColours = new java.util.LinkedHashMap<>();
+
+    /** The last colour handed out, so the next one can be told apart from it. */
+    private String lastColour;
+
+    /** The messages currently drawn, in order, so Select All has something to mean. */
+    private final List<ChatMessage> shown = new java.util.ArrayList<>();
+
+    /** What the reader has picked out to copy. */
+    private final java.util.Set<ChatMessage> selected = new java.util.LinkedHashSet<>();
+
+    /** The card drawn for each message, so a selection can be repainted without a full rebuild. */
+    private final java.util.Map<ChatMessage, Region> cards = new java.util.HashMap<>();
+
+    private static final KeyCombination COPY =
+            new KeyCodeCombination(KeyCode.C, KeyCombination.SHORTCUT_DOWN);
+    private static final KeyCombination SELECT_ALL =
+            new KeyCodeCombination(KeyCode.A, KeyCombination.SHORTCUT_DOWN);
+
+    /**
+     * Puts the selected messages on the clipboard as plain text.
+     *
+     * <p>Written the way a person would quote it -- name, time, then what was said -- rather than
+     * as the panel's own layout. What gets pasted into a message to somebody else should read as
+     * chat, not as a dump of fields.
+     */
+    private void copySelection() {
+        if (selected.isEmpty()) {
+            statusLabel.setText("Nothing selected. Click a message first.");
+            return;
+        }
+        StringBuilder out = new StringBuilder();
+        for (ChatMessage m : shown) {
+            if (!selected.contains(m)) {
+                continue;
+            }
+            String author = m.author().isBlank() ? "unknown" : m.author();
+            out.append('[').append(TIME.format(m.capturedAt().atZone(ZoneId.systemDefault())))
+                    .append("] ").append(author);
+            if (!m.allianceTag().isBlank()) {
+                out.append(" (").append(m.allianceTag()).append(')');
+            }
+            out.append(": ").append(m.displayBody()).append(System.lineSeparator());
+        }
+        ClipboardContent content = new ClipboardContent();
+        content.putString(out.toString().stripTrailing());
+        Clipboard.getSystemClipboard().setContent(content);
+        statusLabel.setText("Copied " + selected.size() + " message(s).");
+    }
+
+    private void repaintSelection() {
+        for (java.util.Map.Entry<ChatMessage, Region> e : cards.entrySet()) {
+            e.getValue().pseudoClassStateChanged(PICKED, selected.contains(e.getKey()));
+        }
+    }
+
+    private static final javafx.css.PseudoClass PICKED =
+            javafx.css.PseudoClass.getPseudoClass("picked");
+
+    /**
+     * Sends the bot to capture chat now rather than waiting for the schedule.
+     *
+     * <p>Queued rather than run here: capture drives the emulator, and the queue is what keeps two
+     * tasks from reaching for it at once. The panel does not wait for it either -- a pass takes
+     * about five minutes, and a button that holds the interface for five minutes is a hang.
+     */
+    @FXML
+    private void captureNow() {
+        ProfileAux profile = currentProfile;
+        if (profile == null) {
+            statusLabel.setText("Select a profile first.");
+            return;
+        }
+        TaskQueue queue = ScheduleService.obtain().getCoordinator().getQueue(profile.getId());
+        if (queue == null || !queue.isActive()) {
+            statusLabel.setText("Start the bot first -- capture runs through the profile's queue.");
+            return;
+        }
+        queue.runNow(TpDailyTaskEnum.CHAT_CAPTURE, false);
+        statusLabel.setText("Capture queued for " + profile.getName()
+                + ". It reads in the background; press Reload when it finishes.");
+    }
+
+    /** The profile whose settings and queue this panel is looking at. */
+    private ProfileAux currentProfile;
+
+    @Override
+    public void onProfileLoad(ProfileAux profile) {
+        currentProfile = profile;
+        if (profile != null) {
+            Integer configured = profile.getConfig(
+                    ConfigurationKeyEnum.CHAT_VIEW_MESSAGES_INT, Integer.class);
+            int wanted = configured == null || configured <= 0 ? DEFAULT_VIEW_LIMIT : configured;
+            if (wanted != viewLimit) {
+                viewLimit = wanted;
+                refresh();
+            }
+        }
     }
 
     /**
