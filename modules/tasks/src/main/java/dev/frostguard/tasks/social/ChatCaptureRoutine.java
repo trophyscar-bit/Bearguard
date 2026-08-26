@@ -222,10 +222,40 @@ public class ChatCaptureRoutine extends DelayedTask {
     /** Reads in this process. Built once, because each model costs seconds to open. */
     private dev.frostguard.vision.ocr.OnnxOcrReader onnx;
 
-    /** Where the ONNX models live, beside the service that shares them. */
+    /**
+     * Where the models are, whether this is a checkout or an installation.
+     *
+     * <p>It used to be {@code user.dir/tools/ocr/onnx} and nothing else, which is true when the
+     * application is started from the top of a checkout and false the moment somebody installs it.
+     * The installed layout puts them under {@code lib/ocr-models}, and the working directory is
+     * wherever the shortcut happened to point. Walking up from the working directory looking for
+     * either name is how the Tesseract data is already found, and this follows it rather than
+     * inventing a second convention.
+     *
+     * @return the first directory holding the detector, or the checkout path so the failure names
+     *         somewhere a person can actually look
+     */
     private static java.nio.file.Path onnxDir() {
-        return Paths.get(System.getProperty("user.dir"), "tools", "ocr", "onnx");
+        if (resolvedModelDir != null) {
+            return resolvedModelDir;
+        }
+        java.nio.file.Path here =
+                Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
+        for (java.nio.file.Path up = here; up != null; up = up.getParent()) {
+            for (java.nio.file.Path candidate : new java.nio.file.Path[] {
+                    up.resolve("lib").resolve("ocr-models"),
+                    up.resolve("tools").resolve("ocr").resolve("onnx")}) {
+                if (dev.frostguard.vision.ocr.OnnxOcrReader.isAvailable(candidate)) {
+                    resolvedModelDir = candidate;
+                    return candidate;
+                }
+            }
+        }
+        return here.resolve("tools").resolve("ocr").resolve("onnx");
     }
+
+    /** Found once. The walk touches the disk and the answer cannot change while this runs. */
+    private static volatile java.nio.file.Path resolvedModelDir;
 
     /**
      * The reader this pass should use, or null when none can read.
