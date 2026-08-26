@@ -616,11 +616,27 @@ public class ChatCaptureRoutine extends DelayedTask {
             if (previous != null && !feedMoved(previous, image)) {
                 stalled++;
                 if (stalled >= STALLED_SCREENS_BEFORE_GIVING_UP) {
+                    // Kept whatever the frame-cache setting says. A stall is the one failure this
+                    // routine cannot diagnose from its own log: the message is always "something is
+                    // sitting on top of the feed", and which something is exactly what is missing.
+                    // Alliance stalled three times in a day here and every walk that hit it lost
+                    // the rest of the conversation, with nothing left to look at afterwards.
+                    keepForDiagnosis(channel, image);
                     logWarning("ChatCaptureRoutine | " + channel + ": the feed is not scrolling --"
                             + " something is sitting on top of it and swallowing the drag."
-                            + " Stopping rather than photographing one screen repeatedly.");
+                            + " Stopping rather than photographing one screen repeatedly."
+                            + " The frame it stopped on is in ocr-debug.");
                     break;
                 }
+                // Before believing it, try a different line down the screen. The drag runs down the
+                // middle of the feed, and the middle is where the game puts stickers, images and
+                // the cards it drops in -- anything that handles a gesture itself takes the drag
+                // and the feed does not move. A drag that starts a couple of hundred pixels to the
+                // side is over ordinary background instead, and the feed it is trying to move is
+                // the same feed either way.
+                swipeUpThroughHistory(stalled);
+                previous = image;
+                continue;
             } else {
                 stalled = 0;
             }
@@ -792,8 +808,14 @@ public class ChatCaptureRoutine extends DelayedTask {
      */
     private static final double MOVED_SHARE = 0.05;
 
-    /** Two screens that did not move is a stuck feed, not a slow one. */
-    private static final int STALLED_SCREENS_BEFORE_GIVING_UP = 2;
+    /**
+     * How many refusals before the feed is called stuck.
+     *
+     * <p>Three now rather than two, because a refusal is no longer the end of it -- each one moves
+     * the drag to a different line down the screen, so this is the number of lines tried and not
+     * the number of screens wasted. Two would give up having tried the middle and one side.
+     */
+    private static final int STALLED_SCREENS_BEFORE_GIVING_UP = 3;
 
     /**
      * Folds the alliance poll away, if one is pinned above the feed.
@@ -972,12 +994,45 @@ public class ChatCaptureRoutine extends DelayedTask {
     private static final int SCROLL_DRAG_MS = 700;
 
     private void swipeUpThroughHistory() {
-        // A downward drag reveals content above the current view, i.e. older messages -- the
-        // opposite of how a page-down gesture reads.
+        swipeUpThroughHistory(0);
+    }
+
+    /**
+     * Drags the feed back through its history.
+     *
+     * <p>A downward drag reveals content above the current view, i.e. older messages -- the
+     * opposite of how a page-down gesture reads.
+     *
+     * @param attempt 0 for the ordinary drag down the middle, higher to move the line sideways
+     *                after the feed refused to move
+     */
+    private void swipeUpThroughHistory(int attempt) {
         int from = FEED_TOP + 120;
         int travel = (int) Math.round(((FEED_BOTTOM - 120) - from) * SCROLL_STEP_FRACTION);
-        swipe(new PointData(FEED_X, from), new PointData(FEED_X, from + travel), SCROLL_DRAG_MS);
+        int x = FEED_X + RETRY_OFFSETS[Math.min(attempt, RETRY_OFFSETS.length - 1)];
+        swipe(new PointData(x, from), new PointData(x, from + travel), SCROLL_DRAG_MS);
         sleepTask(700L);
+    }
+
+    /**
+     * Where to put the drag on each try: the middle, then left of it, then right.
+     *
+     * <p>Both alternatives stay inside the text column, so they are over the feed and not over the
+     * avatars on one edge or the translate controls on the other.
+     */
+    private static final int[] RETRY_OFFSETS = {0, -190, 190};
+
+    /** Saves the frame a stall happened on, so the next one can be diagnosed rather than guessed. */
+    private void keepForDiagnosis(String channel, BufferedImage frame) {
+        try {
+            Path dir = Paths.get(System.getProperty("user.dir"), "ocr-debug");
+            Files.createDirectories(dir);
+            Path out = dir.resolve("chat-stall-" + channel + "-"
+                    + java.time.LocalDateTime.now().toString().replace(':', '-') + ".png");
+            ImageIO.write(frame, "png", out.toFile());
+        } catch (IOException | RuntimeException e) {
+            logWarning("ChatCaptureRoutine | Could not save the stalled frame: " + e.getMessage());
+        }
     }
 
     /**
