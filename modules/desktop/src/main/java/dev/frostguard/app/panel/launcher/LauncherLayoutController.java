@@ -67,6 +67,7 @@ import dev.frostguard.app.panel.training.ResearchLayoutController;
 import dev.frostguard.app.panel.misc.CharacterLayoutController;
 import dev.frostguard.app.panel.misc.StatisticsLayoutController;
 import dev.frostguard.app.panel.social.ChatCaptureLayoutController;
+import dev.frostguard.app.panel.social.ChatDigestLayoutController;
 import dev.frostguard.app.panel.social.ChatTranscriptLayoutController;
 import dev.frostguard.app.panel.taskbuilder.TaskBuilderLayoutController;
 import dev.frostguard.app.panel.custom.CustomTasksLayoutController;
@@ -684,10 +685,14 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
             profileManagerLayoutController.addProfileLoadListener((IProfileLoadListener) chatConfigCtrl);
         }
 
+        ChatDigestLayoutController digestCtrl = new ChatDigestLayoutController();
+        Parent digestPane = loadNode("ChatDigestLayout", digestCtrl);
+
         TabPane chatTabs = new TabPane();
         chatTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         chatTabs.getTabs().addAll(
                 makeTab("Live Transcript", transcriptPane),
+                makeTab("Digest", digestPane),
                 makeTab("Configure", chatConfigPane)
         );
         chatTabs.setMaxWidth(Double.MAX_VALUE);

@@ -53,13 +53,6 @@
                     <Separator style="-fx-opacity: 0.25;" />
 
                     <HBox alignment="CENTER_LEFT" spacing="14">
-                        <Label styleClass="task-field-label" text="Output" minWidth="140" />
-                        <ComboBox fx:id="comboBoxChatMode" prefWidth="220.0" />
-                    </HBox>
-                    <Label styleClass="task-card-note" wrapText="true"
-                           text="This only tells the dashboard which way to present what was captured - the capture itself is identical either way. Turning raw chat into an actual summary needs an AI pass over the transcript, which happens on the dashboard side after capture, not here." />
-
-                    <HBox alignment="CENTER_LEFT" spacing="14">
                         <CheckBox fx:id="checkBoxChatFilterNoise" mnemonicParsing="false"
                                   text="Filter out emote/sticker-only messages" />
                     </HBox>
