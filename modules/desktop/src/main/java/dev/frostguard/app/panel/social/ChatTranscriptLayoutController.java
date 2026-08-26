@@ -26,6 +26,9 @@ import javafx.scene.control.CheckBox;
 import dev.frostguard.engine.schedule.TaskQueue;
 import dev.frostguard.engine.service.ScheduleService;
 import javafx.scene.control.Button;
+import javafx.scene.control.TextField;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ContextMenu;
@@ -110,6 +113,14 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
     private Label zoomLabel;
     @FXML
     private Button captureNowButton;
+    @FXML
+    private BorderPane root;
+    @FXML
+    private HBox findBar;
+    @FXML
+    private TextField findField;
+    @FXML
+    private Label findCount;
 
     /** Which conversation is on screen. Alliance is what the panel opens on. */
     private String channelFilter = "alliance";
@@ -181,6 +192,31 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
             }
         });
         messageList.setFocusTraversable(true);
+
+        // A filter on the root rather than a handler on the list, so Ctrl+F works wherever the
+        // focus happens to be in this tab -- including inside the find field itself, which is
+        // where somebody who has already opened it will press it again.
+        root.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (FIND.match(e)) {
+                openFind();
+                e.consume();
+            } else if (e.getCode() == KeyCode.ESCAPE && findBar.isVisible()) {
+                closeFind();
+                e.consume();
+            }
+        });
+        findBar.managedProperty().bind(findBar.visibleProperty());
+        findField.textProperty().addListener((obs, was, now) -> runSearch(now));
+        findField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                if (e.isShiftDown()) {
+                    findPrevious();
+                } else {
+                    findNext();
+                }
+                e.consume();
+            }
+        });
 
         // Times already on screen are in the old zone until something redraws them.
         ChatClock.zoneProperty().addListener((obs, was, now) -> refresh());
@@ -360,6 +396,12 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
         // Pinned to the newest message, unless the reader had scrolled back to look at something.
         // A view that reloads itself and yanks you to the bottom while you are reading is worse
         // than one that never reloads at all.
+        if (findBar.isVisible() && findField.getText() != null
+                && !findField.getText().isBlank()) {
+            // The cards are new objects after a reload, so the old highlights point at nodes that
+            // are no longer on screen.
+            runSearch(findField.getText());
+        }
         if (followNewest) {
             pinToNewest();
         } else {
@@ -799,6 +841,154 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
                 viewLimit = wanted;
                 refresh();
             }
+        }
+    }
+
+    /**
+     * Everything matching what is in the find field, in the order it appears.
+     *
+     * <p>Whole messages rather than runs of characters. The panel draws a message as a small tree
+     * of nodes -- name, badge, quote, body, sometimes a folded body -- and picking a span out of
+     * that would mean rebuilding the text with the match split out, then rebuilding it again on
+     * every keystroke. Somebody searching for "frostfire" wants the messages about Frostfire, and
+     * those are what this finds.
+     *
+     * <p>Author and quoted line are searched as well as the body: "who said this" and "what was
+     * somebody replying to" are the same question asked from two ends.
+     */
+    private final List<Integer> matches = new java.util.ArrayList<>();
+
+    /** Which match the view is sitting on, or -1 when there are none. */
+    private int matchCursor = -1;
+
+    private static final KeyCombination FIND =
+            new KeyCodeCombination(KeyCode.F, KeyCombination.SHORTCUT_DOWN);
+
+    private static final javafx.css.PseudoClass FOUND =
+            javafx.css.PseudoClass.getPseudoClass("found");
+    private static final javafx.css.PseudoClass CURRENT =
+            javafx.css.PseudoClass.getPseudoClass("current-match");
+
+    private void openFind() {
+        findBar.setVisible(true);
+        findField.requestFocus();
+        findField.selectAll();
+    }
+
+    @FXML
+    private void closeFind() {
+        findBar.setVisible(false);
+        findField.clear();
+        runSearch("");
+        messageList.requestFocus();
+    }
+
+    private void runSearch(String needle) {
+        matches.clear();
+        matchCursor = -1;
+        String wanted = needle == null ? "" : needle.strip().toLowerCase(java.util.Locale.ROOT);
+        if (!wanted.isEmpty()) {
+            for (int i = 0; i < shown.size(); i++) {
+                if (haystack(shown.get(i)).contains(wanted)) {
+                    matches.add(i);
+                }
+            }
+        }
+        paintMatches();
+        if (!matches.isEmpty()) {
+            matchCursor = 0;
+            revealCurrent();
+        }
+        updateFindCount();
+    }
+
+    /**
+     * Everything about a message worth matching against.
+     *
+     * <p>Both the source and the translation, not just what is on screen. The panel draws the
+     * English where there is one, so searching only that meant a Russian message could not be
+     * found by any word actually in it: "Всем спокойной ночи!!!" is displayed as "Good night
+     * everyone!!!" and matched neither. Somebody who saw the message in the game and comes here
+     * looking for it is searching for what they saw.
+     */
+    private String haystack(ChatMessage m) {
+        return (m.displayBody() + " " + m.body() + " " + m.author() + " "
+                + (m.quoted() == null ? "" : m.quoted())).toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private void paintMatches() {
+        java.util.Set<Integer> found = new java.util.HashSet<>(matches);
+        for (int i = 0; i < shown.size(); i++) {
+            Region card = cards.get(shown.get(i));
+            if (card != null) {
+                card.pseudoClassStateChanged(FOUND, found.contains(i));
+                card.pseudoClassStateChanged(CURRENT, false);
+            }
+        }
+    }
+
+    @FXML
+    private void findNext() {
+        step(1);
+    }
+
+    @FXML
+    private void findPrevious() {
+        step(-1);
+    }
+
+    /** Moves to the next match, wrapping. A find that stops at the end is a find you have to redo. */
+    private void step(int direction) {
+        if (matches.isEmpty()) {
+            return;
+        }
+        matchCursor = Math.floorMod(matchCursor + direction, matches.size());
+        revealCurrent();
+        updateFindCount();
+    }
+
+    private void revealCurrent() {
+        for (int index : matches) {
+            Region other = cards.get(shown.get(index));
+            if (other != null) {
+                other.pseudoClassStateChanged(CURRENT, false);
+            }
+        }
+        Region card = cards.get(shown.get(matches.get(matchCursor)));
+        if (card == null) {
+            return;
+        }
+        card.pseudoClassStateChanged(CURRENT, true);
+        scrollTo(card);
+    }
+
+    /**
+     * Puts a card in the middle of the viewport.
+     *
+     * <p>The card's own position is a layout figure and knows nothing about the zoom transform on
+     * the list, so it is scaled by hand. Measured raw, every match at 150% would be found a third
+     * of the way further down than the view was sent.
+     */
+    private void scrollTo(Region card) {
+        double listHeight = messageList.getBoundsInParent().getHeight();
+        double viewport = scrollPane.getViewportBounds().getHeight();
+        if (listHeight <= viewport) {
+            return;
+        }
+        double middle = (card.getBoundsInParent().getMinY()
+                + card.getBoundsInParent().getHeight() / 2) * zoom.getY();
+        double target = (middle - viewport / 2) / (listHeight - viewport);
+        scrollPane.setVvalue(Math.max(0, Math.min(1, target)));
+    }
+
+    private void updateFindCount() {
+        String typed = findField.getText();
+        if (typed == null || typed.isBlank()) {
+            findCount.setText("");
+        } else if (matches.isEmpty()) {
+            findCount.setText("no matches");
+        } else {
+            findCount.setText((matchCursor + 1) + " of " + matches.size());
         }
     }
 
