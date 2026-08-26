@@ -41,6 +41,18 @@ if not exist "%JDK%\bin\javaw.exe" (
     exit /b 1
 )
 
+REM packaging/desktop emits frostguard-<version>-desktop-bundle.zip now. It no longer leaves the
+REM unpacked directory this classpath points at, so a clean build DELETES what the launcher needs.
+REM That took prod down on 2026-08-25: the build reported success, the launcher then found no jar,
+REM and it only came back because someone extracted the bundle by hand. Unpack it here rather than
+REM assume the layout is present. No-op when the current bundle is already unpacked.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0unpack-bundle.ps1" -Root "%~dp0."
+if errorlevel 1 (
+    echo [ERROR] Could not prepare the build layout from the packaged bundle.
+    pause
+    exit /b 1
+)
+
 set "APP_JAR="
 for %%F in ("packaging\desktop\target\input\frostguard-desktop-*.jar") do set "APP_JAR=%%~nxF"
 
