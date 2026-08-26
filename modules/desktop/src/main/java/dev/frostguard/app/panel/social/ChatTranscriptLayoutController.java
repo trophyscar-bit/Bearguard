@@ -75,6 +75,9 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
     /** What the tab drew before the figure was offered as a setting. */
     private static final int DEFAULT_VIEW_LIMIT = 400;
 
+    /** Drawn at its natural size. What a double-click on the zoom returns to. */
+    private static final double NORMAL_ZOOM = 100;
+
     /** Close enough to the bottom to count as reading the newest message. */
     private static final double NEWEST_ENOUGH = 0.98;
 
@@ -138,6 +141,20 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
             messageList.setTranslateY(messageList.getHeight() * (scale - 1) / 2);
             zoomLabel.setText(Math.round(now.doubleValue()) + "%");
         });
+        // Double-click either the slider or the percentage to put it back to 100. Dragging a
+        // slider back to exactly its default is fiddly, and this is the one value on it anybody
+        // actually wants to return to.
+        zoomSlider.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2) {
+                zoomSlider.setValue(NORMAL_ZOOM);
+            }
+        });
+        zoomLabel.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2) {
+                zoomSlider.setValue(NORMAL_ZOOM);
+            }
+        });
+        zoomLabel.setTooltip(new javafx.scene.control.Tooltip("Double-click to reset to 100%"));
 
         // Copy out of the panel. JavaFX will not select across a column of separate text nodes
         // the way a browser does, and the alternative -- one editable field per message -- gives

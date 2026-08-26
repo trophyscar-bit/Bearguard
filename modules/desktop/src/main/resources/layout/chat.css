@@ -204,3 +204,59 @@
     -fx-background-color: rgba(88, 101, 242, 0.16);
     -fx-background-radius: 5;
 }
+
+/* ---- Digest ------------------------------------------------------------------------------
+   Counted figures, not conversation, so this reads as a report rather than as a feed: cards with
+   headings, one accent colour, and numbers given room to be the thing you look at. Colours are the
+   literal palette the rest of this stylesheet uses rather than the application's -fg- variables,
+   because that is what the transcript beside it is drawn with and the two tabs sit together. */
+.digest-card {
+    -fx-background-color: #24272c;
+    -fx-background-radius: 7;
+    -fx-border-color: #31353b;
+    -fx-border-radius: 7;
+    -fx-padding: 14 16 15 16;
+}
+
+.digest-section {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #8a919b;
+}
+
+.digest-figure {
+    -fx-font-size: 25px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #dce0e5;
+}
+
+.digest-caption {
+    -fx-font-size: 11px;
+    -fx-text-fill: #8a919b;
+}
+
+.digest-tick {
+    -fx-font-size: 9px;
+    -fx-text-fill: #6b7a99;
+}
+
+.digest-row-name {
+    -fx-font-size: 12px;
+    -fx-text-fill: #dce0e5;
+}
+
+.digest-question {
+    -fx-font-size: 12.5px;
+    -fx-text-fill: #dce0e5;
+}
+
+.digest-bar {
+    -fx-background-color: #7aa2f7;
+    -fx-background-radius: 3;
+}
+
+/* The tallest bar, so the busiest hour is findable without reading the axis. */
+.digest-bar-peak {
+    -fx-background-color: #57f287;
+    -fx-background-radius: 3;
+}

@@ -30,8 +30,6 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
     @FXML
     private ComboBox<Integer> comboBoxChatFrequency;
     @FXML
-    private ComboBox<String> comboBoxChatMode;
-    @FXML
     private ComboBox<Integer> comboBoxChatFrameCache;
     @FXML
     private ComboBox<Integer> comboBoxChatViewMessages;
@@ -51,15 +49,6 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
         comboBoxChatFrequency.setCellFactory(lv -> minutesCell());
         comboBoxChatFrequency.setButtonCell(minutesCell());
         comboBoxMappings.put(comboBoxChatFrequency, ConfigurationKeyEnum.CHAT_CAPTURE_FREQUENCY_MINUTES_INT);
-
-        // Item values are the raw config strings (TRANSCRIPT/SUMMARY) - the
-        // binding in AbstractProfileController round-trips the ComboBox value
-        // directly against the stored string, so the cell factory below only
-        // changes what is displayed, not what gets saved.
-        comboBoxChatMode.getItems().addAll("TRANSCRIPT", "SUMMARY");
-        comboBoxChatMode.setCellFactory(lv -> modeCell());
-        comboBoxChatMode.setButtonCell(modeCell());
-        comboBoxMappings.put(comboBoxChatMode, ConfigurationKeyEnum.CHAT_CAPTURE_MODE_STRING);
 
         // Off first, and off by default. This writes pictures of the profile's chat to disk, which
         // is a thing somebody should choose rather than find out about.
@@ -134,20 +123,6 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
             protected void updateItem(Integer item, boolean empty) {
                 super.updateItem(item, empty);
                 setText(empty || item == null ? null : item + " min");
-            }
-        };
-    }
-
-    private ListCell<String> modeCell() {
-        return new ListCell<>() {
-            @Override
-            protected void updateItem(String item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setText(null);
-                } else {
-                    setText("SUMMARY".equals(item) ? "Daily Summary" : "Live Transcript");
-                }
             }
         };
     }
