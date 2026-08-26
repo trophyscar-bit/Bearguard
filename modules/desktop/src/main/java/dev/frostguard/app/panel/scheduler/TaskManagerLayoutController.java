@@ -656,19 +656,52 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 		return iconView(image);
 	}
 
+	/** What a task row's indicator is saying. See {@link #rowStatusFor}. */
+	enum RowStatus {
+		/** Green. */
+		READY,
+		/** Yellow. */
+		SLEEPING,
+		/** Grey. */
+		IDLE
+	}
+
+	/**
+	 * The indicator rule, stated by matt on 2026-08-25 and settled:
+	 *
+	 * <p><b>Green is any Ready Next Execution status. Yellow is sleeping and counting down the
+	 * timer.</b>
+	 *
+	 * <p>So yellow is a claim that a countdown is on screen beside it, and it may only appear while
+	 * one is. There is deliberately no threshold: a row thirty seconds out is still counting down,
+	 * so it is still yellow, and it turns green the moment the countdown reaches Ready. An earlier
+	 * version went green below sixty seconds, which meant green covered both "the queue has this
+	 * now" and "this is nearly due", and the two are not the same statement.
+	 *
+	 * <p>Executing counts as READY because the operator reads them the same way -- the queue is
+	 * dealing with this row -- and neither has any time left to display.
+	 *
+	 * <p>Ready is only honoured while the row is scheduled. A disabled task can hold a
+	 * next-execution time from before it was switched off, and that stale timestamp is in the past,
+	 * so it would otherwise light up green for work nobody is going to do.
+	 *
+	 * <p>This rule was rewritten five times on 2026-08-25 and reverted once, because it was never
+	 * written down and never testable. It is now both. Please change the tests with it, and not the
+	 * other way round.
+	 */
+	static RowStatus rowStatusFor(boolean executing, boolean scheduled, boolean ready) {
+		if (executing || (scheduled && ready)) {
+			return RowStatus.READY;
+		}
+		return scheduled ? RowStatus.SLEEPING : RowStatus.IDLE;
+	}
+
 	private ImageView statusIconFor(TaskManagerAux task) {
-		boolean waiting = !task.isExecuting()
-				&& !task.hasReadyTask()
-				&& task.isScheduled()
-				&& task.getNextExecution() != null
-				&& ChronoUnit.SECONDS.between(LocalDateTime.now(), task.getNextExecution()) >= 60;
-		if (waiting) {
-			return iconView(iconWaiting);
-		}
-		if (task.scheduledProperty().get()) {
-			return iconView(iconTrue);
-		}
-		return iconView(iconIdle);
+		return switch (rowStatusFor(task.isExecuting(), task.isScheduled(), task.hasReadyTask())) {
+			case READY -> iconView(iconTrue);
+			case SLEEPING -> iconView(iconWaiting);
+			case IDLE -> iconView(iconIdle);
+		};
 	}
 
 	public void updateTaskStatus(Long profileId, int taskNameId, TaskStateData taskState) {
