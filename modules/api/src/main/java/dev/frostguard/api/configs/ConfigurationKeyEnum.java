@@ -573,7 +573,12 @@ public enum ConfigurationKeyEnum {
     // How many messages the Chat tab draws. Each one is a little tree of nodes, so this is a
     // spending limit on the panel rather than on the transcript: nothing is deleted, the older
     // messages are simply not built. Whole days are bounded separately by the retention setting.
-    CHAT_VIEW_MESSAGES_INT              ("400",             Integer.class,  ConfigCategory.SYSTEM);
+    CHAT_VIEW_MESSAGES_INT              ("400",             Integer.class,  ConfigCategory.SYSTEM),
+
+    // Which clock chat times are drawn against. Empty means this machine's own zone. Messages are
+    // stored as instants -- an alliance spans a dozen countries and the moment is not negotiable --
+    // so this changes only what is displayed, never what was recorded.
+    CHAT_DISPLAY_TIMEZONE_STRING        ("",                String.class,   ConfigCategory.SYSTEM);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.

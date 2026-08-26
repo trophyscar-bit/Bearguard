@@ -75,6 +75,9 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
     /** What the tab drew before the figure was offered as a setting. */
     private static final int DEFAULT_VIEW_LIMIT = 400;
 
+    /** Scales the message list from its top-left corner. See the zoom wiring in initialize(). */
+    private final javafx.scene.transform.Scale zoom = new javafx.scene.transform.Scale(1, 1, 0, 0);
+
     /** Drawn at its natural size. What a double-click on the zoom returns to. */
     private static final double NORMAL_ZOOM = 100;
 
@@ -131,15 +134,20 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
         // conversations, and interleaving them is what made the transcript hard to follow.
         // Zoom scales the message list alone, so the controls above it stay the size the rest of
         // the application draws them at. A percentage is what people expect a zoom to be.
+        // A Scale pinned to the top-left corner rather than setScaleX/Y, which pivot on the middle
+        // of the list and need a translate to undo -- and that translate is computed from the
+        // height, so it changes every time a message arrives and fights whatever the scroll
+        // position was. Growing from the origin is also how a page zooms: the top-left stays put.
+        messageList.getTransforms().add(zoom);
         zoomSlider.valueProperty().addListener((obs, was, now) -> {
             double scale = now.doubleValue() / 100.0;
-            messageList.setScaleX(scale);
-            messageList.setScaleY(scale);
-            // Scaling pivots on the centre by default, which walks the text off the left edge as
-            // it grows. Anchored top-left it grows the way a page does.
-            messageList.setTranslateX(messageList.getWidth() * (scale - 1) / 2);
-            messageList.setTranslateY(messageList.getHeight() * (scale - 1) / 2);
+            zoom.setX(scale);
+            zoom.setY(scale);
             zoomLabel.setText(Math.round(now.doubleValue()) + "%");
+            // The list is a different height now, so where the bottom is has moved.
+            if (scrollPane.getVvalue() >= NEWEST_ENOUGH) {
+                pinToNewest();
+            }
         });
         // Double-click either the slider or the percentage to put it back to 100. Dragging a
         // slider back to exactly its default is fiddly, and this is the one value on it anybody
@@ -173,6 +181,9 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
             }
         });
         messageList.setFocusTraversable(true);
+
+        // Times already on screen are in the old zone until something redraws them.
+        ChatClock.zoneProperty().addListener((obs, was, now) -> refresh());
 
         ToggleGroup channels = new ToggleGroup();
         for (ToggleButton t : new ToggleButton[] {tabWorld, tabAlliance, tabPersonal}) {
@@ -304,7 +315,7 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
         try {
             List<ChatMessage> messages = store.recent(viewLimit);
             Path out = baseDir(READER).resolve("transcript.html");
-            Files.writeString(out, ChatDiscordRenderer.render(messages, ZoneId.systemDefault()),
+            Files.writeString(out, ChatDiscordRenderer.render(messages, ChatClock.zone()),
                     StandardCharsets.UTF_8);
             statusLabel.setText("Exported " + messages.size() + " message(s) to " + out);
         } catch (IOException e) {
@@ -313,6 +324,13 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
     }
 
     private void show(List<ChatMessage> messages) {
+        // Where the reader was, asked before the list is emptied. Clearing the children resets the
+        // scroll position, so asking afterwards always answered "at the top" -- which is why the
+        // panel opened on the oldest message it held and stayed there through every reload. A chat
+        // window opens on the newest thing said; this one had been opening on the oldest.
+        double was = scrollPane.getVvalue();
+        boolean followNewest = messageList.getChildren().isEmpty() || was >= NEWEST_ENOUGH;
+
         messageList.getChildren().clear();
         assignedColours.clear();
         lastColour = null;
@@ -340,11 +358,32 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
 
         statusLabel.setText(sizeLine(messages.size()));
         // Pinned to the newest message, unless the reader had scrolled back to look at something.
-        // A view that reloads itself every half hour and yanks you to the bottom while you are
-        // reading is worse than one that never reloads at all.
-        double was = scrollPane.getVvalue();
-        boolean wasAtNewest = was >= NEWEST_ENOUGH || messageList.getChildren().size() <= 1;
-        Platform.runLater(() -> scrollPane.setVvalue(wasAtNewest ? 1.0 : was));
+        // A view that reloads itself and yanks you to the bottom while you are reading is worse
+        // than one that never reloads at all.
+        if (followNewest) {
+            pinToNewest();
+        } else {
+            Platform.runLater(() -> scrollPane.setVvalue(was));
+        }
+    }
+
+    /**
+     * Puts the view on the newest message and makes it stay there.
+     *
+     * <p>Setting the value once does not work. A ScrollPane measures against the content it has
+     * laid out, and in the pulse the list is rebuilt in that is still the old height -- so 1.0 is
+     * honoured against a viewport that has not grown yet, and the view lands part way up. Forcing
+     * the layout first and setting it again on the following pulse is what holds it at the bottom
+     * at every window size and message count.
+     */
+    private void pinToNewest() {
+        scrollPane.applyCss();
+        scrollPane.layout();
+        scrollPane.setVvalue(1.0);
+        Platform.runLater(() -> {
+            scrollPane.layout();
+            scrollPane.setVvalue(1.0);
+        });
     }
 
     private String sizeLine(int shown) {
@@ -437,7 +476,7 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
         // Beside the name rather than out at the far edge. Against the right margin the time sat
         // a long way from the person it belonged to, and on a wide window the eye had to travel
         // the width of the panel to pair them up.
-        Label time = new Label(TIME.format(m.capturedAt().atZone(ZoneId.systemDefault())));
+        Label time = new Label(TIME.format(m.capturedAt().atZone(ChatClock.zone())));
         time.getStyleClass().add("chat-time");
         head.getChildren().add(time);
 
@@ -698,7 +737,7 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
                 continue;
             }
             String author = m.author().isBlank() ? "unknown" : m.author();
-            out.append('[').append(TIME.format(m.capturedAt().atZone(ZoneId.systemDefault())))
+            out.append('[').append(TIME.format(m.capturedAt().atZone(ChatClock.zone())))
                     .append("] ").append(author);
             if (!m.allianceTag().isBlank()) {
                 out.append(" (").append(m.allianceTag()).append(')');
@@ -751,6 +790,8 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
     public void onProfileLoad(ProfileAux profile) {
         currentProfile = profile;
         if (profile != null) {
+            ChatClock.useSetting(profile.getConfig(
+                    ConfigurationKeyEnum.CHAT_DISPLAY_TIMEZONE_STRING, String.class));
             Integer configured = profile.getConfig(
                     ConfigurationKeyEnum.CHAT_VIEW_MESSAGES_INT, Integer.class);
             int wanted = configured == null || configured <= 0 ? DEFAULT_VIEW_LIMIT : configured;

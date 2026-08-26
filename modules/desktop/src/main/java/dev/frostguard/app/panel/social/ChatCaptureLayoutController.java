@@ -33,6 +33,8 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
     private ComboBox<Integer> comboBoxChatFrameCache;
     @FXML
     private ComboBox<Integer> comboBoxChatViewMessages;
+    @FXML
+    private ComboBox<String> comboBoxChatTimezone;
 
     /** Keeps every screen for ever. Stored as a figure no real budget would reach. */
     private static final int UNLIMITED_FRAMES = -1;
@@ -74,6 +76,23 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
             warn.showAndWait();
         });
 
+        // Every zone the JDK knows, so somebody in a place this list would not have thought of is
+        // not stuck. The machine's own comes first and is the default, because that is what almost
+        // everybody wants and nobody should have to go looking for it.
+        comboBoxChatTimezone.getItems().add(ChatClock.SYSTEM);
+        comboBoxChatTimezone.getItems().addAll(java.time.ZoneId.getAvailableZoneIds().stream()
+                .filter(id -> id.contains("/") || "UTC".equals(id))
+                .sorted()
+                .toList());
+        comboBoxChatTimezone.setCellFactory(lv -> timezoneCell());
+        comboBoxChatTimezone.setButtonCell(timezoneCell());
+        comboBoxChatTimezone.setVisibleRowCount(14);
+        comboBoxMappings.put(comboBoxChatTimezone,
+                ConfigurationKeyEnum.CHAT_DISPLAY_TIMEZONE_STRING);
+        // Applied as it is picked rather than only on the next profile load, so switching it and
+        // stepping over to the Chat tab shows the new times immediately.
+        comboBoxChatTimezone.valueProperty().addListener((obs, was, now) -> ChatClock.useSetting(now));
+
         // A limit on what the panel draws, not on what was captured. Four hundred is what the tab
         // used before this was offered, so an existing profile opens looking the same.
         comboBoxChatViewMessages.getItems().addAll(100, 200, 400, 800, 2000);
@@ -83,6 +102,39 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
                 ConfigurationKeyEnum.CHAT_VIEW_MESSAGES_INT);
 
         initializeChangeEvents();
+    }
+
+    /**
+     * Names a zone the way somebody looking for it would.
+     *
+     * <p>"Europe/Madrid" with its current offset beside it, because the offset is what actually
+     * answers the question being asked -- how far ahead of me is this -- and the raw identifier
+     * alone makes the reader do arithmetic against a table they do not have.
+     */
+    private ListCell<String> timezoneCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else if (ChatClock.SYSTEM.equals(item)) {
+                    setText("Same as this computer (" + java.time.ZoneId.systemDefault() + ")");
+                } else {
+                    setText(item + "   " + offsetOf(item));
+                }
+            }
+        };
+    }
+
+    private static String offsetOf(String zoneId) {
+        try {
+            String offset = java.time.ZonedDateTime.now(java.time.ZoneId.of(zoneId))
+                    .getOffset().getId();
+            return "Z".equals(offset) ? "UTC+00:00" : "UTC" + offset;
+        } catch (RuntimeException notAZone) {
+            return "";
+        }
     }
 
     /** Reads a count as messages, and the largest as the warning it is. */
