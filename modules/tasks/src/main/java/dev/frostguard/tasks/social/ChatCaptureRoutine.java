@@ -247,9 +247,24 @@ public class ChatCaptureRoutine extends DelayedTask {
             if (onnx != null) {
                 return onnx;
             }
+            // Said once, and said loudly. The weights are not in the repository, so somebody who
+            // clones it, builds it and turns chat capture on gets a transcript read by the
+            // fallback while the settings screen says Java. Every accuracy figure that has been
+            // measured is the in-process reader's; a pass that quietly used something else and
+            // said nothing is worse than one that did not run, because it still produces a
+            // transcript and the reader it names is wrong.
+            if (!warnedAboutMissingModels) {
+                warnedAboutMissingModels = true;
+                logWarning("ChatCaptureRoutine | The in-process reader is selected but its models"
+                        + " are not at " + onnxDir() + " -- reading with the fallback instead."
+                        + " Accuracy will not match what the Java reader was measured at.");
+            }
         }
         return paddle;
     }
+
+    /** The missing-models warning is worth saying once a run, not once a screen. */
+    private boolean warnedAboutMissingModels;
 
     /** Where the service listens. Loopback only -- nothing about this leaves the machine. */
     private static final String PADDLE_HOST = "127.0.0.1";

@@ -2,6 +2,7 @@ package dev.frostguard.tasks.social;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -186,6 +187,65 @@ final class ChatFrameReader {
      * separates a rendering from a mangling. A real translation of a sentence shares very little
      * with its source; a failed one is the source with a word knocked out of it.
      */
+    /**
+     * Splits a bubble the game rendered twice: once as it was typed, once in its own English.
+     *
+     * <p>Tapping the translate control does not replace a message, it adds the translation beneath
+     * it, and both halves fall inside one read. "ya desapareciste jajaj you disappeared already
+     * haha" is one bubble holding one sentence twice. Stored whole it reads as nonsense in either
+     * language, and it defeats translation: the text handed over is already half English, so what
+     * comes back is barely changed and the sanity guard throws it away.
+     *
+     * <p>The seam is found by asking what the translator left alone. English handed to a translator
+     * comes back as itself, so the words the source and its translation share at the end are
+     * exactly the half that was already English -- no language guessing, and no extra call, because
+     * the translation has been fetched anyway. Measured on the three in the transcript: the shared
+     * tail was the English half every time.
+     *
+     * <p>Two shapes are rejected rather than guessed at. Sharing everything means the translator
+     * returned the input, which is what it does with a message that was English to begin with.
+     * Sharing a word or two at the end is a name or a laugh landing the same way in both languages,
+     * not a second copy of the message.
+     *
+     * @return the source half and the game's English half, or empty when this is one message
+     */
+    private static Optional<String[]> splitDoubleRender(String body, String english) {
+        if (body == null || english == null || english.isBlank()) {
+            return Optional.empty();
+        }
+        String[] words = body.strip().split("\\s+");
+        String[] rendered = english.strip().split("\\s+");
+        int shared = 0;
+        while (shared < words.length && shared < rendered.length
+                && bare(words[words.length - 1 - shared])
+                        .equalsIgnoreCase(bare(rendered[rendered.length - 1 - shared]))) {
+            shared++;
+        }
+        int sourceWords = words.length - shared;
+        if (shared < SHORTEST_ECHO || sourceWords < SHORTEST_SOURCE
+                || (double) shared / words.length < SMALLEST_ECHO_SHARE) {
+            return Optional.empty();
+        }
+        String head = String.join(" ", Arrays.copyOfRange(words, 0, sourceWords)).strip();
+        String tail = String.join(" ", Arrays.copyOfRange(words, sourceWords, words.length)).strip();
+        return head.isBlank() || tail.isBlank() ? Optional.empty()
+                : Optional.of(new String[] {head, tail});
+    }
+
+    /** A word with its punctuation dropped, so "Mammoth!" and "Mammoth" line up. */
+    private static String bare(String word) {
+        return word.replaceAll("[^\\p{L}\\p{N}]", "");
+    }
+
+    /** Fewer shared words than this at the end is a name or a laugh, not a second copy. */
+    private static final int SHORTEST_ECHO = 3;
+
+    /** What has to be left over to be a message in its own right. */
+    private static final int SHORTEST_SOURCE = 2;
+
+    /** Below this share, the tail is too small a part of the bubble to be half of it. */
+    private static final double SMALLEST_ECHO_SHARE = 0.30;
+
     private static boolean didNotTranslate(String english, String body) {
         String a = english.trim();
         String b = body.trim();
@@ -282,7 +342,11 @@ final class ChatFrameReader {
             return;
         }
         String english = kind == ChatMessage.Kind.TEXT ? translate.apply(body).orElse("") : "";
-        if (didNotTranslate(english, body)) {
+        Optional<String[]> halves = splitDoubleRender(body, english);
+        if (halves.isPresent()) {
+            body = halves.get()[0];
+            english = halves.get()[1];
+        } else if (didNotTranslate(english, body)) {
             english = "";
         }
         out.add(new ChatMessage(at, channel, author, tag, 0, body, english,

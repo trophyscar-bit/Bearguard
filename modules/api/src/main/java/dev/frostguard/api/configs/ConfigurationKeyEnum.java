@@ -564,9 +564,16 @@ public enum ConfigurationKeyEnum {
     CHAT_FRAME_CACHE_MB_INT             ("0",               Integer.class,  ConfigCategory.SYSTEM),
 
     // Which reader turns screens into text: SERVICE for the Python one on a local port, JAVA for
-    // the same models running in this process. They read very nearly the same and are kept apart
-    // so the two can be compared on the same chat rather than argued about.
-    CHAT_READER_STRING                  ("SERVICE",         String.class,   ConfigCategory.SYSTEM);
+    // the same models running in this process. No longer offered as a choice -- the Python one
+    // needs an install nobody downloading this has, and the in-process reader is what every
+    // accuracy figure was measured against. Kept as a key so an existing profile still loads and
+    // so the service stays reachable for comparison work.
+    CHAT_READER_STRING                  ("JAVA",            String.class,   ConfigCategory.SYSTEM),
+
+    // How many messages the Chat tab draws. Each one is a little tree of nodes, so this is a
+    // spending limit on the panel rather than on the transcript: nothing is deleted, the older
+    // messages are simply not built. Whole days are bounded separately by the retention setting.
+    CHAT_VIEW_MESSAGES_INT              ("400",             Integer.class,  ConfigCategory.SYSTEM);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.

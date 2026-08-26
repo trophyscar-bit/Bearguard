@@ -196,3 +196,11 @@
     -fx-font-weight: bold;
     -fx-padding: 8 0 4 0;
 }
+
+/* A picked message, for copying out. Marked by a wash and a brighter edge rather than by the
+   system highlight colour: the cards already carry a per-author stripe, and a full-bleed selection
+   colour over the top of that hides the one thing the stripe is there to show. */
+.chat-card:picked {
+    -fx-background-color: rgba(88, 101, 242, 0.16);
+    -fx-background-radius: 5;
+}
