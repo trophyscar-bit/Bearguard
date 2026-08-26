@@ -372,8 +372,21 @@ public final class ChatLineCleaner {
                 MISREAD_I.matcher(raw).replaceAll("I")).replaceAll("@");
         String body = collapse(TRANSLATE_CONTROL.matcher(
                 ARTIFACTS.matcher(restored).replaceAll(" ")).replaceAll(" "));
+        body = collapse(FEEDBACK_BUTTON.matcher(body).replaceAll(" "));
         return trimOrphanGlyphs(collapse(LEAKED_VIP.matcher(body).replaceAll(" ")));
     }
+
+    /**
+     * The report control the game draws under a message, caught as part of the message.
+     *
+     * <p>It sits at the tail of the bubble rather than beside it, so unlike the translate control
+     * it is not an orphan glyph the edge-trimmer catches -- it is a whole English word, and it
+     * arrives welded to the last sentence: "How did you guys do in the Frozen Mine event?
+     * Feedback". Matched only at the end and only standing alone, because somebody asking the
+     * alliance for feedback is saying a real thing.
+     */
+    private static final Pattern FEEDBACK_BUTTON =
+            Pattern.compile("(?i)(?<=[\\p{L}\\p{N}?!.,\\s])\\s+Feedback\\s*$");
 
     /**
      * Strips the single stray glyph the bubble's own edges leave at each end of a message.
