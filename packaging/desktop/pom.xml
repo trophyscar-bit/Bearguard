@@ -156,6 +156,27 @@
                         </configuration>
                     </execution>
                     <execution>
+                        <id>stage-translation-model-ar</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/input/lib/translate-ar</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.parent.basedir}/tools/translate/model-ar</directory>
+                                    <includes>
+                                        <include>*.onnx</include>
+                                        <include>*.tsv</include>
+                                        <include>meta.json</include>
+                                    </includes>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>stage-translation-model-ko</id>
                         <phase>prepare-package</phase>
                         <goals>
