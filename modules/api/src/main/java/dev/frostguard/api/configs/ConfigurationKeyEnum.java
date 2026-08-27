@@ -485,6 +485,10 @@ public enum ConfigurationKeyEnum {
     // Auto-heal injured troops (World map -> the "Heal Injured" panel
     // above My City) + tap Help to speed the queue up via alliance assistance.
     HEAL_INJURED_ENABLED_BOOL           ("false",   Boolean.class,  ConfigCategory.TRAINING),
+    // How long to wait before looking again when nothing is currently injured.
+    // A full check costs one panel open and closes again in seconds, so a short
+    // cadence is cheap; the cost of a long one is troops sitting out of marches.
+    HEAL_INJURED_IDLE_RECHECK_INT       ("5",       Integer.class,  ConfigCategory.TRAINING),
 
     // "Explore the World" Atlas/Monument -- claim ready quest rows,
     // open owned Scene Fragment Packs, run daily Alliance Trade requests/sends.

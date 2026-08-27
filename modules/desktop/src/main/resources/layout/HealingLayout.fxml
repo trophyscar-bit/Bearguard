@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<!-- Healing — its own Troops tab. Auto-healing injured troops is a separate
+     concern from training new ones, and it was never tied to the Training
+     master toggle even while it lived on that screen. -->
+<StackPane maxHeight="Infinity" maxWidth="Infinity"
+           HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
+           xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
+
+    <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED"
+                styleClass="task-page-scroll">
+        <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+
+            <!-- Heal Injured Troops -->
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="Heal Injured Troops" />
+                </HBox>
+                <VBox spacing="10" styleClass="task-section-inner">
+                    <Label styleClass="task-card-description"
+                           text="Checks the World-map Heal Injured panel, starts healing the highest-priority injured troops (Quick Select + Heal), and requests alliance Help to speed the queue up."
+                           wrapText="true" />
+                    <Separator style="-fx-opacity: 0.25;" />
+                    <CheckBox fx:id="checkBoxHealInjured" mnemonicParsing="false"
+                              text="Enable Heal Injured Troops" />
+                </VBox>
+            </VBox>
+
+            <!-- Run cadence -->
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="Run Schedule" />
+                </HBox>
+                <VBox spacing="10" styleClass="task-section-inner">
+                    <Label styleClass="task-card-description"
+                           text="How long to wait before looking again when nothing is currently injured. When a heal IS running, the next check is timed off that queue's own countdown instead."
+                           wrapText="true" />
+                    <Separator style="-fx-opacity: 0.25;" />
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Idle Recheck" minWidth="120" />
+                        <TextField fx:id="textFieldHealIdleRecheck" prefWidth="140" />
+                        <Label styleClass="label-muted" text="minutes" />
+                    </HBox>
+                    <Label fx:id="labelHealIdleRecheckError" styleClass="task-card-note" wrapText="true" />
+                    <Label styleClass="task-card-note"
+                           text="A check that finds nothing costs one panel open and closes again in seconds, so a short cadence is cheap. The cost of a long one is injured troops sitting out of marches."
+                           wrapText="true" />
+                </VBox>
+            </VBox>
+
+        </VBox>
+    </ScrollPane>
+</StackPane>
