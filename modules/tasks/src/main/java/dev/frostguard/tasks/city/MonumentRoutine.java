@@ -889,7 +889,13 @@ public class MonumentRoutine extends DelayedTask {
             if (frame == null) {
                 return "(diagnostic frame unavailable: capture returned null)";
             }
-            java.io.File dir = new java.io.File("C:/Bearguard/ocr-debug");
+            // Beside the installation rather than at one machine's copy of it. Hardcoded, this
+            // wrote diagnostics to C:/Bearguard on every machine that ran it -- which on anybody
+            // else's is a directory that has nothing to do with them, and on a drive that may not
+            // exist. The frame is then saved somewhere the person looking for it will not think to
+            // look, which for a diagnostic is the same as not saving it.
+            java.io.File dir = new java.io.File(
+                    System.getProperty("user.dir"), "ocr-debug");
             if (!dir.isDirectory() && !dir.mkdirs()) {
                 return "(diagnostic frame not saved: could not create " + dir + ")";
             }
