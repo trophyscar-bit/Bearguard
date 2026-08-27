@@ -209,6 +209,18 @@ public final class ChatLineCleaner {
     private static final int MIN_ENGLISH_WORDS_WHEN_SHORT = 2;
 
     /**
+     * What a one- or two-word message needs to count as English.
+     *
+     * <p>One, because there is no room for two. "congrats", "ok ty" and "Thank you" are the whole
+     * message, and demanding a second corroborating word means no greeting is ever English -- which
+     * sent every one of them to a translator that returned it unchanged.
+     */
+    private static final int MIN_ENGLISH_WORDS_WHEN_TINY = 1;
+
+    /** At or below this length, a message is judged by the tiny rule above. */
+    private static final int TINY_MESSAGE_WORDS = 2;
+
+    /**
      * English's own grammar, as opposed to its vocabulary.
      *
      * <p>Articles, pronouns, auxiliaries and prepositions. These are the words a language does not
@@ -217,13 +229,28 @@ public final class ChatLineCleaner {
      * narrower than {@link #COMMON_ENGLISH}, which stays as it is for other callers.
      */
     private static final java.util.Set<String> ENGLISH_STRUCTURE = java.util.Set.of(
-            "the", "is", "are", "was", "were", "been", "have", "has", "had", "having", "does",
-            "did", "doing", "dont", "cant", "wont", "im", "ive", "youre", "its", "of", "to", "and",
-            "that", "for", "with", "this", "these", "those", "they", "you", "your", "yours", "his",
-            "her", "hers", "him", "them", "their", "she", "what", "when", "why", "how", "who",
-            "which", "there", "would", "could", "should", "about", "from", "but", "not", "will",
-            "just", "than", "then", "because", "into", "only", "also", "any", "much", "many",
-            "more", "our", "ours", "whose", "while", "after", "before", "still", "every");
+            "a", "about", "after", "afternoon", "again", "all", "also", "always", "am", "an",
+            "and", "any", "are", "around", "as", "ask", "asked", "at", "away", "back", "be",
+            "because", "been", "before", "being", "best", "better", "birthday", "but", "by",
+            "bye", "can", "cant", "come", "congrats", "congratulations", "could", "day", "days",
+            "did", "do", "does", "doing", "done", "dont", "down", "early", "evening", "ever",
+            "every", "everybody", "everyone", "first", "for", "from", "get", "give", "glad",
+            "go", "goes", "going", "good", "got", "great", "guys", "had", "happy", "has", "have",
+            "having", "he", "hello", "help", "helping", "her", "here", "hers", "hey", "hi",
+            "him", "his", "hope", "how", "i", "if", "im", "in", "into", "is", "it", "its", "ive",
+            "just", "keep", "kept", "know", "last", "late", "let", "little", "long", "luck",
+            "lucky", "made", "make", "many", "maybe", "me", "mine", "more", "morning", "much",
+            "my", "need", "never", "new", "next", "nice", "night", "no", "not", "now", "np",
+            "of", "off", "ok", "okay", "on", "one", "only", "or", "our", "ours", "out", "over",
+            "people", "please", "put", "right", "said", "same", "say", "see", "she", "should",
+            "so", "some", "soon", "sorry", "still", "sure", "take", "tell", "than", "thank",
+            "thanks", "thankyou", "that", "the", "their", "them", "then", "there", "these",
+            "they", "think", "this", "those", "through", "thx", "time", "to", "today", "told",
+            "tomorrow", "too", "two", "ty", "up", "us", "use", "used", "uses", "using", "very",
+            "want", "was", "we", "week", "welcome", "well", "went", "were", "what", "when",
+            "which", "while", "who", "whose", "why", "will", "with", "wont", "work", "working",
+            "would", "wrong", "yeah", "yes", "yesterday", "you", "your", "youre", "yours"
+    );
     private static final Pattern REPEATED_SPACE = Pattern.compile("\\s{2,}");
 
     private ChatLineCleaner() {
@@ -778,7 +805,8 @@ public final class ChatLineCleaner {
             // symmetric. Sending English text returns it unchanged and is discarded a line below;
             // failing to send foreign text leaves it in the transcript in a language the reader
             // does not speak, which is the one thing the translation is there to prevent.
-            return known >= MIN_ENGLISH_WORDS_WHEN_SHORT;
+            return known >= (words.size() <= TINY_MESSAGE_WORDS
+                    ? MIN_ENGLISH_WORDS_WHEN_TINY : MIN_ENGLISH_WORDS_WHEN_SHORT);
         }
         return (known / (double) words.size()) >= ENGLISH_WORD_RATIO;
     }
