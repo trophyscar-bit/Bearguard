@@ -494,13 +494,192 @@ public class ChatCaptureRoutine extends DelayedTask {
      * unread.
      */
     private int captureChannel(String channel, PointData tab) {
-        List<Path> shots = photograph(channel, tab);
+        List<Path> shots = "personal".equals(channel)
+                ? photographConversations(tab)
+                : photograph(channel, tab);
         if (shots.isEmpty()) {
             return 0;
         }
         handOffForReading(channel, shots);
         return 0;
     }
+
+    /**
+     * Photographs Personal, which is not a feed at all.
+     *
+     * <p>World and Alliance are one long conversation: open the tab and everything ever said is
+     * behind a scroll. Personal is a list of people, and every message is a tap inside one of them.
+     * Pointed at it, the walk that works for the other two scrolls a directory of contacts, decides
+     * nothing is moving, and stops -- which is why "Personal capture" was a setting that captured
+     * the names of the people who had written and none of what they wrote.
+     *
+     * <p>So this opens each conversation in turn, photographs it the way a feed is photographed,
+     * and comes back out. The list is walked from the top: the game keeps it in order of most
+     * recent message, so the conversations worth reading are the ones already at the top, and
+     * stopping partway down costs the least interesting ones.
+     *
+     * <p>Every step checks that the screen actually changed. A tap that opens nothing, or a back
+     * that lands somewhere unexpected, would otherwise leave the routine photographing whatever it
+     * happens to be looking at and filing it as somebody's private messages.
+     */
+    private List<Path> photographConversations(PointData tab) {
+        tapNear(tab);
+        sleepTask(1200L);
+
+        List<Path> shots = new ArrayList<>();
+        Path dir = baseDir().resolve("pending")
+                .resolve("personal-" + LocalDateTime.now().format(FILE_STAMP));
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            logWarning("ChatCaptureRoutine | Could not make room for personal frames: "
+                    + e.getMessage());
+            return shots;
+        }
+
+        BufferedImage list = screenNow();
+        if (list == null) {
+            return shots;
+        }
+        long deadline = System.currentTimeMillis() + CHANNEL_TIME_BUDGET_MS;
+        int opened = 0;
+        int missed = 0;
+
+        for (int row = 0; row < CONVERSATIONS_PER_PASS; row++) {
+            if (System.currentTimeMillis() > deadline) {
+                logInfo("ChatCaptureRoutine | personal: out of time after " + opened
+                        + " conversation(s).");
+                break;
+            }
+            int y = FIRST_ROW_CENTRE + row * ROW_PITCH;
+            if (y > LIST_BOTTOM) {
+                break;
+            }
+
+            tapNear(new PointData(ROW_TAP_X, y));
+            sleepTask(1200L);
+            BufferedImage inside = screenNow();
+            if (inside == null || !feedMoved(list, inside)) {
+                // Nothing opened, so there is nobody on this row. Whether a row is occupied was
+                // first decided by measuring how much ink was in it, which does not work: on a
+                // real list the sparsest occupied row -- a name, "Thanks", and a time -- came out
+                // at 0.033 of its pixels and the gap between two rows at 0.028. Those are the same
+                // number. Tapping is the test that actually answers the question, and the answer
+                // it gives is not a threshold.
+                if (++missed >= EMPTY_ROWS_BEFORE_STOPPING) {
+                    break;
+                }
+                logInfo("ChatCaptureRoutine | personal: nothing on row " + (row + 1) + ".");
+                continue;
+            }
+            missed = 0;
+
+            opened++;
+            int before = shots.size();
+            photographOpenConversation(dir, shots, deadline);
+            logInfo("ChatCaptureRoutine | personal: conversation " + opened + " -- "
+                    + (shots.size() - before) + " screen(s).");
+
+            tapNear(CHAT_CLOSE);
+            sleepTask(1200L);
+            BufferedImage back = screenNow();
+            if (back == null || feedMoved(inside, back)) {
+                list = back == null ? list : back;
+            } else {
+                // Still inside. One more back, and if that fails the pass ends here rather than
+                // wandering through a stranger's messages tapping at things.
+                tapNear(CHAT_CLOSE);
+                sleepTask(1200L);
+                BufferedImage second = screenNow();
+                if (second == null || !feedMoved(inside, second)) {
+                    logWarning("ChatCaptureRoutine | personal: could not get back to the list;"
+                            + " stopping here.");
+                    break;
+                }
+                list = second;
+            }
+        }
+
+        logInfo("ChatCaptureRoutine | personal: photographed " + shots.size()
+                + " screen(s) across " + opened + " conversation(s).");
+        return shots;
+    }
+
+    /** Photographs one open conversation, newest first, scrolling back a little way. */
+    private void photographOpenConversation(Path dir, List<Path> shots, long deadline) {
+        BufferedImage previous = null;
+        for (int i = 0; i < SCREENS_PER_CONVERSATION; i++) {
+            if (System.currentTimeMillis() > deadline) {
+                return;
+            }
+            BufferedImage image = screenNow();
+            if (image == null) {
+                return;
+            }
+            if (previous != null && !feedMoved(previous, image)) {
+                // A short conversation reaches its beginning and stops moving. That is the end of
+                // it, not a fault, so nothing is logged and nothing is retried.
+                return;
+            }
+            try {
+                Path out = dir.resolve(String.format("%04d.png", shots.size()));
+                ImageIO.write(image, "png", out.toFile());
+                shots.add(out);
+            } catch (IOException e) {
+                logWarning("ChatCaptureRoutine | Could not save a personal frame: "
+                        + e.getMessage());
+                return;
+            }
+            previous = image;
+            swipeUpThroughHistory();
+        }
+    }
+
+    private BufferedImage screenNow() {
+        RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (frame == null || !frame.isValid()) {
+            return null;
+        }
+        return dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
+    }
+
+    /**
+     * How many conversations to open in one pass.
+     *
+     * <p>The list is in most-recent order, so the top is where anything new is. Six fits the time
+     * budget with room for the scrolling inside each, and the seventh row is half off the screen
+     * anyway.
+     */
+    private static final int CONVERSATIONS_PER_PASS = 6;
+
+    /**
+     * How far back to read inside one conversation.
+     *
+     * <p>Direct messages are short and the transcript already holds what was read last time, so
+     * this only has to reach whatever arrived since. Four screens is a generous half hour of the
+     * busiest private conversation anybody here has.
+     */
+    private static final int SCREENS_PER_CONVERSATION = 4;
+
+    /** Middle of the first row in the conversation list, and the step down to the next. */
+    private static final int FIRST_ROW_CENTRE = 396;
+    private static final int ROW_PITCH = 140;
+
+    /** Below this a row is off the bottom of the list. */
+    private static final int LIST_BOTTOM = 1180;
+
+    /** Rows are tapped on their text rather than their avatar, which has its own tap behaviour. */
+    private static final int ROW_TAP_X = 400;
+
+    /**
+     * How many rows that open nothing before the list is taken to have ended.
+     *
+     * <p>Two rather than one, so a single tap that misses -- landing on a divider, or arriving
+     * while the list is still settling -- does not cut the walk short of conversations that are
+     * really there.
+     */
+    private static final int EMPTY_ROWS_BEFORE_STOPPING = 2;
+
 
     /**
      * Hands the photographs to the reader and returns, rather than waiting for it.
@@ -667,6 +846,9 @@ public class ChatCaptureRoutine extends DelayedTask {
                 CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
         pass.useKnownHistory(store::alreadyStored);
 
+        // Personal is a stack of separate conversations rather than one feed. See the note on the
+        // known-history stop below.
+        boolean conversations = "personal".equals(channel);
         int screensRead = 0;
         boolean finished = false;
         try {
@@ -722,7 +904,14 @@ public class ChatCaptureRoutine extends DelayedTask {
                 logInfo("ChatCaptureRoutine | " + channel + " screen " + screensRead + "/"
                         + shots.size() + ": " + screen.lines() + " line(s), " + screen.readable()
                         + " readable, " + screen.fresh() + " new.");
-                if (pass.reachedKnownHistory()) {
+                // Stopping at known history is an optimisation for one long feed, where every
+                // screen behind this one is older than the last. Personal is not one feed: these
+                // frames are several separate conversations end to end, and the first of them is
+                // usually quiet. Stopping there would mean the reader never reached the other
+                // five, and the routine that just went to the trouble of opening them would have
+                // photographed them for nothing. There are at most a couple of dozen frames, so
+                // they are simply all read.
+                if (!conversations && pass.reachedKnownHistory()) {
                     logInfo("ChatCaptureRoutine | " + channel + ": reached already-captured"
                             + " history after " + screensRead + " of " + shots.size()
                             + " screen(s).");
@@ -733,8 +922,9 @@ public class ChatCaptureRoutine extends DelayedTask {
 
             // Reading every screen photographed and still finding new messages means the walk did
             // not reach the end of what was said. It used to do that silently, which is why half a
-            // day of passes lost messages without anybody noticing.
-            if (!finished) {
+            // day of passes lost messages without anybody noticing. Not a warning for Personal,
+            // where reading every frame is the plan rather than a shortfall.
+            if (!finished && !conversations) {
                 logWarning("ChatCaptureRoutine | " + channel + ": read all " + shots.size()
                         + " photographed screen(s) and was still finding new messages. Anything"
                         + " older than that was not read this pass.");
