@@ -131,6 +131,94 @@
                         </configuration>
                     </execution>
                     <execution>
+                        <id>stage-translation-model</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Translation runs on the user's machine. Without these weights the
+                                 transcript stays in whatever language it was written in, because
+                                 the public endpoints are off by default and are somebody else's
+                                 volunteers. -->
+                            <outputDirectory>${project.build.directory}/input/lib/translate</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.parent.basedir}/tools/translate/model</directory>
+                                    <includes>
+                                        <include>*.onnx</include>
+                                        <include>*.tsv</include>
+                                        <include>meta.json</include>
+                                    </includes>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>stage-translation-model-ko</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/input/lib/translate-ko</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.parent.basedir}/tools/translate/model-ko</directory>
+                                    <includes>
+                                        <include>*.onnx</include>
+                                        <include>*.tsv</include>
+                                        <include>meta.json</include>
+                                    </includes>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>stage-translation-model-ja</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/input/lib/translate-ja</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.parent.basedir}/tools/translate/model-ja</directory>
+                                    <includes>
+                                        <include>*.onnx</include>
+                                        <include>*.tsv</include>
+                                        <include>meta.json</include>
+                                    </includes>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>stage-translation-model-zh</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/input/lib/translate-zh</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.parent.basedir}/tools/translate/model-zh</directory>
+                                    <includes>
+                                        <include>*.onnx</include>
+                                        <include>*.tsv</include>
+                                        <include>meta.json</include>
+                                    </includes>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>stage-onnx-models</id>
                         <phase>prepare-package</phase>
                         <goals>
@@ -206,6 +294,38 @@
                                     </includes>
                                 </resource>
                             </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>strip-onnxruntime-natives</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <!-- The published onnxruntime jar carries a native library for
+                                     every platform it supports and, far larger than all of them
+                                     together, a 290 MB Windows debug-symbol file. This installer is
+                                     Windows-only and nobody debugging a released build has the
+                                     symbols anyway, so the jar goes in at 4 MB instead of 89. -->
+                                <zip destfile="${project.build.directory}/ort-win.jar">
+                                    <zipfileset src="${project.build.directory}/input/lib/onnxruntime-1.20.0.jar">
+                                        <exclude name="ai/onnxruntime/native/osx-*/**"/>
+                                        <exclude name="ai/onnxruntime/native/linux-*/**"/>
+                                        <exclude name="**/*.pdb"/>
+                                    </zipfileset>
+                                </zip>
+                                <move file="${project.build.directory}/ort-win.jar"
+                                      tofile="${project.build.directory}/input/lib/onnxruntime-1.20.0.jar"/>
+                            </target>
                         </configuration>
                     </execution>
                 </executions>

@@ -44,6 +44,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 public final class ChatTranslator {
 
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger(ChatTranslator.class);
+
+
+
     /**
      * Instances of a keyless translation frontend, tried in order.
      *
@@ -71,7 +76,56 @@ public final class ChatTranslator {
     private final Map<String, String> cache;
     private final boolean enabled;
 
+    /**
+     * The model that does the work, opened once. Null when none is installed.
+     *
+     * <p>Opening it costs a second or two and holds about a hundred megabytes of weights, so it is
+     * built on the first translation rather than at construction -- a profile with translation off
+     * should not pay for a model it will never ask anything.
+     */
+    private volatile TranslationModels local;
+    private volatile boolean localTried;
+
+    /** Whether the public endpoints may be used at all. Off unless deliberately switched on. */
+    private final boolean useNetwork;
+
+    /**
+     * Translates on this machine, falling back to nothing.
+     *
+     * <p>Failure here is not an error worth a line in the log every message: a model that will not
+     * load will not load for the next one either, and the transcript keeps the original text, which
+     * is what it would have kept anyway.
+     */
+    private Optional<String> offline(String text) {
+        if (local == null && !localTried) {
+            synchronized (this) {
+                if (local == null && !localTried) {
+                    localTried = true;
+                    java.nio.file.Path dir = TranslationModels.defaultRoot();
+                    if (OfflineTranslator.isAvailable(dir)) {
+                        local = new TranslationModels(dir);
+                        LOGGER.info("Chat translation is running on this machine, from {}", dir);
+                    } else {
+                        LOGGER.warn("No offline translation model at {} -- chat will not be"
+                                + " translated unless the network provider is switched on.", dir);
+                    }
+                }
+            }
+        }
+        TranslationModels engine = local;
+        return engine == null ? Optional.empty() : engine.translate(text);
+    }
+
     public ChatTranslator(boolean enabled, int cacheSize) {
+        this(enabled, cacheSize, false);
+    }
+
+    /**
+     * @param useNetwork whether the public front-ends may be used when no model is installed.
+     *                   False everywhere by default -- see {@link #offline}.
+     */
+    public ChatTranslator(boolean enabled, int cacheSize, boolean useNetwork) {
+        this.useNetwork = useNetwork;
         this.enabled = enabled;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(6))
@@ -110,13 +164,26 @@ public final class ChatTranslator {
             return Optional.empty();
         }
         String trimmed = rest.length() > MAX_CHARS ? rest.substring(0, MAX_CHARS) : rest;
+
+        // On this machine first, and on this machine only unless somebody turns the network on.
+        // The endpoints below are volunteers doing a favour: they already failed twice at a single
+        // user -- one answering 429, the other exhausting its daily allowance and returning a quota
+        // notice where the translation belonged -- and neither failure said anything, the transcript
+        // simply stopped being English. That does not become safer with more installs, it becomes
+        // somebody else's outage.
+        Optional<String> local = offline(trimmed);
+        if (local.isPresent()) {
+            cache.put(key, local.get());
+            return Optional.of(head.isEmpty() ? local.get() : head + local.get());
+        }
         // One provider, deliberately. The endpoints that used to sit behind this were a Google
         // address that now answers 429 from here and a service with a daily allowance that ran out
         // mid-evening and started returning its quota notice where the translation belonged. A
         // capped provider is not a fallback -- it is a thing that works until it silently does not,
         // and it stopped translation dead once already. Better to translate through instances that
         // do not meter, and render nothing at all when none of them answer.
-        String result = viaFrontends(trimmed).orElse("");
+        // Reached only when no model is installed and the network has been switched on by hand.
+        String result = useNetwork ? viaFrontends(trimmed).orElse("") : "";
 
         // Cache the failure too. A body that cannot be translated will arrive again on the next
         // overlapping scroll-back, and re-requesting it every pass is how a keyless endpoint
