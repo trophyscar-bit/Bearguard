@@ -62,6 +62,7 @@ import dev.frostguard.app.panel.economy.GemShopLayoutController;
 import dev.frostguard.app.panel.economy.DealsLayoutController;
 import dev.frostguard.app.panel.scheduler.TaskManagerLayoutController;
 import dev.frostguard.app.panel.misc.SkipTutorialLayoutController;
+import dev.frostguard.app.panel.training.HealingLayoutController;
 import dev.frostguard.app.panel.training.TrainingLayoutController;
 import dev.frostguard.app.panel.training.ResearchLayoutController;
 import dev.frostguard.app.panel.misc.CharacterLayoutController;
@@ -107,6 +108,7 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignS;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignB;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignH;
+import org.kordamp.ikonli.materialdesign2.MaterialDesignM;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignV;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignW;
 import org.kordamp.ikonli.Ikon;
@@ -826,6 +828,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 new ModuleDefinition("BeastHuntingLayout",       "Beast Hunting",        MaterialDesignP.PAW_OUTLINE,                BeastHuntingLayoutController::new),
                 new ModuleDefinition("FishingLayout",            "Fishing Tournament",   MaterialDesignF.FISH,                       FishingLayoutController::new),
                 new ModuleDefinition("TrainingLayout",           "Training",             MaterialDesignS.SWORD_CROSS,                TrainingLayoutController::new),
+                new ModuleDefinition("HealingLayout",            "Healing",              MaterialDesignM.MEDICAL_BAG,                HealingLayoutController::new),
                 new ModuleDefinition("ResearchLayout",           "Research",             MaterialDesignF.FLASK_OUTLINE,              ResearchLayoutController::new),
                 new ModuleDefinition("PetsLayout",               "Pets",                 MaterialDesignP.PAW,                        PetsLayoutController::new),
                 new ModuleDefinition("EventsLayout",             "Events",               MaterialDesignC.CALENDAR_STAR,              EventsLayoutController::new),
@@ -866,7 +869,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         java.util.List<String> economyOrder = java.util.List.of(
                 "Gem Shop", "General Shop", "Deals", "Get Giftcodes");
         java.util.List<String> troopsOrder = java.util.List.of(
-                "Training", "Gather", "Intel", "Rally", "Beast Hunting", "Chief Order", "Pets");
+                "Training", "Healing", "Gather", "Intel", "Rally", "Beast Hunting", "Chief Order", "Pets");
         java.util.List<String> accountOrder = java.util.List.of(
                 "Character", "Skip Tutorial", "Experts");
         java.util.Set<String> tucked = java.util.Set.of(
