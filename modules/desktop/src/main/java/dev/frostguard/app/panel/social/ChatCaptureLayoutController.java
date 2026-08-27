@@ -24,8 +24,6 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
     @FXML
     private CheckBox checkBoxChatIncludeAlliance;
     @FXML
-    private CheckBox checkBoxChatIncludePersonal;
-    @FXML
     private CheckBox checkBoxChatFilterNoise;
     @FXML
     private ComboBox<Integer> comboBoxChatFrequency;
@@ -44,7 +42,6 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxEnableChatCapture, ConfigurationKeyEnum.CHAT_CAPTURE_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxChatIncludeWorld, ConfigurationKeyEnum.CHAT_CAPTURE_INCLUDE_WORLD_BOOL);
         checkBoxMappings.put(checkBoxChatIncludeAlliance, ConfigurationKeyEnum.CHAT_CAPTURE_INCLUDE_ALLIANCE_BOOL);
-        checkBoxMappings.put(checkBoxChatIncludePersonal, ConfigurationKeyEnum.CHAT_CAPTURE_INCLUDE_PERSONAL_BOOL);
         checkBoxMappings.put(checkBoxChatFilterNoise, ConfigurationKeyEnum.CHAT_CAPTURE_FILTER_NOISE_BOOL);
 
         comboBoxChatFrequency.getItems().addAll(15, 30, 45, 60, 90, 120);
