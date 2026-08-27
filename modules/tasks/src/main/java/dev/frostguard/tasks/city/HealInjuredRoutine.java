@@ -3,6 +3,7 @@ package dev.frostguard.tasks.city;
 import java.awt.Color;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
@@ -61,6 +62,10 @@ public class HealInjuredRoutine extends DelayedTask {
     /** Injured-troops bubble over the Infirmary, in the Research Center anchor frame. */
     private static final PointData INJURED_BUBBLE_POINT = new PointData(561, 318);
     private static final int ANCHOR_SETTLE_MS = 1200;
+
+    /** "18/107,800" -> 18. Thousands separators are kept inside the group so a
+     *  five-figure count is not truncated at its first comma. */
+    private static final Pattern INJURED_FRACTION = Pattern.compile("(\\d[\\d,]*)\\s*/");
 
     // ========== Heal Injured panel (full-screen, fixed layout) ==========
     private static final PointData PANEL_TITLE_TOP_LEFT = new PointData(80, 18);
@@ -241,21 +246,25 @@ public class HealInjuredRoutine extends DelayedTask {
             return null;
         }
 
-        // Format observed live: "382/79,300" -- the count BEFORE the slash is what's
-        // actually queued/needing heal right now.
-        Pattern beforeSlash = Pattern.compile("(\\d[\\d,]*)\\s*/");
-        String digits = RegexNumberParser.extractByPattern(text, beforeSlash) != null
-                ? String.valueOf(RegexNumberParser.extractByPattern(text, beforeSlash))
-                : null;
-
-        if (digits == null) {
+        // Format observed live: "18/107,800" -- the count BEFORE the slash is what is
+        // actually queued and needing a heal right now.
+        //
+        // Parsed here rather than through RegexNumberParser.extractByPattern, which
+        // applies Matcher.matches() and so demands the pattern consume the WHOLE string.
+        // A "N/total" pattern never does, so that call returned null on every well-formed
+        // read -- the panel was open and the OCR was perfect ('18/107,800') and the task
+        // still bailed with "didn't match the expected shape". numerator() would match,
+        // but its \d+ group stops at a comma, so a five-figure count would come back as
+        // its first digits. This keeps the thousands separators.
+        Matcher fraction = INJURED_FRACTION.matcher(text);
+        if (!fraction.find()) {
             logWarning("Severely Injured text didn't match the expected 'N/total' shape: '"
                     + text + "'");
             return null;
         }
 
         try {
-            return Integer.parseInt(digits.replace(",", ""));
+            return Integer.parseInt(fraction.group(1).replace(",", ""));
         } catch (NumberFormatException e) {
             logWarning("Could not parse injured count from: '" + text + "'");
             return null;
