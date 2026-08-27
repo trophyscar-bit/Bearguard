@@ -154,6 +154,11 @@ public final class OfflineTranslator implements AutoCloseable {
             if (c >= 0x4E00 && c <= 0x9FFF) {
                 return "zh";
             }
+            // Arabic and the Arabic Supplement / Presentation Forms the reader also emits.
+            if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0x0750 && c <= 0x077F)
+                    || (c >= 0xFB50 && c <= 0xFDFF) || (c >= 0xFE70 && c <= 0xFEFF)) {
+                return "ar";
+            }
         }
         return "";
     }
