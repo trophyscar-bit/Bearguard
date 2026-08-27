@@ -399,6 +399,9 @@ public final class ChatLineCleaner {
                 MISREAD_I.matcher(raw).replaceAll("I")).replaceAll("@");
         String body = collapse(TRANSLATE_CONTROL.matcher(
                 ARTIFACTS.matcher(restored).replaceAll(" ")).replaceAll(" "));
+        // Right-to-left lines arrive reversed, because the reader returns boxes in the order they
+        // sit across the screen. Undone here, before anything tries to read the words.
+        body = BidiText.toLogicalOrder(body);
         body = collapse(HELP_NOTICE.matcher(body).replaceAll(" "));
         body = collapse(FEEDBACK_BUTTON.matcher(body).replaceAll(" "));
         return trimOrphanGlyphs(collapse(LEAKED_VIP.matcher(body).replaceAll(" ")));

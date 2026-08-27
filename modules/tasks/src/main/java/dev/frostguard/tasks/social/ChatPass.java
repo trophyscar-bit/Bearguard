@@ -196,12 +196,26 @@ final class ChatPass {
         if (rereader == null) {
             return lines;
         }
+        // Every line with words in it is offered a second reading, rather than only the lines a
+        // heuristic suspects.
+        //
+        // The heuristics were the whole problem. They looked for the shapes Cyrillic-read-as-Latin
+        // leaves -- a capital or a digit inside a word -- and Arabic read as Latin leaves none of
+        // them: it comes back as short lowercase nonsense like "poil Jid Jei Jo" and "lougo li
+        // j5ogl", which no test for capitals will ever flag. Two attempts at scoring that nonsense
+        // failed outright. Character bigrams learned from twelve hundred real messages scored the
+        // genuine text at 1.00 and the gibberish at 1.00 as well: no separation at any threshold,
+        // which means the approach is wrong rather than the number.
+        //
+        // What makes this affordable is that the decision does not rest on the trigger at all. A
+        // second reading is accepted only when it comes back in another script -- see
+        // inAnotherScript -- and that test is about which characters were returned, which is a fact
+        // rather than a guess. So a line offered to the Arabic model in vain costs one small crop
+        // and is thrown away. Guessing which lines to offer was buying nothing and losing Arabic
+        // entirely.
         boolean[] suspect = new boolean[lines.size()];
         for (int i = 0; i < lines.size(); i++) {
-            TextLine line = lines.get(i);
-            suspect[i] = ChatScriptRecovery.looksLikeMangledScript(line.text())
-                    || barelyRead(line)
-                    || nameFailedToRead(line);
+            suspect[i] = worthASecondReading(lines.get(i));
         }
         spreadToNeighbours(lines, suspect);
 
@@ -211,6 +225,39 @@ final class ChatPass {
         }
         return out;
     }
+
+    /**
+     * Whether a row is worth showing to the other readers.
+     *
+     * <p>Nearly everything is. What is excluded is what cannot be a foreign message: a row with no
+     * letters in it at all, and one so short that any script would read it as noise. Interface
+     * furniture is excluded by name, because it appears on every screen and re-reading it on every
+     * screen is the one cost worth avoiding.
+     */
+    private static boolean worthASecondReading(TextLine line) {
+        String text = line.text() == null ? "" : line.text().strip();
+        if (text.length() < SHORTEST_WORTH_REREADING) {
+            return false;
+        }
+        int letters = 0;
+        for (int i = 0; i < text.length(); i++) {
+            if (Character.isLetter(text.charAt(i))) {
+                letters++;
+            }
+        }
+        if (letters == 0) {
+            return false;
+        }
+        return !FURNITURE.matcher(text).matches();
+    }
+
+    /** Below this a row is too small for any reader to say anything useful about. */
+    private static final int SHORTEST_WORTH_REREADING = 3;
+
+    /** The panel's own labels, which are on every screen and are never somebody's message. */
+    private static final java.util.regex.Pattern FURNITURE = java.util.regex.Pattern.compile(
+            "(?i)\\s*(chat|alliance notice|share coordinates|world|alliance|personal|tundra"
+            + "|state\\s*#?\\s*\\d+|vote|feedback|\\[?x:?\\s*\\d+\\s*y:?\\s*\\d+\\]?)\\s*");
 
     /**
      * Carries suspicion from a flagged row to the rest of its bubble.
