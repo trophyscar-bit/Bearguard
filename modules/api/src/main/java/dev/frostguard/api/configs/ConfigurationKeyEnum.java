@@ -532,6 +532,11 @@ public enum ConfigurationKeyEnum {
     CHAT_CAPTURE_FREQUENCY_MINUTES_INT  ("30",              Integer.class,  ConfigCategory.SYSTEM),
     CHAT_CAPTURE_INCLUDE_WORLD_BOOL     ("true",            Boolean.class,  ConfigCategory.SYSTEM),
     CHAT_CAPTURE_INCLUDE_ALLIANCE_BOOL  ("true",            Boolean.class,  ConfigCategory.SYSTEM),
+    // No longer offered in the settings, and off. Personal is not a feed like the other two: it is
+    // a list of people, and every message is a tap inside one of them. The routine that reads it
+    // that way is written and lives in ChatCaptureRoutine.photographConversations, but it has never
+    // been watched running, so the checkbox is gone rather than left promising something unproven.
+    // Setting this key by hand turns the whole path back on.
     CHAT_CAPTURE_INCLUDE_PERSONAL_BOOL  ("false",           Boolean.class,  ConfigCategory.SYSTEM),
     // TRANSCRIPT = keep full readable message history; SUMMARY = downstream
     // should condense to "what happened today" instead of showing every line.

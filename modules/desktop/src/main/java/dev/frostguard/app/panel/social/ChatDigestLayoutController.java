@@ -58,8 +58,6 @@ public class ChatDigestLayoutController {
     @FXML
     private ToggleButton tabAlliance;
     @FXML
-    private ToggleButton tabPersonal;
-    @FXML
     private ComboBox<Duration> windowBox;
 
     private String channelFilter = "alliance";
@@ -80,7 +78,7 @@ public class ChatDigestLayoutController {
         ChatClock.zoneProperty().addListener((obs, was, now) -> rebuild());
 
         ToggleGroup channels = new ToggleGroup();
-        for (ToggleButton t : new ToggleButton[] {tabWorld, tabAlliance, tabPersonal}) {
+        for (ToggleButton t : new ToggleButton[] {tabWorld, tabAlliance}) {
             t.setToggleGroup(channels);
         }
         channels.selectedToggleProperty().addListener((obs, was, now) -> {

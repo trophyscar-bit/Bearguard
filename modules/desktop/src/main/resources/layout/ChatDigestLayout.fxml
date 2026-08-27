@@ -21,9 +21,6 @@
                               onAction="#rebuild" selected="true"
                               styleClass="action-button-timeline"
                               text="Alliance" userData="alliance" />
-                <ToggleButton fx:id="tabPersonal" minWidth="-Infinity" mnemonicParsing="false"
-                              onAction="#rebuild" styleClass="action-button-timeline"
-                              text="Personal" userData="personal" />
                 <Separator orientation="VERTICAL" />
                 <!-- Three windows and no more. The transcript is kept for thirty days, so a longer
                      one would point at nothing, and nobody reaches for "three weeks". -->

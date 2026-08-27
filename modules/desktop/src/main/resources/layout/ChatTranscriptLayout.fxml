@@ -30,9 +30,6 @@
                               onAction="#selectChannel" selected="true"
                               styleClass="action-button-timeline"
                               text="Alliance" userData="alliance" />
-                <ToggleButton fx:id="tabPersonal" minWidth="-Infinity" mnemonicParsing="false"
-                              onAction="#selectChannel" styleClass="action-button-timeline"
-                              text="Personal" userData="personal" />
                 <Separator orientation="VERTICAL" />
                 <CheckBox fx:id="checkHideChatter" minWidth="-Infinity" mnemonicParsing="false"
                           onAction="#refresh" selected="true" text="Hide game chatter" />

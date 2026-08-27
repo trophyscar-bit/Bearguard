@@ -44,11 +44,6 @@
                     <HBox alignment="CENTER_LEFT" spacing="14">
                         <CheckBox fx:id="checkBoxChatIncludeAlliance" mnemonicParsing="false" text="Alliance" />
                     </HBox>
-                    <HBox alignment="CENTER_LEFT" spacing="14">
-                        <CheckBox fx:id="checkBoxChatIncludePersonal" mnemonicParsing="false" text="Personal" />
-                    </HBox>
-                    <Label styleClass="task-card-note" wrapText="true"
-                           text="Personal is your direct messages, not just group chat - off by default." />
 
                     <Separator style="-fx-opacity: 0.25;" />
 

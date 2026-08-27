@@ -104,8 +104,6 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
     @FXML
     private ToggleButton tabAlliance;
     @FXML
-    private ToggleButton tabPersonal;
-    @FXML
     private CheckBox checkHideChatter;
     @FXML
     private Slider zoomSlider;
@@ -222,7 +220,7 @@ public class ChatTranscriptLayoutController implements IProfileLoadListener {
         ChatClock.zoneProperty().addListener((obs, was, now) -> refresh());
 
         ToggleGroup channels = new ToggleGroup();
-        for (ToggleButton t : new ToggleButton[] {tabWorld, tabAlliance, tabPersonal}) {
+        for (ToggleButton t : new ToggleButton[] {tabWorld, tabAlliance}) {
             t.setToggleGroup(channels);
         }
         // A toggle group lets the selected button be clicked off, which would leave no channel
