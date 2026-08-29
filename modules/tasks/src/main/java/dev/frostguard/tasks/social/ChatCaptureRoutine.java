@@ -754,6 +754,16 @@ public class ChatCaptureRoutine extends DelayedTask {
     private List<Path> photograph(String channel, PointData tab) {
         tapNear(tab);
         sleepTask(1000L);
+        if (!onChannel(channel)) {
+            tapNear(tab);
+            sleepTask(1500L);
+            if (!onChannel(channel)) {
+                logWarning("ChatCaptureRoutine | " + channel + ": the tab did not take -- the feed"
+                        + " on screen is another channel. Skipping rather than filing somebody"
+                        + " else's chat under this one.");
+                return new ArrayList<>();
+            }
+        }
         foldPinnedCard(channel);
 
         List<Path> shots = new ArrayList<>();
@@ -827,6 +837,60 @@ public class ChatCaptureRoutine extends DelayedTask {
                 + " screen(s) in " + (CHANNEL_TIME_BUDGET_MS / 1000) + "s; reading them now.");
         return shots;
     }
+
+    /**
+     * Whether the feed on screen is the channel that was asked for.
+     *
+     * <p>A tap that does not land is not rare and, until now, was not noticed: the walk carried on
+     * photographing whatever feed happened to be open and filed it under the channel it meant to
+     * visit. One pass on 28 August put fifty-one World messages into the Alliance transcript that
+     * way, which is why the Alliance tab showed people from four other alliances. A transcript that
+     * is quietly wrong about who said something in which room is worse than one that is missing a
+     * pass.
+     *
+     * <p>The check is which of the three labels sits highest. The game raises the selected tab a
+     * few pixels above its neighbours, and reading which one is topmost is a comparison rather than
+     * a threshold -- measured across twenty saved frames it named the right channel twenty times,
+     * with the raise running between three and seven pixels. Nothing here depends on that distance
+     * being any particular size, only on the order.
+     */
+    private boolean onChannel(String channel) {
+        dev.frostguard.vision.ocr.ChatTextReader engine = reader();
+        if (engine == null || !engine.isUp()) {
+            // With no reader there is nothing to check with. Carrying on is the old behaviour and
+            // is no worse than it was.
+            return true;
+        }
+        RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (frame == null || !frame.isValid()) {
+            return true;
+        }
+        BufferedImage image = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
+        String highest = null;
+        int highestTop = Integer.MAX_VALUE;
+        try {
+            for (TextLine line : engine.read(image, 0, TAB_ROW_TOP, image.getWidth(),
+                    TAB_ROW_BOTTOM, PADDLE_LANG, PADDLE_MIN_CONFIDENCE)) {
+                String text = line.text() == null ? "" : line.text().trim().toLowerCase();
+                for (String known : CHANNEL_LABELS) {
+                    if (text.equals(known) && line.top() < highestTop) {
+                        highestTop = line.top();
+                        highest = known;
+                    }
+                }
+            }
+        } catch (RuntimeException cannotRead) {
+            return true;
+        }
+        // Unreadable is not wrong. Only a confident reading of a different channel stops the walk.
+        return highest == null || highest.equals(channel);
+    }
+
+    /** The band the three channel tabs are drawn in. */
+    private static final int TAB_ROW_TOP = 90;
+    private static final int TAB_ROW_BOTTOM = 160;
+
+    private static final String[] CHANNEL_LABELS = {"world", "alliance", "personal"};
 
     /**
      * Reads the saved screens, newest first, and stops as soon as it recognises history.
