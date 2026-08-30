@@ -44,8 +44,17 @@ public final class SearchConfigConstants {
     // 80 gives a real margin above the observed ~85 while still rejecting a
     // genuinely bad match. Fire-Beast-specific — do not reuse for other
     // templates without checking their own real match scores first.
+    // 80 was still too high, because the marker does not hold still: the flame pulses and the pin
+    // bobs, so the same marker on the same screen scores anywhere in a wide band. Measured live on
+    // 30 August, one Fire Beast, four captures: 73.7, 88.3, 89.7, 90.0 -- and the run that scored
+    // 73.7 is the one where Intel photographed the marker, called the map empty, and went back to
+    // sleep for seven hours. Against four frames with no marker on them at all the same template
+    // scores 33.4, 33.4, 37.9 and 38.5, so 60 sits about twenty points clear of the loudest noise
+    // and about fourteen below the dimmest real sighting. Four attempts 400ms apart spans roughly
+    // one and a half seconds of the animation rather than half of one.
+    // Fire-Beast-specific -- do not reuse for other templates without measuring their own scores.
     public static final SearchConfig FIRE_BEAST_SEARCH =
-            SearchConfig.builder().withMaxAttempts(3).withThreshold(80).withDelay(200L).build();
+            SearchConfig.builder().withMaxAttempts(4).withThreshold(60).withDelay(400L).build();
 
     // Real live evidence (two logged misses at 40.7 and 50.6, different scores on
     // a supposedly-static template) plus live observation -- "the icon in the game dances back
