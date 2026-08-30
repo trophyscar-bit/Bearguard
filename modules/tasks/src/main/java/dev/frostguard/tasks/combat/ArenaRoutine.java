@@ -528,13 +528,6 @@ public class ArenaRoutine extends DelayedTask {
                 .filter(candidate -> !attemptedOpponentSlots.contains(candidate.number()))
                 .sorted(alliancePolicy.comparator(profileAllianceTag)
                         .thenComparing(serverPolicy.comparator(profileServer))
-                        // Highest-star safe opponent wins — maximizes the Arena
-                        // point payout bucket without sacrificing win-safety
-                        // (every candidate here already passed the WEAKER-power
-                        // gate). Falls back to weakest-power ordering only when
-                        // stars couldn't be OCR'd for anyone.
-                        .thenComparing(OpponentCandidate::hasStarValue, Comparator.reverseOrder())
-                        .thenComparingInt(OpponentCandidate::starSortValue)
                         .thenComparing(OpponentCandidate::hasPowerValue, Comparator.reverseOrder())
                         .thenComparingDouble(OpponentCandidate::powerSortValue)
                         .thenComparingInt(OpponentCandidate::number))
@@ -1746,20 +1739,6 @@ public class ArenaRoutine extends DelayedTask {
         private static OpponentCandidate skipped(int number, int opponentY, PowerRead power,
                                                  AllianceRead alliance, ServerRead server, StarRead stars, String reason) {
             return new OpponentCandidate(number, opponentY, power, alliance, server, stars, false, "skip:" + reason);
-        }
-
-        // "match the highest-star SAFE (weaker-power) opponent
-        // instead of just the weakest one" — the +9/+10/+11/+12 Arena point
-        // payout is keyed off relative Arena points (stars), not power, so
-        // among opponents we're already willing to fight, more stars is
-        // strictly at least as good, never worse.
-        private boolean hasStarValue() {
-            return stars.hasValue();
-        }
-
-        private int starSortValue() {
-            // Higher stars should sort FIRST — negate for ascending Comparator use.
-            return stars.hasValue() ? -stars.value() : 0;
         }
 
         private boolean matchesServer(String profileServer) {
