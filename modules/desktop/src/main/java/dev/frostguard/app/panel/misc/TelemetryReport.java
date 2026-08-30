@@ -3,6 +3,7 @@ package dev.frostguard.app.panel.misc;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -160,49 +161,97 @@ public final class TelemetryReport {
     }
 
     /**
-     * Change in every metric between the first sample at/after {@code from} and the last
-     * at/before {@code to} that actually carries that metric.
+     * How far outside a window a boundary reading may be taken from when the window itself has
+     * no sample at that edge.
+     *
+     * <p>bg_telemetry snapshots roughly every two hours, so requiring both endpoints to fall
+     * strictly INSIDE the window made perfectly measurable windows report "not enough samples".
+     * Last night is the case that exposed it: the bot logged a reading at 22:52 and the next at
+     * 11:24, with the 23:00-08:50 window falling entirely in between. Two good readings sat right
+     * either side of the night and the answer (+25,845 power) was there the whole time, but the
+     * strict rule threw both away and the tab fell back to printing the raw stockpile.</p>
+     *
+     * <p>Anchoring to the nearest reading OUTSIDE each edge is how you measure a window against a
+     * sparse series. The reach is capped so a long outage still reads as no-data rather than
+     * silently quoting a stale number, and {@link #coverageForWindow} always reports the real
+     * span the figures came from, so a stretched window is stated rather than hidden.</p>
+     */
+    private static final Duration BRACKET_REACH = Duration.ofHours(3);
+
+    /** Latest sample at/before {@code at} that carries {@code metric}, or null. */
+    private Sample metricAtOrBefore(String metric, Instant at) {
+        Sample found = null;
+        for (Sample s : samples) {
+            if (s.at().isAfter(at)) break;
+            if (s.get(metric) != null) found = s;
+        }
+        return found;
+    }
+
+    /** Earliest sample at/after {@code at} that carries {@code metric}, or null. */
+    private Sample metricAtOrAfter(String metric, Instant at) {
+        for (Sample s : samples) {
+            if (!s.at().isBefore(at) && s.get(metric) != null) return s;
+        }
+        return null;
+    }
+
+    /**
+     * The reading that best represents {@code metric} at the window's opening edge: the last one
+     * taken at/before {@code from} when there is one within {@link #BRACKET_REACH}, otherwise the
+     * earliest one inside the window.
+     */
+    private Sample startAnchor(String metric, Instant from, Instant to) {
+        Sample before = metricAtOrBefore(metric, from);
+        if (before != null && !before.at().isBefore(from.minus(BRACKET_REACH))) return before;
+        Sample inside = metricAtOrAfter(metric, from);
+        if (inside != null && !inside.at().isAfter(to)) return inside;
+        return null;
+    }
+
+    /**
+     * The reading that best represents {@code metric} at the window's closing edge: the last one
+     * inside the window, otherwise the first one taken after it closed, within
+     * {@link #BRACKET_REACH}.
+     */
+    private Sample endAnchor(String metric, Instant from, Instant to) {
+        Sample inside = null;
+        for (Sample s : samples) {
+            if (s.at().isAfter(to)) break;
+            if (s.at().isBefore(from)) continue;
+            if (s.get(metric) != null) inside = s;
+        }
+        if (inside != null) return inside;
+        Sample after = metricAtOrAfter(metric, to);
+        if (after != null && !after.at().isAfter(to.plus(BRACKET_REACH))) return after;
+        return null;
+    }
+
+    /**
+     * Change in every metric across {@code [from, to]}, anchored to the nearest reading at each
+     * edge (see {@link #BRACKET_REACH}).
      *
      * <p>this used to anchor every metric's END value to the single latest
      * overall sample, so a metric simply missing from THAT one row (a transient OCR miss, or a
      * row written before that metric existed) vanished from the whole window even though earlier
-     * in-window samples had it. Each metric now finds its own latest carrying sample independently,
-     * matching how the start side already worked -- a transient gap in one field no longer hides
-     * every field.</p>
+     * in-window samples had it. Each metric now finds its own anchors independently, so a
+     * transient gap in one field no longer hides every field.</p>
+     *
+     * <p>A Delta is emitted whenever both anchors exist and differ in time -- including
+     * change == 0. "Measured, and it did not move" is a real answer; the caller renders it as
+     * "steady". Only a genuinely unanchorable metric is omitted, which is what lets the caller
+     * distinguish no-coverage from no-change instead of showing a raw stockpile for both.</p>
      */
     public List<Delta> deltaOverWindow(Instant from, Instant to) {
         List<Delta> deltas = new ArrayList<>();
         for (String metric : METRICS) {
-            // Per-metric end: the latest in-window sample that actually carries this metric.
-            Long end = null;
-            Instant endAt = null;
-            for (Sample s : samples) {
-                if (s.at().isAfter(to)) break;
-                Long v = s.get(metric);
-                if (v != null) { end = v; endAt = s.at(); }
-            }
-            if (end == null) continue;
-            // Per-metric baseline: the earliest sample in-window that actually carries this metric.
-            // Older rows predate meat/wood/iron capture, so a single global start sample would drop
-            // them entirely — this lets each resource show as soon as it has two data points.
-            Long start = null;
-            for (Sample s : samples) {
-                if (s.at().isBefore(from)) continue;
-                if (s.at().isAfter(endAt)) break;
-                Long v = s.get(metric);
-                if (v != null) { start = v; break; }
-            }
-            // review feedback + observed live: a genuinely zero-change metric
-            // (real start AND end samples, equal values) used to be skipped here just like a
-            // metric with NO coverage at all -- the caller couldn't tell "measured, no change"
-            // from "no data", and StatisticsLayoutController's fallback for the latter (show the
-            // raw current stockpile, unlabeled as a delta) fired for BOTH cases. When telemetry
-            // gaps for days, every metric hits that fallback and the tab silently displays a raw
-            // absolute value (e.g. current power) sitting in the "what did you earn" grid --
-            // exactly what read as "gained 24 million power" overnight. Always emit a Delta once
-            // both endpoints are known, even change=0, so the caller can render "steady" honestly
-            // instead of a bare number that looks like a headline gain.
-            if (start == null) continue;
+            Sample startS = startAnchor(metric, from, to);
+            if (startS == null) continue;
+            Sample endS = endAnchor(metric, from, to);
+            if (endS == null || !endS.at().isAfter(startS.at())) continue;
+            Long start = startS.get(metric);
+            Long end = endS.get(metric);
+            if (start == null || end == null) continue;
             deltas.add(new Delta(metric, start, end, end - start));
         }
         return deltas;
@@ -247,16 +296,28 @@ public final class TelemetryReport {
      *  nothing to show (matches deltaOverWindow's own "not enough data" case). */
     public record Coverage(Instant actualFrom, Instant actualTo) {}
 
+    /**
+     * The real span the window's figures were built from. Mirrors {@link #deltaOverWindow}'s
+     * anchoring exactly -- earliest start anchor to latest end anchor across the metrics that
+     * actually resolved -- so the header can never claim a span the tiles did not use. This is the
+     * line that makes a bracketed window honest: "recorded 8/29 10:52 PM -> 8/30 11:24 AM" states
+     * plainly that the readings either side of the night are what the numbers came from.
+     */
     public Coverage coverageForWindow(Instant from, Instant to) {
-        Sample endS = latestAtOrBefore(to);
-        if (endS == null) {
+        Instant first = null;
+        Instant last = null;
+        for (String metric : METRICS) {
+            Sample startS = startAnchor(metric, from, to);
+            if (startS == null) continue;
+            Sample endS = endAnchor(metric, from, to);
+            if (endS == null || !endS.at().isAfter(startS.at())) continue;
+            if (first == null || startS.at().isBefore(first)) first = startS.at();
+            if (last == null || endS.at().isAfter(last)) last = endS.at();
+        }
+        if (first == null) {
             return null;
         }
-        Sample startS = earliestAtOrAfter(from);
-        if (startS == null || startS.at().isAfter(endS.at())) {
-            return null;
-        }
-        return new Coverage(startS.at(), endS.at());
+        return new Coverage(first, last);
     }
 
     public Coverage coverageForLastNight(ZoneId zone, LocalTime sleepStart, LocalTime wakeEnd) {
@@ -320,12 +381,36 @@ public final class TelemetryReport {
         return null;
     }
 
+    /** Opening-edge activity reading, bracketed exactly like {@link #startAnchor}. */
+    private Sample activityStartAnchor(Instant from, Instant to) {
+        Sample before = latestActivityAtOrBefore(from);
+        if (before != null && !before.at().isBefore(from.minus(BRACKET_REACH))) return before;
+        Sample inside = earliestActivityAtOrAfter(from);
+        if (inside != null && !inside.at().isAfter(to)) return inside;
+        return null;
+    }
+
+    /** Closing-edge activity reading, bracketed exactly like {@link #endAnchor}. */
+    private Sample activityEndAnchor(Instant from, Instant to) {
+        Sample inside = null;
+        for (Sample s : samples) {
+            if (s.at().isAfter(to)) break;
+            if (s.at().isBefore(from)) continue;
+            if (!s.activity().isEmpty()) inside = s;
+        }
+        if (inside != null) return inside;
+        Sample after = earliestActivityAtOrAfter(to);
+        if (after != null && !after.at().isAfter(to.plus(BRACKET_REACH))) return after;
+        return null;
+    }
+
     private List<Activity> activityOverWindow(Instant from, Instant to) {
         List<Activity> out = new ArrayList<>();
-        // Baseline off the earliest sample that actually has activity data — the older
-        // resource-only rows (before activity capture existed) would otherwise zero it out.
-        Sample startS = earliestActivityAtOrAfter(from);
-        Sample endS = latestActivityAtOrBefore(to);
+        // Anchored to the nearest activity-bearing reading either side of the window, for the same
+        // reason the resource deltas are: a two-hour sample cadence means a short window often
+        // contains no snapshot at all, and "the bot did nothing" is the wrong answer to that.
+        Sample startS = activityStartAnchor(from, to);
+        Sample endS = activityEndAnchor(from, to);
         if (startS == null || endS == null || !startS.at().isBefore(endS.at())) {
             return out;
         }

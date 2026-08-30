@@ -636,23 +636,31 @@ public class StatisticsLayoutController extends AbstractProfileController {
                 String sub;
                 if (isSpeedup) {
                     value = changed ? fmtMinutesSigned(d.change())
-                            : measured ? "steady" : fmtMinutes(current);
+                            : measured ? "steady" : NO_DATA_VALUE;
                     sub = measured ? fmtMinutes(d.start()) + " → " + fmtMinutes(d.end())
-                            : "no data this window (current: " + fmtMinutes(current) + ")";
+                            : "no data this window\ncurrent: " + fmtMinutes(current);
                 } else {
                     // Measured change → show the before→after range (headline already carries the +/- gain).
                     // Measured, no change → say so plainly rather than repeating the raw amount.
-                    // No coverage at all → fall back to the current stockpile, explicitly labeled.
+                    // NO coverage at all → the headline must NOT be a number. Rendering the current
+                    // stockpile here put an absolute figure ("34.22M") in the accent colour under a
+                    // heading that reads "RESOURCES & POWER GAINED", and the one label that made it
+                    // honest was the subtitle — which the fixed card height clipped to "no data
+                    // this ...". Read exactly like "gained 34 million power overnight" when the truth
+                    // was a 12-hour telemetry gap. The headline is now a dash, and the current
+                    // amount lives in the subtitle where it cannot be mistaken for a gain.
                     value = changed ? fmtSigned(d.change())
-                            : measured ? "steady" : fmt(current);
+                            : measured ? "steady" : NO_DATA_VALUE;
                     sub = measured ? fmt(d.start()) + " → " + fmt(d.end())
-                            : "no data this window (current: " + fmt(current) + ")";
+                            : "no data this window\ncurrent: " + fmt(current);
                 }
+                // An unmeasured tile also drops its accent colour, so a grid full of gaps reads as
+                // grey/absent at a glance instead of as a grid full of vivid headline numbers.
+                String accent = measured ? METRIC_COLORS.getOrDefault(metric, "#4fc3f7") : NO_DATA_ACCENT;
                 flowEarnings.getChildren().add(createStatCard(
                         METRIC_ICONS.get(metric),
                         METRIC_LABELS.getOrDefault(metric, metric),
-                        value, sub,
-                        METRIC_COLORS.getOrDefault(metric, "#4fc3f7")));
+                        value, sub, accent));
             }
         }
 
@@ -677,7 +685,17 @@ public class StatisticsLayoutController extends AbstractProfileController {
     }
 
     private static final double CARD_W = 140;
-    private static final double CARD_H = 176;
+    // Raised from 176: at 176 the 72px icon slot + value + title consumed the box and the
+    // wrapping subtitle — the only thing distinguishing "gained 34.22M" from "currently has
+    // 34.22M" — was clipped to "no data this ...". The disclaimer can never be the part that
+    // gets truncated, so the card now carries two comfortable subtitle lines.
+    private static final double CARD_H = 208;
+
+    /** Headline for a metric with no coverage in the selected window. Never a number — see
+     *  the fallback branch in {@link #showWindow}. */
+    private static final String NO_DATA_VALUE = "—";
+    /** Muted accent for those same no-coverage tiles. */
+    private static final String NO_DATA_ACCENT = "#6b7480";
 
     private VBox createStatCard(String iconKey, String title, String value, String subtitle, String accent) {
         VBox card = new VBox(3);
