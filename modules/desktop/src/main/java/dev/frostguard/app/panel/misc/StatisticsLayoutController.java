@@ -191,13 +191,13 @@ public class StatisticsLayoutController extends AbstractProfileController {
         GLYPHS.put("sp_research", MaterialDesignF.FLASK);
         GLYPHS.put("sp_healing", MaterialDesignM.MEDICAL_BAG);
         GLYPHS.put("intel", MaterialDesignC.CHART_BAR);
-        GLYPHS.put("beasts", MaterialDesignT.TARGET);
+        GLYPHS.put("beasts", MaterialDesignS.SKULL);
         GLYPHS.put("survivor_camps", MaterialDesignT.TENT);
         GLYPHS.put("journeys", MaterialDesignC.COMPASS_OUTLINE);
         GLYPHS.put("exploration_win", MaterialDesignT.TROPHY);
         GLYPHS.put("training", MaterialDesignS.SWORD_CROSS);
         GLYPHS.put("research", MaterialDesignF.FLASK);
-        GLYPHS.put("gather", MaterialDesignA.AXE);
+        GLYPHS.put("gather", MaterialDesignP.PICKAXE);
         GLYPHS.put("storehouse", MaterialDesignW.WAREHOUSE);
         GLYPHS.put("alliance_chest", MaterialDesignS.SHIELD);
         GLYPHS.put("pet", MaterialDesignP.PAW);
@@ -526,37 +526,42 @@ public class StatisticsLayoutController extends AbstractProfileController {
                 setActiveSegment("Past hour");
                 showWindow("Past hour",
                         telemetry.last(1, ChronoUnit.HOURS), telemetry.activityLast(1, ChronoUnit.HOURS),
-                        telemetry.coverageForLast(1, ChronoUnit.HOURS));
+                        telemetry.coverageForLast(1, ChronoUnit.HOURS),
+                        telemetry.silenceForLast(1, ChronoUnit.HOURS));
             }
             case NIGHT -> {
                 setActiveSegment("Last night");
                 showWindow("Last night (" + SLEEP_START + "–" + WAKE_END + ")",
                         telemetry.lastNight(ZoneId.systemDefault(), SLEEP_START, WAKE_END),
                         telemetry.activityLastNight(ZoneId.systemDefault(), SLEEP_START, WAKE_END),
-                        telemetry.coverageForLastNight(ZoneId.systemDefault(), SLEEP_START, WAKE_END));
+                        telemetry.coverageForLastNight(ZoneId.systemDefault(), SLEEP_START, WAKE_END),
+                        telemetry.silenceForLastNight(ZoneId.systemDefault(), SLEEP_START, WAKE_END));
             }
             case LAST_24H -> {
                 setActiveSegment("Last 24 hours");
                 showWindow("Last 24 hours",
                         telemetry.last(24, ChronoUnit.HOURS), telemetry.activityLast(24, ChronoUnit.HOURS),
-                        telemetry.coverageForLast(24, ChronoUnit.HOURS));
+                        telemetry.coverageForLast(24, ChronoUnit.HOURS),
+                        telemetry.silenceForLast(24, ChronoUnit.HOURS));
             }
             case THIS_WEEK -> {
                 setActiveSegment("This week");
                 showWindow("This week (last 7 days)",
                         telemetry.last(7, ChronoUnit.DAYS), telemetry.activityLast(7, ChronoUnit.DAYS),
-                        telemetry.coverageForLast(7, ChronoUnit.DAYS));
+                        telemetry.coverageForLast(7, ChronoUnit.DAYS),
+                        telemetry.silenceForLast(7, ChronoUnit.DAYS));
             }
             case THIS_MONTH -> {
                 setActiveSegment("This month");
                 showWindow("This month (last 30 days)",
                         telemetry.last(30, ChronoUnit.DAYS), telemetry.activityLast(30, ChronoUnit.DAYS),
-                        telemetry.coverageForLast(30, ChronoUnit.DAYS));
+                        telemetry.coverageForLast(30, ChronoUnit.DAYS),
+                        telemetry.silenceForLast(30, ChronoUnit.DAYS));
             }
             case TOTAL -> {
                 setActiveSegment("All time");
                 showWindow("All recorded time", telemetry.total(), telemetry.activityTotal(),
-                        telemetry.coverageForTotal());
+                        telemetry.coverageForTotal(), telemetry.silenceForTotal());
             }
         }
     }
@@ -586,10 +591,38 @@ public class StatisticsLayoutController extends AbstractProfileController {
         }
     }
 
+    /**
+     * Describes a window the bot recorded nothing in, by naming when it last spoke and when it
+     * next did. "Not enough samples yet" is what the page used to say about a night the machine
+     * spent crashed, which reads as "still warming up" -- the opposite of the truth. Either
+     * endpoint may be absent (no history before the window, or none since).
+     */
+    private String formatSilence(TelemetryReport.Coverage silence) {
+        if (silence == null) {
+            return null;
+        }
+        ZoneId zone = ZoneId.systemDefault();
+        String last = silence.actualFrom() == null ? null
+                : ZonedDateTime.ofInstant(silence.actualFrom(), zone).format(COVERAGE_FORMATTER);
+        String next = silence.actualTo() == null ? null
+                : ZonedDateTime.ofInstant(silence.actualTo(), zone).format(COVERAGE_FORMATTER);
+        if (last != null && next != null) {
+            return "nothing recorded in this window — the bot last reported " + last
+                    + " and next reported " + next + ".";
+        }
+        if (last != null) {
+            return "nothing recorded in this window — the bot last reported " + last
+                    + " and has not reported since.";
+        }
+        return "nothing recorded in this window — the bot's first report was " + next + ".";
+    }
+
     /** Rebuilds both the "earned" and "did" sections for the chosen window. */
     private void showWindow(String windowLabel, List<TelemetryReport.Delta> earned,
-                            List<TelemetryReport.Activity> did, TelemetryReport.Coverage coverage) {
+                            List<TelemetryReport.Activity> did, TelemetryReport.Coverage coverage,
+                            TelemetryReport.Coverage silence) {
         boolean nothing = (earned == null || earned.isEmpty()) && (did == null || did.isEmpty());
+        String silenceText = formatSilence(silence);
 
         if (lblEarningsEmpty != null) {
             lblEarningsEmpty.setVisible(nothing);
@@ -597,9 +630,14 @@ public class StatisticsLayoutController extends AbstractProfileController {
         }
         if (lblWindow != null) {
             String coverageSuffix = formatCoverage(coverage);
-            String label = nothing
-                    ? windowLabel + " — not enough samples yet to measure a change."
-                    : coverageSuffix != null ? windowLabel + "  (" + coverageSuffix + ")" : windowLabel;
+            String label;
+            if (silenceText != null) {
+                label = windowLabel + " — " + silenceText;
+            } else if (nothing) {
+                label = windowLabel + " — not enough samples yet to measure a change.";
+            } else {
+                label = coverageSuffix != null ? windowLabel + "  (" + coverageSuffix + ")" : windowLabel;
+            }
             lblWindow.setText(label);
         }
 
@@ -674,9 +712,13 @@ public class StatisticsLayoutController extends AbstractProfileController {
                 }
             } else {
                 // Windowed views need two activity snapshots (~2h apart) before they can show a
-                // delta. Say so instead of leaving a blank section that looks broken.
-                Label hint = new Label("Filling in — this window needs a couple more sample cycles"
-                        + " (the bot snapshots roughly every 2 hours). “All time” shows totals now.");
+                // delta. Say so instead of leaving a blank section that looks broken -- unless the
+                // window is silent, in which case "filling in" is a flat lie and the outage is the
+                // thing worth reading.
+                Label hint = new Label(silenceText != null
+                        ? "No activity recorded — " + silenceText
+                        : "Filling in — this window needs a couple more sample cycles"
+                                + " (the bot snapshots roughly every 2 hours). “All time” shows totals now.");
                 hint.getStyleClass().add("label-muted");
                 hint.setWrapText(true);
                 flowActivity.getChildren().add(hint);

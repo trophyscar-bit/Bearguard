@@ -161,20 +161,23 @@ public final class TelemetryReport {
     }
 
     /**
-     * How far outside a window a boundary reading may be taken from when the window itself has
-     * no sample at that edge.
+     * How far BEFORE a window its baseline reading may be taken from.
      *
-     * <p>bg_telemetry snapshots roughly every two hours, so requiring both endpoints to fall
-     * strictly INSIDE the window made perfectly measurable windows report "not enough samples".
-     * Last night is the case that exposed it: the bot logged a reading at 22:52 and the next at
-     * 11:24, with the 23:00-08:50 window falling entirely in between. Two good readings sat right
-     * either side of the night and the answer (+25,845 power) was there the whole time, but the
-     * strict rule threw both away and the tab fell back to printing the raw stockpile.</p>
+     * <p>bg_telemetry snapshots roughly every two hours, so a short window routinely holds a
+     * reading or two but no reading at its opening edge. Measuring from the first sample INSIDE
+     * the window then undercounts, because whatever happened between the window opening and that
+     * first sample is silently dropped. Reaching back to the last reading before the window fixes
+     * that, and is the ordinary way to value a window against a sparse series.</p>
      *
-     * <p>Anchoring to the nearest reading OUTSIDE each edge is how you measure a window against a
-     * sparse series. The reach is capped so a long outage still reads as no-data rather than
-     * silently quoting a stale number, and {@link #coverageForWindow} always reports the real
-     * span the figures came from, so a stretched window is stated rather than hidden.</p>
+     * <p>Deliberately one-directional. An earlier revision reached forward past the window's END
+     * too, and that is not the same operation: a baseline taken slightly early still describes the
+     * window, whereas an end reading taken late folds in work that happened AFTER it. Last night
+     * is the case that proved it -- the window held nothing at all, the forward reach grabbed the
+     * 11:24 AM reading, and an hour of this morning's botting (+25,845 power, 3 beasts, 4 gather
+     * marches) was reported as having happened overnight while the machine was in fact crashed.
+     * Bracketing may refine the edges of a window that has data. It must never manufacture one out
+     * of the periods either side. A window with no readings in it is reported as what it is --
+     * see {@link #silenceAround}.</p>
      */
     private static final Duration BRACKET_REACH = Duration.ofHours(3);
 
@@ -197,9 +200,10 @@ public final class TelemetryReport {
     }
 
     /**
-     * The reading that best represents {@code metric} at the window's opening edge: the last one
-     * taken at/before {@code from} when there is one within {@link #BRACKET_REACH}, otherwise the
-     * earliest one inside the window.
+     * The reading that opens the window for {@code metric}: the last one taken at/before
+     * {@code from} when there is one within {@link #BRACKET_REACH}, otherwise the earliest one
+     * inside the window. Only ever consulted once {@link #endAnchor} has confirmed the window
+     * actually contains data.
      */
     private Sample startAnchor(String metric, Instant from, Instant to) {
         Sample before = metricAtOrBefore(metric, from);
@@ -210,9 +214,9 @@ public final class TelemetryReport {
     }
 
     /**
-     * The reading that best represents {@code metric} at the window's closing edge: the last one
-     * inside the window, otherwise the first one taken after it closed, within
-     * {@link #BRACKET_REACH}.
+     * The reading that closes the window for {@code metric}: the last one taken INSIDE it. Never
+     * a later reading -- see {@link #BRACKET_REACH}. Null when the window holds none, which is
+     * also what makes a window with no data report no data rather than borrowing the next one.
      */
     private Sample endAnchor(String metric, Instant from, Instant to) {
         Sample inside = null;
@@ -221,10 +225,7 @@ public final class TelemetryReport {
             if (s.at().isBefore(from)) continue;
             if (s.get(metric) != null) inside = s;
         }
-        if (inside != null) return inside;
-        Sample after = metricAtOrAfter(metric, to);
-        if (after != null && !after.at().isAfter(to.plus(BRACKET_REACH))) return after;
-        return null;
+        return inside;
     }
 
     /**
@@ -245,10 +246,12 @@ public final class TelemetryReport {
     public List<Delta> deltaOverWindow(Instant from, Instant to) {
         List<Delta> deltas = new ArrayList<>();
         for (String metric : METRICS) {
-            Sample startS = startAnchor(metric, from, to);
-            if (startS == null) continue;
+            // End first: no in-window reading means the window was never observed, and nothing
+            // outside it may stand in. Only then is a baseline worth looking for.
             Sample endS = endAnchor(metric, from, to);
-            if (endS == null || !endS.at().isAfter(startS.at())) continue;
+            if (endS == null) continue;
+            Sample startS = startAnchor(metric, from, to);
+            if (startS == null || !endS.at().isAfter(startS.at())) continue;
             Long start = startS.get(metric);
             Long end = endS.get(metric);
             if (start == null || end == null) continue;
@@ -307,10 +310,10 @@ public final class TelemetryReport {
         Instant first = null;
         Instant last = null;
         for (String metric : METRICS) {
-            Sample startS = startAnchor(metric, from, to);
-            if (startS == null) continue;
             Sample endS = endAnchor(metric, from, to);
-            if (endS == null || !endS.at().isAfter(startS.at())) continue;
+            if (endS == null) continue;
+            Sample startS = startAnchor(metric, from, to);
+            if (startS == null || !endS.at().isAfter(startS.at())) continue;
             if (first == null || startS.at().isBefore(first)) first = startS.at();
             if (last == null || endS.at().isAfter(last)) last = endS.at();
         }
@@ -318,6 +321,53 @@ public final class TelemetryReport {
             return null;
         }
         return new Coverage(first, last);
+    }
+
+    /**
+     * When a window contains no reading whatsoever, the readings that bracket the silence -- so
+     * the page can name the outage instead of shrugging at it.
+     *
+     * <p>"not enough samples yet" is the wrong thing to say about a night the bot spent crashed.
+     * The useful answer is when it last reported and when it next did, which is exactly what a
+     * reader needs to know the run died rather than that the page is still warming up.</p>
+     *
+     * <p>Either endpoint may be null (nothing recorded before, or nothing since). Null overall
+     * means the window is NOT silent -- it has readings, and the normal delta path applies.</p>
+     */
+    public Coverage silenceAround(Instant from, Instant to) {
+        for (Sample s : samples) {
+            if (s.at().isAfter(to)) break;
+            if (!s.at().isBefore(from)) return null; // a reading inside the window
+        }
+        Sample before = null;
+        for (Sample s : samples) {
+            if (!s.at().isBefore(from)) break;
+            before = s;
+        }
+        Sample after = null;
+        for (Sample s : samples) {
+            if (s.at().isAfter(to)) { after = s; break; }
+        }
+        if (before == null && after == null) {
+            return null; // no history at all -- "still warming up" really is the right message
+        }
+        return new Coverage(before == null ? null : before.at(), after == null ? null : after.at());
+    }
+
+    public Coverage silenceForLastNight(ZoneId zone, LocalTime sleepStart, LocalTime wakeEnd) {
+        LocalDate today = LocalDate.now(zone);
+        Instant from = today.minusDays(1).atTime(sleepStart).atZone(zone).toInstant();
+        Instant to = today.atTime(wakeEnd).plusMinutes(WAKE_ANCHOR_GRACE_MINUTES).atZone(zone).toInstant();
+        return silenceAround(from, to);
+    }
+
+    public Coverage silenceForLast(long amount, ChronoUnit unit) {
+        Instant now = Instant.now();
+        return silenceAround(now.minus(amount, unit), now);
+    }
+
+    public Coverage silenceForTotal() {
+        return null; // all-time is every reading there is; it cannot have a gap around it
     }
 
     public Coverage coverageForLastNight(ZoneId zone, LocalTime sleepStart, LocalTime wakeEnd) {
@@ -390,7 +440,9 @@ public final class TelemetryReport {
         return null;
     }
 
-    /** Closing-edge activity reading, bracketed exactly like {@link #endAnchor}. */
+    /** Closing-edge activity reading: the last one INSIDE the window, exactly like
+     *  {@link #endAnchor}. Never a later one -- counters are cumulative, so borrowing a reading
+     *  from after the window credits it with work done after the window closed. */
     private Sample activityEndAnchor(Instant from, Instant to) {
         Sample inside = null;
         for (Sample s : samples) {
@@ -398,10 +450,7 @@ public final class TelemetryReport {
             if (s.at().isBefore(from)) continue;
             if (!s.activity().isEmpty()) inside = s;
         }
-        if (inside != null) return inside;
-        Sample after = earliestActivityAtOrAfter(to);
-        if (after != null && !after.at().isAfter(to.plus(BRACKET_REACH))) return after;
-        return null;
+        return inside;
     }
 
     private List<Activity> activityOverWindow(Instant from, Instant to) {
@@ -409,9 +458,12 @@ public final class TelemetryReport {
         // Anchored to the nearest activity-bearing reading either side of the window, for the same
         // reason the resource deltas are: a two-hour sample cadence means a short window often
         // contains no snapshot at all, and "the bot did nothing" is the wrong answer to that.
-        Sample startS = activityStartAnchor(from, to);
         Sample endS = activityEndAnchor(from, to);
-        if (startS == null || endS == null || !startS.at().isBefore(endS.at())) {
+        if (endS == null) {
+            return out; // window never observed; nothing outside it may speak for it
+        }
+        Sample startS = activityStartAnchor(from, to);
+        if (startS == null || !startS.at().isBefore(endS.at())) {
             return out;
         }
         for (Map.Entry<String, String> entry : ACTIVITY_LABELS.entrySet()) {
