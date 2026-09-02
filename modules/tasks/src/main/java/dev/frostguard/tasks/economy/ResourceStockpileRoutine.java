@@ -243,6 +243,25 @@ public class ResourceStockpileRoutine extends DelayedTask {
             tapNear(SUMMARY_CLOSE_X);
             sleepTask(300);
 
+            // The five speedup buckets were the one OCR'd family with no plausibility guard
+            // anywhere -- not here, and not in bg_telemetry either, which explicitly skips them on
+            // the grounds that it reads them from config rather than OCR'ing them itself. Nobody
+            // was checking them at all, and it showed: on 9/1 the general bucket read 30 minutes
+            // between readings of 2434 and 2664, which the Statistics tab then reported as
+            // "+1d 21h 21m gained" overnight because that misread happened to be the last reading
+            // before the window opened. Same guard as the stockpiles now, on its own policy --
+            // see SPEEDUP_GUARD for why the thresholds differ.
+            gen  = sanityCheckAgainstCached("sp_general", gen,
+                    ConfigurationKeyEnum.SPEEDUP_GENERAL_MIN_LONG, SPEEDUP_GUARD);
+            tr   = sanityCheckAgainstCached("sp_training", tr,
+                    ConfigurationKeyEnum.SPEEDUP_TRAINING_MIN_LONG, SPEEDUP_GUARD);
+            con  = sanityCheckAgainstCached("sp_construction", con,
+                    ConfigurationKeyEnum.SPEEDUP_CONSTRUCTION_MIN_LONG, SPEEDUP_GUARD);
+            res  = sanityCheckAgainstCached("sp_research", res,
+                    ConfigurationKeyEnum.SPEEDUP_RESEARCH_MIN_LONG, SPEEDUP_GUARD);
+            heal = sanityCheckAgainstCached("sp_healing", heal,
+                    ConfigurationKeyEnum.SPEEDUP_HEALING_MIN_LONG, SPEEDUP_GUARD);
+
             if (gen != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_GENERAL_MIN_LONG, gen);
             if (tr != null)   profile.setConfig(ConfigurationKeyEnum.SPEEDUP_TRAINING_MIN_LONG, tr);
             if (con != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_CONSTRUCTION_MIN_LONG, con);
@@ -338,6 +357,46 @@ public class ResourceStockpileRoutine extends DelayedTask {
     private final Map<String, Integer> rejectStreakCount = new java.util.HashMap<>();
 
     /**
+     * What "implausible" means for one family of fields. Stockpiles and speedups are both OCR'd
+     * off the same panel and misread the same way, but they move differently enough that one set
+     * of thresholds cannot serve both.
+     *
+     * @param decimalRepair     try the /10 dropped-decimal-point correction before rejecting.
+     *                          Only the abbreviated stockpile forms ("87.4M") have a decimal point
+     *                          to drop; a duration reads as "1d 22h 31m" and cannot fail this way.
+     * @param absoluteTolerance a change no larger than this is always plausible, whatever the
+     *                          ratio says. A ratio test alone is nonsense on a small pile -- five
+     *                          minutes of speedup becoming forty-nine is a 9.8x "spike" and an
+     *                          entirely ordinary morning's rewards.
+     * @param streakToTrust     consecutive mutually-consistent rejected readings that beat a stale
+     *                          cache.
+     * @param maxTrustableRatio hard ceiling past which no streak is ever trusted.
+     */
+    record GuardPolicy(boolean decimalRepair, long absoluteTolerance,
+                               int streakToTrust, double maxTrustableRatio) {}
+
+    static final GuardPolicy STOCKPILE_GUARD =
+            new GuardPolicy(true, 0L, REJECT_STREAK_TO_TRUST, MAX_TRUSTABLE_STREAK_RATIO);
+
+    /**
+     * Speedups need their own thresholds, because the stockpile ones would make the guard worse
+     * than no guard at all here.
+     *
+     * <p>The 10x auto-trust ceiling is the dangerous one: emptying a speedup bucket into a single
+     * Furnace upgrade is a completely normal thing to do and takes the total from 2268 minutes to
+     * 155 -- a 14.6x drop, past the ceiling, so it would be rejected forever and the page would
+     * report a stockpile the operator spent days ago. A hoard genuinely can go to almost nothing
+     * in one action, so ratio alone cannot tell a real spend from a misread here. What separates
+     * them is repetition: a real spend is confirmed by the very next reading, a misread never is.
+     * So the ceiling comes off and the streak does the work, shortened to two because a bucket
+     * that legitimately moves fast should not sit stale for three cycles waiting to be believed.
+     *
+     * <p>Four hours of absolute tolerance keeps small piles from tripping the ratio test at all.</p>
+     */
+    static final GuardPolicy SPEEDUP_GUARD =
+            new GuardPolicy(false, 240L, 2, Double.MAX_VALUE);
+
+    /**
      * Rejects a candidate reading that jumps implausibly far from the value this routine last
      * cached for the same field, returning null (config keeps its last known-good value, and
      * GatherRoutine/bg_telemetry both fall back the same way they do on any other unreadable
@@ -358,6 +417,11 @@ public class ResourceStockpileRoutine extends DelayedTask {
      * (and falls through to the streak-based recovery instead).
      */
     private Long sanityCheckAgainstCached(String field, Long candidate, ConfigurationKeyEnum cacheKey) {
+        return sanityCheckAgainstCached(field, candidate, cacheKey, STOCKPILE_GUARD);
+    }
+
+    private Long sanityCheckAgainstCached(String field, Long candidate, ConfigurationKeyEnum cacheKey,
+                                          GuardPolicy policy) {
         if (candidate == null) {
             return null;
         }
@@ -372,13 +436,13 @@ public class ResourceStockpileRoutine extends DelayedTask {
             rejectStreakAnchor.remove(field);
             return candidate;
         }
-        if (inBand(candidate, cached)) {
+        if (inBand(candidate, cached, policy.absoluteTolerance())) {
             rejectStreakCount.remove(field);
             rejectStreakAnchor.remove(field);
             return candidate;
         }
         long corrected = candidate / 10L;
-        if (inBand(corrected, cached)) {
+        if (policy.decimalRepair() && inBand(corrected, cached, policy.absoluteTolerance())) {
             logWarning("ResourceStockpileRoutine | " + field + " reading " + candidate + " is implausibly "
                     + "far from the last cached " + cached + ", but /10 (" + corrected + ") fits -- this is "
                     + "the known dropped-decimal-point misread, using the corrected value.");
@@ -388,15 +452,16 @@ public class ResourceStockpileRoutine extends DelayedTask {
         }
 
         Long anchor = rejectStreakAnchor.get(field);
-        int streak = (anchor != null && inBand(candidate, anchor)) ? rejectStreakCount.getOrDefault(field, 0) + 1 : 1;
+        int streak = (anchor != null && inBand(candidate, anchor, policy.absoluteTolerance()))
+                ? rejectStreakCount.getOrDefault(field, 0) + 1 : 1;
         rejectStreakAnchor.put(field, candidate);
         rejectStreakCount.put(field, streak);
 
         double cacheRatio = (double) candidate / cached;
-        boolean withinTrustableCeiling = cacheRatio <= MAX_TRUSTABLE_STREAK_RATIO
-                && cacheRatio >= 1.0 / MAX_TRUSTABLE_STREAK_RATIO;
+        boolean withinTrustableCeiling = cacheRatio <= policy.maxTrustableRatio()
+                && cacheRatio >= 1.0 / policy.maxTrustableRatio();
 
-        if (streak >= REJECT_STREAK_TO_TRUST && withinTrustableCeiling) {
+        if (streak >= policy.streakToTrust() && withinTrustableCeiling) {
             logWarning("ResourceStockpileRoutine | " + field + " has now read consistently near "
                     + candidate + " for " + streak + " consecutive cycles while cached stays at "
                     + cached + " -- trusting the consistent new readings over the stale cache.");
@@ -404,10 +469,10 @@ public class ResourceStockpileRoutine extends DelayedTask {
             rejectStreakAnchor.remove(field);
             return candidate;
         }
-        if (streak >= REJECT_STREAK_TO_TRUST) {
+        if (streak >= policy.streakToTrust()) {
             logWarning("ResourceStockpileRoutine | " + field + " has read consistently near " + candidate
                     + " for " + streak + " consecutive cycles, but that is " + String.format("%.1f", cacheRatio)
-                    + "x the last cached " + cached + " -- past the " + MAX_TRUSTABLE_STREAK_RATIO
+                    + "x the last cached " + cached + " -- past the " + policy.maxTrustableRatio()
                     + "x ceiling for auto-trust, so this is treated as a persistent misread (e.g. a covering "
                     + "popup or wrong screen region) rather than a real change. Keeping the last known-good "
                     + "value; this needs a human look, not another cycle.");
@@ -417,11 +482,18 @@ public class ResourceStockpileRoutine extends DelayedTask {
         logWarning("ResourceStockpileRoutine | " + field + " reading " + candidate + " is implausibly "
                 + "far from the last cached " + cached + " (ratio " + String.format("%.2f", cacheRatio)
                 + ", /10 correction didn't fit either) -- rejecting for now, keeping the last known-good "
-                + "value (streak toward trusting a consistent new reading: " + streak + "/" + REJECT_STREAK_TO_TRUST + ").");
+                + "value (streak toward trusting a consistent new reading: " + streak + "/"
+                + policy.streakToTrust() + ").");
         return null;
     }
 
-    private static boolean inBand(long candidate, long cached) {
+    /** Within the ratio band, or a small enough absolute move that the ratio is not meaningful.
+     *  The absolute escape matters on small values: 5 minutes of speedup becoming 49 is a 9.8x
+     *  ratio and 44 minutes of reality. */
+    static boolean inBand(long candidate, long cached, long absoluteTolerance) {
+        if (absoluteTolerance > 0 && Math.abs(candidate - cached) <= absoluteTolerance) {
+            return true;
+        }
         double ratio = (double) candidate / (double) cached;
         return ratio <= SANITY_BAND_MAX_RATIO && ratio >= SANITY_BAND_MIN_RATIO;
     }

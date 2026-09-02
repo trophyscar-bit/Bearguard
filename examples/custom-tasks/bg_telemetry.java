@@ -13,6 +13,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
@@ -162,8 +163,10 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // not a static coordinate bug) and not worth chasing blind. Same "decline rather than
         // guess" pattern used throughout this codebase: reject a reading that jumps implausibly
         // from the last known-good sample instead of trusting it, so a bad OCR frame produces a
-        // gap in the graph, never a fake spike/drop.
-        Map<String, Object> lastKnownGood = readLatestSample();
+        // gap in the graph, never a fake spike/drop. The comparison value is the last non-null
+        // reading for the field, not the last row -- see readLastKnownGood for why that
+        // distinction is the whole guard.
+        Map<String, Object> lastKnownGood = readLastKnownGood();
 
         // Dave's #250 review: sanity-checking only power/gems left coal's live OCR read
         // unvalidated even though it goes through the exact same misread-prone path. Applied to
@@ -332,26 +335,52 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 .resolve("profiles").resolve(String.valueOf(profile.getId()));
     }
 
-    /** Reads this profile's latest.json (the previous sample) as a flat field->value map, numbers
-     *  only. Hand-rolled rather than pulling in a JSON library, matching {@link #toJson} below.
-     *  Returns null on any problem -- callers already treat that as "nothing to compare against". */
-    private Map<String, Object> readLatestSample() {
-        Path file = telemetryDir().resolve("latest.json");
+    /**
+     * The most recent NON-NULL value for each field, walking back through history as far as it
+     * takes -- not simply the previous row.
+     *
+     * <p>This used to read latest.json, i.e. the last row written, and that made the guard blind
+     * itself. Rejecting a reading writes null for that field; the next run then found null in
+     * latest.json, had nothing to compare against, and passed the next candidate through
+     * unchecked. So misreads got in one sample after every rejection, which for an intermittent
+     * fault is most of them. The gems series shows it exactly:</p>
+     *
+     * <pre>
+     *   8/23 19:34  47,635   good
+     *   8/23 22:36  null     rejected -- guard working
+     *   8/23 23:18  94,523   accepted, because the row above it was null
+     *   8/24 01:20  null     rejected
+     *   8/24 03:23  56,755   good
+     * </pre>
+     *
+     * <p>A rejection is precisely when the guard needs to keep holding the last good value, so it
+     * now does. Fields still absent everywhere in history simply have nothing to compare against,
+     * which callers already handle.</p>
+     */
+    private Map<String, Object> readLastKnownGood() {
+        Path file = telemetryDir().resolve("history.jsonl");
         try {
             if (!Files.exists(file)) {
                 return null;
             }
-            String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
             Map<String, Object> result = new LinkedHashMap<>();
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("\"(\\w+)\":(null|-?\\d+)(?!\\.)")
-                    .matcher(content);
-            while (m.find()) {
-                String key = m.group(1);
-                String value = m.group(2);
-                result.put(key, "null".equals(value) ? null : Long.parseLong(value));
+            java.util.regex.Pattern pattern =
+                    java.util.regex.Pattern.compile("\"(\\w+)\":(-?\\d+)(?!\\.)");
+            for (int i = lines.size() - 1; i >= 0; i--) {
+                String line = lines.get(i);
+                if (line == null || line.isBlank()) {
+                    continue;
+                }
+                java.util.regex.Matcher m = pattern.matcher(line);
+                while (m.find()) {
+                    // putIfAbsent: walking backwards, the first value seen for a field is the
+                    // most recent one. Nulls do not match the pattern at all, so a rejected
+                    // reading is skipped rather than recorded as the last known-good.
+                    result.putIfAbsent(m.group(1), Long.parseLong(m.group(2)));
+                }
             }
-            return result;
+            return result.isEmpty() ? null : result;
         } catch (Exception e) {
             return null;
         }
