@@ -25,6 +25,12 @@ import dev.frostguard.vision.logging.ProfileContextLogger;
 public final class SidebarNavigator {
 
     private static final int SECTION_SETTLE_MS = 400;
+    /** Attempts at opening a section before reporting failure. Three, because the observed
+     *  failure is a mistimed frame rather than a wrong coordinate: the first retry is what
+     *  actually recovers it, and the third exists so a genuinely closed panel still gives up
+     *  quickly instead of stalling the queue. */
+    private static final int OPEN_SECTION_ATTEMPTS = 3;
+    private static final long OPEN_SECTION_RETRY_MS = 700L;
     static final int SCROLL_SETTLE_MS = 2_000;
     static final int SCROLL_DISTANCE_PX = 120;
     private static final int SCROLL_DURATION_MS = 500;
@@ -50,8 +56,64 @@ public final class SidebarNavigator {
         this.log = new ProfileContextLogger(SidebarNavigator.class, profile);
     }
 
+    /**
+     * Opens a sidebar section, retrying a transient miss before giving up.
+     *
+     * <p>{@link #openSectionInternal} is single-attempt by design: it taps once and reports what it
+     * observed. That is the right shape for the primitive, but it is the wrong shape for callers,
+     * because the failure it reports is usually transient — the panel is mid-animation when the
+     * frame is classified, so the section reads back as {@code closed/unknown} a beat before it is
+     * genuinely open.
+     *
+     * <p>That cost real runs. {@code MarchHelper.openLeftMenuCitySection} turns a {@code false} here
+     * into an {@code IllegalStateException}, and 18 of the 19 call sites across the task routines do
+     * not catch it, so one mistimed frame killed the whole task. Live on 2026-09-02, Gather Resources
+     * failed three times in a row this way, and the Timer sweep failed three times the day before,
+     * each time logging {@code requested=CITY observed=closed/unknown}.
+     *
+     * <p>Retrying here rather than at the call sites is deliberate: a fix applied per-caller has to
+     * be applied nineteen times and remembered for the twentieth.
+     */
     public boolean openSection(SidebarSection target) {
-        return openSectionInternal(target);
+        boolean opened = retryOpen(
+                () -> openSectionInternal(target),
+                () -> interruptibleWait(OPEN_SECTION_RETRY_MS),
+                attempt -> log.debug("Sidebar section " + target + " opened on attempt " + attempt
+                        + "/" + OPEN_SECTION_ATTEMPTS));
+        if (!opened) {
+            log.warn("Could not open sidebar section " + target + " after up to "
+                    + OPEN_SECTION_ATTEMPTS + " attempts");
+        }
+        return opened;
+    }
+
+    /**
+     * The retry itself, free of the emulator so it can be tested directly.
+     *
+     * @param attempt   one open attempt; already logs what it observed on failure
+     * @param settle    waits between attempts, returning false if interrupted
+     * @param onRecover called with the attempt number when a retry succeeds
+     */
+    static boolean retryOpen(java.util.function.BooleanSupplier attempt,
+                             java.util.function.BooleanSupplier settle,
+                             java.util.function.IntConsumer onRecover) {
+        for (int n = 1; n <= OPEN_SECTION_ATTEMPTS; n++) {
+            if (attempt.getAsBoolean()) {
+                if (n > 1) {
+                    onRecover.accept(n);
+                }
+                return true;
+            }
+            if (n == OPEN_SECTION_ATTEMPTS) {
+                return false;
+            }
+            // Let the UI settle before looking again rather than re-reading the same frame.
+            // An interrupt is a stop request, not a slow panel: abandon rather than sleep on.
+            if (!settle.getAsBoolean()) {
+                return false;
+            }
+        }
+        return false;
     }
 
     public boolean navigateTo(SidebarDestination destination) {
