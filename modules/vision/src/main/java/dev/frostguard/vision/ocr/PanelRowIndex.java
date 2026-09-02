@@ -34,10 +34,14 @@ public final class PanelRowIndex {
      *
      * <p>Measured on the live panels: within a row, fragments of a wrapped label and its value sit
      * 13-17px apart, and the Overview's protected sub-value sits 34px under its owned value.
-     * Between rows the nearest centres are 58px apart, and usually 80-90. Forty splits every
-     * observed row correctly with room on both sides.</p>
+     * Between rows the nearest centres are 58px apart, and usually 80-90. Forty-six is the
+     * midpoint of that 34-to-58 gap, so both the widest row and the closest pair of rows have
+     * about a dozen pixels of margin -- splitting the difference rather than sitting near either
+     * edge, since a value merged into the wrong row is exactly the failure this class exists to
+     * end, and a row split in two fails safe instead (the caller sees the wrong count and skips
+     * the cycle).</p>
      */
-    public static final int DEFAULT_ROW_GAP = 40;
+    public static final int DEFAULT_ROW_GAP = 46;
 
     private final List<Row> rows;
 
