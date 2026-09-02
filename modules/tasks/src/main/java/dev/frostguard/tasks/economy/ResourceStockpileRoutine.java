@@ -1,10 +1,11 @@
 package dev.frostguard.tasks.economy;
 
-import java.awt.Color;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -14,9 +15,12 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
-import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
+import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
+import dev.frostguard.vision.ocr.OcrEngine;
+import dev.frostguard.vision.ocr.PanelRowIndex;
+import dev.frostguard.vision.ocr.TextLine;
 
 /**
  * Reads current Meat/Wood/Coal/Iron warehouse totals and caches them to profile
@@ -57,22 +61,40 @@ public class ResourceStockpileRoutine extends DelayedTask {
     private static final PointData CLOSE_OVERVIEW_X = new PointData(690, 358);
 
     // "Owned" total crops — the LARGE top number in each resource row (the smaller
-    // shield/protected teal number ~20px below is deliberately excluded).
-    private static final PointData MEAT_TL = new PointData(452, 495);
-    private static final PointData MEAT_BR = new PointData(568, 528);
-    private static final PointData WOOD_TL = new PointData(452, 608);
-    private static final PointData WOOD_BR = new PointData(568, 641);
-    private static final PointData COAL_TL = new PointData(452, 721);
-    private static final PointData COAL_BR = new PointData(568, 754);
-    private static final PointData IRON_TL = new PointData(452, 833);
-    private static final PointData IRON_BR = new PointData(568, 866);
 
-    private static final OcrSettingsData OWNED_TEXT_SETTINGS =
+    /**
+     * The whole Overview panel, and the whole Summary popup. Both are read in one pass each rather
+     * than as a set of per-value boxes -- see {@link PanelRowIndex} for why that turned out to
+     * matter more than any amount of crop calibration.
+     */
+    private static final PointData OVERVIEW_PANEL_TL = new PointData(60, 420);
+    private static final PointData OVERVIEW_PANEL_BR = new PointData(700, 900);
+    private static final PointData SUMMARY_PANEL_TL = new PointData(60, 380);
+    private static final PointData SUMMARY_PANEL_BR = new PointData(700, 980);
+
+    /** Left edge of the Overview's "Owned" column, clear of the Output column beside it. */
+    private static final int OWNED_COLUMN_X = 440;
+    /** Left edge of the Summary's "Total Resources" column, clear of "Total Items". */
+    private static final int TOTAL_RESOURCES_COLUMN_X = 460;
+    /** Left edge of the Speedup tab's duration column, clear of the item labels. */
+    private static final int SPEEDUP_VALUE_COLUMN_X = 400;
+
+    /** The Overview lists meat, wood, coal then iron, top to bottom, always. */
+    private static final List<String> OVERVIEW_ROW_ORDER = List.of("meat", "wood", "coal", "iron");
+
+    /**
+     * Reading a whole panel at once, so no colour isolation and no glyph filter.
+     *
+     * <p>Both were doing damage. Isolating on the digit colour washed the anti-aliased decimal
+     * point out to background before Tesseract saw it -- the pixels of a one-pixel dot never sit
+     * close enough to the pure text colour to survive the tolerance -- which is how "87.4M" became
+     * "874M". And a whitelist cannot help a pass that has to read the labels too. Given the whole
+     * panel and its natural contrast, the reader returns every decimal correctly.</p>
+     */
+    private static final OcrSettingsData PANEL_TEXT_SETTINGS =
             OcrSettingsData.assembler()
-                    .charWhitelist("0123456789.,KMB")
-                    .textLayout(TextLayout.SINGLE_LINE)
-                    .stripBackground(true)
-                    .setTextColor(new Color(61, 92, 140)) // measured digit color; being off in blue rendered ".8M" as invisible gray
+                    .textLayout(TextLayout.TEXT_BLOCK)
+                    .stripBackground(false)
                     .build();
 
     // ── Steel + Speedups: Backpack → chart button → "Resource & Speedup Summary" (verified live) ──
@@ -97,36 +119,6 @@ public class ResourceStockpileRoutine extends DelayedTask {
     // contrast) -- stripBackground(false) here, unlike the Speedup durations below which are larger
     // text with more spacing and read fine isolated. Widened a few px on every edge too so descenders
     // aren't clipped at the crop boundary.
-    private static final PointData STEEL_TL = new PointData(494, 796);
-    private static final PointData STEEL_BR = new PointData(622, 842);
-    private static final OcrSettingsData STEEL_TEXT_SETTINGS =
-            OcrSettingsData.assembler()
-                    .charWhitelist("0123456789.,KMB")
-                    .textLayout(TextLayout.SINGLE_LINE)
-                    .stripBackground(false)
-                    .build();
-    // "Total Speedup" duration crops (x418-672, ~90px row pitch, verified against a live capture).
-    private static final PointData SPD_GENERAL_TL = new PointData(418, 456);
-    private static final PointData SPD_GENERAL_BR = new PointData(672, 494);
-    private static final PointData SPD_TRAINING_TL = new PointData(418, 546);
-    private static final PointData SPD_TRAINING_BR = new PointData(672, 584);
-    private static final PointData SPD_CONSTRUCTION_TL = new PointData(418, 636);
-    private static final PointData SPD_CONSTRUCTION_BR = new PointData(672, 674);
-    private static final PointData SPD_RESEARCH_TL = new PointData(418, 726);
-    private static final PointData SPD_RESEARCH_BR = new PointData(672, 764);
-    private static final PointData SPD_HEALING_TL = new PointData(418, 816);
-    private static final PointData SPD_HEALING_BR = new PointData(672, 854);
-
-    // Speedup durations render as muted navy text ("1 day(s)7 hr(s)28 min"). Keep the unit letters so
-    // parseDurationMinutes can regex out each of day/hr/min. Colour measured live at (81,104,143).
-    private static final OcrSettingsData SPEEDUP_TEXT_SETTINGS =
-            OcrSettingsData.assembler()
-                    .charWhitelist("0123456789 dayhrmins()")
-                    .textLayout(TextLayout.SINGLE_LINE)
-                    .stripBackground(true)
-                    .setTextColor(new Color(81, 104, 143))
-                    .build();
-
     private static final Pattern DAYS_PAT = Pattern.compile("(\\d+)\\s*day");
     private static final Pattern HRS_PAT  = Pattern.compile("(\\d+)\\s*hr");
     private static final Pattern MIN_PAT  = Pattern.compile("(\\d+)\\s*min");
@@ -221,9 +213,15 @@ public class ResourceStockpileRoutine extends DelayedTask {
             sleepTask(2200);
 
             // Lands on "Resources" by default -- read Steel here before switching tabs.
-            String steelRaw = readStringValue(STEEL_TL, STEEL_BR, STEEL_TEXT_SETTINGS);
+            //
+            // By its label, not by a box. The box that used to do this was measured one row too
+            // high and had been reading the IRON row for the life of this routine: every steel
+            // figure in the telemetry history is iron's, inflated a hundredfold by the decimal
+            // point the narrow crop also dropped ("4.39M" read as "439M"). Nothing about a fixed
+            // rectangle can notice it is on the wrong row. A label can.
+            PanelRowIndex resources = readPanelRows(SUMMARY_PANEL_TL, SUMMARY_PANEL_BR);
             Long steel = sanityCheckAgainstCached("steel",
-                    (steelRaw == null || steelRaw.isBlank()) ? null : parseScaled(steelRaw.trim()),
+                    readLabelledValue(resources, "Steel", TOTAL_RESOURCES_COLUMN_X),
                     ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG);
             if (steel != null) {
                 profile.setConfig(ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG, steel);
@@ -232,13 +230,21 @@ public class ResourceStockpileRoutine extends DelayedTask {
             logInfo("ResourceStockpileRoutine | Steel cached: " + steel);
 
             tapNear(SPEEDUP_TAB);
-            sleepTask(1000);
+            // Was 1000ms. Every other panel in this routine settles for 2200-2600 because the
+            // popup animates, and a tab switch is no different -- a frame caught mid-transition
+            // reads whatever is halfway drawn. Speedups have no plausible-range check strong
+            // enough to catch a partial duration ("2 day(s)30 min" losing its day component still
+            // parses, as 30), so the cheapest fix is not to photograph the transition.
+            sleepTask(2500);
 
-            Long gen  = readDurationMinutes(SPD_GENERAL_TL, SPD_GENERAL_BR);
-            Long tr   = readDurationMinutes(SPD_TRAINING_TL, SPD_TRAINING_BR);
-            Long con  = readDurationMinutes(SPD_CONSTRUCTION_TL, SPD_CONSTRUCTION_BR);
-            Long res  = readDurationMinutes(SPD_RESEARCH_TL, SPD_RESEARCH_BR);
-            Long heal = readDurationMinutes(SPD_HEALING_TL, SPD_HEALING_BR);
+            // Each bucket by the name printed beside it. The row heights vary -- two labels wrap
+            // onto a second line -- so their values do not sit at a fixed offset from anything.
+            PanelRowIndex speedups = readPanelRows(SUMMARY_PANEL_TL, SUMMARY_PANEL_BR);
+            Long gen  = readLabelledDuration(speedups, "General");
+            Long tr   = readLabelledDuration(speedups, "Training");
+            Long con  = readLabelledDuration(speedups, "Construction");
+            Long res  = readLabelledDuration(speedups, "Research");
+            Long heal = readLabelledDuration(speedups, "Healing");
 
             tapNear(SUMMARY_CLOSE_X);
             sleepTask(300);
@@ -275,8 +281,8 @@ public class ResourceStockpileRoutine extends DelayedTask {
         }
     }
 
-    private Long readDurationMinutes(PointData tl, PointData br) {
-        String raw = readStringValue(tl, br, SPEEDUP_TEXT_SETTINGS);
+    /** "1 day(s)10 hr(s)50 min" to 2090. Null when no component is present at all. */
+    static Long parseDurationMinutes(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;
         }
@@ -294,26 +300,79 @@ public class ResourceStockpileRoutine extends DelayedTask {
         tapNear(RESOURCE_COUNTER);
         sleepTask(2600); // let the panel fully slide+render before OCR
 
-        Long meat = readOwned(MEAT_TL, MEAT_BR);
-        Long wood = readOwned(WOOD_TL, WOOD_BR);
-        Long coal = readOwned(COAL_TL, COAL_BR);
-        Long iron = readOwned(IRON_TL, IRON_BR);
+        PanelRowIndex panel = readPanelRows(OVERVIEW_PANEL_TL, OVERVIEW_PANEL_BR);
 
         tapNear(CLOSE_OVERVIEW_X);
         sleepTask(300);
 
-        if (meat == null || wood == null || coal == null || iron == null) {
-            logDebug("ResourceStockpileRoutine | Owned read incomplete: meat=" + meat + " wood=" + wood
-                    + " coal=" + coal + " iron=" + iron);
+        // The rows carry no text label, only an icon, so they cannot be matched by name the way
+        // the Summary's are. What they do have is a fixed order and a fixed count. Each row's
+        // owned figure is the upper of the two numbers in the Owned column -- the shielded amount
+        // sits beneath it -- and the panel is only accepted when all four resolve. A partial read
+        // would shift the assignment and file wood's stockpile under coal, which is worse than
+        // skipping an hourly cycle and keeping the values already cached.
+        List<Long> values = new java.util.ArrayList<>();
+        for (PanelRowIndex.Row row : panel.rows()) {
+            Optional<TextLine> owned = row.topmostFrom(OWNED_COLUMN_X, t -> parseScaled(t) != null);
+            if (owned.isEmpty()) continue;
+            values.add(parseScaled(owned.get().text().trim()));
+        }
+
+        if (values.size() != OVERVIEW_ROW_ORDER.size()) {
+            logDebug("ResourceStockpileRoutine | Owned read incomplete: expected "
+                    + OVERVIEW_ROW_ORDER.size() + " values, resolved " + values.size() + " " + values);
             return null;
         }
 
         Map<String, Long> out = new LinkedHashMap<>();
-        out.put("meat", meat);
-        out.put("wood", wood);
-        out.put("coal", coal);
-        out.put("iron", iron);
+        for (int i = 0; i < OVERVIEW_ROW_ORDER.size(); i++) {
+            out.put(OVERVIEW_ROW_ORDER.get(i), values.get(i));
+        }
         return out;
+    }
+
+    /**
+     * Reads one panel region as words and groups them into rows. Never throws -- an unreadable
+     * frame comes back as an empty index, which every caller already treats as "skip this cycle".
+     */
+    private PanelRowIndex readPanelRows(PointData topLeft, PointData bottomRight) {
+        try {
+            RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+            if (frame == null || !frame.isValid()) {
+                logWarning("ResourceStockpileRoutine | No usable frame to read the panel from.");
+                return PanelRowIndex.of(List.of());
+            }
+            return PanelRowIndex.of(
+                    OcrEngine.recognizeWords(frame, topLeft, bottomRight, PANEL_TEXT_SETTINGS));
+        } catch (Exception e) {
+            logWarning("ResourceStockpileRoutine | Panel read failed: " + e.getMessage());
+            return PanelRowIndex.of(List.of());
+        }
+    }
+
+    /** The value in {@code label}'s row, from {@code columnX} rightwards, or null. */
+    private Long readLabelledValue(PanelRowIndex panel, String label, int columnX) {
+        Optional<PanelRowIndex.Row> row = panel.labelled(label);
+        if (row.isEmpty()) {
+            logDebug("ResourceStockpileRoutine | No unambiguous '" + label + "' row in this read.");
+            return null;
+        }
+        String text = row.get().textFrom(columnX).trim();
+        Long parsed = text.isEmpty() ? null : parseScaled(text);
+        if (parsed == null) {
+            logDebug("ResourceStockpileRoutine | '" + label + "' row value unparseable: '" + text + "'");
+        }
+        return parsed;
+    }
+
+    /** The duration in {@code label}'s row, in minutes, or null. */
+    private Long readLabelledDuration(PanelRowIndex panel, String label) {
+        Optional<PanelRowIndex.Row> row = panel.labelled(label);
+        if (row.isEmpty()) {
+            logDebug("ResourceStockpileRoutine | No unambiguous '" + label + "' speedup row.");
+            return null;
+        }
+        return parseDurationMinutes(row.get().textFrom(SPEEDUP_VALUE_COLUMN_X));
     }
 
     /** Fraction outside of which a new resource reading is rejected as an implausible OCR misread
@@ -496,14 +555,6 @@ public class ResourceStockpileRoutine extends DelayedTask {
         }
         double ratio = (double) candidate / (double) cached;
         return ratio <= SANITY_BAND_MAX_RATIO && ratio >= SANITY_BAND_MIN_RATIO;
-    }
-
-    private Long readOwned(PointData tl, PointData br) {
-        String raw = readStringValue(tl, br, OWNED_TEXT_SETTINGS);
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        return parseScaled(raw.trim());
     }
 
     /** Parses "72.3M", "583,853", "1.2M" etc to a plain long. */
