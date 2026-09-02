@@ -322,7 +322,25 @@ public class TimerSweepRoutine extends DelayedTask {
      */
     private boolean openCityPanelWithRetries() {
         for (int attempt = 1; attempt <= PANEL_OPEN_ATTEMPTS; attempt++) {
-            marchHelper.openLeftMenuCitySection(true);
+            // openLeftMenuCitySection throws when the sidebar does not open, and an
+            // uncaught throw here skipped every remaining attempt -- the retry loop
+            // could not run for the one failure it was written for. Observed on prod
+            // three times on 2026-09-01 (12:28, 19:03, 23:41): SidebarNavigator logged
+            // "requested=CITY observed=closed/unknown" and the sweep gave up on
+            // attempt 1 with "0 timer(s) refreshed". It also cost the shorter retry
+            // interval, because the escape landed in execute()'s catch, which
+            // reschedules on the normal interval instead of PANEL_RETRY_MINUTES.
+            // A sidebar that would not open is the same situation as a panel that
+            // rendered unreadably, so it is handled the same way: back out and retry.
+            try {
+                marchHelper.openLeftMenuCitySection(true);
+            } catch (IllegalStateException ex) {
+                logWarning("Sidebar did not open on attempt " + attempt + "/"
+                        + PANEL_OPEN_ATTEMPTS + " (" + ex.getMessage() + ") — returning home and retrying.");
+                pressBack();
+                sleepTask(800);
+                continue;
+            }
             sleepTask(PANEL_SETTLE_MS);
 
             for (PointData[] area : CITY_PANEL_ROWS.values()) {
