@@ -82,6 +82,14 @@ public class ResourceStockpileRoutine extends DelayedTask {
     /** The Overview lists meat, wood, coal then iron, top to bottom, always. */
     private static final List<String> OVERVIEW_ROW_ORDER = List.of("meat", "wood", "coal", "iron");
 
+    /** The Summary's Resources tab, in its fixed order. Only Steel is read from it. */
+    private static final List<String> SUMMARY_ROW_ORDER =
+            List.of("Gems", "Meat", "Wood", "Coal", "Iron", "Steel");
+
+    /** The Speedup tab, in its fixed order. */
+    private static final List<String> SPEEDUP_ROW_ORDER =
+            List.of("General", "Training", "Construction", "Research", "Healing");
+
     /**
      * Reading a whole panel at once, so no colour isolation and no glyph filter.
      *
@@ -221,7 +229,8 @@ public class ResourceStockpileRoutine extends DelayedTask {
             // rectangle can notice it is on the wrong row. A label can.
             PanelRowIndex resources = readPanelRows(SUMMARY_PANEL_TL, SUMMARY_PANEL_BR);
             Long steel = sanityCheckAgainstCached("steel",
-                    readLabelledValue(resources, "Steel", TOTAL_RESOURCES_COLUMN_X),
+                    readTableValue(resources, "Steel", TOTAL_RESOURCES_COLUMN_X, SUMMARY_ROW_ORDER,
+                            ResourceStockpileRoutine::parseScaled),
                     ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG);
             if (steel != null) {
                 profile.setConfig(ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG, steel);
@@ -240,11 +249,11 @@ public class ResourceStockpileRoutine extends DelayedTask {
             // Each bucket by the name printed beside it. The row heights vary -- two labels wrap
             // onto a second line -- so their values do not sit at a fixed offset from anything.
             PanelRowIndex speedups = readPanelRows(SUMMARY_PANEL_TL, SUMMARY_PANEL_BR);
-            Long gen  = readLabelledDuration(speedups, "General");
-            Long tr   = readLabelledDuration(speedups, "Training");
-            Long con  = readLabelledDuration(speedups, "Construction");
-            Long res  = readLabelledDuration(speedups, "Research");
-            Long heal = readLabelledDuration(speedups, "Healing");
+            Long gen  = readSpeedup(speedups, "General");
+            Long tr   = readSpeedup(speedups, "Training");
+            Long con  = readSpeedup(speedups, "Construction");
+            Long res  = readSpeedup(speedups, "Research");
+            Long heal = readSpeedup(speedups, "Healing");
 
             tapNear(SUMMARY_CLOSE_X);
             sleepTask(300);
@@ -350,29 +359,34 @@ public class ResourceStockpileRoutine extends DelayedTask {
         }
     }
 
-    /** The value in {@code label}'s row, from {@code columnX} rightwards, or null. */
-    private Long readLabelledValue(PanelRowIndex panel, String label, int columnX) {
-        Optional<PanelRowIndex.Row> row = panel.labelled(label);
-        if (row.isEmpty()) {
-            logDebug("ResourceStockpileRoutine | No unambiguous '" + label + "' row in this read.");
+    /**
+     * One value out of a fixed-order table, by the name of its row.
+     *
+     * <p>The whole table has to line up before any single value is believed -- see
+     * {@link PanelRowIndex#orderedValues}. Returns null when it does not, which every caller here
+     * already treats as an unreadable cycle.</p>
+     */
+    private <T> T readTableValue(PanelRowIndex panel, String label, int columnX,
+                                 List<String> rowOrder,
+                                 java.util.function.Function<String, T> parse) {
+        Optional<Map<String, String>> table = panel.orderedValues(columnX, rowOrder);
+        if (table.isEmpty()) {
+            logDebug("ResourceStockpileRoutine | Panel rows did not match the expected "
+                    + rowOrder.size() + "-row layout " + rowOrder + "; skipping '" + label + "'.");
             return null;
         }
-        String text = row.get().textFrom(columnX).trim();
-        Long parsed = text.isEmpty() ? null : parseScaled(text);
+        String text = table.get().get(label);
+        T parsed = (text == null || text.isBlank()) ? null : parse.apply(text.trim());
         if (parsed == null) {
-            logDebug("ResourceStockpileRoutine | '" + label + "' row value unparseable: '" + text + "'");
+            logDebug("ResourceStockpileRoutine | '" + label + "' value unparseable: '" + text + "'");
         }
         return parsed;
     }
 
-    /** The duration in {@code label}'s row, in minutes, or null. */
-    private Long readLabelledDuration(PanelRowIndex panel, String label) {
-        Optional<PanelRowIndex.Row> row = panel.labelled(label);
-        if (row.isEmpty()) {
-            logDebug("ResourceStockpileRoutine | No unambiguous '" + label + "' speedup row.");
-            return null;
-        }
-        return parseDurationMinutes(row.get().textFrom(SPEEDUP_VALUE_COLUMN_X));
+    /** One speedup bucket's total, in minutes, or null. */
+    private Long readSpeedup(PanelRowIndex panel, String label) {
+        return readTableValue(panel, label, SPEEDUP_VALUE_COLUMN_X, SPEEDUP_ROW_ORDER,
+                ResourceStockpileRoutine::parseDurationMinutes);
     }
 
     /** Fraction outside of which a new resource reading is rejected as an implausible OCR misread

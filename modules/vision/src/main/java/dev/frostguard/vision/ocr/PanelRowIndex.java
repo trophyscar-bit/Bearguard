@@ -2,8 +2,10 @@ package dev.frostguard.vision.ocr;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -145,5 +147,54 @@ public final class PanelRowIndex {
     public Optional<Row> labelled(String label) {
         List<Row> matches = rows.stream().filter(r -> r.mentions(label)).collect(Collectors.toList());
         return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+    }
+
+    /**
+     * Reads a whole table at once: the rows carrying a value in the column at {@code valueColumnX},
+     * matched to {@code expectedLabels} in order, top to bottom.
+     *
+     * <p>Anchoring purely on the label turned out to be too much to ask of the reader. On some
+     * frames of the Resource Summary the label column comes back empty -- every number recognised,
+     * not one of "Gems", "Meat", "Wood", "Coal", "Iron", "Steel" -- while on others every label
+     * reads at 96% confidence. The values are the easy part; the words beside them are not
+     * reliably there to anchor to.</p>
+     *
+     * <p>So position carries the match and the label checks it. The game's tables have a fixed
+     * order and a fixed length, and this insists on seeing exactly the expected number of value
+     * rows before believing any of them -- a short read means something was missed, and assigning
+     * the remaining values in order would put one resource's figure under another's name. That is
+     * the same fault as the old Steel crop, arrived at from the other direction, and a count check
+     * is what makes position safe to use. Where a label did come through, it must be the one its
+     * position implies, so a reordered or unexpected table is refused rather than misread.</p>
+     *
+     * @return the values by label, or empty if the table did not match what was expected
+     */
+    public Optional<Map<String, String>> orderedValues(int valueColumnX, List<String> expectedLabels) {
+        // A value row is one carrying a digit in that column. Column headers sit in the same
+        // place and would otherwise count as rows -- "Total Resources" is text at the very
+        // coordinates the figures occupy, and counting it made a six-row table read as seven and
+        // be refused outright.
+        List<Row> valueRows = new ArrayList<>();
+        for (Row row : rows) {
+            String value = row.textFrom(valueColumnX);
+            if (value.chars().anyMatch(Character::isDigit)) {
+                valueRows.add(row);
+            }
+        }
+        if (valueRows.size() != expectedLabels.size()) {
+            return Optional.empty();
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        for (int i = 0; i < expectedLabels.size(); i++) {
+            Row row = valueRows.get(i);
+            String expected = expectedLabels.get(i);
+            for (String other : expectedLabels) {
+                if (!other.equals(expected) && row.mentions(other)) {
+                    return Optional.empty(); // a label in the wrong place: refuse the whole table
+                }
+            }
+            out.put(expected, row.textFrom(valueColumnX));
+        }
+        return Optional.of(out);
     }
 }
