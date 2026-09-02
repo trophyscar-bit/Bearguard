@@ -114,7 +114,77 @@ public final class TelemetryReport {
             return new TelemetryReport(new ArrayList<>());
         }
         out.sort((a, b) -> a.at().compareTo(b.at()));
-        return new TelemetryReport(out);
+        return new TelemetryReport(despike(out));
+    }
+
+    /**
+     * Discards single-sample readings that a metric's own neighbours contradict.
+     *
+     * <p>Every metric here is OCR'd off the game screen, and OCR occasionally returns one bad
+     * frame. On 9/1 the 22:21 snapshot read general speedups as 30 minutes, sitting between
+     * readings of 2434 and 2664 -- a value that would mean spending forty hours of speedups and
+     * regaining forty-four in the following thirty-nine minutes. A single bad frame is normally
+     * harmless noise in the middle of a series, but window anchoring reads endpoints, and that
+     * row happened to be the last one before 23:00, so it became the baseline for the whole night
+     * and reported "+1d 21h 21m" of general speedup gained.</p>
+     *
+     * <p>The test is deliberately narrow: a reading is dropped only when it disagrees sharply with
+     * BOTH neighbours AND those neighbours agree with each other. That is the signature of a
+     * misread -- an excursion that immediately reverts. Genuinely spending a stockpile does not
+     * revert, so a real drop is held by the reading after it and survives untouched. Only the one
+     * offending field is dropped; the rest of that row is still good data.</p>
+     */
+    private static List<Sample> despike(List<Sample> ordered) {
+        if (ordered.size() < 3) {
+            return ordered;
+        }
+        List<Sample> cleaned = new ArrayList<>(ordered);
+        for (String metric : METRICS) {
+            for (int i = 1; i < cleaned.size() - 1; i++) {
+                Long value = cleaned.get(i).get(metric);
+                Long previous = previousValue(cleaned, i, metric);
+                Long next = nextValue(cleaned, i, metric);
+                if (value == null || previous == null || next == null) continue;
+                if (!contradicts(value, previous) || !contradicts(value, next)) continue;
+                if (!agree(previous, next)) continue;
+                Sample bad = cleaned.get(i);
+                Map<String, Long> values = new LinkedHashMap<>(bad.values());
+                values.remove(metric);
+                cleaned.set(i, new Sample(bad.at(), values, bad.activity()));
+            }
+        }
+        return cleaned;
+    }
+
+    private static Long previousValue(List<Sample> samples, int index, String metric) {
+        for (int i = index - 1; i >= 0; i--) {
+            Long v = samples.get(i).get(metric);
+            if (v != null) return v;
+        }
+        return null;
+    }
+
+    private static Long nextValue(List<Sample> samples, int index, String metric) {
+        for (int i = index + 1; i < samples.size(); i++) {
+            Long v = samples.get(i).get(metric);
+            if (v != null) return v;
+        }
+        return null;
+    }
+
+    /** A reading is contradicted by a neighbour when it is off by more than half of it. The
+     *  absolute floor keeps small honest movements (a few minutes of speedup) from ever counting
+     *  as a contradiction. */
+    private static boolean contradicts(long value, long neighbour) {
+        long tolerance = Math.max(60L, Math.abs(neighbour) / 2);
+        return Math.abs(value - neighbour) > tolerance;
+    }
+
+    /** Neighbours agree when they are within a quarter of each other -- i.e. the series is
+     *  continuous across the suspect reading, so the suspect reading is the odd one out. */
+    private static boolean agree(long before, long after) {
+        long tolerance = Math.max(60L, Math.abs(before) / 4);
+        return Math.abs(after - before) <= tolerance;
     }
 
     private static Instant parseInstant(String raw) {

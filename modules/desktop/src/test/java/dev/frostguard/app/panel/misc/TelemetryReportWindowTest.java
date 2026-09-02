@@ -143,7 +143,76 @@ class TelemetryReportWindowTest {
         assertEquals(0L, power.change());
     }
 
+    /**
+     * The 9/1 general-speedup row: 2434, then a single frame reading 30, then 2664. Dropping
+     * forty hours of speedups and regaining forty-four in the next thirty-nine minutes is not a
+     * thing that happens; it is one bad OCR frame, and it landed on the window's baseline.
+     */
+    @Test
+    void anIsolatedMisreadIsNotUsedAsAWindowBaseline(@TempDir Path root) throws IOException {
+        LocalDate today = LocalDate.now(ZONE);
+        Instant evening = today.minusDays(1).atTime(18, 46).atZone(ZONE).toInstant();
+        Instant misread = today.minusDays(1).atTime(22, 21).atZone(ZONE).toInstant();
+        Instant nightStart = today.minusDays(1).atTime(23, 0, 49).atZone(ZONE).toInstant();
+        Instant morning = today.atTime(8, 32).atZone(ZONE).toInstant();
+        write(root,
+                speedup(evening, 2434L), speedup(misread, 30L),
+                speedup(nightStart, 2664L), speedup(morning, 2751L));
+
+        TelemetryReport.Delta general = metric("sp_general",
+                TelemetryReport.load(root, PROFILE).lastNight(ZONE, SLEEP_START, WAKE_END));
+
+        assertNotNull(general);
+        assertEquals(2664L, general.start(), "the 30 reading must not anchor the night");
+        assertEquals(87L, general.change());
+    }
+
+    /** A real drop is held by the readings after it, so it is kept. */
+    @Test
+    void aSustainedDropIsRealAndSurvives(@TempDir Path root) throws IOException {
+        LocalDate today = LocalDate.now(ZONE);
+        Instant before = today.minusDays(1).atTime(22, 40).atZone(ZONE).toInstant();
+        Instant spend = today.atTime(1, 0).atZone(ZONE).toInstant();
+        Instant after = today.atTime(4, 0).atZone(ZONE).toInstant();
+        write(root, speedup(before, 2268L), speedup(spend, 155L), speedup(after, 160L));
+
+        TelemetryReport.Delta general = metric("sp_general",
+                TelemetryReport.load(root, PROFILE).lastNight(ZONE, SLEEP_START, WAKE_END));
+
+        assertNotNull(general);
+        assertEquals(2268L, general.start());
+        assertEquals(160L, general.end(), "spending a stockpile does not revert, so it is real");
+    }
+
+    /** Only the offending field is dropped -- the rest of that row is still good data. */
+    @Test
+    void despikingDropsOneFieldNotTheWholeReading(@TempDir Path root) throws IOException {
+        LocalDate today = LocalDate.now(ZONE);
+        Instant before = today.minusDays(1).atTime(22, 0).atZone(ZONE).toInstant();
+        Instant suspect = today.atTime(1, 0).atZone(ZONE).toInstant();
+        Instant after = today.atTime(4, 0).atZone(ZONE).toInstant();
+        write(root,
+                "{\"capturedAt\":\"" + before + "\",\"power\":1000,\"sp_general\":2400}",
+                "{\"capturedAt\":\"" + suspect + "\",\"power\":1200,\"sp_general\":30}",
+                "{\"capturedAt\":\"" + after + "\",\"power\":1400,\"sp_general\":2500}");
+
+        List<TelemetryReport.Delta> night = TelemetryReport.load(root, PROFILE)
+                .lastNight(ZONE, SLEEP_START, WAKE_END);
+
+        assertNotNull(metric("power", night), "power in that row was fine and must be kept");
+        assertEquals(400L, metric("power", night).change());
+        assertEquals(100L, metric("sp_general", night).change(), "2400 -> 2500, the 30 dropped");
+    }
+
     // ---- helpers ------------------------------------------------------------
+
+    private static TelemetryReport.Delta metric(String name, List<TelemetryReport.Delta> deltas) {
+        return deltas.stream().filter(d -> name.equals(d.metric())).findFirst().orElse(null);
+    }
+
+    private static String speedup(Instant at, long minutes) {
+        return "{\"capturedAt\":\"" + at + "\",\"profile\":\"Default\",\"sp_general\":" + minutes + "}";
+    }
 
     private static TelemetryReport.Delta power(List<TelemetryReport.Delta> deltas) {
         Optional<TelemetryReport.Delta> found = deltas.stream()
