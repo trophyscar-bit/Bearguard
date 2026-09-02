@@ -9,6 +9,7 @@ import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import javax.imageio.ImageIO;
@@ -73,9 +74,14 @@ class ResourceStockpilePanelReadTest {
         return PanelRowIndex.of(words);
     }
 
+    private static final List<String> SUMMARY_ROWS =
+            List.of("Gems", "Meat", "Wood", "Coal", "Iron", "Steel");
+    private static final List<String> SPEEDUP_ROWS =
+            List.of("General", "Training", "Construction", "Research", "Healing");
+
     private static Long labelled(PanelRowIndex panel, String label, int columnX) {
-        return panel.labelled(label)
-                .map(r -> ResourceStockpileRoutine.parseScaled(r.textFrom(columnX)))
+        return panel.orderedValues(columnX, SUMMARY_ROWS)
+                .map(t -> ResourceStockpileRoutine.parseScaled(t.get(label)))
                 .orElse(null);
     }
 
@@ -113,9 +119,8 @@ class ResourceStockpilePanelReadTest {
     }
 
     private static Long duration(PanelRowIndex panel, String label) {
-        return panel.labelled(label)
-                .map(r -> ResourceStockpileRoutine.parseDurationMinutes(
-                        r.textFrom(SPEEDUP_VALUE_COLUMN_X)))
+        return panel.orderedValues(SPEEDUP_VALUE_COLUMN_X, SPEEDUP_ROWS)
+                .map(t -> ResourceStockpileRoutine.parseDurationMinutes(t.get(label)))
                 .orElse(null);
     }
 
@@ -146,5 +151,34 @@ class ResourceStockpilePanelReadTest {
         PanelRowIndex panel = read("summary-speedup.png", SUMMARY_TL, SUMMARY_BR);
 
         assertTrue(panel.labelled("Speedup").isEmpty(), "every row says Speedup");
+    }
+
+    /**
+     * A live frame on which the reader returned every number and not one label -- "Gems", "Meat",
+     * "Wood", "Coal", "Iron" and "Steel" all missing, while the same panel on another frame reads
+     * them at 96% confidence. Anchoring on the label alone gave up here and logged "no unambiguous
+     * 'Steel' row"; the table still has to be readable.
+     */
+    @Test
+    void readsTheTableOnAFrameWhoseLabelsDidNotResolve() throws Exception {
+        PanelRowIndex panel = read("summary-resources-labels-unread.png", SUMMARY_TL, SUMMARY_BR);
+
+        assertTrue(panel.labelled("Steel").isEmpty(), "the fixture's point: no label to anchor to");
+
+        Optional<Map<String, String>> table = panel.orderedValues(TOTAL_RESOURCES_COLUMN_X, SUMMARY_ROWS);
+        assertTrue(table.isPresent(), "six value rows in the expected order");
+        assertEquals(1_750_000L, ResourceStockpileRoutine.parseScaled(table.get().get("Steel")));
+        assertEquals(4_410_000L, ResourceStockpileRoutine.parseScaled(table.get().get("Iron")));
+        assertEquals(88_370_000L, ResourceStockpileRoutine.parseScaled(table.get().get("Meat")));
+    }
+
+    /** A table that is not the expected shape is refused outright rather than read off by position. */
+    @Test
+    void aTableOfTheWrongLengthIsRefused() throws Exception {
+        PanelRowIndex panel = read("summary-resources.png", SUMMARY_TL, SUMMARY_BR);
+
+        assertTrue(panel.orderedValues(TOTAL_RESOURCES_COLUMN_X,
+                List.of("Gems", "Meat", "Wood")).isEmpty(),
+                "three expected rows against six read ones must not silently take the first three");
     }
 }
