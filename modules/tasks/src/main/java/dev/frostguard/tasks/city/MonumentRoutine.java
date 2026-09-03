@@ -1768,8 +1768,15 @@ public class MonumentRoutine extends DelayedTask {
                     2, 150L, REQUESTS_LEFT_OCR_SETTINGS,
                     s -> s != null && !s.isBlank(),
                     s -> s);
-            Integer requestsLeft = leftText == null ? null : RegexNumberParser.extractByPattern(
-                    leftText, Pattern.compile("\\((\\d+)\\s*/"));
+            // extractByPattern() anchors with Matcher.matches(), so a pattern that
+            // describes only the FRAGMENT it wants can never fire. "\\((\\d+)\\s*/" describes "(3/",
+            // but the OCR text is the whole line "Requests Left Today (3/3)", so this returned null
+            // on every pass while the counter itself was being read perfectly -- logged verbatim
+            // 2026-08-30 22:20: "counter parsed as null from raw text 'Requests Left Today (3/3)'".
+            // Every other extractByPattern caller in this codebase anchors with ".*?(\\d+).*".
+            // numerator() already reads the left side of a fraction through a full-line-anchored
+            // FRACTION_PATTERN, so reuse that instead of hand-rolling a second anchored regex.
+            Integer requestsLeft = leftText == null ? null : RegexNumberParser.numerator(leftText);
             if (requestsLeft == null || requestsLeft <= 0) {
                 // Same discipline as everywhere else tonight -- report the raw text
                 // and the screen, never just "couldn't read it". A null here is ambiguous between a
@@ -1826,8 +1833,11 @@ public class MonumentRoutine extends DelayedTask {
                     ALLY_FIRST_ROW_OWNED_BR.getY() + rowOffset);
 
             String ownedText = readStringValueSafe(ownedTl, ownedBr);
+            // Same anchoring bug as the requests counter above: "(\\d+)" under matches() means a row
+            // reading "Owned: 1" -- or carrying one stray OCR glyph -- parsed as null and fell
+            // into the skip branch. Dead for every row that was not a bare number.
             Integer owned = ownedText == null ? null : RegexNumberParser.extractByPattern(
-                    ownedText, Pattern.compile("(\\d+)"));
+                    ownedText, Pattern.compile(".*?(\\d+).*"));
 
             // Only send when a duplicate is actually owned (>=2) --
             // "Owned: 1" means it's their only copy, leave it alone.
