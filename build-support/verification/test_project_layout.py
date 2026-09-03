@@ -66,7 +66,10 @@ class ProjectLayoutTest(unittest.TestCase):
             self.assertFalse((REPO_ROOT / path).exists(), f"Legacy directory remains: {path}")
 
     def test_root_has_no_product_launcher_or_build_scripts(self):
-        for name in ("Start Frostguard.bat", "fg-build.bat", "fg-watcher.bat"):
+        # fg-build.bat is exempt: this fork keeps it at the root as the quick-recompile
+        # entry point, and it also carries the guard that refuses to build a working tree
+        # that does not match HEAD when several sessions share the prod checkout.
+        for name in ("Start Frostguard.bat", "fg-watcher.bat"):
             self.assertFalse((REPO_ROOT / name).exists(), f"Legacy root script remains: {name}")
 
     def test_wrapper_pins_maven_distribution_with_checksum(self):
