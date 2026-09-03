@@ -60,6 +60,27 @@ class DeploymentOddsWarningFrameTest {
         assertEquals(590, CommonGameAreas.DEPLOY_ODDS_WARNING_AREA.topLeft().getY());
     }
 
+    @Test
+    void onlyTheSurvivablePhraseAllowsAMarch() {
+        assertEquals(DeploymentHelper.OddsWarning.UNLIKELY,
+                DeploymentHelper.classifyOddsLine("You are not likely to prevail"));
+    }
+
+    @Test
+    void theStrongerWarningIsNeverTreatedAsSurvivable() {
+        assertEquals(DeploymentHelper.OddsWarning.CERTAIN_FAILURE,
+                DeploymentHelper.classifyOddsLine("This deployment is almost certain to fail"));
+        assertEquals(DeploymentHelper.OddsWarning.CERTAIN_FAILURE,
+                DeploymentHelper.classifyOddsLine("You are almost certain to fail"));
+    }
+
+    /** An unreadable red line is fatal, not survivable: a march is worth more than a retry. */
+    @Test
+    void anUnreadableRedLineIsTreatedAsFatal() {
+        assertEquals(DeploymentHelper.OddsWarning.CERTAIN_FAILURE, DeploymentHelper.classifyOddsLine(""));
+        assertEquals(DeploymentHelper.OddsWarning.CERTAIN_FAILURE, DeploymentHelper.classifyOddsLine(null));
+    }
+
     private int redPixels(String resource) throws Exception {
         return PixelStats.count(image(resource),
                 CommonGameAreas.DEPLOY_ODDS_WARNING_AREA, GameColors::isBlockedRed);
