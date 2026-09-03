@@ -121,6 +121,33 @@ lower than the final release, so the final `3.0.0` installer can still upgrade
 it. The application displays the prerelease version from its JAR independently
 of the numeric MSI version.
 
+### Unsupported: the pinned bootstrap bytes no longer reproduce
+
+**CI — Windows Installers** cannot pass. `use_nightly_bootstrap_for_stable.ps1`
+throws `Nightly compatibility bootstrap has unexpected SHA-256` because the
+launcher jpackage builds no longer matches the pinned
+`5c728d36…` desktop and `9c7452d8…` watcher hashes that the script and
+`verify_app_image.py --expected-*-launcher-sha256` both check.
+
+The packaging JDK is not the cause. The run log shows the pinned build being
+installed, `OpenJDK21U-jdk_x64_windows_hotspot_21.0.12_8.zip`, and the WiX
+Chocolatey package is pinned as well. That leaves the hosted runner image, the
+app image feeding the launcher, or hashes recorded from a build that no longer
+reproduces; which one is unknown.
+
+The break went unseen because the job never reached this step: it failed at the
+LFS guard from the 2.2.0 release, then at JDK setup once `21.0.12+8.0` stopped
+resolving. There is no recent green run to compare against.
+
+Re-recording the hashes is not a free action. Both channels reuse these accepted
+bootstrap bytes so Smart App Control reputation survives Java-only updates, and a
+changed launcher is a new identity that must earn that reputation again. Find out
+first whether the hash is stable across runs by printing the built launcher's
+SHA-256 on two unrelated commits. If it drifts, the gate must hash app-image
+contents rather than the jpackage launcher stub.
+
+Until then, land work on the green **CI — Java Build and Tests** run.
+
 ## Discord `#download`
 
 Keep the channel read-only for regular users. Pin the maintained Stable message
