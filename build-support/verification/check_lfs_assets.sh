@@ -59,10 +59,17 @@ for asset in "${assets[@]}"; do
     failed=1
     continue
   fi
-  # Every real asset here is far larger than any stub could be.
+  # The size floor only holds for the required binaries. The unpacked tesseract
+  # installer under tools/tesseract-win carries genuine NSIS plugin DLLs of a few
+  # kilobytes, and a stub is already caught above at any size.
+  is_required=0
+  for want in "${required[@]}"; do
+    [[ "${asset}" == "${want}" ]] && is_required=1 && break
+  done
+  [[ "${is_required}" -eq 1 ]] || continue
   size="$(stat -c%s "${asset}")"
   if [[ "${size}" -lt 10240 ]]; then
-    echo "::error file=${asset}::LFS asset is implausibly small (${size} bytes)."
+    echo "::error file=${asset}::Required LFS asset is implausibly small (${size} bytes)."
     failed=1
   fi
 done
