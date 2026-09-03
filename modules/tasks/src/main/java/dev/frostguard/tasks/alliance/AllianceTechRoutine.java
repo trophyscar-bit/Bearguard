@@ -93,7 +93,7 @@ public AllianceTechRoutine(AccountDescriptor profile, TpDailyTaskEnum tpDailyTas
 		}
 
 		if (!locateDonationButton()) {
-			manageTaskFailure("Thumbs-up donation button not found");
+			manageTaskFailure("Neither a recommended node nor the Long Live Our Alliance fallback was found");
 			return;
 		}
 
@@ -194,7 +194,44 @@ private boolean locateDonationButton() {
 			return true;
 		}
 
-		logWarning(routineLogAllianceTechLine("Thumbs-up donation button not detected after scanning all Tech trees"));
+		logInfo(routineLogAllianceTechLine(
+				"No recommended node after scanning all Tech trees. Falling back to Long Live Our Alliance."));
+		return openLongLiveOurAllianceNode();
+	}
+
+	/**
+	 * Opens the Battle tree's "Long Live Our Alliance" node so an unrecommended pool is still
+	 * spent instead of banking until it caps.
+	 *
+	 * <p>The monument artwork is shared with Growth's "Fertile Land Expedition", so the scan stays
+	 * inside the Battle tree, where the fallback node is the only user of that icon.</p>
+	 */
+	private boolean openLongLiveOurAllianceNode() {
+		selectTechCategory(TechCategory.BATTLE);
+		resetTreeToTop();
+
+		for (int viewport = 0; viewport <= TREE_SCROLL_ATTEMPT_COUNT_VALUE; viewport++) {
+			checkPreemption();
+			ImageSearchResultData monument = templateSearchHelper.locatePattern(
+					TemplatesEnum.ALLIANCE_TECH_MONUMENT_NODE,
+					SearchConfigConstants.QUICK_SEARCH);
+			if (monument.isFound()) {
+				logInfo(routineLogAllianceTechLine("Long Live Our Alliance found in the Battle tree at viewport "
+						+ (viewport + 1) + ". Donating there."));
+				tapInside(monument);
+				sleepTask(500);
+
+				return true;
+			}
+
+			if (viewport < TREE_SCROLL_ATTEMPT_COUNT_VALUE) {
+				swipe(TREE_SCROLL_SWIPE_START_VALUE, TREE_SCROLL_SWIPE_END_VALUE);
+				sleepTask(TREE_SCROLL_SETTLE_MILLIS_VALUE);
+			}
+		}
+
+		logWarning(routineLogAllianceTechLine(
+				"Long Live Our Alliance was not found in the bounded Battle tree scan"));
 		return false;
 	}
 

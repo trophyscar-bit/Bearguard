@@ -17,6 +17,8 @@ class AllianceTechThumbPatternEvidenceTest {
     private static final PointData TREE_TOP_LEFT = new PointData(0, 316);
     private static final PointData TREE_BOTTOM_RIGHT = new PointData(720, 1280);
     private static final String THUMB_TEMPLATE = "/templates/alliance/techThumbUp.png";
+    private static final String MONUMENT_TEMPLATE = "/templates/alliance/techMonumentNode.png";
+    private static final String BATTLE_FALLBACK_FRAME = "/alliance/tech-battle-long-live-fallback-20260903.png";
 
     @BeforeAll
     static void loadOpenCv() throws IOException {
@@ -42,10 +44,29 @@ class AllianceTechThumbPatternEvidenceTest {
         assertTrue(hit.getMatchScore() >= 90, "The thumbs-up marker should meet the runtime threshold: " + hit);
     }
 
+    @Test
+    void findsNoRecommendationInTheBattleFallbackFrame() throws IOException {
+        ImageSearchResultData hit = locate(BATTLE_FALLBACK_FRAME);
+
+        assertFalse(hit.isFound(), "The fallback frame must not expose a recommended node: " + hit);
+    }
+
+    @Test
+    void detectsLongLiveOurAllianceAsTheFallbackTarget() throws IOException {
+        ImageSearchResultData hit = locate(BATTLE_FALLBACK_FRAME, MONUMENT_TEMPLATE);
+
+        assertTrue(hit.isFound(), "The Battle tree fallback node should be located: " + hit);
+        assertTrue(hit.getMatchScore() >= 90, "The fallback node should meet the runtime threshold: " + hit);
+    }
+
     private ImageSearchResultData locate(String frameResource) throws IOException {
+        return locate(frameResource, THUMB_TEMPLATE);
+    }
+
+    private ImageSearchResultData locate(String frameResource, String templateResource) throws IOException {
         return OpenCvPatternLocator.locatePattern(
                 resource(frameResource),
-                THUMB_TEMPLATE,
+                templateResource,
                 TREE_TOP_LEFT,
                 TREE_BOTTOM_RIGHT,
                 90);
