@@ -1428,21 +1428,33 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 			sleepTask(300);
 		}
 
-		if (fireBeast && deploymentHelper.isUnlikelyToPrevail()) {
-			if (prevailWarningAttempts >= PREVAIL_WARNING_MAX_ATTEMPTS) {
-				// Spent, but only for Fire Beasts. Survivor camps, journeys and ordinary beasts need
-				// neither the army nor these odds, so the run carries on without them being abandoned.
-				logWarning(routineLogIntelligenceLine("Fire Beast odds warning again, with all "
-						+ PREVAIL_WARNING_MAX_ATTEMPTS + " warned tries spent this run. No march was sent; "
-						+ "leaving Fire Beasts alone and continuing with the rest of the Intel map."));
+		if (fireBeast) {
+			DeploymentHelper.OddsWarning odds = deploymentHelper.readOddsWarning();
+			if (odds == DeploymentHelper.OddsWarning.CERTAIN_FAILURE) {
+				// Not the same sentence as "not likely to prevail". This one is the game saying the
+				// march is lost, and no number of retries changes that -- the troops just die. Back out
+				// without sending it, and leave Fire Beasts alone for the rest of the run rather than
+				// walking back onto the same marker.
+				logWarning(routineLogIntelligenceLine("Deploy screen says this march is almost certain to "
+						+ "fail. No march was sent; leaving Fire Beasts alone for the rest of this run."));
 				fireBeastAttemptsExhausted = true;
 				leaveToIntelScreenFlow();
 				return;
 			}
-			prevailWarningAttempts++;
-			logWarning(routineLogIntelligenceLine("Deploy screen reads \"You are not likely to prevail\"; "
-					+ "the odds are against it, not the outcome. Deploying anyway -- warned try "
-					+ prevailWarningAttempts + "/" + PREVAIL_WARNING_MAX_ATTEMPTS + " this run."));
+			if (odds == DeploymentHelper.OddsWarning.UNLIKELY) {
+				if (prevailWarningAttempts >= PREVAIL_WARNING_MAX_ATTEMPTS) {
+					logWarning(routineLogIntelligenceLine("Fire Beast odds warning again, with all "
+							+ PREVAIL_WARNING_MAX_ATTEMPTS + " warned tries spent this run. No march was sent; "
+							+ "leaving Fire Beasts alone and continuing with the rest of the Intel map."));
+					fireBeastAttemptsExhausted = true;
+					leaveToIntelScreenFlow();
+					return;
+				}
+				prevailWarningAttempts++;
+				logWarning(routineLogIntelligenceLine("Deploy screen reads \"You are not likely to prevail\"; "
+						+ "the odds are against it, not the outcome. Deploying anyway -- warned try "
+						+ prevailWarningAttempts + "/" + PREVAIL_WARNING_MAX_ATTEMPTS + " this run."));
+			}
 		}
 
 		var deployment = deploymentHelper.readScreen(DeploymentHelper.MAX_ATTACK_STAMINA_COST);

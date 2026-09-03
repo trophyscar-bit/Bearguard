@@ -179,6 +179,10 @@ public final class CommonGameAreas {
     // starts at 590 to keep that edge out of the red-pixel count.
     public static final AreaData DEPLOY_ODDS_WARNING_AREA     = region(150, 590, 570, 630);
 
+    // Wider than the pixel band on purpose: the two odds lines are different lengths, and OCR needs
+    // whitespace either side of the glyphs to segment them.
+    public static final AreaData DEPLOY_ODDS_TEXT_AREA        = region(120, 585, 600, 635);
+
     // ── Hold-a-rally preparation time ────────────────────────────────
     //
     // The dialog keeps whatever preparation time was last picked in game and the bot never sets it,
