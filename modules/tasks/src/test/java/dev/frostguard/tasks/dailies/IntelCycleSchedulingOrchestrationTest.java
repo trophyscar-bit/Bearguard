@@ -1,6 +1,7 @@
 package dev.frostguard.tasks.dailies;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -43,16 +44,28 @@ class IntelCycleSchedulingOrchestrationTest {
         assertEquals(executionsBeforeWaitingTick, task.executionCount,
                 "the future Beast ETA must not execute again on the next scheduler tick");
 
-        task.reschedule(LocalDateTime.now().minusSeconds(1));
+        LocalDateTime beforeResume = LocalDateTime.now();
+        task.reschedule(beforeResume.minusSeconds(1));
         runSchedulerTick(queue);
         assertEquals(2, task.executionCount);
         assertEquals(IntelCyclePolicy.Action.RESUME_ACTIVE_CYCLE, task.lastAction);
-        assertTrue(task.getScheduled().isAfter(LocalDateTime.now().plusHours(1)));
+
+        // A completed cycle parks on the next Intel refresh, and those are 00:00, 08:00 and 16:00
+        // UTC, so the park is minutes away during the hour before one. Assert against the policy
+        // instead of a fixed horizon. reschedule() only ever delays, so the stored time cannot
+        // precede the refresh resolved before the tick; the second of slack absorbs the
+        // millisecond truncation reschedule() applies to its own gap.
+        LocalDateTime earliestPark = IntelCyclePolicy
+                .nextRefresh(beforeResume, ZoneId.systemDefault())
+                .minusSeconds(1);
+        assertFalse(task.getScheduled().isBefore(earliestPark),
+                "the resumed cycle must park on the next Intel refresh");
 
         TaskStateData persisted = TaskManagementService.shared().lookupTaskState(
                 profile.getId(), TpDailyTaskEnum.INTEL.getId());
         assertNotNull(persisted);
-        assertTrue(persisted.getNextExecutionTime().isAfter(LocalDateTime.now().plusHours(1)));
+        assertFalse(persisted.getNextExecutionTime().isBefore(earliestPark),
+                "the persisted schedule must carry the same parked refresh time");
         assertEquals(0, queue.gameStopCount);
         assertEquals(0, queue.slotReleaseCount);
 
