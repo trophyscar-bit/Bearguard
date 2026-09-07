@@ -67,7 +67,21 @@ class PetSkillsCooldownOcrFrameTest {
         assertTrue(hasSkillTile(image, PetSkillsRoutine.PetSkill.STAMINA));
         assertTrue(hasSkillTile(image, PetSkillsRoutine.PetSkill.GATHERING));
         assertTrue(hasSkillTile(image, PetSkillsRoutine.PetSkill.FOOD));
-        assertFalse(hasSkillTile(image, PetSkillsRoutine.PetSkill.TREASURE));
+    }
+
+    @Test
+    void everySkillPointsAtARealTileOnTheCurrentRoster() throws Exception {
+        // The 2026-08-10 fixture above is a three-tile roster. This one is the live five-tile
+        // layout, and it is the frame that showed TREASURE aiming at bare panel: it selected
+        // nothing, so the task logged "not available. Skipping." on every run for as long as the
+        // coordinate stood. Natural Intuition had the opposite problem -- a real tile with nothing
+        // pointing at it. Both are now mapped, so no skill may aim at empty background.
+        BufferedImage image = ImageIO.read(Objects.requireNonNull(
+                getClass().getResourceAsStream("/pets/pet-skill-selected-oncooldown-20260907.png")));
+
+        for (PetSkillsRoutine.PetSkill skill : PetSkillsRoutine.PetSkill.values()) {
+            assertTrue(hasSkillTile(image, skill), () -> skill + " does not land on a skill tile");
+        }
     }
 
     private boolean hasSkillTile(BufferedImage image, PetSkillsRoutine.PetSkill skill) {

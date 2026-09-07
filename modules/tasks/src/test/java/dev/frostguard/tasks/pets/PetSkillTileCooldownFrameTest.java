@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javax.imageio.ImageIO;
@@ -15,6 +16,7 @@ import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 
 import dev.frostguard.api.domain.AreaData;
+import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -23,24 +25,37 @@ import dev.frostguard.vision.ocr.OcrEngine;
 /**
  * The remaining cooldown is read from the clock drawn on each skill's own tile.
  *
- * <p>The crop this replaces, a shared "On cooldown: HH:MM:SS" line under the description panel,
- * pointed at (200,1070)-(520,1110). That rectangle is the Use button. With a digits-only whitelist
- * it returned nothing on every pass, for every skill, so the routine never once read a real
- * cooldown on this account and silently fell back to a flat 60 minutes each run. The frame here is
- * a live capture taken while the routine had the panel open, and {@link #theOldSharedLineCropReadsTheUseButton()}
- * pins that failure in place so the crop cannot quietly drift back.
+ * <p>The crop this replaces, (200,1070)-(520,1110), is not simply wrong about where to look. That
+ * rectangle holds the Use button while the selected skill is READY, and the game swaps in an
+ * "On cooldown: HH:MM:SS" line in the same place once it is not. So it reads nothing at all on a
+ * ready skill, and on a skill that is on cooldown the OCR returns a leading-digit artifact from the
+ * label -- "0:22:24:23" rather than "22:24:23". The old extraction regex then matched the FIRST
+ * timestamp-shaped run in that string, "0:22:24", and scheduled 22 minutes for a 22 hour wait. The
+ * routine never actually got that far on this account (it logged "Could not read cooldown" on every
+ * run), but the failure mode was a sixty-fold under-read waiting to happen, not merely a blank.
  *
- * <p>The panel does print a "Cooldown: 23:00:00" line, and it is a trap: that is the skill's BASE
- * cooldown, rendered identically whether the skill is ready or has twenty hours left. Scheduling
- * from it would look correct and be wrong every time.
+ * <p>The tile clock has neither problem: it is present exactly when there is a cooldown to read,
+ * carries no label to confuse the parse, and is drawn per skill so one skill cannot pick up another
+ * skill's timer.
+ *
+ * <p>Two live 720x1280 captures back this, both committed redacted: one with the selected skill
+ * ready, one with it on cooldown.
  */
 class PetSkillTileCooldownFrameTest {
 
     private static final Pattern TIMER = Pattern.compile("(?:\\d+\\s*d\\s*)?\\d{1,2}:\\d{2}:\\d{2}");
 
+    /** The rectangle the routine used to read, kept so the failure cannot creep back. */
+    private static final AreaData OLD_SHARED_LINE_CROP =
+            new AreaData(new PointData(200, 1070), new PointData(520, 1110));
+
+    /** The extraction the old path used on whatever that crop returned. */
+    private static final Pattern OLD_EXTRACTION =
+            Pattern.compile("(?:\\d+\\s*d\\s*)?\\d{1,2}:\\d{2}:\\d{2}");
+
     @Test
     void readsTheRemainingCooldownFromTheSkillsOwnTile() throws Exception {
-        RawImageData frame = rgbaFrame(loadFrame());
+        RawImageData frame = rgbaFrame(loadReadyFrame());
 
         // FOOD's tile was on cooldown when this frame was taken: the skill had been used 37
         // minutes earlier and its 23h clock had 22:23:03 left.
@@ -53,7 +68,7 @@ class PetSkillTileCooldownFrameTest {
 
     @Test
     void aReadySkillsTileYieldsNoTimerRatherThanAWrongOne() throws Exception {
-        RawImageData frame = rgbaFrame(loadFrame());
+        RawImageData frame = rgbaFrame(loadReadyFrame());
 
         // STAMINA and GATHERING were both ready in this frame -- no clock is drawn on a ready
         // tile. The read must come back empty so the skill is excluded, not decorated with a
@@ -67,19 +82,41 @@ class PetSkillTileCooldownFrameTest {
     }
 
     @Test
-    void theOldSharedLineCropReadsTheUseButton() throws Exception {
-        RawImageData frame = rgbaFrame(loadFrame());
-
-        // The exact rectangle the routine used to read. Kept as a test rather than a comment
-        // because the claim that it was "calibrated from 30 live frames" and "read cleanly on
-        // every single one" was in the source for weeks while it had never worked once.
-        String clock = read(frame, new AreaData(
-                new dev.frostguard.api.domain.PointData(200, 1070),
-                new dev.frostguard.api.domain.PointData(520, 1110)));
+    void theOldCropShowsTheUseButtonWhileTheSkillIsReady() throws Exception {
+        // Frame with a ready skill selected: the rectangle the routine used to read holds the Use
+        // button, so there is no timer in it to find.
+        String clock = readAsTheOldPathDid(rgbaFrame(loadReadyFrame()), OLD_SHARED_LINE_CROP);
 
         assertNotNull(clock);
         assertFalse(TIMER.matcher(clock).find(),
-                () -> "The old crop produced a timer, so this frame no longer demonstrates the bug: " + clock);
+                () -> "Expected the Use button here, got a timer: " + clock);
+    }
+
+    @Test
+    void theOldCropUnderReadsByAFactorOfSixtyWhenTheSkillIsOnCooldown() throws Exception {
+        // Same rectangle, skill on cooldown: the line IS there, and this is the dangerous case.
+        String clock = readAsTheOldPathDid(rgbaFrame(loadOnCooldownFrame()), OLD_SHARED_LINE_CROP);
+
+        Matcher m = OLD_EXTRACTION.matcher(clock);
+        assertTrue(m.find(), () -> "Expected the old parse to match something in: " + clock);
+
+        // 22:24:23 remained. The old parse takes "0:22:24" out of "0:22:24:23" and calls it done.
+        Duration wouldHaveScheduled = GameTimeUtils.parseDuration(m.group());
+        assertEquals(Duration.ofMinutes(22).plusSeconds(24), wouldHaveScheduled,
+                "This pins the under-read; if the OCR or the label changes, re-derive the fix rather "
+                        + "than loosening this");
+        assertTrue(wouldHaveScheduled.compareTo(Duration.ofHours(1)) < 0,
+                "the whole point: a 22 hour cooldown parsed as well under an hour");
+    }
+
+    @Test
+    void theTileClockReadsTheSameCooldownCorrectly() throws Exception {
+        // The same frame, read the new way, gets the real remaining time.
+        String clock = read(rgbaFrame(loadOnCooldownFrame()),
+                PetSkillsRoutine.PetSkill.NATURAL_INTUITION.cooldownArea());
+
+        assertEquals(Duration.ofHours(22).plusMinutes(24).plusSeconds(23),
+                GameTimeUtils.parseDuration(clock));
     }
 
     @Test
@@ -98,14 +135,33 @@ class PetSkillTileCooldownFrameTest {
         }
     }
 
+    /**
+     * Reads the way the replaced code did: the old crop with RED_DURATION_SETTINGS, which is
+     * where the leading-digit artifact comes from. RED_MULTILINE, which the tile read uses,
+     * happens to render the same pixels as "0d:22:24:23" and survives the parse -- so using it
+     * here would quietly hide the bug this test exists to pin.
+     */
+    private String readAsTheOldPathDid(RawImageData frame, AreaData area) throws Exception {
+        return OcrEngine.recognizeText(frame, area.topLeft(), area.bottomRight(),
+                CommonOCRSettings.RED_DURATION_SETTINGS);
+    }
+
     private String read(RawImageData frame, AreaData area) throws Exception {
         return OcrEngine.recognizeText(frame, area.topLeft(), area.bottomRight(),
                 CommonOCRSettings.RED_MULTILINE_DURATION_SETTINGS);
     }
 
-    private BufferedImage loadFrame() throws Exception {
+    private BufferedImage loadReadyFrame() throws Exception {
+        return load("pet-skill-tile-cooldown-20260907.png");
+    }
+
+    private BufferedImage loadOnCooldownFrame() throws Exception {
+        return load("pet-skill-selected-oncooldown-20260907.png");
+    }
+
+    private BufferedImage load(String name) throws Exception {
         return ImageIO.read(Objects.requireNonNull(
-                getClass().getResourceAsStream("/pets/pet-skill-tile-cooldown-20260907.png")));
+                getClass().getResourceAsStream("/pets/" + name)));
     }
 
     private RawImageData rgbaFrame(BufferedImage image) {

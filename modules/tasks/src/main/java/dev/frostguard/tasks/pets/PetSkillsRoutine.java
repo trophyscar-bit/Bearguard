@@ -74,23 +74,40 @@ public class PetSkillsRoutine extends DelayedTask {
 
     // ========== Pet Skills Menu Coordinates ==========
     // Skill icon regions (for tapping on the pets menu screen)
+    // Tile positions, measured on a live 720x1280 panel on 2026-09-07 by selecting each tile in
+    // turn and reading the name the description panel printed. The enum names below are historical
+    // slot aliases, not the skills' real names -- renaming them would orphan the persisted
+    // PET_SKILL_*_BOOL settings, so the mapping is recorded here instead:
+    //
+    //   slot 1  x  77-204  Builder's Aide     +15% Construction Speed 5m   -> FOOD (misnomer)
+    //   slot 2  x 222-349  Arctic Embrace     +45 Chief Stamina            -> STAMINA
+    //   slot 3  x 367-494  Burden Bearer      instant gather on arrival    -> GATHERING
+    //   slot 4  x 512-639  Natural Intuition  500 Pet Food                 -> NATURAL_INTUITION
+    //   slot 5  x  77-204  Razorbeak          -2% enemy Health 2h          -> TREASURE (misnomer)
+    //
+    // Row 1 spans y 240-373 and row 2 y 387-516; the constants below are inset inside those bounds.
+    // Tile pitch is ~145px, confirmed by the four row-1 taps that each selected the intended skill.
     private static final PointData STAMINA_SKILL_TOP_LEFT = new PointData(240, 260);
     private static final PointData STAMINA_SKILL_BOTTOM_RIGHT = new PointData(320, 350);
     private static final PointData GATHERING_SKILL_TOP_LEFT = new PointData(380, 260);
     private static final PointData GATHERING_SKILL_BOTTOM_RIGHT = new PointData(460, 350);
-    // Repointed from (540,260)-(620,350), which was past the right-hand edge of
-    // the last skill tile and therefore tapped bare panel. The Pet Skill dialog lays its tiles out
-    // in ONE row of three, not the 2x2 grid these constants assumed:
-    //     slot 1 x 75-205   slot 2 x 220-355 (Stamina)   slot 3 x 365-500 (Gathering)
-    // Slot 1 was the only tile nothing ever selected, and in the 14:47 capture it held the
-    // SOONEST cooldown of the three (07:27:25, ready ~22:14) — so the skill most worth waking up
-    // for was the one guaranteed to be missed. Pointing Food at slot 1 means every real tile now
-    // gets visited. The slot-1 skill's actual identity is still unconfirmed; whatever it is, its
-    // cooldown now reaches the scheduler instead of being invisible.
     private static final PointData FOOD_SKILL_TOP_LEFT = new PointData(95, 260);
     private static final PointData FOOD_SKILL_BOTTOM_RIGHT = new PointData(185, 350);
-    private static final PointData TREASURE_SKILL_TOP_LEFT = new PointData(240, 410);
-    private static final PointData TREASURE_SKILL_BOTTOM_RIGHT = new PointData(320, 490);
+
+    // Slot 4 held the only skill that actually produces Pet Food, and nothing pointed at it: the
+    // constant named FOOD selects slot 1, which is Builder's Aide. Natural Intuition therefore
+    // could not be triggered at all, whatever the config said.
+    private static final PointData NATURAL_INTUITION_SKILL_TOP_LEFT = new PointData(520, 260);
+    // x runs to 634 rather than the ~620 the other tiles use: this tile sits furthest right and
+    // its clock is drawn wider, so a 620 bound clipped the final digit and the colon with it,
+    // turning 22:24:23 into 22:2423. Slot 4 ends at 639, so this stays inside its own tile.
+    private static final PointData NATURAL_INTUITION_SKILL_BOTTOM_RIGHT = new PointData(634, 350);
+
+    // Repointed from (240,410)-(320,490), which is bare panel background next to the row-2 tile
+    // rather than any tile at all -- every run logged "TREASURE skill is not available. Skipping."
+    // and moved on. Row 2 holds one tile, Razorbeak, directly beneath slot 1.
+    private static final PointData TREASURE_SKILL_TOP_LEFT = new PointData(95, 410);
+    private static final PointData TREASURE_SKILL_BOTTOM_RIGHT = new PointData(185, 500);
 
     // The remaining-cooldown clock is drawn ON the skill tile, in red, over a dark band across
     // the tile's upper-middle. These offsets are measured from the tile's OWN top edge so the
@@ -188,6 +205,7 @@ public class PetSkillsRoutine extends DelayedTask {
     // ========== Configuration (loaded in loadConfiguration()) ==========
     private boolean staminaEnabled;
     private boolean foodEnabled;
+    private boolean naturalIntuitionEnabled;
     private boolean treasureEnabled;
     private boolean gatheringEnabled;
 
@@ -282,6 +300,8 @@ public class PetSkillsRoutine extends DelayedTask {
     private void loadConfiguration() {
         this.staminaEnabled = getConfigBoolean(ConfigurationKeyEnum.PET_SKILL_STAMINA_BOOL, false);
         this.foodEnabled = getConfigBoolean(ConfigurationKeyEnum.PET_SKILL_FOOD_BOOL, false);
+        this.naturalIntuitionEnabled = getConfigBoolean(
+                ConfigurationKeyEnum.PET_SKILL_NATURAL_INTUITION_BOOL, false);
         this.treasureEnabled = getConfigBoolean(ConfigurationKeyEnum.PET_SKILL_TREASURE_BOOL, false);
         this.gatheringEnabled = getConfigBoolean(ConfigurationKeyEnum.PET_SKILL_GATHERING_BOOL, false);
 
@@ -422,6 +442,7 @@ public class PetSkillsRoutine extends DelayedTask {
         return switch (skill) {
             case STAMINA -> staminaEnabled;
             case FOOD -> foodEnabled;
+            case NATURAL_INTUITION -> naturalIntuitionEnabled;
             case TREASURE -> treasureEnabled;
             case GATHERING -> gatheringEnabled;
         };
@@ -766,6 +787,7 @@ public class PetSkillsRoutine extends DelayedTask {
         switch (skill) {
             case STAMINA:
             case FOOD:
+            case NATURAL_INTUITION:
             case TREASURE:
             case GATHERING: {
                 // Read the clock on the skill's OWN tile.
@@ -1450,7 +1472,10 @@ public class PetSkillsRoutine extends DelayedTask {
         /** Food skill - increases food production */
         FOOD(FOOD_SKILL_TOP_LEFT, FOOD_SKILL_BOTTOM_RIGHT),
 
-        /** Treasure skill - provides resource rewards */
+        /** Natural Intuition - the Giant Tapir skill that locates Pet Food */
+        NATURAL_INTUITION(NATURAL_INTUITION_SKILL_TOP_LEFT, NATURAL_INTUITION_SKILL_BOTTOM_RIGHT),
+
+        /** Treasure skill - historical alias; this slot holds Razorbeak */
         TREASURE(TREASURE_SKILL_TOP_LEFT, TREASURE_SKILL_BOTTOM_RIGHT);
 
         private final AreaData area;
