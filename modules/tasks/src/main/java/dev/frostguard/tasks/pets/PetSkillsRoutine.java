@@ -414,8 +414,10 @@ public class PetSkillsRoutine extends DelayedTask {
             return skills;
         }
 
-        // Legacy PET_SKILLS task: gathering only. STAMINA/TREASURE/FOOD now run as their own tasks,
-        // so processing them here too would double-drive them.
+        // Legacy PET_SKILLS task: gathering only. STAMINA, TREASURE and FOOD each run as their own
+        // task, so processing them here too would double-drive them. FOOD was excluded here on that
+        // basis before its task existed, which left it unreachable from either path: the checkbox
+        // wrote PET_SKILL_FOOD_BOOL, loadConfiguration read it, and nothing ever asked for the skill.
         if (gatheringEnabled) {
             skills.add(PetSkill.GATHERING);
         }
