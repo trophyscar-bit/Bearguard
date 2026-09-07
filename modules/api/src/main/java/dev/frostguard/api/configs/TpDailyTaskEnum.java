@@ -97,6 +97,7 @@ public enum TpDailyTaskEnum {
     PET_SKILLS             (51,  "Pet Skills",                   ConfigurationKeyEnum.PET_SKILLS_BOOL,                         RoutineCategory.PET),
     PET_SKILL_STAMINA      (106, "Pet Skill: Stamina",          ConfigurationKeyEnum.PET_SKILL_STAMINA_BOOL,                  RoutineCategory.PET),
     PET_SKILL_TREASURE     (107, "Pet Skill: Treasure",         ConfigurationKeyEnum.PET_SKILL_TREASURE_BOOL,                 RoutineCategory.PET),
+    PET_SKILL_FOOD         (108, "Pet Skill: Food",            ConfigurationKeyEnum.PET_SKILL_FOOD_BOOL,                     RoutineCategory.PET),
 
     /* ── resource ── */
 
