@@ -43,6 +43,13 @@ public final class CommonOCRSettings {
     public static final OcrSettingsData RED_DURATION_SETTINGS =
             buildConfig("0123456789:", true, 243, 59, 59, TextLayout.SINGLE_LINE);
 
+    // A pet skill tile draws two different clocks in the same place. Red counts down the
+    // cooldown; GREEN counts down the remaining duration of an effect that is currently running,
+    // which is not a cooldown and must not be scheduled as one. Sampled at (0,190,0) on a live
+    // Razorbeak tile mid-buff.
+    public static final OcrSettingsData GREEN_ACTIVE_DURATION_SETTINGS =
+            buildConfig("0123456789d:", true, 0, 190, 0, TextLayout.SPARSE);
+
     // Keep raw anti-aliased glyphs: colour isolation drops the slender "1" in wrapped "1d" timers.
     public static final OcrSettingsData RED_MULTILINE_DURATION_SETTINGS =
             buildConfig("0123456789d:", false, 0, 0, 0, TextLayout.SPARSE);
