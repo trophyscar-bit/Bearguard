@@ -792,19 +792,40 @@ public class PetSkillsRoutine extends DelayedTask {
             case GATHERING: {
                 // Read the clock on the skill's OWN tile.
                 //
-                // This replaces a crop of a shared "On cooldown: HH:MM:SS" line under the
-                // description panel. That line does not exist. The crop it used,
-                // (200,1070)-(520,1110), lands squarely on the Use button, so with a digits-only
-                // whitelist it returned nothing on every pass -- across the whole of this
-                // account's history the read succeeded exactly zero times, for every skill, and
-                // the task fell back to a flat 60 minutes each run without ever saying why.
+                // This replaces a crop of the line under the description panel at
+                // (200,1070)-(520,1110). That rectangle holds the Use button while the selected
+                // skill is ready and an "On cooldown: HH:MM:SS" line when it is not, so it read
+                // nothing on a ready skill and, on a skill that was on cooldown, returned
+                // "0:22:24:23" -- a leading digit picked out of the label. The old regex then took
+                // the first timestamp-shaped run from that, "0:22:24", which would have scheduled
+                // 22 minutes for a 22 hour wait. Live it failed to null every time instead, so the
+                // task simply fell back to 60 minutes on every run without saying why.
                 //
-                // The description panel does carry a "Cooldown: 23:00:00" line, but that is the
-                // skill's BASE cooldown, printed identically whether the skill is ready or has
-                // 20 hours left. Scheduling off it would look like it worked and be wrong every
-                // time; the tile clock is the only place the remaining time is shown.
+                // The tile clock has neither problem, but it comes in two colours and they mean
+                // opposite things: RED counts the cooldown down, GREEN counts down an effect that
+                // is still running. Reading green as a cooldown would be worse than reading
+                // nothing -- Razorbeak's 2h buff would be booked as a 2h cooldown against a real
+                // 20h one.
                 cooldownDuration = readSkillCooldown(skill.cooldownArea(),
                         CommonOCRSettings.RED_MULTILINE_DURATION_SETTINGS);
+
+                if (cooldownDuration == null) {
+                    Duration active = readSkillCooldown(skill.cooldownArea(),
+                            CommonOCRSettings.GREEN_ACTIVE_DURATION_SETTINGS);
+                    if (active != null) {
+                        // The effect is still running, so the cooldown clock is not on screen yet.
+                        // Come back when it ends and read the real one then. Without this the skill
+                        // reads as unreadable and the task retries hourly for the whole cooldown --
+                        // twenty wasted visits for Razorbeak's 20h.
+                        LocalDateTime effectEnds = LocalDateTime.now().plus(active);
+                        logInfo(String.format("%s effect is still active until %s (in %s); "
+                                        + "its cooldown is not shown until then.",
+                                skill.name(), effectEnds.format(DATETIME_FORMATTER),
+                                GameTimeUtils.formatCountdown(effectEnds)));
+                        updateEarliestCooldown(effectEnds);
+                        return true;
+                    }
+                }
                 break;
             }
 

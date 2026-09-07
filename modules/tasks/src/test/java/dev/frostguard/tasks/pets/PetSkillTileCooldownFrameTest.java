@@ -120,6 +120,25 @@ class PetSkillTileCooldownFrameTest {
     }
 
     @Test
+    void aRunningEffectIsNotMistakenForACooldown() throws Exception {
+        // Razorbeak had just been used: its tile shows 01:54:48 remaining of a 2h buff, drawn in
+        // GREEN. The real cooldown is 20h and is not on screen yet. Reading the green clock as a
+        // cooldown would book a 2h wait against a 20h one, so the red read must decline it.
+        RawImageData frame = rgbaFrame(load("pet-skill-active-effect-20260907.png"));
+        AreaData band = PetSkillsRoutine.PetSkill.TREASURE.cooldownArea();
+
+        String asCooldown = read(frame, band);
+        assertFalse(TIMER.matcher(asCooldown).find(),
+                () -> "A running effect must not read as a cooldown, got: " + asCooldown);
+
+        String asActive = OcrEngine.recognizeText(frame, band.topLeft(), band.bottomRight(),
+                CommonOCRSettings.GREEN_ACTIVE_DURATION_SETTINGS);
+        assertEquals(Duration.ofHours(1).plusMinutes(54).plusSeconds(48),
+                GameTimeUtils.parseDuration(asActive),
+                "the green clock is the effect duration and should be readable as such");
+    }
+
+    @Test
     void theCooldownBandStaysInsideItsOwnTile() {
         // The band is derived from the tile so it follows the tile when the roster grows. It must
         // stay within the tile's own bounds, or one skill would read its neighbour's clock.
