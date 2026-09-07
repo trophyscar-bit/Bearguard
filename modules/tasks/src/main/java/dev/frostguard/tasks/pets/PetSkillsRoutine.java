@@ -92,6 +92,13 @@ public class PetSkillsRoutine extends DelayedTask {
     private static final PointData TREASURE_SKILL_TOP_LEFT = new PointData(240, 410);
     private static final PointData TREASURE_SKILL_BOTTOM_RIGHT = new PointData(320, 490);
 
+    // The remaining-cooldown clock is drawn ON the skill tile, in red, over a dark band across
+    // the tile's upper-middle. These offsets are measured from the tile's OWN top edge so the
+    // crop tracks the tile instead of being a fourth set of absolute coordinates to re-measure
+    // every time the skill roster changes and the tiles shift.
+    private static final int COOLDOWN_BAND_TOP_OFFSET = 22;
+    private static final int COOLDOWN_BAND_BOTTOM_OFFSET = 78;
+
     // ========== Skill Details UI (overlay on pets menu) ==========
     private static final AreaData TREASURE_COOLDOWN_OCR_AREA = new AreaData(
             new PointData(231, 428),
@@ -105,19 +112,6 @@ public class PetSkillsRoutine extends DelayedTask {
     static final AreaData STAMINA_COOLDOWN_OCR_AREA = new AreaData(
             new PointData(229, 285),
             new PointData(334, 320));
-    // The authoritative cooldown for whichever skill is currently selected,
-    // rendered as "On cooldown: HH:MM:SS" in red under the description panel. Calibrated from
-    // 30 live 720x1280 frames captured mid-routine; read cleanly on every single one
-    // ("On cooldown: 15:10:00", "On cooldown: 14:21:44", ...).
-    //
-    // This replaces four per-icon crops of the small red timer drawn ON each skill tile. Those
-    // were failing for three of four skills: two pointed at blank panel space (the code assumed
-    // a 2x2 grid of four skills; this pet has three in a single row), and the third clipped the
-    // bottom few pixels of its digits. Reading the shared line avoids per-tile calibration
-    // entirely and stays correct however many skills a pet has.
-    private static final AreaData SELECTED_SKILL_COOLDOWN_AREA = new AreaData(
-            new PointData(200, 1070),
-            new PointData(520, 1110));
 
     /**
      * Matches the cooldown timestamp inside the "On cooldown:" line, with or without a day part
@@ -236,7 +230,6 @@ public class PetSkillsRoutine extends DelayedTask {
      * read lets {@link #readAndTrackCooldown} spot a byte-identical repeat (impossible to the second
      * unless the line never refreshed) and avoid attributing a neighbour's cooldown.
      */
-    private String lastSelectedCooldownRaw;
 
     /**
      * When non-null, this task handles exactly one cooldown skill and reschedules to that skill's
@@ -324,7 +317,6 @@ public class PetSkillsRoutine extends DelayedTask {
         this.gatheringRetryAt = null;
         this.skillUnusable = false;
         this.readyNowCooldownUnread = false;
-        this.lastSelectedCooldownRaw = null;
         logDebug("Execution state reset");
     }
 
@@ -772,32 +764,25 @@ public class PetSkillsRoutine extends DelayedTask {
         Duration cooldownDuration;
 
         switch (skill) {
-            // Every skill now reads the same shared "On cooldown:" line, which
-            // reflects whichever tile is currently selected. The old per-skill crops are gone --
-            // see SELECTED_SKILL_COOLDOWN_AREA for why they could not work.
             case STAMINA:
             case FOOD:
             case TREASURE:
             case GATHERING: {
-                // Guard the shared "On cooldown:" line against a missed tile-tap.
-                // If this skill reads a timestamp byte-identical to the previously-read skill's, the
-                // selected tile almost certainly didn't switch (a real coincidence would need identical
-                // H:MM:SS to the second), so we'd be attributing a neighbour's cooldown. Re-select once
-                // and re-read; if it STILL matches, exclude this skill rather than trust a stale value.
-                String prevRaw = this.lastSelectedCooldownRaw;
-                cooldownDuration = readSelectedSkillCooldown();
-                if (cooldownDuration != null && prevRaw != null
-                        && prevRaw.equals(this.lastSelectedCooldownRaw)) {
-                    logWarning(skill.name() + " cooldown line matched the previous skill's exactly ("
-                            + prevRaw + ") — likely a stale shared read. Re-selecting and retrying.");
-                    tapSkillIcon(skill);
-                    cooldownDuration = readSelectedSkillCooldown();
-                    if (cooldownDuration != null && prevRaw.equals(this.lastSelectedCooldownRaw)) {
-                        logWarning(skill.name() + " still read the same cooldown after re-select — "
-                                + "excluding it rather than attributing a neighbour's timer.");
-                        return false;
-                    }
-                }
+                // Read the clock on the skill's OWN tile.
+                //
+                // This replaces a crop of a shared "On cooldown: HH:MM:SS" line under the
+                // description panel. That line does not exist. The crop it used,
+                // (200,1070)-(520,1110), lands squarely on the Use button, so with a digits-only
+                // whitelist it returned nothing on every pass -- across the whole of this
+                // account's history the read succeeded exactly zero times, for every skill, and
+                // the task fell back to a flat 60 minutes each run without ever saying why.
+                //
+                // The description panel does carry a "Cooldown: 23:00:00" line, but that is the
+                // skill's BASE cooldown, printed identically whether the skill is ready or has
+                // 20 hours left. Scheduling off it would look like it worked and be wrong every
+                // time; the tile clock is the only place the remaining time is shown.
+                cooldownDuration = readSkillCooldown(skill.cooldownArea(),
+                        CommonOCRSettings.RED_MULTILINE_DURATION_SETTINGS);
                 break;
             }
 
@@ -839,44 +824,6 @@ public class PetSkillsRoutine extends DelayedTask {
      * @param area The area containing the cooldown text
      * @return Duration representing the cooldown time, or null if OCR fails
      */
-    /**
-     * Reads the cooldown of the currently selected skill from the shared "On cooldown:" line.
-     *
-     * <p>The value is regex-extracted rather than parsed whole. The OCR whitelist keeps digits,
-     * {@code d} and {@code :}, so the label's own colon survives and the raw read looks like
-     * {@code ":15:10:00"} — feeding that straight to a duration parser fails. Pulling out the
-     * timestamp substring makes the read immune to whatever the label leaves behind.</p>
-     *
-     * @return the remaining cooldown, or {@code null} when no timestamp could be read
-     */
-    private Duration readSelectedSkillCooldown() {
-        String raw = stringHelper.attemptRecognition(
-                SELECTED_SKILL_COOLDOWN_AREA.topLeft(),
-                SELECTED_SKILL_COOLDOWN_AREA.bottomRight(),
-                5, // Max retries
-                200L, // Retry delay in ms
-                COOLDOWN_OCR_SETTINGS,
-                s -> s != null && COOLDOWN_TIMESTAMP_PATTERN.matcher(s).find(),
-                s -> s.trim());
-
-        if (raw == null) {
-            this.lastSelectedCooldownRaw = null;
-            return null;
-        }
-
-        java.util.regex.Matcher matcher = COOLDOWN_TIMESTAMP_PATTERN.matcher(raw);
-        if (!matcher.find()) {
-            logDebug("Cooldown line read as '" + raw + "' but held no usable timestamp.");
-            this.lastSelectedCooldownRaw = null;
-            return null;
-        }
-
-        String timestamp = matcher.group().trim();
-        Duration parsed = GameTimeUtils.parseDuration(timestamp);
-        logDebug("Selected skill cooldown read as '" + timestamp + "'.");
-        this.lastSelectedCooldownRaw = timestamp;
-        return parsed;
-    }
 
     private Duration readSkillCooldown(AreaData area) {
         return readSkillCooldown(area, COOLDOWN_OCR_SETTINGS);
@@ -1516,6 +1463,23 @@ public class PetSkillsRoutine extends DelayedTask {
          */
         PetSkill(PointData topLeft, PointData bottomRight) {
             this.area = new AreaData(topLeft, bottomRight);
+        }
+
+        /**
+         * The band of this skill's own tile that carries its remaining-cooldown clock.
+         *
+         * <p>Derived from the tile rather than stored per skill, so it follows the tile if the
+         * roster grows and the tiles move. The offsets cover both renderings the game uses: a
+         * single "HH:MM:SS" line, and a long timer wrapped onto two lines as "1d" above
+         * "HH:MM:SS". Measured on live 720x1280 frames and on the 2026-08-10 fixture, where the
+         * same band reads 22:23:03 / 22:56:51 and the wrapped 1d 10:14:57 respectively.
+         *
+         * @return the crop to OCR for this skill's remaining cooldown
+         */
+        AreaData cooldownArea() {
+            return new AreaData(
+                    new PointData(area.topLeft().getX(), area.topLeft().getY() + COOLDOWN_BAND_TOP_OFFSET),
+                    new PointData(area.bottomRight().getX(), area.topLeft().getY() + COOLDOWN_BAND_BOTTOM_OFFSET));
         }
 
         /**
