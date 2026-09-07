@@ -37,6 +37,8 @@ class PetSkillTaskReachabilityTest {
                 new EnumMap<>(PetSkillsRoutine.PetSkill.class);
         expected.put(PetSkillsRoutine.PetSkill.STAMINA, ConfigurationKeyEnum.PET_SKILL_STAMINA_BOOL);
         expected.put(PetSkillsRoutine.PetSkill.FOOD, ConfigurationKeyEnum.PET_SKILL_FOOD_BOOL);
+        expected.put(PetSkillsRoutine.PetSkill.NATURAL_INTUITION,
+                ConfigurationKeyEnum.PET_SKILL_NATURAL_INTUITION_BOOL);
         expected.put(PetSkillsRoutine.PetSkill.TREASURE, ConfigurationKeyEnum.PET_SKILL_TREASURE_BOOL);
         return expected;
     }

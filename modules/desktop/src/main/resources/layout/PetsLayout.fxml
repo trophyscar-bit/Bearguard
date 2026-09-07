@@ -48,6 +48,8 @@
                                       text="Food Skill" />
                             <CheckBox fx:id="checkboxGatheringSkill" mnemonicParsing="false"
                                       text="Gathering Skill" />
+                            <CheckBox fx:id="checkboxNaturalIntuitionSkill" mnemonicParsing="false"
+                                      text="Natural Intuition (Pet Food)" />
                             <CheckBox fx:id="checkboxStaminaSkill" mnemonicParsing="false"
                                       text="Stamina Skill" />
                             <CheckBox fx:id="checkboxTreasureSkill" mnemonicParsing="false"

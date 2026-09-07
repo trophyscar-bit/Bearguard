@@ -100,6 +100,8 @@ public class TaskRegistrations {
             case PET_SKILL_STAMINA -> new PetSkillsRoutine(profile, type, PetSkillsRoutine.PetSkill.STAMINA);
             case PET_SKILL_TREASURE -> new PetSkillsRoutine(profile, type, PetSkillsRoutine.PetSkill.TREASURE);
             case PET_SKILL_FOOD -> new PetSkillsRoutine(profile, type, PetSkillsRoutine.PetSkill.FOOD);
+            case PET_SKILL_NATURAL_INTUITION ->
+                    new PetSkillsRoutine(profile, type, PetSkillsRoutine.PetSkill.NATURAL_INTUITION);
             case LIFE_ESSENCE -> new LifeEssenceRoutine(profile, type);
             case LIFE_ESSENCE_CARING -> new LifeEssenceCaringRoutine(profile, type);
 
