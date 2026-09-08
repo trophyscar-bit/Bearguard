@@ -113,48 +113,32 @@ public class PetSkillsRoutine extends DelayedTask {
     // the tile's upper-middle. These offsets are measured from the tile's OWN top edge so the
     // crop tracks the tile instead of being a fourth set of absolute coordinates to re-measure
     // every time the skill roster changes and the tiles shift.
+    /** A tile clock: HH:MM:SS, optionally prefixed with a day count for long cooldowns. */
+    private static final Pattern TILE_TIMER_PATTERN =
+            Pattern.compile("(?:\\d+\\s*d\\s*)?\\d{1,2}:\\d{2}:\\d{2}");
+
+    /** How much OCR noise may sit beside a tile timer before the read is discarded. */
+    private static final int MAX_STRAY_OCR_CHARS = 2;
+
     private static final int COOLDOWN_BAND_TOP_OFFSET = 22;
     private static final int COOLDOWN_BAND_BOTTOM_OFFSET = 78;
 
     // ========== Skill Details UI (overlay on pets menu) ==========
-    private static final AreaData TREASURE_COOLDOWN_OCR_AREA = new AreaData(
-            new PointData(231, 428),
-            new PointData(330, 470));
     static final AreaData GATHERING_COOLDOWN_OCR_AREA = new AreaData(
             new PointData(379, 282),
             new PointData(477, 338));
-    private static final AreaData FOOD_COOLDOWN_OCR_AREA = new AreaData(
-            new PointData(522, 288),
-            new PointData(626, 318));
     static final AreaData STAMINA_COOLDOWN_OCR_AREA = new AreaData(
             new PointData(229, 285),
             new PointData(334, 320));
-
-    /**
-     * Matches the cooldown timestamp inside the "On cooldown:" line, with or without a day part
-     * (the game renders long cooldowns as e.g. "1d 03:00:00").
-     */
-    private static final Pattern COOLDOWN_TIMESTAMP_PATTERN =
-            Pattern.compile("(?:\\d+\\s*d\\s*)?\\d{1,2}:\\d{2}:\\d{2}");
 
     private static final PointData SKILL_LEVEL_OCR_TOP_LEFT = new PointData(276, 779);
     private static final PointData SKILL_LEVEL_OCR_BOTTOM_RIGHT = new PointData(363, 811);
 
     // ========== Retry Constants ==========
-    // Was 5. Real account log showed Stamina/Gathering OCR
-    // reading correctly (cooldowns of 10-20+ HOURS), but Food/Treasure's OCR
-    // crop consistently fails every single run and falls back to this value
-    // - and since the task reschedules to the EARLIEST cooldown across all 4
-    // skills, that one broken 5-minute guess was dragging the whole task down
-    // to a ~4-5 minute loop regardless of the other 3 skills' real (correctly
-    // read) day-long cooldowns. Raised to a value that assumes an unreadable
-    // skill is probably ALSO on a long cooldown (matches the pattern of every
-    // skill actually observed), not "ready any second" - still short enough
-    // to recover if a read failure is transient rather than a stale crop.
-    // If Food/Treasure keep hitting this even after an hour, the OCR crop
-    // coordinates (FOOD_COOLDOWN_OCR_AREA / TREASURE_COOLDOWN_OCR_AREA) need
-    // remeasuring against a live capture - that's a UI-region bug, not
-    // something this constant can fully paper over.
+    // Only reached when NO enabled skill yielded a time. A single unreadable skill contributes
+    // nothing rather than a guess, so it can no longer drag the whole task down: this fires only
+    // when every skill failed, which now means something genuinely changed on screen rather than
+    // the routine reading the wrong rectangle.
     private static final int FALLBACK_RESCHEDULE_MINUTES = 60;
 
     // When a skill's Use button was present (so it was ready and we just
@@ -781,6 +765,44 @@ public class PetSkillsRoutine extends DelayedTask {
      * @param skill the skill whose cooldown to read
      * @return {@code true} when a real cooldown was read and tracked, {@code false} when OCR failed
      */
+    /**
+     * Pulls the timer out of a tile clock read, tolerating a stray glyph but not a wrong answer.
+     *
+     * <p>The clock is drawn over illustrated tile art, so the OCR often returns the timer plus one
+     * spurious character picked off the tile border -- "22:24:231" for 22:24:23. Demanding that the
+     * whole string parse threw those reads away, which is how Natural Intuition came back
+     * unreadable on a tile whose timer was perfectly legible.
+     *
+     * <p>Extraction alone would be dangerous: taking the first timestamp-shaped run out of
+     * "0:22:24:23" yields "0:22:24", which is the sixty-fold under-read that made the old
+     * description-panel crop worse than useless. So the match must account for nearly the whole
+     * string -- at most {@value #MAX_STRAY_OCR_CHARS} characters may be left over. A leftover of
+     * three, as that example gives, is rejected rather than guessed at.
+     *
+     * @param raw the OCR text from the tile band
+     * @return the timestamp substring, or {@code null} when the read is not trustworthy
+     */
+    static String extractTileTimer(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String text = raw.trim();
+        java.util.regex.Matcher m = TILE_TIMER_PATTERN.matcher(text);
+        String best = null;
+        int matches = 0;
+        while (m.find()) {
+            matches++;
+            if (best == null || m.group().length() > best.length()) {
+                best = m.group();
+            }
+        }
+        if (best == null || matches > 1) {
+            return null;
+        }
+        int leftover = text.replace(best, "").replaceAll("[^0-9A-Za-z:]", "").length();
+        return leftover <= MAX_STRAY_OCR_CHARS ? best : null;
+    }
+
     private boolean readAndTrackCooldown(PetSkill skill) {
         Duration cooldownDuration;
 
@@ -873,14 +895,17 @@ public class PetSkillsRoutine extends DelayedTask {
     }
 
     private Duration readSkillCooldown(AreaData area, OcrSettingsData settings) {
+        // Accept a read whose timer is legible even when a stray glyph came with it, rather than
+        // requiring the whole string to parse -- see extractTileTimer for why that is safe here and
+        // was not on the old description-panel crop.
         return durationHelper.attemptRecognition(
                 area.topLeft(),
                 area.bottomRight(),
                 5, // Max retries
                 200L, // Retry delay in ms
                 settings,
-                GameTimeUtils::isAcceptedFormat,
-                GameTimeUtils::parseDuration);
+                raw -> extractTileTimer(raw) != null,
+                raw -> GameTimeUtils.parseDuration(extractTileTimer(raw)));
     }
 
     /**
