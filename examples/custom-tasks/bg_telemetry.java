@@ -291,31 +291,70 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final double SANITY_BAND_MIN_RATIO = 1.0 / SANITY_BAND_MAX_RATIO;
 
     /**
+     * A reading held back for one cycle, waiting to see whether the next one agrees with it.
+     * Keyed "&lt;profileId&gt;:&lt;field&gt;".
+     *
+     * <p>In memory, so a restart forgets it and the confirmation starts over -- the same trade
+     * ResourceStockpileRoutine makes for its own streak, and for the same reason: it costs one
+     * extra sample after a restart, not a lasting fault.</p>
+     */
+    private static final Map<String, Long> AWAITING_CONFIRMATION = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static boolean withinBand(long candidate, long reference) {
+        if (reference <= 0) {
+            return true;
+        }
+        double ratio = (double) candidate / (double) reference;
+        return ratio <= SANITY_BAND_MAX_RATIO && ratio >= SANITY_BAND_MIN_RATIO;
+    }
+
+    /**
      * Rejects a candidate reading that jumps implausibly far from the last known-good value for
-     * the same field, returning null (a graph gap) instead of a likely-wrong number. Passes
-     * through unchanged when there's nothing to compare against (first-ever sample, previous
-     * value missing, or the candidate is already null).
+     * the same field -- unless the previous cycle saw the same jump, in which case it is real.
+     *
+     * <p>Comparing against the last known-good rather than the previous row is what stopped
+     * misreads slipping in one sample after every rejection. On its own, though, it cannot ever
+     * change its mind: a genuine large move is outside the band, gets rejected, and the value it
+     * is compared against never moves, so it is rejected again forever. That is not hypothetical.
+     * Gems went from 123,911 to 455 -- spent, in one go -- and every reading afterwards was
+     * refused against a figure the account had not held for half a day, so the tab simply stopped
+     * tracking gems.</p>
+     *
+     * <p>What separates the two cases is repetition. A misread is a single bad frame and the next
+     * reading disagrees with it; a real change is still there two hours later. So an implausible
+     * reading is now held back rather than thrown away, and accepted when the following one lands
+     * near it. A real move costs one skipped sample; a misread still never gets in.</p>
      */
     private Long sanityCheckAgainstLastKnown(String field, Long candidate, Map<String, Object> lastKnownGood) {
         if (candidate == null || lastKnownGood == null) {
             return candidate;
         }
+        String key = profile.getId() + ":" + field;
         Object prevObj = lastKnownGood.get(field);
-        if (!(prevObj instanceof Long)) {
+        if (!(prevObj instanceof Long) || (Long) prevObj <= 0) {
+            AWAITING_CONFIRMATION.remove(key);
             return candidate;
         }
         long prev = (Long) prevObj;
-        if (prev <= 0) {
+        if (withinBand(candidate, prev)) {
+            AWAITING_CONFIRMATION.remove(key);
             return candidate;
         }
-        double ratio = (double) candidate / (double) prev;
-        if (ratio > SANITY_BAND_MAX_RATIO || ratio < SANITY_BAND_MIN_RATIO) {
-            logWarning("bg_telemetry | " + field + " reading " + candidate + " is implausibly far from the "
-                    + "last known-good " + prev + " (ratio " + String.format("%.2f", ratio) + ") -- rejecting "
-                    + "as a likely OCR misread rather than recording a fake swing.");
-            return null;
+
+        Long held = AWAITING_CONFIRMATION.get(key);
+        if (held != null && withinBand(candidate, held)) {
+            logWarning("bg_telemetry | " + field + " has now read near " + candidate + " twice running,"
+                    + " so the move away from " + prev + " is real rather than a misread -- accepting it.");
+            AWAITING_CONFIRMATION.remove(key);
+            return candidate;
         }
-        return candidate;
+
+        AWAITING_CONFIRMATION.put(key, candidate);
+        logWarning("bg_telemetry | " + field + " reading " + candidate + " is implausibly far from the "
+                + "last known-good " + prev + " (ratio " + String.format("%.2f", (double) candidate / prev)
+                + ") -- holding it back for now. If the next reading agrees with it, it will be taken as"
+                + " a real change; if not, it was a misread and nothing was recorded.");
+        return null;
     }
 
     /**
