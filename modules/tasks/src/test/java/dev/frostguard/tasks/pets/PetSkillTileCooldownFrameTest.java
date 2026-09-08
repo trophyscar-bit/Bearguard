@@ -139,6 +139,33 @@ class PetSkillTileCooldownFrameTest {
     }
 
     @Test
+    void theGreenPassIsTheOneThatDiscriminates() throws Exception {
+        // The red/green split must be enforced by the pass that actually isolates on colour.
+        // RED_MULTILINE deliberately does not isolate -- that drops the slender "1" out of a
+        // wrapped "1d" timer -- so it reads a green clock as readily as a red one. Only the green
+        // pass can tell them apart, which is why it is asked first.
+        RawImageData onCooldown = rgbaFrame(loadOnCooldownFrame());
+        RawImageData active = rgbaFrame(load("pet-skill-active-effect-20260907.png"));
+
+        AreaData ni = PetSkillsRoutine.PetSkill.NATURAL_INTUITION.cooldownArea();
+        AreaData rb = PetSkillsRoutine.PetSkill.TREASURE.cooldownArea();
+
+        // green pass: silent on a cooldown, reads the effect clock
+        assertFalse(TIMER.matcher(green(onCooldown, ni)).find(),
+                "the green pass must not fire on a red cooldown clock");
+        assertTrue(TIMER.matcher(green(active, rb)).find(),
+                "the green pass must read a running effect");
+
+        // and the red pass is colour-blind, which is exactly why order matters
+        assertTrue(TIMER.matcher(read(onCooldown, ni)).find());
+    }
+
+    private String green(RawImageData frame, AreaData area) throws Exception {
+        return OcrEngine.recognizeText(frame, area.topLeft(), area.bottomRight(),
+                CommonOCRSettings.GREEN_ACTIVE_DURATION_SETTINGS);
+    }
+
+    @Test
     void theCooldownBandStaysInsideItsOwnTile() {
         // The band is derived from the tile so it follows the tile when the roster grows. It must
         // stay within the tile's own bounds, or one skill would read its neighbour's clock.

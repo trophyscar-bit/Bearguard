@@ -828,12 +828,23 @@ public class PetSkillsRoutine extends DelayedTask {
                 // is still running. Reading green as a cooldown would be worse than reading
                 // nothing -- Razorbeak's 2h buff would be booked as a 2h cooldown against a real
                 // 20h one.
-                cooldownDuration = readSkillCooldown(skill.cooldownArea(),
-                        CommonOCRSettings.RED_MULTILINE_DURATION_SETTINGS);
+                // Ask the GREEN pass first, because it is the only one of the two that actually
+                // isolates on colour. RED_MULTILINE deliberately does not -- colour isolation drops
+                // the slender "1" out of a wrapped "1d" timer -- so it will read a green clock just
+                // as happily as a red one. Ordering the checks the other way round left the whole
+                // red/green distinction resting on the red pass happening to come back empty, which
+                // is luck rather than logic: a legible green clock would have been booked as a
+                // cooldown, which is the 2h-buff-for-a-20h-wait error this is meant to prevent.
+                Duration active = readSkillCooldown(skill.cooldownArea(),
+                        CommonOCRSettings.GREEN_ACTIVE_DURATION_SETTINGS);
+                if (active == null) {
+                    cooldownDuration = readSkillCooldown(skill.cooldownArea(),
+                            CommonOCRSettings.RED_MULTILINE_DURATION_SETTINGS);
+                } else {
+                    cooldownDuration = null;
+                }
 
                 if (cooldownDuration == null) {
-                    Duration active = readSkillCooldown(skill.cooldownArea(),
-                            CommonOCRSettings.GREEN_ACTIVE_DURATION_SETTINGS);
                     if (active != null) {
                         // The effect is still running, so the cooldown clock is not on screen yet.
                         // Come back when it ends and read the real one then. Without this the skill

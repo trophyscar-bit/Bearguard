@@ -1007,10 +1007,14 @@ public class ArenaRoutine extends DelayedTask {
                 opponentNumber);
 
         if (text == null || text.isBlank()) {
-            // The column exists in this layout and we still got nothing, which is a failed read
-            // rather than an absent field. Keeping these apart matters: the filter below refuses to
-            // guess on a failed read, but must not treat a field the game never displays as one.
-            return new ServerRead(null, ServerStatus.UNREADABLE);
+            // A blank read only means "failed to read" when we know the column is there. That is
+            // true for SERVER_ROW; UNKNOWN is the fallback a failed layout probe returns, and it
+            // assumes the server layout rather than establishing it. Calling that UNREADABLE would
+            // put a mis-probed reset list straight back into the zero-attack loop this fix exists
+            // to end, so an unconfirmed layout reports the field as absent instead.
+            return new ServerRead(null, layout == OpponentLayout.SERVER_ROW
+                    ? ServerStatus.UNREADABLE
+                    : ServerStatus.NOT_SHOWN);
         }
 
         Matcher matcher = SERVER_PATTERN.matcher(text);
