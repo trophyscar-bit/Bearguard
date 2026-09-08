@@ -60,8 +60,14 @@ public final class ShopNavigator {
             return false;
         }
         if (initial.get() != ShopTab.MYSTERY_SHOP) {
-            warn.accept("Fresh Shop did not open at Mystery Shop: observed=" + initial.get().displayName());
-            return false;
+            // Note it and carry on. The swipe loop below works from whatever the leftmost tab
+            // actually is -- visibleSlot and directionTo are both relative -- so refusing here
+            // bought nothing and cost everything: MysteryShopRoutine used to find its own button by
+            // template regardless of where the strip had settled, and giving that up for a hard
+            // abort turned a shifted footer into five failed attempts and an hour of sleep, every
+            // hour, with no path back.
+            warn.accept("Shop did not open at Mystery Shop: observed=" + initial.get().displayName()
+                    + " -- navigating from there instead of giving up");
         }
 
         ShopTab leftmost = initial.get();
@@ -73,6 +79,18 @@ public final class ShopNavigator {
                 info.accept("Selecting shop tab: target=" + target.displayName()
                         + " leftmost=" + leftmost.displayName() + " slot=" + slot);
                 interactions.tapSlot(slot);
+                // Confirm the strip is still where it was when the slot was worked out. This does
+                // not prove the tab took focus -- nothing here can read which tab is selected, and
+                // pretending otherwise would be worse than the gap -- but it does catch the tap
+                // that drags the strip instead of selecting, which would leave every following
+                // coordinate-driven step acting on a different shop.
+                Optional<ShopTab> after = interactions.readLeftmostTab(false);
+                if (after.isPresent() && after.get() != leftmost) {
+                    warn.accept("Shop tab strip moved while selecting " + target.displayName()
+                            + ": leftmost was " + leftmost.displayName()
+                            + ", now " + after.get().displayName());
+                    return false;
+                }
                 return true;
             }
             if (attempt == MAX_SWIPE_ATTEMPTS) {
@@ -103,6 +121,15 @@ public final class ShopNavigator {
                 Optional<ShopTab> rightmost = interactions.readRightmostTab();
                 if (rightmost.filter(tab -> tab == ShopTab.GEM_SHOP).isPresent()) {
                     int slotFromRight = visibleSlotFromRight(ShopTab.GEM_SHOP, target);
+                    if (slotFromRight < 0) {
+                        // Same guard the left-anchored path has had all along. Unreachable while
+                        // usesRightEndAnchor only admits the last three tabs, but a new ShopTab
+                        // would turn the -1 sentinel into an IllegalArgumentException thrown out of
+                        // the task rather than a navigation that reports failure.
+                        warn.accept("Target is not reachable from the Gem end anchor: target="
+                                + target.displayName());
+                        return false;
+                    }
                     info.accept("Selecting trailing shop tab from confirmed Gem end anchor: target="
                             + target.displayName() + " slotFromRight=" + slotFromRight);
                     interactions.tapSlotFromRight(slotFromRight);

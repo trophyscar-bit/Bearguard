@@ -197,7 +197,16 @@ public class DeploymentHelper {
         /** "You are not likely to prevail" -- the odds are against it, but it can still win. */
         UNLIKELY,
         /** "...almost certain to fail" -- the game saying this march is lost. Never send it. */
-        CERTAIN_FAILURE
+        CERTAIN_FAILURE,
+        /**
+         * The odds line could not be checked at all -- the screen capture or the pixel scan threw.
+         *
+         * <p>Distinct from {@link #CERTAIN_FAILURE} on purpose. Both refuse to send the march, but
+         * this one carries no claim about the beast: it means we did not get to look. Treating a
+         * dropped frame as a verdict would abandon Fire Beasts for the whole run on one bad
+         * capture, and treating it as NONE would deploy into a warning nobody read.
+         */
+        UNREADABLE
     }
 
     /**
@@ -216,8 +225,13 @@ public class DeploymentHelper {
             redPixels = PixelStats.count(captureImage(), CommonGameAreas.DEPLOY_ODDS_WARNING_AREA,
                     GameColors::isBlockedRed);
         } catch (Exception ex) {
-            log.warn("Deploy odds warning check failed: " + ex.getMessage());
-            return OddsWarning.NONE;
+            // Fail closed. This used to return NONE, which let a march the game may have been
+            // calling almost certain to fail deploy anyway on a dropped frame -- the opposite of
+            // what the classifyOddsLine contract below promises, where an unreadable red line is
+            // deliberately treated as fatal because the cost of being wrong one way is a wasted
+            // retry and the other way is an army.
+            log.warn("Deploy odds warning check failed, treating as unreadable: " + ex.getMessage());
+            return OddsWarning.UNREADABLE;
         }
         if (redPixels < ODDS_WARNING_PIXEL_MIN) {
             log.debug("Deploy odds line: redPixels=" + redPixels + " -> NONE");

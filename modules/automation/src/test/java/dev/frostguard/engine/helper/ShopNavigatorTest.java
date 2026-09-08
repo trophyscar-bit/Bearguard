@@ -92,11 +92,41 @@ class ShopNavigatorTest {
     }
 
     @Test
-    void rejectsUnexpectedInitialViewport() {
+    void navigatesFromWhereverTheShopActuallyOpened() {
+        // This replaces rejectsUnexpectedInitialViewport, which asserted the opposite: that opening
+        // anywhere but Mystery Shop is a hard failure. It encoded a regression rather than a rule.
+        // The case it used is the clearest illustration -- asking for VIP Shop while VIP Shop is the
+        // visible leftmost tab was rejected, with the target already under slot 0. Everything the
+        // swipe loop does is relative to the observed leftmost, so there is nothing the strict check
+        // protected. What it cost was real: MysteryShopRoutine used to find its button by template
+        // regardless of where the strip had settled, and trading that for an abort turned a shifted
+        // footer into five failed attempts and an hour of sleep, every hour, with no way back.
         FakeInteractions fake = new FakeInteractions(ShopTab.VIP_SHOP);
 
-        assertFalse(new ShopNavigator(fake).navigateTo(ShopTab.VIP_SHOP));
-        assertEquals(-1, fake.tappedSlot);
+        assertTrue(new ShopNavigator(fake).navigateTo(ShopTab.VIP_SHOP));
+        assertEquals(0, fake.tappedSlot);
+    }
+
+    @Test
+    void refusesWhenTheStripMovedUnderTheTap() {
+        // A tap that drags the footer instead of selecting leaves every following coordinate-driven
+        // step acting on a different shop. Reporting success on the strength of the tap alone hid
+        // that; re-reading the strip afterwards catches it. This does not prove the tab took focus
+        // -- nothing here can read which tab is selected -- and the comment in navigateTo says so.
+        FakeInteractions fake = new FakeInteractions(ShopTab.MYSTERY_SHOP, ShopTab.ARENA_SHOP);
+
+        assertFalse(new ShopNavigator(fake).navigateTo(ShopTab.NOMADIC_MERCHANT));
+    }
+
+    @Test
+    void aTargetOutsideTheRightAnchorWindowIsNotTapped() {
+        // visibleSlotFromRight returns -1 for a target the Gem end anchor cannot reach. That value
+        // used to be handed straight to tapSlotFromRight. It is unreachable while only the last
+        // three tabs use the right anchor, but a new ShopTab would turn it into an
+        // IllegalArgumentException thrown out of the task instead of a navigation reporting failure.
+        assertEquals(-1, ShopNavigator.visibleSlotFromRight(ShopTab.GEM_SHOP, ShopTab.MYSTERY_SHOP));
+        assertEquals(0, ShopNavigator.visibleSlotFromRight(ShopTab.GEM_SHOP, ShopTab.GEM_SHOP));
+        assertEquals(2, ShopNavigator.visibleSlotFromRight(ShopTab.GEM_SHOP, ShopTab.CANYON_SHOP));
     }
 
     @Test

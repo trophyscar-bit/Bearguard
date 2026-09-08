@@ -333,6 +333,8 @@ public class MonumentRoutine extends DelayedTask {
             .textLayout(OcrSettingsData.TextLayout.SINGLE_LINE)
             .build();
 
+    private static final Pattern OWNED_COUNT_PATTERN = Pattern.compile("\\d+");
+
     private static final OcrSettingsData OWNED_COUNT_OCR_SETTINGS = OcrSettingsData.assembler()
             .stripBackground(true)
             .charWhitelist("OwnedOWNED:0123456789 ")
@@ -1727,6 +1729,38 @@ public class MonumentRoutine extends DelayedTask {
                 s -> s.toLowerCase());
     }
 
+    /**
+     * The owned-copies count from an Alliance Trade row, taken from the end of the line.
+     *
+     * <p>Not the first digit run. The crop reads through a whitelist of
+     * {@code "OwnedOWNED:0123456789 "}, which admits both {@code O} and {@code 0}, so the label
+     * itself can come back as "0wned: 2". Taking the first run then reads that leading zero as the
+     * count and skips a row that should have been sent -- and a stray digit picked up ahead of the
+     * label could just as easily read as two or more and send one that should not have been. The
+     * value always trails the label, so the last run is the one that means something.
+     *
+     * @param text the raw OCR text for the row, may be {@code null}
+     * @return the count, or {@code null} when the row carries no digits at all
+     */
+    static Integer ownedCountFrom(String text) {
+        if (text == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = OWNED_COUNT_PATTERN.matcher(text);
+        String last = null;
+        while (m.find()) {
+            last = m.group();
+        }
+        if (last == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(last);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
     private void processAllianceTradeRequests() {
         for (int i = 0; i < MAX_REQUEST_LOOPS; i++) {
             // Claim is decided by colour, not OCR -- see isClaimButtonPresent(). It's checked first
@@ -1833,11 +1867,7 @@ public class MonumentRoutine extends DelayedTask {
                     ALLY_FIRST_ROW_OWNED_BR.getY() + rowOffset);
 
             String ownedText = readStringValueSafe(ownedTl, ownedBr);
-            // Same anchoring bug as the requests counter above: "(\\d+)" under matches() means a row
-            // reading "Owned: 1" -- or carrying one stray OCR glyph -- parsed as null and fell
-            // into the skip branch. Dead for every row that was not a bare number.
-            Integer owned = ownedText == null ? null : RegexNumberParser.extractByPattern(
-                    ownedText, Pattern.compile(".*?(\\d+).*"));
+            Integer owned = ownedCountFrom(ownedText);
 
             // Only send when a duplicate is actually owned (>=2) --
             // "Owned: 1" means it's their only copy, leave it alone.
