@@ -1,6 +1,7 @@
 package dev.frostguard.engine.helper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -88,5 +89,25 @@ class DeploymentOddsWarningFrameTest {
 
     private BufferedImage image(String resource) throws Exception {
         return ImageIO.read(Objects.requireNonNull(getClass().getResourceAsStream(resource)));
+    }
+
+    @Test
+    void anUnreadableCheckIsItsOwnVerdictNotANonWarning() {
+        // readOddsWarning used to return NONE when the capture or the pixel scan threw, which let a
+        // march the game may have been calling almost certain to fail deploy on a dropped frame --
+        // the opposite of the contract classifyOddsLine states, where an unreadable RED line is
+        // deliberately fatal because being wrong one way costs a retry and the other way an army.
+        //
+        // It cannot simply become CERTAIN_FAILURE either: IntelligenceRoutine treats that as the
+        // game passing judgement and abandons Fire Beasts for the whole run, so one bad frame would
+        // have cost every remaining beast. UNREADABLE refuses the march and keeps the run.
+        // The property that matters is that it is neither of the two it used to be conflated with.
+        assertNotEquals(DeploymentHelper.OddsWarning.NONE, DeploymentHelper.OddsWarning.UNREADABLE);
+        assertNotEquals(DeploymentHelper.OddsWarning.CERTAIN_FAILURE,
+                DeploymentHelper.OddsWarning.UNREADABLE);
+
+        // And a red line that OCR could not read is still fatal -- that path is unchanged, and is
+        // the one the "cost of being wrong is an army" comment is about.
+        assertEquals(DeploymentHelper.OddsWarning.CERTAIN_FAILURE, DeploymentHelper.classifyOddsLine(""));
     }
 }

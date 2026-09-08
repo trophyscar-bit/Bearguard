@@ -1490,6 +1490,17 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 
 		if (fireBeast) {
 			DeploymentHelper.OddsWarning odds = deploymentHelper.readOddsWarning();
+			if (odds == DeploymentHelper.OddsWarning.UNREADABLE) {
+				// We did not get to read the odds line, so we know nothing about this beast. Back
+				// out without sending -- the march is not worth a guess -- but do NOT burn the run
+				// the way a real CERTAIN_FAILURE does. One dropped capture frame used to cost every
+				// remaining Fire Beast, because an unreadable check and a fatal verdict were the
+				// same value.
+				logWarning(routineLogIntelligenceLine("Could not read the deploy odds line. No march "
+						+ "was sent; leaving this beast for a later pass."));
+				leaveToIntelScreenFlow();
+				return;
+			}
 			if (odds == DeploymentHelper.OddsWarning.CERTAIN_FAILURE) {
 				// Not the same sentence as "not likely to prevail". This one is the game saying the
 				// march is lost, and no number of retries changes that -- the troops just die. Back out
