@@ -607,6 +607,27 @@ public class ArenaRoutine extends DelayedTask {
         return opponents;
     }
 
+    /**
+     * Whether the "never attack my own server" filter blocks this opponent.
+     *
+     * <p>The three server states are not interchangeable. READ is a value to compare. UNREADABLE
+     * means the column was on screen and the OCR failed, so refusing to guess is right. NOT_SHOWN
+     * means this layout has no server column at all -- there is nothing to compare and nothing to
+     * be careful about, and treating it as a failed read is what cost a full day of Arena on every
+     * season reset, when the list renders compact.
+     *
+     * @return the skip reason, or {@code null} when the filter does not block this opponent
+     */
+    static String serverPolicySkipReason(ServerStatus status, String profileServer, String value) {
+        if (status == ServerStatus.UNREADABLE) {
+            return "server unreadable";
+        }
+        if (status == ServerStatus.READ && profileServer != null && profileServer.equals(value)) {
+            return "profile server";
+        }
+        return null;
+    }
+
     private OpponentCandidate classifyOpponent(int number, int opponentY, PowerRead power,
                                                AllianceRead alliance, ServerRead server, StarRead stars) {
         if (power.relation() != PowerRelation.WEAKER) {
@@ -623,12 +644,16 @@ public class ArenaRoutine extends DelayedTask {
         }
 
         if (serverPolicy == ServerPolicy.NEVER_PROFILE_SERVER && profileServer != null) {
-            if (server.status != ServerStatus.READ) {
-                return OpponentCandidate.skipped(number, opponentY, power, alliance, server, stars, "server not visible/readable");
+            String skip = serverPolicySkipReason(server.status, profileServer, server.value);
+            if (skip != null) {
+                return OpponentCandidate.skipped(number, opponentY, power, alliance, server, stars, skip);
             }
-            if (profileServer.equals(server.value)) {
-                return OpponentCandidate.skipped(number, opponentY, power, alliance, server, stars, "profile server");
-            }
+            // NOT_SHOWN means this layout has no server column at all, so there is nothing to
+            // compare and nothing to be cautious about. Treating it as a failed read cost a whole
+            // day of Arena every season: the reset list renders compact, which never shows a
+            // server, so all five opponents were skipped as "not visible/readable" on 2026-09-07
+            // and the run burned seven gem refreshes without a single attack. The same list on
+            // 2026-08-31 was attacked normally, before the server filter was switched on.
         }
 
         return OpponentCandidate.eligible(number, opponentY, power, alliance, server, stars);
@@ -982,7 +1007,10 @@ public class ArenaRoutine extends DelayedTask {
                 opponentNumber);
 
         if (text == null || text.isBlank()) {
-            return new ServerRead(null, ServerStatus.NOT_SHOWN);
+            // The column exists in this layout and we still got nothing, which is a failed read
+            // rather than an absent field. Keeping these apart matters: the filter below refuses to
+            // guess on a failed read, but must not treat a field the game never displays as one.
+            return new ServerRead(null, ServerStatus.UNREADABLE);
         }
 
         Matcher matcher = SERVER_PATTERN.matcher(text);
@@ -1616,7 +1644,7 @@ public class ArenaRoutine extends DelayedTask {
         NOT_CHECKED
     }
 
-    private enum ServerStatus {
+    enum ServerStatus {
         READ,
         NOT_SHOWN,
         UNREADABLE,
@@ -1662,7 +1690,7 @@ public class ArenaRoutine extends DelayedTask {
         }
     }
 
-    private enum ServerPolicy {
+    enum ServerPolicy {
         ANY("Any server"),
         PREFER_PROFILE_SERVER("Prefer profile server"),
         AVOID_PROFILE_SERVER("Avoid profile server"),
