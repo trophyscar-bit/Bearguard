@@ -46,6 +46,15 @@ class ArenaServerPolicySkipTest {
     }
 
     @Test
+    void anUnconfirmedLayoutIsTreatedAsAbsentNotUnreadable() {
+        // A failed layout probe returns UNKNOWN, which assumes the server layout rather than
+        // establishing it. If a blank read there were called UNREADABLE, a mis-probed reset list
+        // would drop straight back into the zero-attack loop. NOT_SHOWN keeps it attacking.
+        assertNull(ArenaRoutine.serverPolicySkipReason(
+                ArenaRoutine.ServerStatus.NOT_SHOWN, "4527", null));
+    }
+
+    @Test
     void anUnsetProfileServerNeverBlocks() {
         assertNull(ArenaRoutine.serverPolicySkipReason(
                 ArenaRoutine.ServerStatus.READ, null, "4527"));
