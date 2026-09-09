@@ -3,9 +3,7 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 
-<!-- Pet management. Three unrelated things used to share one card: the pet-skill task, an
-     alliance claim task and Pet Adventure. They are separated here, and every control says what
-     it does, because the box names are config keys rather than descriptions. -->
+<!-- Skills are named for the skill, not the config key behind it. One line each. -->
 <BorderPane maxHeight="Infinity" maxWidth="Infinity"
             HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
             xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
@@ -15,98 +13,77 @@
                     styleClass="task-page-scroll">
             <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
 
-                <!-- ============ Pet skills ============ -->
                 <VBox maxWidth="Infinity" styleClass="content-card">
                     <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
                         <Label style="-fx-font-weight: bold; -fx-text-fill: -fg-bg-app; -fx-font-size: 13px;"
                                text="Pet Skills" />
                     </HBox>
-                    <VBox spacing="12" styleClass="task-section-inner">
+                    <VBox spacing="10" styleClass="task-section-inner">
                         <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                               text="Ticking a box makes the bot USE that skill every time it comes off cooldown. Each box drives one tile of the in-game Pet Skill panel, counted left to right then down. Which skill sits in a tile depends on the pets you own; the names below were read from the game on 2026-09-07, so check the panel yourself if your pets have changed." />
+                               text="Ticked skills are used every time they come off cooldown." />
 
                         <Separator style="-fx-opacity: 0.25;" />
 
-                        <VBox spacing="4">
+                        <VBox spacing="2">
                             <CheckBox fx:id="checkboxFoodSkill" mnemonicParsing="false"
-                                      text="Tile 1 - Builder's Aide" />
-                            <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                                   text="Raises Construction Speed by 15% for five minutes. 23 hour cooldown. The buff is short, so spending it at whatever hour the task happens to run is usually waste unless you time a build around it." />
+                                      text="Builder's Aide" />
+                            <Label styleClass="task-card-description" text="+15% construction speed for 5 minutes. 23h." />
                         </VBox>
 
-                        <VBox spacing="4">
+                        <VBox spacing="2">
                             <CheckBox fx:id="checkboxStaminaSkill" mnemonicParsing="false"
-                                      text="Tile 2 - Arctic Embrace" />
-                            <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                                   text="Instantly restores 45 Chief Stamina. 23 hour cooldown." />
+                                      text="Arctic Embrace" />
+                            <Label styleClass="task-card-description" text="Restores 45 Chief Stamina. 23h." />
                         </VBox>
 
-                        <VBox spacing="4">
+                        <VBox spacing="2">
                             <CheckBox fx:id="checkboxGatheringSkill" mnemonicParsing="false"
-                                      text="Tile 3 - Burden Bearer" />
-                            <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                                   text="Completes a gather the moment the march arrives, instead of waiting out the hours. 23 hour cooldown. To use it the bot sends its OWN march: it opens the map search, finds a node of the resource chosen below and deploys to it. That takes one of your march slots, and it takes it without going through the troop-slot ledger the Gather, Intel and beast tasks share, so it can claim a slot one of those was about to use." />
-
-                            <!-- The resource choice only exists to serve this tile, so it lives under it. -->
-                            <VBox spacing="4" style="-fx-padding: 4 0 0 22;">
-                                <HBox alignment="CENTER_LEFT" spacing="14">
-                                    <Label styleClass="task-field-label" text="Resource to gather" minWidth="130" />
-                                    <ComboBox fx:id="comboBoxGatheringResource" prefWidth="120.0" />
-                                </HBox>
-                                <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                                       text="Which resource node the march above goes to. Ignored unless Tile 3 is ticked." />
-                            </VBox>
+                                      text="Burden Bearer" />
+                            <Label styleClass="task-card-description" text="Sends a march and finishes the gather the moment it lands. 23h." />
+                            <HBox alignment="CENTER_LEFT" spacing="10" style="-fx-padding: 3 0 0 22;">
+                                <Label styleClass="task-field-label" text="Gathers" minWidth="60" />
+                                <ComboBox fx:id="comboBoxGatheringResource" prefWidth="110.0" />
+                            </HBox>
                         </VBox>
 
-                        <VBox spacing="4">
+                        <VBox spacing="2">
                             <CheckBox fx:id="checkboxNaturalIntuitionSkill" mnemonicParsing="false"
-                                      text="Tile 4 - Natural Intuition" />
-                            <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                                   text="Instantly locates 500 Pet Food. 23 hour cooldown." />
+                                      text="Natural Intuition" />
+                            <Label styleClass="task-card-description" text="Finds 500 Pet Food. 23h." />
                         </VBox>
 
-                        <VBox spacing="4">
+                        <VBox spacing="2">
                             <CheckBox fx:id="checkboxTreasureSkill" mnemonicParsing="false"
-                                      text="Tile 5 - Razorbeak" />
-                            <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                                   text="Reduces enemy Health by 2% for two hours. 20 hour cooldown. A combat debuff, so it is only worth spending before fighting something." />
+                                      text="Razorbeak" />
+                            <Label styleClass="task-card-description" text="-2% enemy health for 2 hours. 20h." />
                         </VBox>
 
                         <Separator style="-fx-opacity: 0.25;" />
 
-                        <VBox spacing="4">
+                        <VBox spacing="2">
                             <CheckBox fx:id="checkBoxPetSkills" mnemonicParsing="false"
-                                      text="Run the legacy pet-skill task" />
-                            <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                                   text="Despite the name, this drives Tile 3 only. Tiles 1, 2, 4 and 5 each have their own task and ignore this box entirely, so Tile 3 needs BOTH its own tick above and this one to run. Kept as a separate switch because it is the setting the older builds wrote." />
+                                      text="Enable pet skills" />
+                            <Label styleClass="task-card-description" text="Required for Burden Bearer." />
                         </VBox>
                     </VBox>
                 </VBox>
 
-                <!-- ============ Treasures and adventure: not skills, separate tasks ============ -->
                 <VBox maxWidth="Infinity" styleClass="content-card">
                     <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
                         <Label style="-fx-font-weight: bold; -fx-text-fill: -fg-bg-app; -fx-font-size: 13px;"
-                               text="Treasures and Adventure" />
+                               text="Treasures" />
                     </HBox>
-                    <VBox spacing="12" styleClass="task-section-inner">
-                        <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                               text="These are separate tasks with their own schedules. Neither uses a pet skill or a skill cooldown." />
-
-                        <Separator style="-fx-opacity: 0.25;" />
-
-                        <VBox spacing="4">
+                    <VBox spacing="10" styleClass="task-section-inner">
+                        <VBox spacing="2">
                             <CheckBox fx:id="checkBoxPetAllianceTreasure" mnemonicParsing="false"
-                                      text="Claim Alliance pet treasures" />
-                            <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                                   text="Opens the Ally Treasure screen and claims whatever alliance members have shared. Runs once, then reschedules to the next game reset." />
+                                      text="Alliance treasures" />
+                            <Label styleClass="task-card-description" text="Claims what your alliance shares. Once a day." />
                         </VBox>
 
-                        <VBox spacing="4">
+                        <VBox spacing="2">
                             <CheckBox fx:id="checkBoxPetPersonalTreasure" mnemonicParsing="false"
-                                      text="Run Pet Adventures" />
-                            <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
-                                   text="Claims completed adventure chests and starts new ones, through Pets then Beast Cage then Adventure Map. Each adventure costs 10 stamina and you get four attempts a day. Comes back in two hours while attempts remain, then waits for reset. This is the box that used to read Personal Treasure." />
+                                      text="Pet adventures" />
+                            <Label styleClass="task-card-description" text="Runs adventure chests. 10 stamina each, 4 a day." />
                         </VBox>
                     </VBox>
                 </VBox>
