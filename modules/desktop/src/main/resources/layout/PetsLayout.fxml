@@ -3,7 +3,7 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 
-<!-- Skills are named for the skill, not the config key behind it. One line each. -->
+<!-- One line per skill: name - what it does. -->
 <BorderPane maxHeight="Infinity" maxWidth="Infinity"
             HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
             xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
@@ -18,53 +18,33 @@
                         <Label style="-fx-font-weight: bold; -fx-text-fill: -fg-bg-app; -fx-font-size: 13px;"
                                text="Pet Skills" />
                     </HBox>
-                    <VBox spacing="10" styleClass="task-section-inner">
-                        <Label maxWidth="Infinity" styleClass="task-card-description" wrapText="true"
+                    <VBox spacing="9" styleClass="task-section-inner">
+                        <Label styleClass="task-card-description"
                                text="Ticked skills are used every time they come off cooldown." />
 
                         <Separator style="-fx-opacity: 0.25;" />
 
-                        <VBox spacing="2">
-                            <CheckBox fx:id="checkboxFoodSkill" mnemonicParsing="false"
-                                      text="Builder's Aide" />
-                            <Label styleClass="task-card-description" text="+15% construction speed for 5 minutes. 23h." />
-                        </VBox>
+                        <CheckBox fx:id="checkboxFoodSkill" mnemonicParsing="false"
+                                  text="Builder's Aide - +15% construction speed for 5 min (23h)" />
+                        <CheckBox fx:id="checkboxStaminaSkill" mnemonicParsing="false"
+                                  text="Arctic Embrace - restores 45 Chief Stamina (23h)" />
+                        <CheckBox fx:id="checkboxGatheringSkill" mnemonicParsing="false"
+                                  text="Burden Bearer - sends a march and finishes the gather on arrival (23h)" />
 
-                        <VBox spacing="2">
-                            <CheckBox fx:id="checkboxStaminaSkill" mnemonicParsing="false"
-                                      text="Arctic Embrace" />
-                            <Label styleClass="task-card-description" text="Restores 45 Chief Stamina. 23h." />
-                        </VBox>
+                        <HBox alignment="CENTER_LEFT" spacing="10" style="-fx-padding: 0 0 0 22;">
+                            <Label styleClass="task-field-label" text="Gathers" minWidth="55" />
+                            <ComboBox fx:id="comboBoxGatheringResource" prefWidth="110.0" />
+                        </HBox>
 
-                        <VBox spacing="2">
-                            <CheckBox fx:id="checkboxGatheringSkill" mnemonicParsing="false"
-                                      text="Burden Bearer" />
-                            <Label styleClass="task-card-description" text="Sends a march and finishes the gather the moment it lands. 23h." />
-                            <HBox alignment="CENTER_LEFT" spacing="10" style="-fx-padding: 3 0 0 22;">
-                                <Label styleClass="task-field-label" text="Gathers" minWidth="60" />
-                                <ComboBox fx:id="comboBoxGatheringResource" prefWidth="110.0" />
-                            </HBox>
-                        </VBox>
-
-                        <VBox spacing="2">
-                            <CheckBox fx:id="checkboxNaturalIntuitionSkill" mnemonicParsing="false"
-                                      text="Natural Intuition" />
-                            <Label styleClass="task-card-description" text="Finds 500 Pet Food. 23h." />
-                        </VBox>
-
-                        <VBox spacing="2">
-                            <CheckBox fx:id="checkboxTreasureSkill" mnemonicParsing="false"
-                                      text="Razorbeak" />
-                            <Label styleClass="task-card-description" text="-2% enemy health for 2 hours. 20h." />
-                        </VBox>
+                        <CheckBox fx:id="checkboxNaturalIntuitionSkill" mnemonicParsing="false"
+                                  text="Natural Intuition - finds 500 Pet Food (23h)" />
+                        <CheckBox fx:id="checkboxTreasureSkill" mnemonicParsing="false"
+                                  text="Razorbeak - -2% enemy health for 2h (20h)" />
 
                         <Separator style="-fx-opacity: 0.25;" />
 
-                        <VBox spacing="2">
-                            <CheckBox fx:id="checkBoxPetSkills" mnemonicParsing="false"
-                                      text="Enable pet skills" />
-                            <Label styleClass="task-card-description" text="Required for Burden Bearer." />
-                        </VBox>
+                        <CheckBox fx:id="checkBoxPetSkills" mnemonicParsing="false"
+                                  text="Enable pet skills - required for Burden Bearer" />
                     </VBox>
                 </VBox>
 
@@ -73,18 +53,11 @@
                         <Label style="-fx-font-weight: bold; -fx-text-fill: -fg-bg-app; -fx-font-size: 13px;"
                                text="Treasures" />
                     </HBox>
-                    <VBox spacing="10" styleClass="task-section-inner">
-                        <VBox spacing="2">
-                            <CheckBox fx:id="checkBoxPetAllianceTreasure" mnemonicParsing="false"
-                                      text="Alliance treasures" />
-                            <Label styleClass="task-card-description" text="Claims what your alliance shares. Once a day." />
-                        </VBox>
-
-                        <VBox spacing="2">
-                            <CheckBox fx:id="checkBoxPetPersonalTreasure" mnemonicParsing="false"
-                                      text="Pet adventures" />
-                            <Label styleClass="task-card-description" text="Runs adventure chests. 10 stamina each, 4 a day." />
-                        </VBox>
+                    <VBox spacing="9" styleClass="task-section-inner">
+                        <CheckBox fx:id="checkBoxPetAllianceTreasure" mnemonicParsing="false"
+                                  text="Alliance treasures - claims what your alliance shares (daily)" />
+                        <CheckBox fx:id="checkBoxPetPersonalTreasure" mnemonicParsing="false"
+                                  text="Pet adventures - runs adventure chests, 10 stamina each, 4 a day" />
                     </VBox>
                 </VBox>
 
