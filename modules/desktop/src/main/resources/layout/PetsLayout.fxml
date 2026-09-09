@@ -39,20 +39,20 @@
                     </HBox>
                     <VBox spacing="10" styleClass="task-section-inner">
                         <Label styleClass="task-card-description"
-                               text="Select which pet skills to activate automatically"
+                               text="Ticking a box makes the bot USE that skill every time it comes off cooldown. Each box drives one tile of the Pet Skill panel, counted left to right then down - which skill sits in a tile depends on the pets you own, so check the panel in game before enabling one. The Food, Stamina and Treasure names below are historical config keys, not the skills themselves."
                                wrapText="true" />
                         <Separator style="-fx-opacity: 0.25;" />
 
-                        <FlowPane hgap="18" vgap="10" alignment="CENTER_LEFT">
-                            <CheckBox fx:id="checkboxFoodSkill" mnemonicParsing="false"
-                                      text="Food Skill" />
-                            <CheckBox fx:id="checkboxGatheringSkill" mnemonicParsing="false"
-                                      text="Gathering Skill" />
-                            <CheckBox fx:id="checkboxStaminaSkill" mnemonicParsing="false"
-                                      text="Stamina Skill" />
-                            <CheckBox fx:id="checkboxTreasureSkill" mnemonicParsing="false"
-                                      text="Treasure Skill" />
-                        </FlowPane>
+                        <VBox spacing="9">
+                            <CheckBox fx:id="checkboxFoodSkill" mnemonicParsing="false" wrapText="true"
+                                      text="Tile 1 - use whichever skill sits in the first tile (key: Food)" />
+                            <CheckBox fx:id="checkboxStaminaSkill" mnemonicParsing="false" wrapText="true"
+                                      text="Tile 2 - use whichever skill sits in the second tile (key: Stamina)" />
+                            <CheckBox fx:id="checkboxGatheringSkill" mnemonicParsing="false" wrapText="true"
+                                      text="Tile 3 - use whichever skill sits in the third tile (key: Gathering)" />
+                            <CheckBox fx:id="checkboxTreasureSkill" mnemonicParsing="false" wrapText="true"
+                                      text="Tile 4 - use whichever skill sits in the fourth tile (key: Treasure)" />
+                        </VBox>
                         
                         <Separator style="-fx-opacity: 0.25;" />
                         
