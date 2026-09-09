@@ -19,7 +19,9 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.engine.nav.SearchConfigConstants;
+import dev.frostguard.api.domain.MarchSlotState;
 import dev.frostguard.engine.schedule.DelayedTask;
+import dev.frostguard.engine.schedule.TroopSlotPolicy;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StaminaService;
 import dev.frostguard.vision.color.PixelStats;
@@ -1086,6 +1088,59 @@ public class PetSkillsRoutine extends DelayedTask {
         return LaunchPoint.ANY;
     }
 
+    /**
+     * Whether another task is already owed the slots that are free.
+     *
+     * <p>Deliberately only reads the ledger: this skill does not publish a claim of its own. The
+     * march it sends is a gather march, so a claim would ask Gather to recall marches on its behalf,
+     * which is the opposite of standing aside.
+     *
+     * @return {@code true} when taking a slot now would starve a task that has already claimed one
+     */
+    private boolean yieldsToClaimedSlots() {
+        if (TroopSlotPolicy.activeClaims(profile).isEmpty()) {
+            return false;
+        }
+        int idle = countIdleMarchSlots();
+        int owed = TroopSlotPolicy.slotsToRecallForGather(profile, idle);
+        if (!shouldYieldSlot(idle, owed)) {
+            return false;
+        }
+        logInfo(String.format(
+                "Standing down from the gathering skill march: %d idle slot(s) and another task is "
+                        + "owed %d more. Its claim comes first.",
+                idle, owed));
+        return true;
+    }
+
+    /**
+     * Whether a claimed slot leaves nothing for this skill to take.
+     *
+     * <p>{@code owed} is what TroopSlotPolicy says is still outstanding after the idle slots are
+     * counted against every active claim, so a positive value means the claimants are already short.
+     * Zero idle slots yields regardless: there is nothing to take, and reading it as free because
+     * nobody is owed anything would send a march into a slot that does not exist.
+     *
+     * @param idle idle slots on the live march screen
+     * @param owed slots still owed to claiming tasks after those idle slots
+     * @return {@code true} when this skill should stand down
+     */
+    static boolean shouldYieldSlot(int idle, int owed) {
+        return owed > 0 || idle <= 0;
+    }
+
+    /** Idle slots on the live march screen, or 0 when the screen cannot be read. */
+    private int countIdleMarchSlots() {
+        try {
+            return (int) marchHelper.readMarchQueue().stream()
+                    .filter(MarchSlotState::isIdle)
+                    .count();
+        } catch (Exception e) {
+            logDebug("Could not read idle march slot count: " + e.getMessage());
+            return 0;
+        }
+    }
+
     private GatheringDeployResult deployGatheringSkillMarch() {
         logInfo("Deploying gathering skill march...");
 
@@ -1097,6 +1152,16 @@ public class PetSkillsRoutine extends DelayedTask {
             sleepTask(500);
 
             if (!marchHelper.checkMarchesAvailable()) {
+                return GatheringDeployResult.NO_IDLE_MARCH;
+            }
+
+            // An idle slot is not necessarily a free one. Gather, Intel, Beast hunting, Cryptid
+            // hosting and Polar Terror all publish their demand to TroopSlotPolicy before taking a
+            // slot, and Gather recalls marches to satisfy it. This deploy used to read only the
+            // physical march screen, so it could take the last slot a task had already claimed and
+            // was walking towards -- the one case the ledger exists to prevent. Stand down instead:
+            // this skill is worth a slot, but never worth one another task is already owed.
+            if (yieldsToClaimedSlots()) {
                 return GatheringDeployResult.NO_IDLE_MARCH;
             }
 
