@@ -77,7 +77,10 @@ public class InitializeRoutine extends DelayedTask {
 	private static final PointData UPDATE_BUTTON_AREA_TOP_LEFT = new PointData(200, 850);
 	private static final PointData UPDATE_BUTTON_AREA_BOTTOM_RIGHT = new PointData(520, 1050);
 	private static final PointData CLOSEABLE_OVERLAY_AREA_TOP_LEFT = new PointData(540, 65);
-	private static final PointData CLOSEABLE_OVERLAY_AREA_BOTTOM_RIGHT = new PointData(680, 200);
+	// Extended from (680,200). The blue close button sits at roughly y 150-205, so a 55px template
+	// centred on it could not be placed inside the old band at all -- it scored 55 against the very
+	// frame it was cut from, which reads like a bad template and is really a clipped search area.
+	private static final PointData CLOSEABLE_OVERLAY_AREA_BOTTOM_RIGHT = new PointData(690, 220);
 	private static final int UPDATE_PATTERN_THRESHOLD = 90;
 	private static final int UPDATE_POSTCONDITION_TIMEOUT_MINUTES = 10;
 	private static final int UPDATE_POSTCONDITION_POLL_DELAY_MS = 5000;
@@ -87,6 +90,12 @@ public class InitializeRoutine extends DelayedTask {
 	private static final String GOOGLE_PLAY_PACKAGE = "com.android.vending";
 	private static final int MAX_WELCOME_BACK_DISMISSALS = 1;
 	private static final int MAX_CLOSEABLE_OVERLAY_DISMISSALS = 3;
+
+	/** Close-button styles seen on startup offer overlays. Extend as new ones appear. */
+	private static final TemplatesEnum[] CLOSEABLE_OVERLAY_CLOSE_VARIANTS = {
+			TemplatesEnum.GAME_START_CLOSEABLE_OVERLAY_CLOSE,
+			TemplatesEnum.GAME_START_CLOSEABLE_OVERLAY_CLOSE_BLUE,
+	};
 	private static final int UNKNOWN_BLOCKER_BACK_SETTLE_MS = 2000;
 	private static final int MAX_UNKNOWN_BLOCKER_POSTCONDITION_ATTEMPTS = 3;
 	private static final int STARTUP_PATTERN_THRESHOLD = 90;
@@ -499,13 +508,26 @@ public class InitializeRoutine extends DelayedTask {
 		if (capture == null) {
 			return false;
 		}
-		ImageSearchResultData close = OpenCvPatternLocator.locatePattern(
-				capture,
-				TemplatesEnum.GAME_START_CLOSEABLE_OVERLAY_CLOSE.getTemplate(),
-				CLOSEABLE_OVERLAY_AREA_TOP_LEFT,
-				CLOSEABLE_OVERLAY_AREA_BOTTOM_RIGHT,
-				STARTUP_PATTERN_THRESHOLD);
-		if (!close.isFound()) {
+		// The same white X is drawn on different coloured buttons depending on which offer is
+		// showing, and template matching is not colour blind: the gold variant scores 44.7 against
+		// a blue one, so no threshold separates it from noise. A Charm Master Pack offer with a blue
+		// close button blocked startup seven times before this was tracked down -- the bot sent its
+		// one bounded Android Back, which a Unity-drawn modal ignores, and gave up. Try each known
+		// variant; add to the list when a new colour turns up rather than lowering the threshold.
+		ImageSearchResultData close = null;
+		for (TemplatesEnum variant : CLOSEABLE_OVERLAY_CLOSE_VARIANTS) {
+			ImageSearchResultData hit = OpenCvPatternLocator.locatePattern(
+					capture,
+					variant.getTemplate(),
+					CLOSEABLE_OVERLAY_AREA_TOP_LEFT,
+					CLOSEABLE_OVERLAY_AREA_BOTTOM_RIGHT,
+					STARTUP_PATTERN_THRESHOLD);
+			if (hit.isFound()) {
+				close = hit;
+				break;
+			}
+		}
+		if (close == null) {
 			return false;
 		}
 
