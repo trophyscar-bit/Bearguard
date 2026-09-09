@@ -39,22 +39,22 @@
                     </HBox>
                     <VBox spacing="10" styleClass="task-section-inner">
                         <Label styleClass="task-card-description"
-                               text="Select which pet skills to activate automatically"
+                               text="Ticking a box means the bot will USE that skill every time it comes off cooldown. Each box controls one tile of the Pet Skill panel, counted left to right then down; the skill named is whichever your pets currently have in that tile, read from the game on 2026-09-07. Change pets and the tile keeps its position but may hold a different skill."
                                wrapText="true" />
                         <Separator style="-fx-opacity: 0.25;" />
 
-                        <FlowPane hgap="18" vgap="10" alignment="CENTER_LEFT">
-                            <CheckBox fx:id="checkboxFoodSkill" mnemonicParsing="false"
-                                      text="Food Skill" />
-                            <CheckBox fx:id="checkboxGatheringSkill" mnemonicParsing="false"
-                                      text="Gathering Skill" />
-                            <CheckBox fx:id="checkboxNaturalIntuitionSkill" mnemonicParsing="false"
-                                      text="Natural Intuition (Pet Food)" />
-                            <CheckBox fx:id="checkboxStaminaSkill" mnemonicParsing="false"
-                                      text="Stamina Skill" />
-                            <CheckBox fx:id="checkboxTreasureSkill" mnemonicParsing="false"
-                                      text="Treasure Skill" />
-                        </FlowPane>
+                        <VBox spacing="9">
+                            <CheckBox fx:id="checkboxFoodSkill" mnemonicParsing="false" wrapText="true"
+                                      text="Tile 1 - Builder's Aide: +15% Construction Speed for 5 minutes (23h cooldown)" />
+                            <CheckBox fx:id="checkboxStaminaSkill" mnemonicParsing="false" wrapText="true"
+                                      text="Tile 2 - Arctic Embrace: instantly restores 45 Chief Stamina (23h cooldown)" />
+                            <CheckBox fx:id="checkboxGatheringSkill" mnemonicParsing="false" wrapText="true"
+                                      text="Tile 3 - Burden Bearer: completes the gather on reaching the next wilderness tile (23h cooldown)" />
+                            <CheckBox fx:id="checkboxNaturalIntuitionSkill" mnemonicParsing="false" wrapText="true"
+                                      text="Tile 4 - Natural Intuition: instantly locates 500 Pet Food (23h cooldown)" />
+                            <CheckBox fx:id="checkboxTreasureSkill" mnemonicParsing="false" wrapText="true"
+                                      text="Tile 5 - Razorbeak: reduces enemy Health by 2% for 2 hours (20h cooldown)" />
+                        </VBox>
                         
                         <Separator style="-fx-opacity: 0.25;" />
                         
