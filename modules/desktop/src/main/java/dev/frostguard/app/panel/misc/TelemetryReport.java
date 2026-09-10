@@ -275,12 +275,35 @@ public final class TelemetryReport {
      * inside the window. Only ever consulted once {@link #endAnchor} has confirmed the window
      * actually contains data.
      */
-    private Sample startAnchor(String metric, Instant from, Instant to) {
+    private Sample startAnchor(String metric, Instant from, Instant to, Sample end) {
         Sample before = metricAtOrBefore(metric, from);
-        if (before != null && !before.at().isBefore(from.minus(BRACKET_REACH))) return before;
+        if (before != null && before.at().isBefore(from.minus(BRACKET_REACH))) {
+            before = null; // too stale to describe the window's opening
+        }
         Sample inside = metricAtOrAfter(metric, from);
-        if (inside != null && !inside.at().isAfter(to)) return inside;
-        return null;
+        if (inside != null && inside.at().isAfter(to)) {
+            inside = null;
+        }
+        // Whichever reading sits closer to the opening edge describes it better. Preferring the
+        // one before the window regardless is what made last night start at 9:06 PM: the readings
+        // either side of 23:00 were 21:06 and 23:01, and it took the one nearly two hours out
+        // over the one a minute in, so two hours of the evening were counted as part of the night.
+        Sample best = closerTo(from, before, inside);
+        // ... unless that reading is also the window's END, which would leave nothing to measure.
+        // The other candidate then still gives a real span.
+        if (best != null && best == end) {
+            best = (best == before) ? inside : before;
+        }
+        return best;
+    }
+
+    /** Whichever of the two sits nearer {@code edge}; either may be null. */
+    private static Sample closerTo(Instant edge, Sample a, Sample b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        long da = Math.abs(java.time.Duration.between(edge, a.at()).toMillis());
+        long db = Math.abs(java.time.Duration.between(edge, b.at()).toMillis());
+        return da <= db ? a : b;
     }
 
     /**
@@ -320,7 +343,7 @@ public final class TelemetryReport {
             // outside it may stand in. Only then is a baseline worth looking for.
             Sample endS = endAnchor(metric, from, to);
             if (endS == null) continue;
-            Sample startS = startAnchor(metric, from, to);
+            Sample startS = startAnchor(metric, from, to, endS);
             if (startS == null || !endS.at().isAfter(startS.at())) continue;
             Long start = startS.get(metric);
             Long end = endS.get(metric);
@@ -340,11 +363,45 @@ public final class TelemetryReport {
      */
     private static final long WAKE_ANCHOR_GRACE_MINUTES = 20;
 
+    /**
+     * The bounds of the most recently COMPLETED night.
+     *
+     * <p>All four "last night" reads used to derive this separately, and identically: yesterday at
+     * {@code sleepStart} through today at {@code wakeEnd}. That is right from mid-morning onwards
+     * and wrong for the nine hours before it. Open the tab at ten past midnight and the window runs
+     * from seventy minutes ago to eight hours into the future -- a night that has barely started --
+     * so the page reports the handful of minutes since 23:00 under the heading "Last night" and
+     * every figure reads steady, because almost nothing has happened yet. Checked at 00:02 it
+     * measured a seventeen-minute span and called it the night.</p>
+     *
+     * <p>So before the wake time the night in progress is not the subject: the last one that
+     * actually finished is, which ended yesterday morning. After the wake time, the night that just
+     * ended is today's. The window is now computed once, here, and the four callers share it --
+     * they were always meant to agree, and four copies of a date calculation is how they would
+     * eventually stop agreeing.</p>
+     */
+    private static Window nightWindow(ZoneId zone, LocalTime sleepStart, LocalTime wakeEnd) {
+        return nightWindow(zone, sleepStart, wakeEnd, java.time.LocalDateTime.now(zone));
+    }
+
+    /** The rule itself, with the clock passed in so both sides of it can be tested at any hour. */
+    static Window nightWindow(ZoneId zone, LocalTime sleepStart, LocalTime wakeEnd,
+                              java.time.LocalDateTime now) {
+        LocalTime closesAt = wakeEnd.plusMinutes(WAKE_ANCHOR_GRACE_MINUTES);
+        LocalDate wakeDay = now.toLocalTime().isBefore(closesAt)
+                ? now.toLocalDate().minusDays(1)
+                : now.toLocalDate();
+        return new Window(
+                wakeDay.minusDays(1).atTime(sleepStart).atZone(zone).toInstant(),
+                wakeDay.atTime(closesAt).atZone(zone).toInstant());
+    }
+
+    /** A resolved [from, to] pair. */
+    record Window(Instant from, Instant to) {}
+
     public List<Delta> lastNight(ZoneId zone, LocalTime sleepStart, LocalTime wakeEnd) {
-        LocalDate today = LocalDate.now(zone);
-        Instant from = today.minusDays(1).atTime(sleepStart).atZone(zone).toInstant();
-        Instant to = today.atTime(wakeEnd).plusMinutes(WAKE_ANCHOR_GRACE_MINUTES).atZone(zone).toInstant();
-        return deltaOverWindow(from, to);
+        Window night = nightWindow(zone, sleepStart, wakeEnd);
+        return deltaOverWindow(night.from(), night.to());
     }
 
     public List<Delta> last(long amount, ChronoUnit unit) {
@@ -382,7 +439,7 @@ public final class TelemetryReport {
         for (String metric : METRICS) {
             Sample endS = endAnchor(metric, from, to);
             if (endS == null) continue;
-            Sample startS = startAnchor(metric, from, to);
+            Sample startS = startAnchor(metric, from, to, endS);
             if (startS == null || !endS.at().isAfter(startS.at())) continue;
             if (first == null || startS.at().isBefore(first)) first = startS.at();
             if (last == null || endS.at().isAfter(last)) last = endS.at();
@@ -425,10 +482,8 @@ public final class TelemetryReport {
     }
 
     public Coverage silenceForLastNight(ZoneId zone, LocalTime sleepStart, LocalTime wakeEnd) {
-        LocalDate today = LocalDate.now(zone);
-        Instant from = today.minusDays(1).atTime(sleepStart).atZone(zone).toInstant();
-        Instant to = today.atTime(wakeEnd).plusMinutes(WAKE_ANCHOR_GRACE_MINUTES).atZone(zone).toInstant();
-        return silenceAround(from, to);
+        Window night = nightWindow(zone, sleepStart, wakeEnd);
+        return silenceAround(night.from(), night.to());
     }
 
     public Coverage silenceForLast(long amount, ChronoUnit unit) {
@@ -441,10 +496,8 @@ public final class TelemetryReport {
     }
 
     public Coverage coverageForLastNight(ZoneId zone, LocalTime sleepStart, LocalTime wakeEnd) {
-        LocalDate today = LocalDate.now(zone);
-        Instant from = today.minusDays(1).atTime(sleepStart).atZone(zone).toInstant();
-        Instant to = today.atTime(wakeEnd).plusMinutes(WAKE_ANCHOR_GRACE_MINUTES).atZone(zone).toInstant();
-        return coverageForWindow(from, to);
+        Window night = nightWindow(zone, sleepStart, wakeEnd);
+        return coverageForWindow(night.from(), night.to());
     }
 
     public Coverage coverageForLast(long amount, ChronoUnit unit) {
@@ -501,13 +554,21 @@ public final class TelemetryReport {
         return null;
     }
 
-    /** Opening-edge activity reading, bracketed exactly like {@link #startAnchor}. */
-    private Sample activityStartAnchor(Instant from, Instant to) {
+    /** Opening-edge activity reading, chosen exactly like {@link #startAnchor}. */
+    private Sample activityStartAnchor(Instant from, Instant to, Sample end) {
         Sample before = latestActivityAtOrBefore(from);
-        if (before != null && !before.at().isBefore(from.minus(BRACKET_REACH))) return before;
+        if (before != null && before.at().isBefore(from.minus(BRACKET_REACH))) {
+            before = null;
+        }
         Sample inside = earliestActivityAtOrAfter(from);
-        if (inside != null && !inside.at().isAfter(to)) return inside;
-        return null;
+        if (inside != null && inside.at().isAfter(to)) {
+            inside = null;
+        }
+        Sample best = closerTo(from, before, inside);
+        if (best != null && best == end) {
+            best = (best == before) ? inside : before;
+        }
+        return best;
     }
 
     /** Closing-edge activity reading: the last one INSIDE the window, exactly like
@@ -532,7 +593,7 @@ public final class TelemetryReport {
         if (endS == null) {
             return out; // window never observed; nothing outside it may speak for it
         }
-        Sample startS = activityStartAnchor(from, to);
+        Sample startS = activityStartAnchor(from, to, endS);
         if (startS == null || !startS.at().isBefore(endS.at())) {
             return out;
         }
@@ -547,10 +608,8 @@ public final class TelemetryReport {
     }
 
     public List<Activity> activityLastNight(ZoneId zone, LocalTime sleepStart, LocalTime wakeEnd) {
-        LocalDate today = LocalDate.now(zone);
-        Instant from = today.minusDays(1).atTime(sleepStart).atZone(zone).toInstant();
-        Instant to = today.atTime(wakeEnd).plusMinutes(WAKE_ANCHOR_GRACE_MINUTES).atZone(zone).toInstant();
-        return activityOverWindow(from, to);
+        Window night = nightWindow(zone, sleepStart, wakeEnd);
+        return activityOverWindow(night.from(), night.to());
     }
 
     public List<Activity> activityLast(long amount, ChronoUnit unit) {
