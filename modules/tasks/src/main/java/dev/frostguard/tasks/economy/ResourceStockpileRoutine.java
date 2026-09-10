@@ -87,6 +87,33 @@ public class ResourceStockpileRoutine extends DelayedTask {
      */
     private static final int SPEEDUP_VALUE_COLUMN_X = 370;
 
+    /**
+     * How many times a panel is opened before the cycle gives up on it.
+     *
+     * <p>One in five cycles was coming back with nothing -- 17 of 83 in the log -- and every one
+     * of those keeps the figures already cached. That is the safe answer to an unreadable panel,
+     * but a fifth of the scans going stale is what lets a cached value drift away from the game
+     * and then correct itself in a single step, which the Statistics tab reports as a spend on
+     * whatever window the step lands in. The reads themselves are accurate; it is the misses that
+     * age the cache.</p>
+     *
+     * <p>The misses are not OCR failing to read a panel. They are the panel not being there:
+     * a cycle that opens while the game is on an unexpected screen taps into whatever is in front
+     * of it and finds no rows at all. Opening it a second time costs a few seconds and turns most
+     * of those into a reading.</p>
+     */
+    private static final int PANEL_OPEN_ATTEMPTS = 2;
+
+    /**
+     * Added to every settle on the second attempt.
+     *
+     * <p>When a first attempt fails on a screen that was other than expected, the retry follows a
+     * screen re-establish and a fresh navigation, so it is already better placed. When it failed
+     * because the panel was still animating, more time is the whole fix. Waiting longer costs a
+     * few seconds on the one cycle in five that needed it.</p>
+     */
+    private static final long RETRY_EXTRA_SETTLE_MS = 1200;
+
     /** The Overview lists meat, wood, coal then iron, top to bottom, always. */
     private static final List<String> OVERVIEW_ROW_ORDER = List.of("meat", "wood", "coal", "iron");
 
@@ -215,130 +242,164 @@ public class ResourceStockpileRoutine extends DelayedTask {
 
     /** Opens Backpack → Resource &amp; Speedup Summary, OCRs Steel on the default "Resources" tab,
      *  then switches to the Speedup tab and OCRs the five speedup totals to minutes. */
+    /**
+     * What one open of the Resource &amp; Speedup Summary yielded, before any plausibility check.
+     *
+     * <p>Raw on purpose. Whether a reading is believable is a separate question from whether it was
+     * read at all, and only the second one is worth reopening the panel over -- a figure the guard
+     * holds back was read perfectly well.</p>
+     */
+    private record SummaryRead(Long steel, Long general, Long training,
+                               Long construction, Long research, Long healing) {
+
+        int resolved() {
+            int n = 0;
+            for (Long v : new Long[]{steel, general, training, construction, research, healing}) {
+                if (v != null) n++;
+            }
+            return n;
+        }
+
+        boolean complete() {
+            return resolved() == 6;
+        }
+    }
+
+    /** Opens Backpack → Resource &amp; Speedup Summary, reads Steel and the five speedup totals,
+     *  and caches whatever survives its plausibility check. */
     private void readAndCacheSpeedups() {
         try {
-            tapNear(BACKPACK_NAV);
-            sleepTask(1600);
-            tapNear(SUMMARY_CHART_BUTTON);
-            // First live pass at 1400ms caught the popup slide-in mid-animation and
-            // OCR'd a garbled "117MK" for Steel (correctly rejected as unparseable, but still a wasted
-            // cycle) -- the manual calibration pass that measured the crop used ~2s and read cleanly.
-            sleepTask(2200);
-
-            // Lands on "Resources" by default -- read Steel here before switching tabs.
-            //
-            // By its label, not by a box. The box that used to do this was measured one row too
-            // high and had been reading the IRON row for the life of this routine: every steel
-            // figure in the telemetry history is iron's, inflated a hundredfold by the decimal
-            // point the narrow crop also dropped ("4.39M" read as "439M"). Nothing about a fixed
-            // rectangle can notice it is on the wrong row. A label can.
-            PanelRowIndex resources = readPanelRows(SUMMARY_PANEL_TL, SUMMARY_PANEL_BR);
-            Long steel = sanityCheckAgainstCached("steel",
-                    readTableValue(resources, "Steel", TOTAL_RESOURCES_COLUMN_X, SUMMARY_ROW_ORDER,
-                            ResourceStockpileRoutine::parseScaled),
-                    ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG);
-            if (steel != null) {
-                profile.setConfig(ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG, steel);
-                setShouldUpdateConfig(true);
+            // Keep the better of the attempts rather than the last one. A retry can come back
+            // worse than what it is retrying -- the panel it reopens might be the one that is
+            // covered this time -- and caching that would throw away figures the first attempt
+            // had already read correctly.
+            SummaryRead best = null;
+            for (int attempt = 1; attempt <= PANEL_OPEN_ATTEMPTS; attempt++) {
+                SummaryRead read = openAndReadSummary(attempt);
+                if (best == null || read.resolved() > best.resolved()) {
+                    best = read;
+                }
+                if (best.complete()) {
+                    break;
+                }
+                if (attempt < PANEL_OPEN_ATTEMPTS) {
+                    logInfo("ResourceStockpileRoutine | Summary read " + read.resolved()
+                            + " of 6 values on attempt " + attempt
+                            + "; re-establishing the screen and opening it again.");
+                    navigationHelper.ensureCorrectScreenLocation(LaunchPoint.WORLD);
+                }
             }
-            logInfo("ResourceStockpileRoutine | Steel cached: " + steel);
-
-            tapNear(SPEEDUP_TAB);
-            // Was 1000ms. Every other panel in this routine settles for 2200-2600 because the
-            // popup animates, and a tab switch is no different -- a frame caught mid-transition
-            // reads whatever is halfway drawn. Speedups have no plausible-range check strong
-            // enough to catch a partial duration ("2 day(s)30 min" losing its day component still
-            // parses, as 30), so the cheapest fix is not to photograph the transition.
-            sleepTask(2500);
-
-            // Each bucket by the name printed beside it. The row heights vary -- two labels wrap
-            // onto a second line -- so their values do not sit at a fixed offset from anything.
-            PanelRowIndex speedups = readPanelRows(SUMMARY_PANEL_TL, SUMMARY_PANEL_BR);
-            Long gen  = readSpeedup(speedups, "General");
-            Long tr   = readSpeedup(speedups, "Training");
-            Long con  = readSpeedup(speedups, "Construction");
-            Long res  = readSpeedup(speedups, "Research");
-            Long heal = readSpeedup(speedups, "Healing");
-
-            tapNear(SUMMARY_CLOSE_X);
-            sleepTask(300);
-
-            // The five speedup buckets were the one OCR'd family with no plausibility guard
-            // anywhere -- not here, and not in bg_telemetry either, which explicitly skips them on
-            // the grounds that it reads them from config rather than OCR'ing them itself. Nobody
-            // was checking them at all, and it showed: on 9/1 the general bucket read 30 minutes
-            // between readings of 2434 and 2664, which the Statistics tab then reported as
-            // "+1d 21h 21m gained" overnight because that misread happened to be the last reading
-            // before the window opened. Same guard as the stockpiles now, on its own policy --
-            // see SPEEDUP_GUARD for why the thresholds differ.
-            gen  = sanityCheckAgainstCached("sp_general", gen,
-                    ConfigurationKeyEnum.SPEEDUP_GENERAL_MIN_LONG, SPEEDUP_GUARD);
-            tr   = sanityCheckAgainstCached("sp_training", tr,
-                    ConfigurationKeyEnum.SPEEDUP_TRAINING_MIN_LONG, SPEEDUP_GUARD);
-            con  = sanityCheckAgainstCached("sp_construction", con,
-                    ConfigurationKeyEnum.SPEEDUP_CONSTRUCTION_MIN_LONG, SPEEDUP_GUARD);
-            res  = sanityCheckAgainstCached("sp_research", res,
-                    ConfigurationKeyEnum.SPEEDUP_RESEARCH_MIN_LONG, SPEEDUP_GUARD);
-            heal = sanityCheckAgainstCached("sp_healing", heal,
-                    ConfigurationKeyEnum.SPEEDUP_HEALING_MIN_LONG, SPEEDUP_GUARD);
-
-            if (gen != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_GENERAL_MIN_LONG, gen);
-            if (tr != null)   profile.setConfig(ConfigurationKeyEnum.SPEEDUP_TRAINING_MIN_LONG, tr);
-            if (con != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_CONSTRUCTION_MIN_LONG, con);
-            if (res != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_RESEARCH_MIN_LONG, res);
-            if (heal != null) profile.setConfig(ConfigurationKeyEnum.SPEEDUP_HEALING_MIN_LONG, heal);
-            setShouldUpdateConfig(true);
-            logInfo("ResourceStockpileRoutine | Speedups cached (min): general=" + gen + " training=" + tr
-                    + " construction=" + con + " research=" + res + " healing=" + heal);
+            cacheSummary(best);
         } catch (Exception e) {
             logWarning("ResourceStockpileRoutine | Speedup read failed this cycle: " + e.getMessage());
         }
     }
 
-    /**
-     * The whole duration, or nothing.
-     *
-     * <p>Each component used to be picked out of the string wherever it appeared, and any single
-     * hit was enough to return a number. That turns a partly-read row into a plausible small
-     * figure instead of a refusal, and it is how the speedup history got its cliffs. Drop the
-     * leading number off "1 day(s)5 hr(s)2 min" -- which the column edge did, because these
-     * strings are right-aligned and the long ones reach further left -- and "day(s)5 hr(s)2 min"
-     * came back as 302 minutes rather than 1,742. On the tab that read as fifteen hours of
-     * construction speedup spent overnight, on a night nothing was spent at all. The same clipping
-     * gave the training bucket its run of 8s and 16s: "hr(s)16 min" parsed as sixteen minutes.</p>
-     *
-     * <p>So the string now has to be a duration end to end. A unit with no number in front of it,
-     * or anything left over, means the row was not read properly and there is no answer to give --
-     * the caller keeps the value it already had, which is a repeat in the history rather than a
-     * phantom spend.</p>
-     */
-    private static final Pattern WHOLE_DURATION = Pattern.compile(
-            "^(?:(\\d+)day\\(?s?\\)?)?(?:(\\d+)hr\\(?s?\\)?)?(?:(\\d+)min)?$",
-            Pattern.CASE_INSENSITIVE);
+    /** One open of the Summary popup: Steel from the default tab, then the Speedup tab. */
+    private SummaryRead openAndReadSummary(int attempt) {
+        tapNear(BACKPACK_NAV);
+        sleepTask(settleFor(1600, attempt));
+        tapNear(SUMMARY_CHART_BUTTON);
+        // First live pass at 1400ms caught the popup slide-in mid-animation and
+        // OCR'd a garbled "117MK" for Steel (correctly rejected as unparseable, but still a wasted
+        // cycle) -- the manual calibration pass that measured the crop used ~2s and read cleanly.
+        sleepTask(settleFor(2200, attempt));
 
-    /** "1 day(s)10 hr(s)50 min" to 2090. Null unless the whole string is a duration. */
-    static Long parseDurationMinutes(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
+        // Lands on "Resources" by default -- read Steel here before switching tabs.
+        //
+        // By its label, not by a box. The box that used to do this was measured one row too
+        // high and had been reading the IRON row for the life of this routine: every steel
+        // figure in the telemetry history is iron's, inflated a hundredfold by the decimal
+        // point the narrow crop also dropped ("4.39M" read as "439M"). Nothing about a fixed
+        // rectangle can notice it is on the wrong row. A label can.
+        PanelRowIndex resources = readPanelRows(SUMMARY_PANEL_TL, SUMMARY_PANEL_BR);
+        Long steel = readTableValue(resources, "Steel", TOTAL_RESOURCES_COLUMN_X, SUMMARY_ROW_ORDER,
+                ResourceStockpileRoutine::parseScaled);
+
+        tapNear(SPEEDUP_TAB);
+        // Was 1000ms. Every other panel in this routine settles for 2200-2600 because the
+        // popup animates, and a tab switch is no different -- a frame caught mid-transition
+        // reads whatever is halfway drawn.
+        sleepTask(settleFor(2500, attempt));
+
+        // Each bucket by the name printed beside it. The row heights vary -- two labels wrap
+        // onto a second line -- so their values do not sit at a fixed offset from anything.
+        PanelRowIndex speedups = readPanelRows(SUMMARY_PANEL_TL, SUMMARY_PANEL_BR);
+        SummaryRead read = new SummaryRead(steel,
+                readSpeedup(speedups, "General"),
+                readSpeedup(speedups, "Training"),
+                readSpeedup(speedups, "Construction"),
+                readSpeedup(speedups, "Research"),
+                readSpeedup(speedups, "Healing"));
+
+        tapNear(SUMMARY_CLOSE_X);
+        sleepTask(300);
+        return read;
+    }
+
+    /** Puts a summary read through the plausibility guards and caches what survives. */
+    private void cacheSummary(SummaryRead read) {
+        Long steel = sanityCheckAgainstCached("steel", read.steel(),
+                ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG);
+        if (steel != null) {
+            profile.setConfig(ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG, steel);
         }
-        // The reader spaces these unpredictably ("day(s)5 hr(s)45 min"), so compare without spaces.
-        Matcher m = WHOLE_DURATION.matcher(raw.replaceAll("\\s+", ""));
-        if (!m.matches()) {
-            return null;
-        }
-        long total = 0;
-        boolean any = false;
-        if (m.group(1) != null) { total += Long.parseLong(m.group(1)) * 1440L; any = true; }
-        if (m.group(2) != null) { total += Long.parseLong(m.group(2)) * 60L;   any = true; }
-        if (m.group(3) != null) { total += Long.parseLong(m.group(3));         any = true; }
-        return any ? total : null;
+        logInfo("ResourceStockpileRoutine | Steel cached: " + steel);
+
+        // The five speedup buckets were the one OCR'd family with no plausibility guard
+        // anywhere -- not here, and not in bg_telemetry either, which explicitly skips them on
+        // the grounds that it reads them from config rather than OCR'ing them itself. Nobody
+        // was checking them at all, and it showed: on 9/1 the general bucket read 30 minutes
+        // between readings of 2434 and 2664, which the Statistics tab then reported as
+        // "+1d 21h 21m gained" overnight because that misread happened to be the last reading
+        // before the window opened. Same guard as the stockpiles now, on its own policy --
+        // see SPEEDUP_GUARD for why the thresholds differ.
+        Long gen  = sanityCheckAgainstCached("sp_general", read.general(),
+                ConfigurationKeyEnum.SPEEDUP_GENERAL_MIN_LONG, SPEEDUP_GUARD);
+        Long tr   = sanityCheckAgainstCached("sp_training", read.training(),
+                ConfigurationKeyEnum.SPEEDUP_TRAINING_MIN_LONG, SPEEDUP_GUARD);
+        Long con  = sanityCheckAgainstCached("sp_construction", read.construction(),
+                ConfigurationKeyEnum.SPEEDUP_CONSTRUCTION_MIN_LONG, SPEEDUP_GUARD);
+        Long res  = sanityCheckAgainstCached("sp_research", read.research(),
+                ConfigurationKeyEnum.SPEEDUP_RESEARCH_MIN_LONG, SPEEDUP_GUARD);
+        Long heal = sanityCheckAgainstCached("sp_healing", read.healing(),
+                ConfigurationKeyEnum.SPEEDUP_HEALING_MIN_LONG, SPEEDUP_GUARD);
+
+        if (gen != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_GENERAL_MIN_LONG, gen);
+        if (tr != null)   profile.setConfig(ConfigurationKeyEnum.SPEEDUP_TRAINING_MIN_LONG, tr);
+        if (con != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_CONSTRUCTION_MIN_LONG, con);
+        if (res != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_RESEARCH_MIN_LONG, res);
+        if (heal != null) profile.setConfig(ConfigurationKeyEnum.SPEEDUP_HEALING_MIN_LONG, heal);
+        setShouldUpdateConfig(true);
+        logInfo("ResourceStockpileRoutine | Speedups cached (min): general=" + gen + " training=" + tr
+                + " construction=" + con + " research=" + res + " healing=" + heal);
     }
 
     private Map<String, Long> readOverviewPanel() {
+        for (int attempt = 1; attempt <= PANEL_OPEN_ATTEMPTS; attempt++) {
+            Map<String, Long> owned = openAndReadOverview(attempt);
+            if (owned != null) {
+                return owned;
+            }
+            if (attempt < PANEL_OPEN_ATTEMPTS) {
+                logInfo("ResourceStockpileRoutine | Overview did not read on attempt " + attempt
+                        + "; re-establishing the screen and opening it again.");
+                // Not a second tap on the same spot. Whatever the first attempt was looking at, this
+                // gets back to a known screen first -- it presses Back off an unexpected one and
+                // dismisses the quit dialog that a bare Back pops -- so the retry starts from the
+                // same place the first attempt was supposed to.
+                navigationHelper.ensureCorrectScreenLocation(LaunchPoint.WORLD);
+            }
+        }
+        return null;
+    }
+
+    /** One open of the Overview: tap, settle, read, close. Null when it did not come back whole. */
+    private Map<String, Long> openAndReadOverview(int attempt) {
         // Tapping the resource ICON opens Overview directly on the Resource Production tab (verified
         // live) — no tab tap needed. One clean tap + settle matches the proven manual flow.
         tapNear(RESOURCE_COUNTER);
-        sleepTask(2600); // let the panel fully slide+render before OCR
+        sleepTask(settleFor(2600, attempt)); // let the panel fully slide+render before OCR
 
         PanelRowIndex panel = readPanelRows(OVERVIEW_PANEL_TL, OVERVIEW_PANEL_BR);
 
@@ -369,6 +430,11 @@ public class ResourceStockpileRoutine extends DelayedTask {
             out.put(OVERVIEW_ROW_ORDER.get(i), values.get(i));
         }
         return out;
+    }
+
+    /** A settle time, lengthened on a retry. See {@link #RETRY_EXTRA_SETTLE_MS}. */
+    private static long settleFor(long baseMs, int attempt) {
+        return baseMs + (attempt - 1) * RETRY_EXTRA_SETTLE_MS;
     }
 
     /**
@@ -421,6 +487,45 @@ public class ResourceStockpileRoutine extends DelayedTask {
     private Long readSpeedup(PanelRowIndex panel, String label) {
         return readTableValue(panel, label, SPEEDUP_VALUE_COLUMN_X, SPEEDUP_ROW_ORDER,
                 ResourceStockpileRoutine::parseDurationMinutes);
+    }
+
+    /**
+     * The whole duration, or nothing.
+     *
+     * <p>Each component used to be picked out of the string wherever it appeared, and any single
+     * hit was enough to return a number. That turns a partly-read row into a plausible small
+     * figure instead of a refusal, and it is how the speedup history got its cliffs. Drop the
+     * leading number off "1 day(s)5 hr(s)2 min" -- which the column edge did, because these
+     * strings are right-aligned and the long ones reach further left -- and "day(s)5 hr(s)2 min"
+     * came back as 302 minutes rather than 1,742. On the tab that read as fifteen hours of
+     * construction speedup spent overnight, on a night nothing was spent at all. The same clipping
+     * gave the training bucket its run of 8s and 16s: "hr(s)16 min" parsed as sixteen minutes.</p>
+     *
+     * <p>So the string now has to be a duration end to end. A unit with no number in front of it,
+     * or anything left over, means the row was not read properly and there is no answer to give --
+     * the caller keeps the value it already had, which is a repeat in the history rather than a
+     * phantom spend.</p>
+     */
+    private static final Pattern WHOLE_DURATION = Pattern.compile(
+            "^(?:(\\d+)day\\(?s?\\)?)?(?:(\\d+)hr\\(?s?\\)?)?(?:(\\d+)min)?$",
+            Pattern.CASE_INSENSITIVE);
+
+    /** "1 day(s)10 hr(s)50 min" to 2090. Null unless the whole string is a duration. */
+    static Long parseDurationMinutes(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        // The reader spaces these unpredictably ("day(s)5 hr(s)45 min"), so compare without spaces.
+        Matcher m = WHOLE_DURATION.matcher(raw.replaceAll("\\s+", ""));
+        if (!m.matches()) {
+            return null;
+        }
+        long total = 0;
+        boolean any = false;
+        if (m.group(1) != null) { total += Long.parseLong(m.group(1)) * 1440L; any = true; }
+        if (m.group(2) != null) { total += Long.parseLong(m.group(2)) * 60L;   any = true; }
+        if (m.group(3) != null) { total += Long.parseLong(m.group(3));         any = true; }
+        return any ? total : null;
     }
 
     /** Fraction outside of which a new resource reading is rejected as an implausible OCR misread
