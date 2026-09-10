@@ -401,7 +401,11 @@ public class ResourceStockpileRoutine extends DelayedTask {
         tapNear(RESOURCE_COUNTER);
         sleepTask(settleFor(2600, attempt)); // let the panel fully slide+render before OCR
 
-        PanelRowIndex panel = readPanelRows(OVERVIEW_PANEL_TL, OVERVIEW_PANEL_BR);
+        // Captured here rather than inside readPanelRows so that, if this read comes back short,
+        // the frame saved for diagnosis is the very one that was read -- not a second screenshot
+        // taken a moment later that might show something else.
+        RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+        PanelRowIndex panel = readPanelRows(frame, OVERVIEW_PANEL_TL, OVERVIEW_PANEL_BR);
 
         tapNear(CLOSE_OVERVIEW_X);
         sleepTask(300);
@@ -420,8 +424,15 @@ public class ResourceStockpileRoutine extends DelayedTask {
         }
 
         if (values.size() != OVERVIEW_ROW_ORDER.size()) {
-            logDebug("ResourceStockpileRoutine | Owned read incomplete: expected "
-                    + OVERVIEW_ROW_ORDER.size() + " values, resolved " + values.size() + " " + values);
+            // At WARN, with the rows it saw and the frame it saw them in. Of the last 76 short reads,
+            // 21 resolved nothing and 55 resolved one to three values -- usually just iron, the
+            // bottom row -- on a panel that verifies 4/4 every time it is captured by hand. Whatever
+            // separates those frames from the good ones is only visible in the frames themselves,
+            // and until now none were kept.
+            logWarning("ResourceStockpileRoutine | Owned read incomplete on attempt " + attempt
+                    + ": resolved " + values.size() + " of " + OVERVIEW_ROW_ORDER.size() + " " + values
+                    + "; rows seen " + describeRows(panel) + ". "
+                    + saveFailedFrame(frame, "overview-attempt" + attempt + "-resolved" + values.size()));
             return null;
         }
 
@@ -442,8 +453,12 @@ public class ResourceStockpileRoutine extends DelayedTask {
      * frame comes back as an empty index, which every caller already treats as "skip this cycle".
      */
     private PanelRowIndex readPanelRows(PointData topLeft, PointData bottomRight) {
+        return readPanelRows(emuManager.captureScreen(EMULATOR_NUMBER), topLeft, bottomRight);
+    }
+
+    /** The same read, over a frame the caller already holds. */
+    private PanelRowIndex readPanelRows(RawImageData frame, PointData topLeft, PointData bottomRight) {
         try {
-            RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
             if (frame == null || !frame.isValid()) {
                 logWarning("ResourceStockpileRoutine | No usable frame to read the panel from.");
                 return PanelRowIndex.of(List.of());
@@ -453,6 +468,43 @@ public class ResourceStockpileRoutine extends DelayedTask {
         } catch (Exception e) {
             logWarning("ResourceStockpileRoutine | Panel read failed: " + e.getMessage());
             return PanelRowIndex.of(List.of());
+        }
+    }
+
+    /** Each row's text, for a log line -- enough to see what the reader thought was there. */
+    private static String describeRows(PanelRowIndex panel) {
+        StringBuilder sb = new StringBuilder("[");
+        for (PanelRowIndex.Row row : panel.rows()) {
+            if (sb.length() > 1) sb.append(" | ");
+            sb.append(row.text());
+        }
+        String text = sb.append(']').toString();
+        return text.length() > 400 ? text.substring(0, 400) + "...]" : text;
+    }
+
+    /**
+     * Saves a frame that failed to read, beside the installation under ocr-debug/.
+     *
+     * <p>Same convention as MonumentRoutine's diagnostic frames, and the same rule: a diagnostic
+     * must never be able to break the routine it is diagnosing, so every failure here is
+     * swallowed and reported inline in the caller's log line instead.</p>
+     */
+    private String saveFailedFrame(RawImageData frame, String tag) {
+        try {
+            if (frame == null) {
+                return "(diagnostic frame unavailable: no frame was captured)";
+            }
+            java.io.File dir = new java.io.File(System.getProperty("user.dir"), "ocr-debug");
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                return "(diagnostic frame not saved: could not create " + dir + ")";
+            }
+            String stamp = LocalDateTime.now().toString().replace(':', '-').replace('.', '-');
+            java.io.File out = new java.io.File(dir, "stockpile-" + tag + "-" + stamp + ".png");
+            javax.imageio.ImageIO.write(
+                    dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame), "png", out);
+            return "Diagnostic frame saved: " + out.getAbsolutePath();
+        } catch (Exception e) {
+            return "(diagnostic frame not saved: " + e.getMessage() + ")";
         }
     }
 
