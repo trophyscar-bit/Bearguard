@@ -1,5 +1,9 @@
 package dev.frostguard.tasks.lifecycle;
 
+import java.awt.image.BufferedImage;
+import java.io.File;
+import javax.imageio.ImageIO;
+import java.time.format.DateTimeFormatter;
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.engine.emulator.EmulatorController;
@@ -768,9 +772,45 @@ public class InitializeRoutine extends DelayedTask {
 		return emuManager.isPackageRunning(EMULATOR_NUMBER, EmulatorController.GAME.getPackageName());
 	}
 
+	/**
+	 * Writes the screen that blocked startup to ocr-debug, returning its filename for the log.
+	 *
+	 * <p>Best effort by design: this runs on the way into a cooldown, and a capture that fails
+	 * here must not replace the real reason for that cooldown with an IO error.
+	 *
+	 * @return the saved filename, or a short marker when nothing could be written
+	 */
+	private String saveUnknownBlockerFrame() {
+		try {
+			RawImageData frame = captureStartupFrame("unknown startup blocker evidence");
+			if (frame == null) {
+				return "none-capture-empty";
+			}
+			BufferedImage image = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
+			File dir = new File(System.getProperty("user.dir"), "ocr-debug");
+			dir.mkdirs();
+			String name = "startup-unknown-blocker-"
+				+ LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss"))
+				+ ".png";
+			File out = new File(dir, name);
+			ImageIO.write(image, "png", out);
+			logInfo("Saved the blocking startup screen for diagnosis: ocr-debug/" + name);
+			return name;
+		} catch (Exception ex) {
+			logWarning("Could not save the blocking startup screen: " + ex.getMessage());
+			return "none-" + ex.getClass().getSimpleName();
+		}
+	}
+
 	private void deferUnknownStartupBlocker(boolean gameForeground) {
 		LocalDateTime retryAt = LocalDateTime.now().plus(StartupRecoveryPolicy.UNKNOWN_BLOCKER_COOLDOWN);
 		String reason = "home/world remained unavailable after bounded in-game recovery";
+		// Keep the screen that beat us. This path fired eleven times over sixteen days without
+		// anyone seeing what was on it: by the time a human looks the fallback has already
+		// stopped the game, so the screen they photograph is the relaunched one, and every
+		// diagnosis so far has been of the wrong frame. The alert names a blocker it cannot
+		// show; this makes the next occurrence answerable rather than guessable.
+		String evidence = saveUnknownBlockerFrame();
 		logError("Initialization blocked for profile=" + profile.getName()
 				+ ", expected=home/world, observed=unknown-startup-blocker"
 				+ ", gameForeground=" + gameForeground
@@ -778,6 +818,7 @@ public class InitializeRoutine extends DelayedTask {
 				+ ", recoveryAttempts=" + unknownBlockerBackAttempts
 				+ "/" + StartupRecoveryPolicy.MAX_UNKNOWN_BLOCKER_BACK_ATTEMPTS
 				+ ", fallback=stop-game-and-release-slot, retryAt=" + retryAt
+				+ ", frame=" + evidence
 				+ ", reason=" + reason + ".");
 		throw new ProfileCooldownException(reason, retryAt, new ActionRequiredContext(
 				"startup.home-unavailable-after-game-back",
