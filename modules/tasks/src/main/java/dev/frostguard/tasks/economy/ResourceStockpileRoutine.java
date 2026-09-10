@@ -76,8 +76,16 @@ public class ResourceStockpileRoutine extends DelayedTask {
     private static final int OWNED_COLUMN_X = 440;
     /** Left edge of the Summary's "Total Resources" column, clear of "Total Items". */
     private static final int TOTAL_RESOURCES_COLUMN_X = 460;
-    /** Left edge of the Speedup tab's duration column, clear of the item labels. */
-    private static final int SPEEDUP_VALUE_COLUMN_X = 400;
+    /**
+     * Left edge of the Speedup tab's duration column.
+     *
+     * <p>Was 400, which is inside the values. These strings are right-aligned, so the longer the
+     * duration the further left it begins: "12 hr(s)10 min" starts at x=468 but "11 day(s)5
+     * hr(s)45 min" starts at 425, and a bucket holding more than about ten days starts left of
+     * 400 -- where the leading number was cut off and the row read as the remainder. The labels
+     * end by roughly 340, so 370 sits in the gap with room on both sides.</p>
+     */
+    private static final int SPEEDUP_VALUE_COLUMN_X = 370;
 
     /** The Overview lists meat, wood, coal then iron, top to bottom, always. */
     private static final List<String> OVERVIEW_ROW_ORDER = List.of("meat", "wood", "coal", "iron");
@@ -127,9 +135,6 @@ public class ResourceStockpileRoutine extends DelayedTask {
     // contrast) -- stripBackground(false) here, unlike the Speedup durations below which are larger
     // text with more spacing and read fine isolated. Widened a few px on every edge too so descenders
     // aren't clipped at the crop boundary.
-    private static final Pattern DAYS_PAT = Pattern.compile("(\\d+)\\s*day");
-    private static final Pattern HRS_PAT  = Pattern.compile("(\\d+)\\s*hr");
-    private static final Pattern MIN_PAT  = Pattern.compile("(\\d+)\\s*min");
 
     private Duration interval = DEFAULT_INTERVAL;
 
@@ -290,16 +295,42 @@ public class ResourceStockpileRoutine extends DelayedTask {
         }
     }
 
-    /** "1 day(s)10 hr(s)50 min" to 2090. Null when no component is present at all. */
+    /**
+     * The whole duration, or nothing.
+     *
+     * <p>Each component used to be picked out of the string wherever it appeared, and any single
+     * hit was enough to return a number. That turns a partly-read row into a plausible small
+     * figure instead of a refusal, and it is how the speedup history got its cliffs. Drop the
+     * leading number off "1 day(s)5 hr(s)2 min" -- which the column edge did, because these
+     * strings are right-aligned and the long ones reach further left -- and "day(s)5 hr(s)2 min"
+     * came back as 302 minutes rather than 1,742. On the tab that read as fifteen hours of
+     * construction speedup spent overnight, on a night nothing was spent at all. The same clipping
+     * gave the training bucket its run of 8s and 16s: "hr(s)16 min" parsed as sixteen minutes.</p>
+     *
+     * <p>So the string now has to be a duration end to end. A unit with no number in front of it,
+     * or anything left over, means the row was not read properly and there is no answer to give --
+     * the caller keeps the value it already had, which is a repeat in the history rather than a
+     * phantom spend.</p>
+     */
+    private static final Pattern WHOLE_DURATION = Pattern.compile(
+            "^(?:(\\d+)day\\(?s?\\)?)?(?:(\\d+)hr\\(?s?\\)?)?(?:(\\d+)min)?$",
+            Pattern.CASE_INSENSITIVE);
+
+    /** "1 day(s)10 hr(s)50 min" to 2090. Null unless the whole string is a duration. */
     static Long parseDurationMinutes(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;
         }
+        // The reader spaces these unpredictably ("day(s)5 hr(s)45 min"), so compare without spaces.
+        Matcher m = WHOLE_DURATION.matcher(raw.replaceAll("\\s+", ""));
+        if (!m.matches()) {
+            return null;
+        }
         long total = 0;
         boolean any = false;
-        Matcher d = DAYS_PAT.matcher(raw); if (d.find()) { total += Long.parseLong(d.group(1)) * 1440L; any = true; }
-        Matcher h = HRS_PAT.matcher(raw);  if (h.find()) { total += Long.parseLong(h.group(1)) * 60L;   any = true; }
-        Matcher m = MIN_PAT.matcher(raw);  if (m.find()) { total += Long.parseLong(m.group(1));         any = true; }
+        if (m.group(1) != null) { total += Long.parseLong(m.group(1)) * 1440L; any = true; }
+        if (m.group(2) != null) { total += Long.parseLong(m.group(2)) * 60L;   any = true; }
+        if (m.group(3) != null) { total += Long.parseLong(m.group(3));         any = true; }
         return any ? total : null;
     }
 
@@ -378,7 +409,10 @@ public class ResourceStockpileRoutine extends DelayedTask {
         String text = table.get().get(label);
         T parsed = (text == null || text.isBlank()) ? null : parse.apply(text.trim());
         if (parsed == null) {
-            logDebug("ResourceStockpileRoutine | '" + label + "' value unparseable: '" + text + "'");
+            // At WARN, not DEBUG: a row that will not parse is the shape a clipped read takes, and
+            // the text it choked on is the only evidence of which part went missing.
+            logWarning("ResourceStockpileRoutine | '" + label + "' did not read as a whole value: '"
+                    + text + "' -- keeping the cached figure for this cycle.");
         }
         return parsed;
     }
