@@ -519,6 +519,8 @@ public enum ConfigurationKeyEnum {
     // deterministic window), feeding the sidebar's "Upcoming Events" calendar. On by
     // default -- it never taps anything, only records what tab is currently showing.
     EVENT_SCHEDULE_SCAN_BOOL             ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    EVENT_FORTRESS_SCAN_BOOL             ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    EVENT_STATE_CALENDAR_SCAN_BOOL       ("true",    Boolean.class,  ConfigCategory.EVENTS),
 
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for

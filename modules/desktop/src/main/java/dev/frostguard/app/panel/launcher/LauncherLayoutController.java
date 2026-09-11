@@ -92,6 +92,7 @@ import javafx.animation.*;
 import javafx.util.Duration;
 import dev.frostguard.app.panel.alliance.AllianceShopController;
 import dev.frostguard.app.panel.events.EventScheduleSettingsLayoutController;
+import dev.frostguard.app.panel.events.UpcomingEventsLayoutController;
 import dev.frostguard.app.panel.misc.TelegramLayoutController;
 import dev.frostguard.app.bootstrap.ApplicationLifecycle;
 import dev.frostguard.app.bootstrap.WindowsWindowManager;
@@ -356,24 +357,6 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
             updateNotificationBadge(service.findAll());
         } catch (IOException exception) {
             throw new IllegalStateException("Could not load the notification center", exception);
-        }
-    }
-
-    /**
-     * Mounts the small "Upcoming Events" calendar into the sidebar's own footer
-     * ({@code pinnedButtonsContainer} / {@code .sidebar-footer}) -- already the bottom-of-sidebar
-     * dock point, so this needs no layout restructuring.
-     */
-    private void initializeUpcomingEventsPanel() {
-        if (pinnedButtonsContainer == null) {
-            return;
-        }
-        try {
-            FXMLLoader loader = new FXMLLoader(getClass().getResource("/layout/UpcomingEventsPanel.fxml"));
-            Parent panel = loader.load();
-            pinnedButtonsContainer.getChildren().add(panel);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Could not load the Upcoming Events panel", exception);
         }
     }
 
@@ -725,7 +708,10 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
         addPinnedButton("Config", MaterialDesignC.COG_OUTLINE, configTabs);
         addPinnedButton("Chat", MaterialDesignC.CHAT_OUTLINE, chatTabs);
-        initializeUpcomingEventsPanel();
+
+        UpcomingEventsLayoutController upcomingEventsCtrl = new UpcomingEventsLayoutController();
+        Parent upcomingEventsPane = loadNode("UpcomingEventsLayout", upcomingEventsCtrl);
+        addPinnedButton("Calendar", MaterialDesignC.CALENDAR_OUTLINE, upcomingEventsPane);
 
         // Open Bearguard on the Tasks view instead of the raw log. Select the first
         // Control tab (Tasks) and fire the Control button so startup lands there with it highlighted.
