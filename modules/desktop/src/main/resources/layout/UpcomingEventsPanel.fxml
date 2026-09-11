@@ -4,7 +4,7 @@
 <?import javafx.scene.layout.*?>
 
 <!-- Small always-on calendar mounted into the nav sidebar's own bottom-left footer
-     (pinnedButtonsContainer / .sidebar-footer) -- fixed 190px sidebar width, so this stays compact. -->
+     (pinnedButtonsContainer / .sidebar-footer) — fixed 190px sidebar width, so this stays compact. -->
 <VBox xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1"
       fx:controller="dev.frostguard.app.panel.events.UpcomingEventsPanelController"
       spacing="4" styleClass="upcoming-events-panel">
