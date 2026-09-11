@@ -133,6 +133,40 @@
     -fx-padding: 12 10 16 10;
 }
 
+/* Upcoming Events calendar, mounted into .sidebar-footer -- kept compact for the 190px sidebar. */
+.upcoming-events-panel {
+    -fx-padding: 0 0 4 0;
+}
+
+.upcoming-events-title {
+    -fx-text-fill: -fg-text-secondary;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+}
+
+.upcoming-events-row {
+    -fx-spacing: 0;
+    -fx-padding: 2 0;
+}
+
+.upcoming-events-label {
+    -fx-text-fill: -fg-text-primary;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-wrap-text: true;
+}
+
+.upcoming-events-status {
+    -fx-text-fill: -fg-text-secondary;
+    -fx-font-size: 10px;
+    -fx-wrap-text: true;
+}
+
+.upcoming-events-empty {
+    -fx-text-fill: -fg-text-secondary;
+    -fx-font-size: 10px;
+}
+
 /* ---------------------------------------------------------------------------
  * NAVIGATION ITEM (Pill shape, yellow active)
  * --------------------------------------------------------------------------- */
