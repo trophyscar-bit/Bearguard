@@ -63,12 +63,41 @@ public class ResourceStockpileRoutine extends DelayedTask {
     // "Owned" total crops — the LARGE top number in each resource row (the smaller
 
     /**
-     * The whole Overview panel, and the whole Summary popup. Both are read in one pass each rather
-     * than as a set of per-value boxes -- see {@link PanelRowIndex} for why that turned out to
-     * matter more than any amount of crop calibration.
+     * The Overview's Owned column: each row's owned figure and the shielded one under it, and
+     * nothing else.
+     *
+     * <p>This used to be the whole panel, and it missed 71 of 83 cycles. Not by misreading
+     * the panel -- by failing to read it at all. A saved failing frame is perfectly clean, every
+     * figure sharp, and the whole-panel pass still loses three of the four rows: Tesseract's
+     * layout analysis merges meat's owned value, its shielded value and the shield icon into one
+     * 125x58 "word" reading "orem", and drops wood's and coal's values altogether. Only iron, the
+     * bottom row, survives -- which is exactly the pattern in the log, where 55 of 76 short
+     * reads came back with one to three values and iron was nearly always one of them.</p>
+     *
+     * <p>It is deterministic. Replay the same frame and it fails the same way, which is why a
+     * retry into the same values could not rescue it, and why every frame captured by hand read
+     * cleanly: the fault turns on the particular glyphs on the panel, not on timing or screen
+     * state. With the icons and the Output column in the page, some combinations of figures
+     * tip the segmentation over; given only the column of numbers, it reads them as the column
+     * of numbers they are.</p>
+     *
+     * <p>It is the other side of the lesson that moved these reads off per-value crop boxes in
+     * the first place. A box too tight starved the reader of context and dropped decimal
+     * points; the whole panel gives it so much that it misjudges the layout. A column is wide
+     * enough for every decimal and narrow enough that there is nothing else to mistake. Checked
+     * against every Overview frame on disk -- both captured failures, three from the World map,
+     * two from the City view and the 9/02 fixture -- it reads all eight exactly, where the whole
+     * panel read six. The top edge sits below the column header and the right edge short of the
+     * + buttons, so neither turns up as a stray word.</p>
      */
-    private static final PointData OVERVIEW_PANEL_TL = new PointData(60, 420);
-    private static final PointData OVERVIEW_PANEL_BR = new PointData(700, 900);
+    private static final PointData OVERVIEW_OWNED_TL = new PointData(430, 470);
+    private static final PointData OVERVIEW_OWNED_BR = new PointData(600, 905);
+
+    /**
+     * The whole Summary popup, read in one pass rather than as a set of per-value boxes -- see
+     * {@link PanelRowIndex} for why that turned out to matter more than any amount of crop
+     * calibration.
+     */
     private static final PointData SUMMARY_PANEL_TL = new PointData(60, 380);
     private static final PointData SUMMARY_PANEL_BR = new PointData(700, 980);
 
@@ -405,7 +434,7 @@ public class ResourceStockpileRoutine extends DelayedTask {
         // the frame saved for diagnosis is the very one that was read -- not a second screenshot
         // taken a moment later that might show something else.
         RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
-        PanelRowIndex panel = readPanelRows(frame, OVERVIEW_PANEL_TL, OVERVIEW_PANEL_BR);
+        PanelRowIndex panel = readPanelRows(frame, OVERVIEW_OWNED_TL, OVERVIEW_OWNED_BR);
 
         tapNear(CLOSE_OVERVIEW_X);
         sleepTask(300);

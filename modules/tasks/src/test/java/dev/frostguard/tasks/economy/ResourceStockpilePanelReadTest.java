@@ -44,8 +44,8 @@ class ResourceStockpilePanelReadTest {
 
     private static final PointData SUMMARY_TL = new PointData(60, 380);
     private static final PointData SUMMARY_BR = new PointData(700, 980);
-    private static final PointData OVERVIEW_TL = new PointData(60, 420);
-    private static final PointData OVERVIEW_BR = new PointData(700, 900);
+    private static final PointData OVERVIEW_TL = new PointData(430, 470);
+    private static final PointData OVERVIEW_BR = new PointData(600, 905);
     private static final int OWNED_COLUMN_X = 440;
     private static final int TOTAL_RESOURCES_COLUMN_X = 460;
     private static final int SPEEDUP_VALUE_COLUMN_X = 400;
@@ -124,6 +124,17 @@ class ResourceStockpilePanelReadTest {
                 .orElse(null);
     }
 
+    /** The owned figures, top to bottom, exactly as the routine picks them out. */
+    private static List<Long> ownedValues(String fixture, PointData tl, PointData br) throws Exception {
+        List<Long> owned = new ArrayList<>();
+        for (PanelRowIndex.Row row : read(fixture, tl, br).rows()) {
+            Optional<TextLine> top = row.topmostFrom(OWNED_COLUMN_X,
+                    t -> ResourceStockpileRoutine.parseScaled(t) != null);
+            top.ifPresent(t -> owned.add(ResourceStockpileRoutine.parseScaled(t.text().trim())));
+        }
+        return owned;
+    }
+
     /**
      * The Overview's rows carry no label, so they are taken in order -- which is only safe when
      * all four resolve. The shielded amount printed under each owned figure must not be mistaken
@@ -131,18 +142,29 @@ class ResourceStockpilePanelReadTest {
      */
     @Test
     void overviewYieldsFourOwnedStockpilesInOrder() throws Exception {
-        PanelRowIndex panel = read("overview-owned.png", OVERVIEW_TL, OVERVIEW_BR);
-
-        List<Long> owned = new ArrayList<>();
-        for (PanelRowIndex.Row row : panel.rows()) {
-            Optional<TextLine> top = row.topmostFrom(OWNED_COLUMN_X);
-            if (top.isEmpty()) continue;
-            Long parsed = ResourceStockpileRoutine.parseScaled(top.get().text().trim());
-            if (parsed != null) owned.add(parsed);
-        }
-
-        assertEquals(List.of(78_700_000L, 61_400_000L, 12_500_000L, 3_900_000L), owned,
+        assertEquals(List.of(78_700_000L, 61_400_000L, 12_500_000L, 3_900_000L),
+                ownedValues("overview-owned.png", OVERVIEW_TL, OVERVIEW_BR),
                 "meat, wood, coal, iron -- not the shielded amounts beneath them");
+    }
+
+    /**
+     * A frame the bot saved when it failed, 2026-09-10 19:57, on both attempts. Every figure on it
+     * is sharp; the whole-panel pass still returned only iron, because Tesseract merged meat's
+     * two values and its shield icon into one word ("orem") and dropped wood's and coal's
+     * entirely. Deterministic -- the same frame fails the same way every time -- which is why the
+     * retry could not rescue it and why frames captured by hand never showed it.
+     */
+    @Test
+    void theOwnedColumnReadsAFrameTheWholePanelPassCouldNot() throws Exception {
+        String fixture = "overview-owned-world-layout-fail.png";
+
+        assertEquals(List.of(325_400_000L, 353_900_000L, 64_700_000L, 17_900_000L),
+                ownedValues(fixture, OVERVIEW_TL, OVERVIEW_BR),
+                "meat, wood, coal, iron from the Owned column alone");
+
+        assertTrue(ownedValues(fixture, new PointData(60, 420), new PointData(700, 900)).size() < 4,
+                "the whole-panel region this replaced reads this frame short -- if that ever stops"
+                        + " being true, this fixture no longer pins the fault it was saved for");
     }
 
     /** A label matching more than one row is declined rather than guessed. */
