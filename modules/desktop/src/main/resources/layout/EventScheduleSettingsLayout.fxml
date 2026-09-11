@@ -3,7 +3,7 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 
-<!-- Upcoming Events calendar settings -- just the viewer's local timezone for now.
+<!-- Upcoming Events calendar settings — just the viewer's local timezone for now.
      Scanning itself is a per-profile toggle on the Deals -> Random Events card, since only a
      profile's own emulator can observe the game. -->
 <StackPane maxHeight="Infinity" maxWidth="Infinity"
