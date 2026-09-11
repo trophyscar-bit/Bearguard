@@ -646,8 +646,32 @@ public class ResourceStockpileRoutine extends DelayedTask {
      *  cache -- and by extension GatherRoutine's Smart Gathering priority and the Statistics tab --
      *  with a number that can't be real. */
     private static final double MAX_TRUSTABLE_STREAK_RATIO = 10.0;
-    private final Map<String, Long> rejectStreakAnchor = new java.util.HashMap<>();
-    private final Map<String, Integer> rejectStreakCount = new java.util.HashMap<>();
+    /**
+     * The streak toward trusting a consistent new reading, keyed "&lt;profileId&gt;:&lt;field&gt;" and
+     * held for the life of the process rather than the life of this task object.
+     *
+     * <p>These were instance fields, which assumed the queue runs the same object every cycle. It
+     * usually does, and six streaks in the log completed. It does not across a queue stop:
+     * stopping clears the backlog outright (TaskQueue.completeStop), so every task that runs
+     * after the next start is a new object. On 9/10 the queue was stopped at 22:22 and started
+     * again at 23:11 -- Bearguard itself never restarted -- and the stockpile scan that followed
+     * began with empty maps.
+     * Training had read 1603 and then 2310, construction 1426 and then 1741 -- consistent pairs,
+     * inside the band, exactly what the streak exists to accept -- and both came back "streak
+     * 1/2" and were rejected again. A streak that stopping the queue can erase is a guard that can be
+     * made to hold a stale figure indefinitely, which is the fault it was written to prevent.</p>
+     *
+     * <p>Static and keyed by profile, the same as bg_telemetry's confirmation map, which has
+     * survived exactly this. It still resets when Bearguard itself restarts; that costs one extra
+     * cycle, not a lasting fault.</p>
+     */
+    private static final Map<String, Long> REJECT_STREAK_ANCHOR = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, Integer> REJECT_STREAK_COUNT = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** This profile's key for {@code field} in the streak maps. */
+    private String streakKey(String field) {
+        return profile.getId() + ":" + field;
+    }
 
     /**
      * What "implausible" means for one family of fields. Stockpiles and speedups are both OCR'd
@@ -713,8 +737,8 @@ public class ResourceStockpileRoutine extends DelayedTask {
         return sanityCheckAgainstCached(field, candidate, cacheKey, STOCKPILE_GUARD);
     }
 
-    private Long sanityCheckAgainstCached(String field, Long candidate, ConfigurationKeyEnum cacheKey,
-                                          GuardPolicy policy) {
+    Long sanityCheckAgainstCached(String field, Long candidate, ConfigurationKeyEnum cacheKey,
+                                  GuardPolicy policy) {
         if (candidate == null) {
             return null;
         }
@@ -725,13 +749,13 @@ public class ResourceStockpileRoutine extends DelayedTask {
             cached = null;
         }
         if (cached == null || cached <= 0L) {
-            rejectStreakCount.remove(field);
-            rejectStreakAnchor.remove(field);
+            REJECT_STREAK_COUNT.remove(streakKey(field));
+            REJECT_STREAK_ANCHOR.remove(streakKey(field));
             return candidate;
         }
         if (inBand(candidate, cached, policy.absoluteTolerance())) {
-            rejectStreakCount.remove(field);
-            rejectStreakAnchor.remove(field);
+            REJECT_STREAK_COUNT.remove(streakKey(field));
+            REJECT_STREAK_ANCHOR.remove(streakKey(field));
             return candidate;
         }
         long corrected = candidate / 10L;
@@ -739,16 +763,16 @@ public class ResourceStockpileRoutine extends DelayedTask {
             logWarning("ResourceStockpileRoutine | " + field + " reading " + candidate + " is implausibly "
                     + "far from the last cached " + cached + ", but /10 (" + corrected + ") fits -- this is "
                     + "the known dropped-decimal-point misread, using the corrected value.");
-            rejectStreakCount.remove(field);
-            rejectStreakAnchor.remove(field);
+            REJECT_STREAK_COUNT.remove(streakKey(field));
+            REJECT_STREAK_ANCHOR.remove(streakKey(field));
             return corrected;
         }
 
-        Long anchor = rejectStreakAnchor.get(field);
+        Long anchor = REJECT_STREAK_ANCHOR.get(streakKey(field));
         int streak = (anchor != null && inBand(candidate, anchor, policy.absoluteTolerance()))
-                ? rejectStreakCount.getOrDefault(field, 0) + 1 : 1;
-        rejectStreakAnchor.put(field, candidate);
-        rejectStreakCount.put(field, streak);
+                ? REJECT_STREAK_COUNT.getOrDefault(streakKey(field), 0) + 1 : 1;
+        REJECT_STREAK_ANCHOR.put(streakKey(field), candidate);
+        REJECT_STREAK_COUNT.put(streakKey(field), streak);
 
         double cacheRatio = (double) candidate / cached;
         boolean withinTrustableCeiling = cacheRatio <= policy.maxTrustableRatio()
@@ -758,8 +782,8 @@ public class ResourceStockpileRoutine extends DelayedTask {
             logWarning("ResourceStockpileRoutine | " + field + " has now read consistently near "
                     + candidate + " for " + streak + " consecutive cycles while cached stays at "
                     + cached + " -- trusting the consistent new readings over the stale cache.");
-            rejectStreakCount.remove(field);
-            rejectStreakAnchor.remove(field);
+            REJECT_STREAK_COUNT.remove(streakKey(field));
+            REJECT_STREAK_ANCHOR.remove(streakKey(field));
             return candidate;
         }
         if (streak >= policy.streakToTrust()) {
