@@ -302,7 +302,15 @@ public enum ConfigurationKeyEnum {
     // persists that "give up on beast-hunting for a while" state across runs (Survivor
     // Camps/Explorations are unaffected -- only beast/fire-beast attempts are skipped while it's
     // in the future).
+    // Revived 2026-09-11 for Fire Beasts: IntelligenceRoutine writes the next Intel refresh here when
+    // it gives up on Fire Beasts (three warned tries spent, or "almost certain to fail"), and every
+    // run -- including one after an app restart -- leaves them alone until then.
     INTEL_BEAST_SKIP_UNTIL_LONG                 ("0",       Long.class,     ConfigCategory.INTEL),
+    // Warned Fire Beast tries spent, and the Intel cycle (next refresh, epoch millis) they were spent
+    // in. Stored so a new run or a restart resumes the count instead of handing the same beast three
+    // fresh tries; a count from an older cycle is ignored.
+    INTEL_FIRE_BEAST_TRIES_INT                  ("0",       Integer.class,  ConfigCategory.INTEL),
+    INTEL_FIRE_BEAST_TRIES_CYCLE_LONG           ("0",       Long.class,     ConfigCategory.INTEL),
 
     /* ─────────── experts ─────────── */
 
