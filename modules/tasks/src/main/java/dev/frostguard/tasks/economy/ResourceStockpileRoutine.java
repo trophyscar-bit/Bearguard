@@ -445,12 +445,8 @@ public class ResourceStockpileRoutine extends DelayedTask {
         // sits beneath it -- and the panel is only accepted when all four resolve. A partial read
         // would shift the assignment and file wood's stockpile under coal, which is worse than
         // skipping an hourly cycle and keeping the values already cached.
-        List<Long> values = new java.util.ArrayList<>();
-        for (PanelRowIndex.Row row : panel.rows()) {
-            Optional<TextLine> owned = row.topmostFrom(OWNED_COLUMN_X, t -> parseScaled(t) != null);
-            if (owned.isEmpty()) continue;
-            values.add(parseScaled(owned.get().text().trim()));
-        }
+        List<Long> values = ownedValues(panel,
+                frame == null ? null : dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame));
 
         if (values.size() != OVERVIEW_ROW_ORDER.size()) {
             // At WARN, with the rows it saw and the frame it saw them in. Of the last 76 short reads,
@@ -475,6 +471,99 @@ public class ResourceStockpileRoutine extends DelayedTask {
     /** A settle time, lengthened on a retry. See {@link #RETRY_EXTRA_SETTLE_MS}. */
     private static long settleFor(long baseMs, int attempt) {
         return baseMs + (attempt - 1) * RETRY_EXTRA_SETTLE_MS;
+    }
+
+    /**
+     * Green minus red at or above which a word on the Overview is the shielded amount rather than
+     * the owned figure.
+     *
+     * <p>Owned figures are dark navy, (72, 101, 146) measured; the shielded amount printed under
+     * each is a bright teal, (58, 153, 196), and so is its shield icon. Green minus red is about 29
+     * for the one and about 96 for the other, identical to within two units across frames from
+     * different days and screens. Sixty sits in the middle with some thirty to spare either way.</p>
+     */
+    static final int SHIELD_GREEN_MINUS_RED = 60;
+
+    /**
+     * The owned figure in each Overview row, top to bottom -- and never the shielded amount under it.
+     *
+     * <p>This used to take the topmost word in each row that parsed as a number. That skipped the
+     * green + button, which the whole-panel read needed, but once the read narrowed to the Owned
+     * column there was no button left to skip and the fallback turned into a hazard: if the owned
+     * figure did not come through, the next parseable word down was the shielded amount, and it was
+     * taken in its place. On 9/10 at 23:40 that is what the log shows -- meat read 210.8M and coal
+     * 40.0M, against owned figures of 301.2M and 59.9M and shields of about 207M and 40M. The
+     * plausibility guard refused both, but only because the cache happened to be high after a spend;
+     * a shield runs at 43-70% of its owned figure, and the band accepts anything above 67%. On an
+     * ordinary cycle meat's shield would have been cached as its stockpile.</p>
+     *
+     * <p>So a row's owned figure is its topmost <em>navy</em> word, told apart by colour, which is the
+     * one thing the two figures never share. Teal words are not candidates at all. A row with no navy
+     * word, or whose navy word does not parse, resolves nothing -- the panel then comes back short,
+     * the cycle keeps its cached values and the frame is saved -- rather than borrowing the figure
+     * beneath it.</p>
+     */
+    static List<Long> ownedValues(PanelRowIndex panel, java.awt.image.BufferedImage image) {
+        List<Long> values = new java.util.ArrayList<>();
+        if (image == null) {
+            return values;
+        }
+        for (PanelRowIndex.Row row : panel.rows()) {
+            Optional<TextLine> owned = row.wordsFrom(OWNED_COLUMN_X).stream()
+                    .filter(w -> !isShieldColoured(image, w))
+                    .min(java.util.Comparator.comparingInt(TextLine::top));
+            if (owned.isEmpty()) {
+                continue;
+            }
+            Long parsed = parseScaled(owned.get().text().trim());
+            if (parsed != null) {
+                values.add(parsed);
+            }
+        }
+        return values;
+    }
+
+    /**
+     * Whether a word's ink is the shield teal rather than the owned navy.
+     *
+     * <p>Judged on the darkest quarter of the pixels in its box, which is the core of the glyphs:
+     * the rest is panel background or anti-aliased edge, and would pull every word toward the same
+     * pale blue. A box that straddles both colours -- the reader occasionally fuses an owned figure
+     * with the shield below it -- is dominated by the darker navy, is treated as owned, and then
+     * fails to parse, which is the safe outcome.</p>
+     */
+    static boolean isShieldColoured(java.awt.image.BufferedImage image, TextLine word) {
+        int x0 = Math.max(0, word.left()), y0 = Math.max(0, word.top());
+        int x1 = Math.min(image.getWidth(), word.left() + word.width());
+        int y1 = Math.min(image.getHeight(), word.top() + word.height());
+        if (x1 <= x0 || y1 <= y0) {
+            return false;
+        }
+        int n = (x1 - x0) * (y1 - y0);
+        int[] rgb = new int[n];
+        int[] lum = new int[n];
+        int k = 0;
+        for (int y = y0; y < y1; y++) {
+            for (int x = x0; x < x1; x++) {
+                int p = image.getRGB(x, y);
+                rgb[k] = p;
+                lum[k] = (299 * ((p >> 16) & 0xFF) + 587 * ((p >> 8) & 0xFF) + 114 * (p & 0xFF)) / 1000;
+                k++;
+            }
+        }
+        int[] sorted = lum.clone();
+        java.util.Arrays.sort(sorted);
+        int cutoff = sorted[Math.max(0, n / 4 - 1)];
+        long r = 0, g = 0;
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            if (lum[i] <= cutoff) {
+                r += (rgb[i] >> 16) & 0xFF;
+                g += (rgb[i] >> 8) & 0xFF;
+                count++;
+            }
+        }
+        return count > 0 && (g - r) / count >= SHIELD_GREEN_MINUS_RED;
     }
 
     /**
