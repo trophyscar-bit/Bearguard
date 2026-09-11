@@ -515,6 +515,11 @@ public enum ConfigurationKeyEnum {
     EVENT_LUCKY_CHIP_SUPPLY_CLAIM_BOOL   ("false",   Boolean.class,  ConfigCategory.EVENTS),
     EVENT_BROTHERS_IN_ARMS_CLAIM_BOOL    ("false",   Boolean.class,  ConfigCategory.EVENTS),
 
+    // Detection-only sweep of the same Events-tab rotation (+ Bear Trap's
+    // deterministic window), feeding the sidebar's "Upcoming Events" calendar. On by
+    // default -- it never taps anything, only records what tab is currently showing.
+    EVENT_SCHEDULE_SCAN_BOOL             ("true",    Boolean.class,  ConfigCategory.EVENTS),
+
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
     // weeks) -- checked once a day, no-ops when nothing's there.
@@ -600,7 +605,14 @@ public enum ConfigurationKeyEnum {
     // Which clock chat times are drawn against. Empty means this machine's own zone. Messages are
     // stored as instants -- an alliance spans a dozen countries and the moment is not negotiable --
     // so this changes only what is displayed, never what was recorded.
-    CHAT_DISPLAY_TIMEZONE_STRING        ("",                String.class,   ConfigCategory.SYSTEM);
+    CHAT_DISPLAY_TIMEZONE_STRING        ("",                String.class,   ConfigCategory.SYSTEM),
+
+    // Which clock the "Upcoming Events" calendar draws its start/end times against.
+    // Empty means this machine's own zone, same convention as CHAT_DISPLAY_TIMEZONE_STRING
+    // above -- kept separate rather than shared since the two panels are configured
+    // independently and there is no reason a chat viewer's zone must match a calendar
+    // viewer's zone on a shared account.
+    EVENTS_LOCAL_TIMEZONE_STRING        ("",                String.class,   ConfigCategory.SYSTEM);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.

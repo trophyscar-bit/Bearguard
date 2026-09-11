@@ -180,7 +180,12 @@ public enum TpDailyTaskEnum {
     // Gear stats), the stage-ladder raid system distinct from the classic Land of Heroes/Cave of
     // Monsters/Charm Mine zones (LABYRINTH, id 11, above). Raid-claim only -- Challenge (real
     // battle, limited daily attempts) deliberately not automated yet.
-    LABYRINTH_RAID (916, "Labyrinth Raid Claims", ConfigurationKeyEnum.LABYRINTH_RAID_ENABLED_BOOL, RoutineCategory.RESOURCE);
+    LABYRINTH_RAID (916, "Labyrinth Raid Claims", ConfigurationKeyEnum.LABYRINTH_RAID_ENABLED_BOOL, RoutineCategory.RESOURCE),
+
+    // Detection-only sweep of the Events-tab rotation (Hall of Chiefs, Brothers in Arms,
+    // Defeat Nearby Beasts, ...) plus the deterministic Bear Trap window, feeding the
+    // "Upcoming Events" calendar. Never taps Claim -- that stays EventClaimRoutine's job.
+    EVENT_SCHEDULE_SCAN (917, "Event Schedule Scan", ConfigurationKeyEnum.EVENT_SCHEDULE_SCAN_BOOL, RoutineCategory.MILITARY);
 
     /* ================================================================
      *  Category taxonomy used to group routines in the management UI.

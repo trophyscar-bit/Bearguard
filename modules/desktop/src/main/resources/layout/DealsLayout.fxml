@@ -57,6 +57,21 @@
                 </VBox>
             </VBox>
 
+            <!-- Upcoming Events calendar -->
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="Upcoming Events Calendar" />
+                </HBox>
+                <VBox spacing="10" styleClass="task-section-inner">
+                    <Label styleClass="task-card-description"
+                           text="Detection-only sweep of the same Events-tab rotation above (plus Bear Trap's own configured window), feeding the sidebar's Upcoming Events calendar. Never taps Claim -- checked every 3 hours. Set the calendar's displayed timezone under Config -&gt; Calendar."
+                           wrapText="true" />
+                    <Separator style="-fx-opacity: 0.25;" />
+                    <CheckBox fx:id="checkBoxEventScheduleScan" mnemonicParsing="false"
+                              text="Event Schedule Scan" />
+                </VBox>
+            </VBox>
+
         </VBox>
     </ScrollPane>
 </StackPane>

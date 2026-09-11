@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<!-- Upcoming Events calendar settings -- just the viewer's local timezone for now.
+     Scanning itself is a per-profile toggle on the Deals -> Random Events card, since only a
+     profile's own emulator can observe the game. -->
+<StackPane maxHeight="Infinity" maxWidth="Infinity"
+           HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
+           xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
+
+    <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED"
+                styleClass="task-page-scroll">
+        <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="Upcoming Events Calendar" />
+                </HBox>
+                <VBox spacing="10" styleClass="task-section-inner">
+                    <Label styleClass="task-card-description"
+                           text="Controls what timezone the sidebar's Upcoming Events calendar displays its times in. Enable scanning itself from Deals -&gt; Random Events -&gt; Event Schedule Scan."
+                           wrapText="true" />
+                    <Separator style="-fx-opacity: 0.25;" />
+                    <HBox spacing="10" alignment="CENTER_LEFT">
+                        <Label styleClass="task-field-label" text="Local timezone:" />
+                        <ComboBox fx:id="comboBoxEventsTimezone" prefWidth="260.0" />
+                    </HBox>
+                    <Button fx:id="buttonSave" text="Save" onAction="#handleSave" />
+                </VBox>
+            </VBox>
+
+        </VBox>
+    </ScrollPane>
+</StackPane>
