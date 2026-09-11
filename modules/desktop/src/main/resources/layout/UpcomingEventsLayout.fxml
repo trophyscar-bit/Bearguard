@@ -23,7 +23,7 @@
                            text="Hall of Chiefs, Brothers in Arms, Defeat Nearby Beasts, Bear Trap, occupied alliance Fortresses/Strongholds, and any state-wide event, from the last automated scan of each. Times shown in the timezone set under Config -&gt; Calendar." />
                     <Separator style="-fx-opacity: 0.25;" />
                     <VBox fx:id="cardsContainer" spacing="10" />
-                    <Label fx:id="labelEmpty" text="No data yet -- enable the scans under Deals -&gt; Random Events."
+                    <Label fx:id="labelEmpty" text="No data yet -- runs from the bg_telemetry custom task."
                            wrapText="true" visible="false" managed="false" styleClass="task-card-description" />
                 </VBox>
             </VBox>
