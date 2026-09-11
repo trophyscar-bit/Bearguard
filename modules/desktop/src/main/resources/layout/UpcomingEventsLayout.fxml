@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<!-- Upcoming Events calendar: its own pinned nav page (like Chat/Config), not a cramped
+     sidebar-footer widget. Timezone lives under Config -> Calendar; scan toggles live under
+     Deals -> Random Events. -->
+<StackPane maxHeight="Infinity" maxWidth="Infinity"
+           HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
+           xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
+
+    <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED"
+                styleClass="task-page-scroll">
+        <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="Upcoming Events" />
+                </HBox>
+                <VBox spacing="10" styleClass="task-section-inner">
+                    <Label styleClass="task-card-description" wrapText="true"
+                           text="Hall of Chiefs, Brothers in Arms, Defeat Nearby Beasts, Bear Trap, occupied alliance Fortresses/Strongholds, and any state-wide event, from the last automated scan of each. Times shown in the timezone set under Config -&gt; Calendar." />
+                    <Separator style="-fx-opacity: 0.25;" />
+                    <VBox fx:id="cardsContainer" spacing="10" />
+                    <Label fx:id="labelEmpty" text="No data yet -- enable the scans under Deals -&gt; Random Events."
+                           wrapText="true" visible="false" managed="false" styleClass="task-card-description" />
+                </VBox>
+            </VBox>
+
+        </VBox>
+    </ScrollPane>
+</StackPane>

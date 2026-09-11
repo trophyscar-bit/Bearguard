@@ -77,6 +77,7 @@ public class NavigationHelper {
         else if (menu == AllianceMenu.SHOP) tpl = TemplatesEnum.ALLIANCE_SHOP_BUTTON;
         else if (menu == AllianceMenu.TECH) tpl = TemplatesEnum.ALLIANCE_TECH_BUTTON;
         else if (menu == AllianceMenu.HELP) tpl = TemplatesEnum.ALLIANCE_HELP_BUTTON;
+        else if (menu == AllianceMenu.BATTLE) tpl = TemplatesEnum.ALLIANCE_BATTLE_BUTTON;
         else tpl = TemplatesEnum.ALLIANCE_TRIUMPH_BUTTON;
 
         ImageSearchResultData hit = searcher.locatePattern(tpl,
@@ -354,6 +355,6 @@ public class NavigationHelper {
     }
 
     private enum ScreenState { HOME, WORLD, RECONNECT, UNKNOWN }
-    public enum AllianceMenu { WAR, CHESTS, TERRITORY, SHOP, TECH, HELP, TRIUMPH }
+    public enum AllianceMenu { WAR, CHESTS, TERRITORY, SHOP, TECH, HELP, TRIUMPH, BATTLE }
     public enum EventMenu { HERO_MISSION, MERCENARY, ALLIANCE_CHAMPIONSHIP, ALLIANCE_MOBILIZATION, TUNDRA_TRUCK }
 }

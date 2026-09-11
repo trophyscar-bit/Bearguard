@@ -69,6 +69,10 @@
                     <Separator style="-fx-opacity: 0.25;" />
                     <CheckBox fx:id="checkBoxEventScheduleScan" mnemonicParsing="false"
                               text="Event Schedule Scan" />
+                    <CheckBox fx:id="checkBoxEventFortressScan" mnemonicParsing="false"
+                              text="Alliance Fortress Scan (hourly)" />
+                    <CheckBox fx:id="checkBoxEventStateCalendarScan" mnemonicParsing="false"
+                              text="State Event Calendar Scan (daily, 8:05 PM EST)" />
                 </VBox>
             </VBox>
 

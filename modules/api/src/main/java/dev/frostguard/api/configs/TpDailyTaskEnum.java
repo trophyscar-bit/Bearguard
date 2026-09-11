@@ -185,7 +185,15 @@ public enum TpDailyTaskEnum {
     // Detection-only sweep of the Events-tab rotation (Hall of Chiefs, Brothers in Arms,
     // Defeat Nearby Beasts, ...) plus the deterministic Bear Trap window, feeding the
     // "Upcoming Events" calendar. Never taps Claim -- that stays EventClaimRoutine's job.
-    EVENT_SCHEDULE_SCAN (917, "Event Schedule Scan", ConfigurationKeyEnum.EVENT_SCHEDULE_SCAN_BOOL, RoutineCategory.MILITARY);
+    EVENT_SCHEDULE_SCAN (917, "Event Schedule Scan", ConfigurationKeyEnum.EVENT_SCHEDULE_SCAN_BOOL, RoutineCategory.MILITARY),
+
+    // Alliance -> Battle -> Fortress read: occupied Fortress/Stronghold facilities and their
+    // reward-expiry countdown. Hourly, feeds the same calendar. Read-only.
+    EVENT_FORTRESS_SCAN (918, "Alliance Fortress Scan", ConfigurationKeyEnum.EVENT_FORTRESS_SCAN_BOOL, RoutineCategory.MILITARY),
+
+    // Events -> Calendar read: the state-wide event week grid. Once a day, feeds the same
+    // calendar. Read-only.
+    EVENT_STATE_CALENDAR_SCAN (919, "State Event Calendar Scan", ConfigurationKeyEnum.EVENT_STATE_CALENDAR_SCAN_BOOL, RoutineCategory.MILITARY);
 
     /* ================================================================
      *  Category taxonomy used to group routines in the management UI.
