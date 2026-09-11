@@ -4,8 +4,7 @@
 <?import javafx.scene.layout.*?>
 
 <!-- Upcoming Events calendar settings — just the viewer's local timezone for now.
-     Scanning itself is a per-profile toggle on the Deals -> Random Events card, since only a
-     profile's own emulator can observe the game. -->
+     Scanning itself rides on the bg_telemetry custom task's own schedule, not a toggle here. -->
 <StackPane maxHeight="Infinity" maxWidth="Infinity"
            HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
            xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
@@ -20,7 +19,7 @@
                 </HBox>
                 <VBox spacing="10" styleClass="task-section-inner">
                     <Label styleClass="task-card-description"
-                           text="Controls what timezone the sidebar's Upcoming Events calendar displays its times in. Enable scanning itself from Deals -&gt; Random Events -&gt; Event Schedule Scan."
+                           text="Controls what timezone the sidebar's Upcoming Events calendar displays its times in. The scans themselves run inside the bg_telemetry custom task."
                            wrapText="true" />
                     <Separator style="-fx-opacity: 0.25;" />
                     <HBox spacing="10" alignment="CENTER_LEFT">

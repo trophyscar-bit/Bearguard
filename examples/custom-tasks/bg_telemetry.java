@@ -8,27 +8,41 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
+import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
 import dev.frostguard.api.domain.JobMetrics;
 import dev.frostguard.api.domain.ProfilesData;
 import dev.frostguard.api.runtime.WorkspacePaths;
+import dev.frostguard.engine.helper.BearTrapHelper;
+import dev.frostguard.engine.helper.NavigationHelper;
+import dev.frostguard.engine.helper.TimeWindowHelper;
+import dev.frostguard.engine.nav.SearchConfigConstants;
+import dev.frostguard.engine.schedule.BearTrapParticipationSchedule;
 import dev.frostguard.engine.schedule.CustomTaskConfigurable;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.CustomTaskService;
+import dev.frostguard.engine.service.EventScheduleService;
 import dev.frostguard.engine.service.StatisticsService;
 
 /**
@@ -240,7 +254,317 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 + " meat=" + meat + " wood=" + wood + " coal=" + coal + " iron=" + iron
                 + " steel=" + steel + " sp(gen/tr/con/res/heal)=" + spGeneral + "/" + spTraining
                 + "/" + spConstruction + "/" + spResearch + "/" + spHealing);
+
+        // matt/2026-09-11: folded in here rather than as separate built-in tasks, so the sidebar's
+        // "Upcoming Events" calendar rides this task's own schedule instead of needing its own.
+        scanUpcomingEventsCalendar();
+
         scheduleNext();
+    }
+
+    // ── Upcoming Events calendar scans ──────────────────────────────────────────────
+    //
+    // Read-only: never taps Claim, Enable, Occupation Income, or anything else on these screens.
+    // Hall of Chiefs / Brothers in Arms / Defeat Nearby Beasts and the Fortress read run every
+    // pass (hourly); the state Calendar read is gated to once a day near 8:05 PM EST (see
+    // maybeScanStateCalendar) since it has nothing new to say more often than that.
+
+    private static final TemplatesEnum[] ROTATING_EVENT_TABS = {
+            TemplatesEnum.EVENTS_TAB_HALL_OF_CHIEFS,
+            TemplatesEnum.EVENTS_TAB_BROTHERS_IN_ARMS,
+            TemplatesEnum.EVENTS_TAB_DEFEAT_BEASTS,
+    };
+    private static final String[] ROTATING_EVENT_LABELS = {
+            "Hall of Chiefs", "Brothers in Arms", "Defeat Nearby Beasts",
+    };
+
+    private static final PointData FORTRESS_PANEL_TOP_LEFT = new PointData(10, 580);
+    private static final PointData FORTRESS_PANEL_BOTTOM_RIGHT = new PointData(710, 1270);
+    private static final PointData FORTRESS_SCROLL_FROM = new PointData(360, 1100);
+    private static final PointData FORTRESS_SCROLL_TO = new PointData(360, 650);
+    private static final Pattern FACILITY_NAME = Pattern.compile(
+            "(Fortress No\\.?\\s*\\d+|Stronghold No\\.?\\s*\\d+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CONTROLLED_BY = Pattern.compile(
+            "Controlled by\\s*([^\\n]{1,40})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern REWARD_EXPIRES = Pattern.compile(
+            "Reward expires in\\s*(?:(\\d+)\\s*d\\s*)?(\\d{1,2}):(\\d{2}):(\\d{2})", Pattern.CASE_INSENSITIVE);
+
+    private static final PointData CALENDAR_PANEL_TOP_LEFT = new PointData(10, 230);
+    private static final PointData CALENDAR_PANEL_BOTTOM_RIGHT = new PointData(710, 1200);
+    private static final PointData CALENDAR_TAB_STRIP_SWIPE_FROM = new PointData(150, 141);
+    private static final PointData CALENDAR_TAB_STRIP_SWIPE_TO = new PointData(600, 141);
+    private static final ZoneId EST = ZoneId.of("America/New_York");
+    private static final LocalTime CALENDAR_SCAN_TIME = LocalTime.of(20, 5);
+    private static final Pattern DAY_LABEL = Pattern.compile("(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\s*(\\d{2}/\\d{2})");
+    private static final Pattern TIME_RANGE = Pattern.compile("(\\d{1,2}:\\d{2})\\s*[-–]\\s*(\\d{1,2}:\\d{2})");
+
+    private static final int PANEL_SETTLE_MS = 1200;
+    private static final int DEFAULT_TRAP_NUMBER = 1;
+    private static final int DEFAULT_TRAP_PREPARATION_MINUTES = 10;
+
+    private void scanUpcomingEventsCalendar() {
+        scanRotatingEvents();
+        scanBearTrapWindow();
+        scanAllianceFortress();
+        maybeScanStateCalendar();
+    }
+
+    /** Presence/absence of each rotating Events-tab entry -- no on-screen countdown exists to
+     *  read there, so this is a transition timestamp accurate to this task's own interval. */
+    private void scanRotatingEvents() {
+        ImageSearchResultData eventsBtn = templateSearchHelper.locatePattern(
+                TemplatesEnum.HOME_EVENTS_BUTTON, SearchConfigConstants.SINGLE_WITH_RETRIES);
+        if (!eventsBtn.isFound()) {
+            logInfo("bg_telemetry | Events icon not found; skipping the rotating-event scan this pass.");
+            return;
+        }
+        tapNear(eventsBtn.getPoint());
+        sleepTask(PANEL_SETTLE_MS);
+
+        for (int i = 0; i < ROTATING_EVENT_TABS.length; i++) {
+            ImageSearchResultData tab = templateSearchHelper.locatePattern(
+                    ROTATING_EVENT_TABS[i], SearchConfigConstants.QUICK_SEARCH);
+            EventScheduleService.obtain().recordObservation(
+                    ROTATING_EVENT_TABS[i].name(), ROTATING_EVENT_LABELS[i], tab.isFound());
+        }
+
+        pressBack();
+        sleepTask(600);
+    }
+
+    /** Bear Trap's window is already fully deterministic from its configured anchor -- no
+     *  navigation needed, just the same math BearTrapRoutine itself uses. */
+    private void scanBearTrapWindow() {
+        try {
+            Integer trapNumber = profile.getConfig(ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT, Integer.class);
+            int resolvedTrapNumber = trapNumber == null ? DEFAULT_TRAP_NUMBER : trapNumber;
+            LocalDateTime referenceTrapTime = profile.getConfig(
+                    BearTrapParticipationSchedule.scheduleKey(resolvedTrapNumber), LocalDateTime.class);
+            if (referenceTrapTime == null) {
+                logInfo("bg_telemetry | Bear Trap reference time not configured; skipping its calendar entry.");
+                return;
+            }
+            Integer prepMinutes = profile.getConfig(ConfigurationKeyEnum.BEAR_TRAP_PREPARATION_TIME_INT, Integer.class);
+            int resolvedPrepMinutes = prepMinutes == null ? DEFAULT_TRAP_PREPARATION_MINUTES : prepMinutes;
+
+            Instant referenceUtc = referenceTrapTime.atZone(ZoneOffset.UTC).toInstant();
+            TimeWindowHelper.WindowResult window = BearTrapHelper.calculateWindow(referenceUtc, resolvedPrepMinutes);
+
+            boolean active = window.getState() == TimeWindowHelper.WindowState.INSIDE;
+            Instant windowStart = active ? window.getCurrentWindowStart() : window.getNextWindowStart();
+            Instant windowEnd = active
+                    ? window.getCurrentWindowEnd()
+                    : window.getNextWindowStart().plusSeconds(window.getCurrentWindowDurationMinutes() * 60L);
+
+            EventScheduleService.obtain().recordWindow("BEAR_TRAP", "Bear Trap", active,
+                    LocalDateTime.ofInstant(windowStart, ZoneOffset.UTC),
+                    LocalDateTime.ofInstant(windowEnd, ZoneOffset.UTC));
+        } catch (Exception ex) {
+            logWarning("bg_telemetry | Could not compute Bear Trap's window this scan: " + ex.getMessage());
+        }
+    }
+
+    /** Live-verified 2026-09-11 against Alliance -> Battle -> Fortress: repeating cards each
+     *  reading a facility name, "Controlled by [alliance]", and "Reward expires in HH:MM:SS".
+     *  OCR-reads the whole panel as one block and pairs each name with the next expiry that
+     *  follows it, since card order/count is however many facilities the alliance currently holds. */
+    private void scanAllianceFortress() {
+        if (!navigationHelper.navigateToAllianceMenu(NavigationHelper.AllianceMenu.BATTLE)) {
+            logInfo("bg_telemetry | Could not open Alliance > Battle; skipping the Fortress scan this pass.");
+            return;
+        }
+        sleepTask(PANEL_SETTLE_MS);
+
+        ImageSearchResultData fortressTab = templateSearchHelper.locatePattern(
+                TemplatesEnum.ALLIANCE_BATTLE_FORTRESS_TAB, SearchConfigConstants.SINGLE_WITH_RETRIES);
+        if (fortressTab.isFound()) {
+            tapNear(fortressTab.getPoint());
+            sleepTask(PANEL_SETTLE_MS);
+        }
+
+        recordFacilitiesFrom(readPanelBlock(FORTRESS_PANEL_TOP_LEFT, FORTRESS_PANEL_BOTTOM_RIGHT));
+        // One scroll to pick up facilities beyond the first screenful; a re-seen card just
+        // overwrites itself since recordOneFacility writes by facility-name key.
+        swipe(FORTRESS_SCROLL_FROM, FORTRESS_SCROLL_TO);
+        sleepTask(PANEL_SETTLE_MS);
+        recordFacilitiesFrom(readPanelBlock(FORTRESS_PANEL_TOP_LEFT, FORTRESS_PANEL_BOTTOM_RIGHT));
+
+        pressBack();
+        sleepTask(600);
+        pressBack();
+    }
+
+    private void recordFacilitiesFrom(String panelText) {
+        if (panelText == null || panelText.isBlank()) {
+            return;
+        }
+        Matcher nameMatcher = FACILITY_NAME.matcher(panelText);
+        int previousEnd = -1;
+        String previousName = null;
+        while (nameMatcher.find()) {
+            if (previousName != null) {
+                recordOneFacility(previousName, panelText.substring(previousEnd, nameMatcher.start()));
+            }
+            previousName = nameMatcher.group(1).replaceAll("\\s+", " ").trim();
+            previousEnd = nameMatcher.end();
+        }
+        if (previousName != null) {
+            recordOneFacility(previousName, panelText.substring(previousEnd));
+        }
+    }
+
+    private void recordOneFacility(String facilityName, String followingText) {
+        Matcher expires = REWARD_EXPIRES.matcher(followingText);
+        if (!expires.find()) {
+            return; // occupiable/unoccupied cards show no "Reward expires in" line
+        }
+
+        long days = expires.group(1) == null ? 0 : Long.parseLong(expires.group(1));
+        int hours = Integer.parseInt(expires.group(2));
+        int minutes = Integer.parseInt(expires.group(3));
+        int seconds = Integer.parseInt(expires.group(4));
+        Duration remaining = Duration.ofDays(days).plusHours(hours).plusMinutes(minutes).plusSeconds(seconds);
+
+        Matcher controller = CONTROLLED_BY.matcher(followingText);
+        String controlledBy = controller.find() ? controller.group(1).trim() : null;
+        String label = controlledBy == null ? facilityName : facilityName + " (" + controlledBy + ")";
+
+        LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
+        EventScheduleService.obtain().recordWindow(
+                "FORTRESS_" + facilityName.toUpperCase().replaceAll("[^A-Z0-9]+", "_"),
+                label, true, nowUtc, nowUtc.plus(remaining));
+    }
+
+    /** Gated to once a day: the first hourly bg_telemetry run at/after 8:05 PM EST that has not
+     *  already scanned today (tracked in BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING). This
+     *  week's grid had no event bars posted, so the format of a populated day is not yet observed
+     *  -- this looks for an HH:mm-HH:mm range near each day label as a best-effort first pass and
+     *  logs the raw panel text at DEBUG every run specifically so the real format can be confirmed
+     *  and this parser tightened the next time a state event is actually scheduled. */
+    private void maybeScanStateCalendar() {
+        ZonedDateTime nowEst = ZonedDateTime.now(EST);
+        if (nowEst.toLocalTime().isBefore(CALENDAR_SCAN_TIME)) {
+            return;
+        }
+        String todayEst = nowEst.toLocalDate().toString();
+        String lastScanned = profile.getConfig(
+                ConfigurationKeyEnum.BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING, String.class);
+        if (todayEst.equals(lastScanned)) {
+            return;
+        }
+
+        ImageSearchResultData eventsBtn = templateSearchHelper.locatePattern(
+                TemplatesEnum.HOME_EVENTS_BUTTON, SearchConfigConstants.SINGLE_WITH_RETRIES);
+        if (!eventsBtn.isFound()) {
+            logInfo("bg_telemetry | Events icon not found; will retry the state calendar scan next run.");
+            return;
+        }
+        tapNear(eventsBtn.getPoint());
+        sleepTask(PANEL_SETTLE_MS);
+
+        ImageSearchResultData calendarTab = templateSearchHelper.locatePattern(
+                TemplatesEnum.EVENTS_CALENDAR_TAB, SearchConfigConstants.SINGLE_WITH_RETRIES);
+        if (!calendarTab.isFound()) {
+            // Calendar is the leftmost tab; one swipe toward the start recovers it if a prior
+            // session left the strip scrolled away.
+            swipe(CALENDAR_TAB_STRIP_SWIPE_FROM, CALENDAR_TAB_STRIP_SWIPE_TO);
+            sleepTask(600);
+            calendarTab = templateSearchHelper.locatePattern(
+                    TemplatesEnum.EVENTS_CALENDAR_TAB, SearchConfigConstants.QUICK_SEARCH);
+        }
+        if (!calendarTab.isFound()) {
+            logWarning("bg_telemetry | Calendar tab not found even after scrolling; will retry next run.");
+            pressBack();
+            return;
+        }
+        tapNear(calendarTab.getPoint());
+        sleepTask(PANEL_SETTLE_MS);
+
+        String panelText = readPanelBlock(CALENDAR_PANEL_TOP_LEFT, CALENDAR_PANEL_BOTTOM_RIGHT);
+        logDebug("bg_telemetry | Calendar panel raw text: " + panelText);
+        recordStateEventsFrom(panelText);
+
+        pressBack();
+        sleepTask(600);
+        pressBack();
+
+        profile.setConfig(ConfigurationKeyEnum.BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING, todayEst);
+    }
+
+    private void recordStateEventsFrom(String panelText) {
+        if (panelText == null || panelText.isBlank()) {
+            return;
+        }
+        Matcher dayMatcher = DAY_LABEL.matcher(panelText);
+        int previousEnd = -1;
+        String previousDay = null;
+        while (dayMatcher.find()) {
+            if (previousDay != null) {
+                recordOneDay(previousDay, panelText.substring(previousEnd, dayMatcher.start()));
+            }
+            previousDay = dayMatcher.group(1) + " " + dayMatcher.group(2);
+            previousEnd = dayMatcher.end();
+        }
+        if (previousDay != null) {
+            recordOneDay(previousDay, panelText.substring(previousEnd));
+        }
+    }
+
+    private void recordOneDay(String dayLabel, String followingText) {
+        Matcher range = TIME_RANGE.matcher(followingText);
+        if (!range.find()) {
+            return;
+        }
+        LocalDate date = parseDayLabelDate(dayLabel);
+        if (date == null) {
+            return;
+        }
+
+        LocalDateTime start = date.atTime(parseHm(range.group(1)));
+        LocalDateTime end = date.atTime(parseHm(range.group(2)));
+        if (end.isBefore(start)) {
+            end = end.plusDays(1);
+        }
+
+        EventScheduleService.obtain().recordWindow(
+                "STATE_CALENDAR_" + date, "State Event (" + dayLabel + ")", false, start, end);
+    }
+
+    private LocalTime parseHm(String hm) {
+        String[] parts = hm.split(":");
+        return LocalTime.of(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+    }
+
+    /** The day column only prints "MM/dd"; the year is inferred from the current UTC date. */
+    private LocalDate parseDayLabelDate(String dayLabel) {
+        try {
+            String[] parts = dayLabel.split("\\s+");
+            String[] md = parts[1].split("/");
+            int month = Integer.parseInt(md[0]);
+            int day = Integer.parseInt(md[1]);
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate candidate = LocalDate.of(today.getYear(), month, day);
+            if (candidate.isBefore(today.minusDays(30))) {
+                candidate = candidate.plusYears(1);
+            } else if (candidate.isAfter(today.plusDays(30))) {
+                candidate = candidate.minusYears(1);
+            }
+            return candidate;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private String readPanelBlock(PointData topLeft, PointData bottomRight) {
+        try {
+            return stringHelper.attemptRecognition(
+                    topLeft, bottomRight, 2, 200L,
+                    OcrSettingsData.forTextBlock(),
+                    s -> s != null && !s.isBlank(),
+                    String::trim);
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     /**
