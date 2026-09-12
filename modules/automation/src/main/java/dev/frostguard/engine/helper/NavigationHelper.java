@@ -68,6 +68,11 @@ public class NavigationHelper {
     // ── alliance menu ────────────────────────────────────────────────
 
     public boolean navigateToAllianceMenu(AllianceMenu menu) {
+        // The bottom menu only exists on City or World, so a caller that is still inside a panel
+        // taps empty space and then fails to find the menu button -- indistinguishable from having
+        // no alliance. Every other navigate* method here already states this precondition; this one
+        // only worked because its callers happened to run it as their first navigation.
+        ensureCorrectScreenLocation(LaunchPoint.ANY);
         taps.tapInside(ButtonConstants.BOTTOM_MENU_ALLIANCE_BUTTON);
 
         TemplatesEnum tpl;
