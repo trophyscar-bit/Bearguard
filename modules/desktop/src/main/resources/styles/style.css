@@ -133,31 +133,277 @@
     -fx-padding: 12 10 16 10;
 }
 
-/* Upcoming Events calendar page (its own pinned nav button, like Chat/Config). */
+/* Upcoming Events calendar page (its own pinned nav button, like Chat/Config). Uses the
+ * PrimerDark theme's own GitHub tokens (-color-*, already on .root from Application.
+ * setUserAgentStylesheet(new PrimerDark()...) in FXApp) rather than inventing new colors. */
 .upcoming-events-card {
-    -fx-background-color: -fg-bg-sidebar;
-    -fx-background-radius: 6;
-    -fx-border-color: -fg-border-subtle;
-    -fx-border-radius: 6;
-    -fx-padding: 12;
+    -fx-background-color: -color-bg-inset, -color-bg-subtle;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 8, 7;
+    -fx-border-color: -color-accent-emphasis;
+    -fx-border-width: 0 0 0 3;
+    -fx-border-radius: 8;
+    -fx-padding: 12 16;
+}
+
+.upcoming-events-card:hover {
+    -fx-border-color: -color-accent-fg;
+}
+
+/* Starting within the next few hours (or already running): a warmer left rule and a faint wash,
+ * so "act on this now" separates from "on the schedule" without a second badge. */
+.upcoming-events-card-soon {
+    -fx-background-color: -color-bg-inset, -color-success-subtle;
+    -fx-border-color: -color-success-fg;
+}
+
+.upcoming-events-card-soon:hover {
+    -fx-border-color: -color-success-fg;
+}
+
+.upcoming-events-icon {
+    -fx-font-size: 17px;
+}
+
+.upcoming-events-ended-icon {
+    -fx-font-size: 11px;
+    -fx-opacity: 0.6;
+}
+
+/* Stands in for the Active/Upcoming rows when there are none, so the "Recently Ended" header
+ * is never the first thing in a section. */
+.upcoming-events-nothing-live {
+    -fx-text-fill: -color-fg-muted;
+    -fx-font-size: 12px;
+    -fx-padding: 4 0 0 2;
 }
 
 .upcoming-events-label {
-    -fx-text-fill: -fg-text-primary;
-    -fx-font-size: 14px;
+    -fx-text-fill: -color-fg-emphasis;
+    -fx-font-size: 16px;
     -fx-font-weight: bold;
     -fx-wrap-text: true;
 }
 
-.upcoming-events-status {
-    -fx-text-fill: -fg-text-secondary;
+/* Status pills -- GitHub Issue/PR state-badge look: subtle colored fill, colored text, full pill
+ * radius. Not the AtlantaFX .label.success/.danger text-only variants, which have no fill. */
+.upcoming-events-badge-active,
+.upcoming-events-badge-upcoming,
+.upcoming-events-badge-ended {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 2 10;
+    -fx-background-radius: 100;
+}
+
+.upcoming-events-badge-active {
+    -fx-background-color: -color-success-subtle;
+    -fx-text-fill: -color-success-fg;
+}
+
+.upcoming-events-badge-upcoming {
+    -fx-background-color: -color-accent-subtle;
+    -fx-text-fill: -color-accent-fg;
+}
+
+.upcoming-events-badge-ended {
+    -fx-background-color: -color-neutral-muted;
+    -fx-text-fill: -color-fg-muted;
+}
+
+/* List/Month segmented toggle, GitHub-style (two adjoining pill halves). */
+.upcoming-events-view-toggle {
+    -fx-spacing: -1;
+}
+
+.upcoming-events-view-toggle-left,
+.upcoming-events-view-toggle-right {
+    -fx-background-color: -color-bg-subtle;
+    -fx-text-fill: -color-fg-default;
+    -fx-border-color: -color-border-default;
+    -fx-padding: 6 16;
     -fx-font-size: 12px;
-    -fx-wrap-text: true;
+}
+
+.upcoming-events-view-toggle-left {
+    -fx-background-radius: 6 0 0 6;
+    -fx-border-radius: 6 0 0 6;
+}
+
+.upcoming-events-view-toggle-right {
+    -fx-background-radius: 0 6 6 0;
+    -fx-border-radius: 0 6 6 0;
+}
+
+.upcoming-events-view-toggle-left:selected,
+.upcoming-events-view-toggle-right:selected {
+    -fx-background-color: -color-accent-emphasis;
+    -fx-text-fill: -color-fg-emphasis;
+}
+
+/* Legend dots + month-grid day markers. */
+.upcoming-events-legend-dot-state {
+    -fx-background-color: -color-accent-fg;
+    -fx-background-radius: 100;
+    -fx-min-width: 8;
+    -fx-min-height: 8;
+    -fx-max-width: 8;
+    -fx-max-height: 8;
+}
+
+.upcoming-events-legend-dot-alliance {
+    -fx-background-color: -color-success-fg;
+    -fx-background-radius: 100;
+    -fx-min-width: 8;
+    -fx-min-height: 8;
+    -fx-max-width: 8;
+    -fx-max-height: 8;
+}
+
+.upcoming-events-dates {
+    -fx-text-fill: -color-accent-fg;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
 }
 
 .upcoming-events-empty {
     -fx-text-fill: -fg-text-secondary;
     -fx-font-size: 11px;
+}
+
+/* "Recently Ended" tail -- deliberately smaller/muted than the Active/Upcoming rows above it. */
+.upcoming-events-ended-header {
+    -fx-text-fill: -color-fg-subtle;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 8 0 0 2;
+}
+
+.upcoming-events-ended-row {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 5;
+    -fx-padding: 5 10;
+}
+
+.upcoming-events-badge-ended-small {
+    -fx-background-color: -color-neutral-muted;
+    -fx-text-fill: -color-fg-subtle;
+    -fx-font-size: 9px;
+    -fx-font-weight: bold;
+    -fx-padding: 1 7;
+    -fx-background-radius: 100;
+}
+
+.upcoming-events-ended-label {
+    -fx-text-fill: -color-fg-muted;
+    -fx-font-size: 11px;
+}
+
+.upcoming-events-ended-dates {
+    -fx-text-fill: -color-fg-subtle;
+    -fx-font-size: 10px;
+}
+
+/* Month Gantt -- day columns across the top, one bar per event spanning the days it runs,
+ * mirroring the game's own Events -> Calendar tab. */
+.upcoming-events-gantt {
+    -fx-hgap: 0;
+    -fx-vgap: 4;
+    -fx-padding: 0 0 4 0;
+}
+
+.upcoming-events-gantt-scroll {
+    -fx-background-color: transparent;
+}
+
+.upcoming-events-gantt-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.upcoming-events-gantt-title {
+    -fx-text-fill: -color-fg-emphasis;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+}
+
+.upcoming-events-gantt-nav {
+    -fx-background-color: -color-bg-subtle;
+    -fx-text-fill: -color-fg-default;
+    -fx-border-color: -color-border-default;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-padding: 2 10;
+}
+
+.upcoming-events-gantt-daycell {
+    -fx-border-color: -color-border-muted;
+    -fx-border-width: 0 1 1 0;
+    -fx-padding: 4 0 6 0;
+}
+
+.upcoming-events-gantt-dow {
+    -fx-text-fill: -color-fg-subtle;
+    -fx-font-size: 9px;
+}
+
+.upcoming-events-gantt-daynum {
+    -fx-text-fill: -color-fg-default;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.upcoming-events-gantt-today .upcoming-events-gantt-daynum {
+    -fx-text-fill: -color-fg-emphasis;
+}
+
+.upcoming-events-gantt-today {
+    -fx-background-color: -color-accent-emphasis;
+    -fx-background-radius: 6 6 0 0;
+}
+
+.upcoming-events-gantt-today .upcoming-events-gantt-dow {
+    -fx-text-fill: -color-fg-emphasis;
+}
+
+/* Vertical wash down today's whole column, the way the game tints the current day. */
+.upcoming-events-gantt-today-wash {
+    -fx-background-color: -color-accent-subtle;
+    -fx-opacity: 0.45;
+}
+
+.upcoming-events-gantt-section {
+    -fx-text-fill: -color-fg-emphasis;
+    -fx-background-color: -color-neutral-muted;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-padding: 3 8;
+    -fx-background-radius: 4;
+}
+
+.upcoming-events-gantt-bar {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-padding: 6 8;
+    -fx-background-radius: 5;
+    -fx-background-insets: 0 2 0 2;
+    -fx-text-overrun: ELLIPSIS;
+}
+
+.upcoming-events-gantt-bar-state {
+    -fx-background-color: -color-accent-subtle;
+    -fx-text-fill: -color-accent-fg;
+}
+
+.upcoming-events-gantt-bar-alliance {
+    -fx-background-color: -color-success-subtle;
+    -fx-text-fill: -color-success-fg;
+}
+
+.upcoming-events-gantt-bar-active {
+    -fx-border-color: -color-accent-fg;
+    -fx-border-width: 0 0 0 3;
+    -fx-border-insets: 0 2 0 2;
+    -fx-border-radius: 5;
 }
 
 /* ---------------------------------------------------------------------------
