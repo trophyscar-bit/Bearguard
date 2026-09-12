@@ -371,15 +371,6 @@
     -fx-opacity: 0.45;
 }
 
-.upcoming-events-gantt-section {
-    -fx-text-fill: -color-fg-default;
-    -fx-background-color: -color-bg-inset;
-    -fx-font-size: 11px;
-    -fx-font-weight: bold;
-    -fx-padding: 4 10;
-    -fx-background-radius: 4;
-}
-
 /* The coloured chip carries the span; the name is a separate node beside it, because a one-day
  * chip is one column wide and could only ever show an ellipsis. */
 .upcoming-events-gantt-bar {

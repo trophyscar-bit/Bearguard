@@ -383,9 +383,11 @@ public class UpcomingEventsLayoutController {
             chart.getColumnConstraints().add(column);
         }
 
-        int rowCount = 1
-                + (stateBars.isEmpty() ? 0 : 1 + stateBars.size())
-                + (allianceBars.isEmpty() ? 0 : 1 + allianceBars.size());
+        // One continuous run of bars, as the game draws it. The bar colour plus the legend above
+        // the chart already say state from alliance, so no banding rows in between.
+        List<Bar> bars = new ArrayList<>(stateBars);
+        bars.addAll(allianceBars);
+        int rowCount = 1 + bars.size();
 
         // Today's column is washed behind everything, the way the game marks the current day.
         // Added first so later children paint on top of it.
@@ -411,8 +413,15 @@ public class UpcomingEventsLayoutController {
         }
 
         int row = 1;
-        row = addSection(chart, row, dayCount, "State Events", stateBars);
-        addSection(chart, row, dayCount, "Alliance Events", allianceBars);
+        for (Bar bar : bars) {
+            chart.add(bar.chip, bar.firstColumn, row, bar.span, 1);
+            // The name is a separate node spanning to the end of the month rather than text inside
+            // the chip: a one-day bar is 58px and would render every label as "B...". Nothing else
+            // occupies this row, so the text is free to run past the chip and stay readable.
+            chart.add(bar.label, bar.firstColumn, row, dayCount - bar.firstColumn, 1);
+            GridPane.setValignment(bar.label, VPos.CENTER);
+            row++;
+        }
 
         ScrollPane scroller = new ScrollPane(chart);
         scroller.setFitToHeight(true);
@@ -432,7 +441,7 @@ public class UpcomingEventsLayoutController {
         empty.getStyleClass().add("upcoming-events-nothing-live");
 
         VBox body = new VBox(10, buildMonthNav(month));
-        body.getChildren().add(stateBars.isEmpty() && allianceBars.isEmpty() ? empty : scroller);
+        body.getChildren().add(bars.isEmpty() ? empty : scroller);
         monthCalendarHost.getChildren().setAll(body);
     }
 
@@ -466,29 +475,6 @@ public class UpcomingEventsLayoutController {
 
     private String monthLabel(YearMonth month) {
         return month.getMonth().getDisplayName(TextStyle.FULL, Locale.getDefault()) + " " + month.getYear();
-    }
-
-    /** Lays one titled block of bars into the chart and returns the next free row. */
-    private int addSection(GridPane chart, int startRow, int dayCount, String title, List<Bar> bars) {
-        if (bars.isEmpty()) {
-            return startRow;
-        }
-        Label header = new Label(title);
-        header.getStyleClass().add("upcoming-events-gantt-section");
-        header.setMaxWidth(Double.MAX_VALUE);
-        chart.add(header, 0, startRow, dayCount, 1);
-
-        int row = startRow + 1;
-        for (Bar bar : bars) {
-            chart.add(bar.chip, bar.firstColumn, row, bar.span, 1);
-            // The name is a separate node spanning to the end of the month rather than text inside
-            // the chip: a one-day bar is 58px and would render every label as "B...". Nothing else
-            // occupies this row, so the text is free to run past the chip and stay readable.
-            chart.add(bar.label, bar.firstColumn, row, dayCount - bar.firstColumn, 1);
-            GridPane.setValignment(bar.label, VPos.CENTER);
-            row++;
-        }
-        return row;
     }
 
     /** Clips one entry to the displayed month, or returns null when it does not touch it. An entry
