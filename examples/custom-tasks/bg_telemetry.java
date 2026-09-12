@@ -475,7 +475,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
     /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
-    private static final String SCAN_FORMAT_VERSION = "v3";
+    private static final String SCAN_FORMAT_VERSION = "v4";
 
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int DEFAULT_TRAP_NUMBER = 1;
@@ -885,6 +885,11 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     /**
      * The icon library, keyed by event name. Files are plain PNGs named after the event, so a name
      * can be corrected or a new icon added by editing the folder -- no rebuild, no code change.
+     *
+     * <p>Curated, never self-taught. Saving each readable bar's icon under its own OCR'd name was
+     * tried and is actively harmful: a misread put "Fontns" and "aWork y" into the library as event
+     * names, and once written they would have been matched against for good. Every entry here is a
+     * name somebody established.</p>
      */
     private Map<String, byte[]> loadIconLibrary() {
         Map<String, byte[]> library = new LinkedHashMap<>();
@@ -907,28 +912,6 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             logWarning("bg_telemetry | Calendar: could not list the icon library: " + listFailed.getMessage());
         }
         return library;
-    }
-
-    /** Saves this bar's icon under a name read from its own label, so the next chart that truncates
-     *  that name can still resolve it. Never overwrites: an existing file is the operator's. */
-    private void learnIcon(BufferedImage frame, int[] box, String name) {
-        String fileName = name.replaceAll("[^A-Za-z0-9 ]", "").trim().replace(' ', '_');
-        if (fileName.isEmpty()) {
-            return;
-        }
-        Path target = calendarIconDir().resolve(fileName + ".png");
-        if (Files.exists(target)) {
-            return;
-        }
-        try {
-            Files.createDirectories(target.getParent());
-            BufferedImage crop = frame.getSubimage(box[0], box[1], box[2] - box[0], box[3] - box[1]);
-            javax.imageio.ImageIO.write(crop, "png", target.toFile());
-            logInfo("bg_telemetry | Calendar: learned the icon for \"" + name + "\".");
-        } catch (IOException | RuntimeException writeFailed) {
-            logWarning("bg_telemetry | Calendar: could not save the icon for \"" + name
-                    + "\": " + writeFailed.getMessage());
-        }
     }
 
     /**
@@ -1058,8 +1041,13 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         int[] iconBox = iconLeft < 0 ? null
                 : ganttIconBox(iconLeft, bandTop, bandBottom, frame.getWidth());
 
-        String label = iconBox == null ? null : readPanelBlock(
-                new PointData(iconBox[2] + ICON_LABEL_GAP, centre - 16),
+        // Read across the whole bar and strip the icon's wreckage from the front of the text,
+        // rather than starting the crop past the icon. Starting past it was tried and reads much
+        // worse -- "Fortress Battles" came back as "Fontns" -- because the icon's right edge is not
+        // where its box ends, so the crop clipped into the first letters. Cropping wide and cleaning
+        // the string afterwards recovered every name the game printed in full.
+        String label = readPanelBlock(
+                new PointData(barLeft + ICON_LABEL_GAP, centre - 16),
                 new PointData(barRight, centre + 16));
         // The game's own ellipsis has to be read off the raw text: cleaning strips punctuation, so
         // "Alliance..." and "Alliance" are indistinguishable afterwards.
@@ -1067,9 +1055,6 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         String name = cleanGanttLabel(label);
         boolean truncated = name.isEmpty() || raw.endsWith("...") || raw.endsWith("…");
 
-        if (!truncated && iconBox != null) {
-            learnIcon(frame, iconBox, name);
-        }
         if (truncated && iconBox != null) {
             // A truncated bar carries its identity in the icon, not the text. This is the only
             // thing allowed to supply a name the label did not: it comes from a stored icon the
