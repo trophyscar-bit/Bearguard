@@ -1,4 +1,4 @@
-package dev.frostguard.engine.listener.task.impl;
+﻿package dev.frostguard.engine.listener.task.impl;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -52,7 +52,7 @@ import dev.frostguard.vision.match.OpenCvPatternLocator;
  * to a JSON history the Whiteout dashboard reads.
  *
  * <p>This exists because the external Node scraper that used to do this drove
- * ADB itself, so it could not run while the bot was running — the two fought
+ * ADB itself, so it could not run while the bot was running â€” the two fought
  * over the same device. Running the capture as a task inside the bot's own
  * queue removes that conflict by construction, and inherits the engine's
  * screen-verification and retry behaviour for free.
@@ -62,7 +62,7 @@ import dev.frostguard.vision.match.OpenCvPatternLocator;
  */
 public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable {
 
-    // matt/2026-08-09: hourly, so "last night" (23:00→08:00) and every window has fine-grained data.
+    // matt/2026-08-09: hourly, so "last night" (23:00â†’08:00) and every window has fine-grained data.
     private static final Duration DEFAULT_INTERVAL = Duration.ofHours(1);
     private static final DateTimeFormatter UTC_INPUT_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
@@ -208,7 +208,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
         // All four resources for the Statistics tab's "resources earned over time"
         // reports. The top HUD only ever shows one resource, so meat/wood/iron come
-        // from the values ResourceStockpileRoutine last scanned (stored in config) —
+        // from the values ResourceStockpileRoutine last scanned (stored in config) â€”
         // no extra navigation, and they change slowly enough that the last scan is
         // fine for a graph. Coal stays the live HUD read (same resource, fresher).
         Long meat = readStockpile(ConfigurationKeyEnum.RESOURCE_STOCKPILE_MEAT_LONG);
@@ -435,7 +435,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         }
     }
 
-    // ── Upcoming Events calendar scans ──────────────────────────────────────────────
+    // â”€â”€ Upcoming Events calendar scans â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     //
     // Read-only: never taps Claim, Enable, Occupation Income, or anything else on these screens.
     // Hall of Chiefs / Brothers in Arms / Defeat Nearby Beasts and the Fortress read run every
@@ -475,7 +475,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
     /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
-    private static final String SCAN_FORMAT_VERSION = "v5";
+    private static final String SCAN_FORMAT_VERSION = "v6";
     /** Swipes back along the Events tab strip before giving up on finding Calendar. */
     private static final int CALENDAR_TAB_SWIPE_ATTEMPTS = 4;
     /** Shorter than this and the read is noise, not an event name. */
@@ -1066,7 +1066,12 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // A one or two character read is noise, not a name: the game has no such event. Treating it
         // as unreadable keeps "oe" out of the calendar instead of recording it as an event.
         boolean truncated = name.length() < MIN_CREDIBLE_LABEL_LENGTH
-                || raw.endsWith("...") || raw.endsWith("…");
+                || raw.endsWith("...") || raw.endsWith("â€¦");
+        if (name.length() < MIN_CREDIBLE_LABEL_LENGTH) {
+            // Discarded outright rather than carried as a stub: showing "oe..." claims the game
+            // printed a name beginning "oe", and it did not.
+            name = "";
+        }
 
         // The icon is consulted for every bar, not only truncated ones. A curated icon matches at
         // 98-100 against a best wrong score of 53, while the label OCR returns "Siow" for
@@ -1168,7 +1173,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     /**
      * Reads a HUD number, resolving the game's abbreviated form. Returns null
-     * rather than a guess when OCR gives nothing usable — a wrong number is
+     * rather than a guess when OCR gives nothing usable â€” a wrong number is
      * worse than a missing one in a history meant for graphing.
      */
     private Long readScaledNumber(PointData tl, PointData br, OcrSettingsData settings, String label) {
@@ -1380,7 +1385,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     /**
      * Adds the current activity totals (per-task run counts and action counters) to the sample as
-     * flat number fields. Reads them straight from {@link StatisticsService} — no JSON parsing —
+     * flat number fields. Reads them straight from {@link StatisticsService} â€” no JSON parsing â€”
      * so the Statistics tab can diff two snapshots into "what the bot did" for a window.
      */
     private void appendActivitySnapshot(Map<String, Object> sample) {
@@ -1477,7 +1482,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         }
     }
 
-    /** Minimal serializer — the project ships no JSON binding usable from here. */
+    /** Minimal serializer â€” the project ships no JSON binding usable from here. */
     private static String toJson(Map<String, Object> map) {
         StringBuilder sb = new StringBuilder("{");
         boolean first = true;
