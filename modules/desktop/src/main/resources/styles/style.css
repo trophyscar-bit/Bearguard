@@ -379,11 +379,16 @@
     -fx-background-insets: 0 2 0 2;
 }
 
+/* Plain, not bold: the name annotates the bar from outside it, and styling it like the bar made a
+ * one-day event look as though it ran for the width of its own label. */
 .upcoming-events-gantt-bar-label {
     -fx-font-size: 12px;
-    -fx-font-weight: bold;
-    -fx-text-fill: -color-fg-default;
-    -fx-padding: 0 0 0 12;
+    -fx-text-fill: -color-fg-muted;
+    -fx-padding: 0 0 0 10;
+}
+
+.upcoming-events-gantt-bar-glyph {
+    -fx-font-size: 14px;
 }
 
 .upcoming-events-gantt-bar-state {

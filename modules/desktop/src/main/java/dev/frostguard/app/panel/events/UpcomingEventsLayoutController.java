@@ -1,15 +1,22 @@
 package dev.frostguard.app.panel.events;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
+import dev.frostguard.api.runtime.WorkspacePaths;
 import dev.frostguard.data.entity.EventScheduleEntry;
 import dev.frostguard.engine.service.EventScheduleService;
 import javafx.animation.Animation;
@@ -17,12 +24,15 @@ import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.fxml.FXML;
 import javafx.geometry.VPos;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -56,6 +66,7 @@ public class UpcomingEventsLayoutController {
 
     private static final int REFRESH_SECONDS = 30;
     private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("MMM d, h:mm a");
+    private static final DateTimeFormatter DATE_ONLY_FORMAT = DateTimeFormatter.ofPattern("EEE MMM d");
 
     /** Active/Upcoming rows shown at full size, capped so the list stays a glance, not a scroll. */
     private static final int MAX_CURRENT_ROWS = 5;
@@ -99,6 +110,8 @@ public class UpcomingEventsLayoutController {
     private List<EventScheduleEntry> latestEntries = List.of();
     private YearMonth monthAnchor = YearMonth.now(EventScheduleClock.zone());
     private Double monthScroll;
+    /** Label to artwork, including misses, so a 30-second poll does not re-walk the icon folder. */
+    private final Map<String, Image> iconCache = new HashMap<>();
 
     @FXML
     private void initialize() {
@@ -207,6 +220,17 @@ public class UpcomingEventsLayoutController {
         return shown > 0;
     }
 
+    /** How long this entry's window runs, in minutes; a window with no recorded end counts as the
+     *  longest there is, so it never outranks an event whose short window is actually known. */
+    private long windowMinutes(EventScheduleEntry entry) {
+        LocalDateTime start = entry.getActiveSince();
+        LocalDateTime end = entry.getInactiveSince();
+        if (start == null || end == null || end.isBefore(start)) {
+            return Integer.MAX_VALUE;
+        }
+        return Math.min(java.time.Duration.between(start, end).toMinutes(), Integer.MAX_VALUE);
+    }
+
     private boolean isEnded(EventScheduleEntry entry, LocalDateTime nowUtc) {
         return "upcoming-events-badge-ended".equals(badgeStyleClass(entry, nowUtc));
     }
@@ -221,7 +245,10 @@ public class UpcomingEventsLayoutController {
             return start.toEpochSecond(ZoneOffset.UTC);
         }
         if (entry.isCurrentlyActive()) {
-            return Long.MIN_VALUE;
+            // Running events are ordered shortest-window first, so a one-day fight sits above a
+            // week-long grind. The week-long one will still be there tomorrow; the short one is
+            // what there is any point acting on.
+            return Long.MIN_VALUE + windowMinutes(entry);
         }
         LocalDateTime end = entry.getInactiveSince();
         return end != null ? Long.MAX_VALUE - end.toEpochSecond(ZoneOffset.UTC) : Long.MAX_VALUE;
@@ -230,8 +257,7 @@ public class UpcomingEventsLayoutController {
     /** Full-size row: family icon, status pill, title, and a bold date line. "Last scanned" lives
      *  in the hover tooltip rather than taking a line of its own. */
     private VBox buildRow(EventScheduleEntry entry, LocalDateTime nowUtc) {
-        Label icon = new Label(iconFor(entry.getEventLabel()));
-        icon.getStyleClass().add("upcoming-events-icon");
+        Node icon = iconNodeFor(entry.getEventLabel(), 28, "upcoming-events-icon");
 
         Label badge = new Label(badgeText(entry, nowUtc));
         badge.getStyleClass().add(badgeStyleClass(entry, nowUtc));
@@ -258,8 +284,7 @@ public class UpcomingEventsLayoutController {
     /** "Recently Ended" tail row: one compact muted line, deliberately smaller than the live rows
      *  above it so current and historical never compete for attention. */
     private HBox buildEndedRow(EventScheduleEntry entry) {
-        Label icon = new Label(iconFor(entry.getEventLabel()));
-        icon.getStyleClass().add("upcoming-events-ended-icon");
+        Node icon = iconNodeFor(entry.getEventLabel(), 16, "upcoming-events-ended-icon");
 
         Label badge = new Label("Ended");
         badge.getStyleClass().add("upcoming-events-badge-ended-small");
@@ -286,9 +311,34 @@ public class UpcomingEventsLayoutController {
         return start != null && start.isAfter(nowUtc) && start.isBefore(nowUtc.plusHours(HIGHLIGHT_WINDOW_HOURS));
     }
 
+    /**
+     * Whether this entry is a whole-day window rather than a moment.
+     *
+     * <p>The calendar chart gives dates, not times, and they are stored as midnight-to-23:59 UTC.
+     * Rendering those through a timezone moved every one of them: an event on the 12th displayed
+     * as "Sep 11, 8:00 PM" in New York, a day out and an invented time. A date has no timezone, so
+     * these are shown as the dates they are.</p>
+     */
+    private boolean isAllDay(EventScheduleEntry entry) {
+        LocalDateTime start = entry.getActiveSince();
+        if (start == null || !start.toLocalTime().equals(LocalTime.MIDNIGHT)) {
+            return false;
+        }
+        LocalDateTime end = entry.getInactiveSince();
+        return end == null || end.toLocalTime().equals(LocalTime.of(23, 59));
+    }
+
     /** Only ever states what is actually known. An event whose end the game never showed says when
      *  it starts and stops there, rather than printing "Unknown" as if that were a fact. */
     private String describeWindow(EventScheduleEntry entry) {
+        if (isAllDay(entry)) {
+            LocalDate from = entry.getActiveSince().toLocalDate();
+            LocalDate to = entry.getInactiveSince() == null ? null : entry.getInactiveSince().toLocalDate();
+            if (to == null || to.equals(from)) {
+                return from.format(DATE_ONLY_FORMAT) + "   ·   all day";
+            }
+            return from.format(DATE_ONLY_FORMAT) + "   →   " + to.format(DATE_ONLY_FORMAT);
+        }
         String start = entry.getActiveSince() == null ? null : toViewerZone(entry.getActiveSince());
         String end = entry.getInactiveSince() == null ? null : toViewerZone(entry.getInactiveSince());
         if (start != null && end != null) {
@@ -301,6 +351,78 @@ public class UpcomingEventsLayoutController {
             return "Ends " + end;
         }
         return "No times recorded yet";
+    }
+
+    /**
+     * The event's own in-game icon where the calendar scan has collected one, falling back to a
+     * per-family glyph.
+     *
+     * <p>The scan already crops each bar's icon to name truncated events, so the real artwork is
+     * sitting in the workspace; showing it beats a stand-in emoji, and it is the same picture the
+     * game shows, which is what makes a row recognisable at a glance.</p>
+     */
+    private Node iconNodeFor(String label, double size, String fallbackStyleClass) {
+        Image artwork = gameIcon(label);
+        if (artwork != null) {
+            ImageView view = new ImageView(artwork);
+            view.setFitWidth(size);
+            view.setFitHeight(size);
+            view.setPreserveRatio(true);
+            view.setSmooth(true);
+            return view;
+        }
+        Label glyph = new Label(iconFor(label));
+        glyph.getStyleClass().add(fallbackStyleClass);
+        return glyph;
+    }
+
+    /**
+     * Icon artwork for an event label, or null when none is stored.
+     *
+     * <p>Labels carry qualifiers the file names do not ("Fortress Battles (Fortress No. 12)", or a
+     * trailing ellipsis on a truncated name), so an exact match is tried first and then the longest
+     * stored name that starts the label. Longest wins so "Alliance Championship" is not beaten by a
+     * shorter entry that happens to share its opening words.</p>
+     */
+    private Image gameIcon(String label) {
+        if (label == null || label.isBlank()) {
+            return null;
+        }
+        if (iconCache.containsKey(label)) {
+            return iconCache.get(label);
+        }
+        Image found = null;
+        try {
+            Path dir = WorkspacePaths.current().root().resolve("data").resolve("calendar-icons");
+            if (Files.isDirectory(dir)) {
+                String wanted = normaliseIconName(label);
+                Path best = null;
+                int bestLength = -1;
+                try (java.util.stream.Stream<Path> files = Files.list(dir)) {
+                    for (Path file : files.filter(p -> p.toString().endsWith(".png")).toList()) {
+                        String name = file.getFileName().toString();
+                        String candidate = normaliseIconName(
+                                name.substring(0, name.length() - 4).replace('_', ' '));
+                        if (wanted.equals(candidate)
+                                || (wanted.startsWith(candidate) && candidate.length() > bestLength)) {
+                            best = file;
+                            bestLength = wanted.equals(candidate) ? Integer.MAX_VALUE : candidate.length();
+                        }
+                    }
+                }
+                if (best != null) {
+                    found = new Image(best.toUri().toString(), 0, 0, true, true);
+                }
+            }
+        } catch (IOException | RuntimeException unavailable) {
+            found = null;
+        }
+        iconCache.put(label, found);
+        return found;
+    }
+
+    private static String normaliseIconName(String value) {
+        return value.replaceAll("[^A-Za-z0-9 ]", "").replaceAll("\\s+", " ").trim().toLowerCase();
     }
 
     /** A glanceable marker per event family, so the eye can sort the list without reading it. */
@@ -498,8 +620,9 @@ public class UpcomingEventsLayoutController {
      *  whose end the game never showed is a single-day bar on its start, never a bar to the edge --
      *  drawing an unknown end as a long run would state something that was never read. */
     private Bar toBar(EventScheduleEntry entry, LocalDate monthStart, LocalDate monthEnd) {
-        LocalDate start = toViewerDate(entry.getActiveSince());
-        LocalDate end = toViewerDate(entry.getInactiveSince());
+        boolean allDay = isAllDay(entry);
+        LocalDate start = toViewerDate(entry.getActiveSince(), allDay);
+        LocalDate end = toViewerDate(entry.getInactiveSince(), allDay);
         if (start == null && end == null) {
             return null;
         }
@@ -511,7 +634,10 @@ public class UpcomingEventsLayoutController {
         LocalDate clippedFrom = from.isBefore(monthStart) ? monthStart : from;
         LocalDate clippedTo = to.isAfter(monthEnd) ? monthEnd : to;
 
-        Region chip = new Region();
+        // The icon rides inside the coloured bar, the way the game draws it, so a one-day bar is
+        // still identifiable without its name.
+        HBox chip = new HBox(iconNodeFor(entry.getEventLabel(), 18, "upcoming-events-gantt-bar-glyph"));
+        chip.setAlignment(javafx.geometry.Pos.CENTER);
         chip.setMaxWidth(Double.MAX_VALUE);
         chip.setMaxHeight(Double.MAX_VALUE);
         chip.getStyleClass().addAll("upcoming-events-gantt-bar",
@@ -524,7 +650,9 @@ public class UpcomingEventsLayoutController {
         // The bar is clipped to the displayed month, so the full window stays reachable on hover.
         Tooltip.install(chip, new Tooltip(entry.getEventLabel() + "\n" + describeWindow(entry)));
 
-        Label label = new Label(iconFor(entry.getEventLabel()) + "  " + entry.getEventLabel());
+        // Set outside the bar in plain text rather than styled like it: a one-day bar is 58px and
+        // a bold label across the next four days reads as though the event ran for five.
+        Label label = new Label(entry.getEventLabel());
         label.getStyleClass().add("upcoming-events-gantt-bar-label");
         label.setMouseTransparent(true);
 
@@ -538,15 +666,20 @@ public class UpcomingEventsLayoutController {
 
     /** One laid-out event bar: the coloured chip, its name, and where both sit in the day grid. */
     private static final class Bar {
-        private Region chip;
+        private HBox chip;
         private Label label;
         private int firstColumn;
         private int span;
     }
 
-    private LocalDate toViewerDate(LocalDateTime storedUtc) {
+    /** Converts for a real instant; passes a whole-day date through untouched, since shifting one
+     *  by a timezone is what put every calendar bar on the wrong day. */
+    private LocalDate toViewerDate(LocalDateTime storedUtc, boolean allDay) {
         if (storedUtc == null) {
             return null;
+        }
+        if (allDay) {
+            return storedUtc.toLocalDate();
         }
         return storedUtc.atZone(ZoneOffset.UTC)
                 .withZoneSameInstant(EventScheduleClock.zone())
