@@ -291,6 +291,9 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final PointData TASK_LIST_TITLE_BOTTOM_RIGHT = new PointData(220, 385);
     private static final PointData TASK_LIST_PANEL_TOP_LEFT = new PointData(10, 460);
     private static final PointData TASK_LIST_PANEL_BOTTOM_RIGHT = new PointData(710, 1270);
+    /** The "Local Time"/"UTC" line, which sits above the list and outside the panel crop. */
+    private static final PointData TASK_LIST_CLOCK_TOP_LEFT = new PointData(200, 408);
+    private static final PointData TASK_LIST_CLOCK_BOTTOM_RIGHT = new PointData(560, 456);
     private static final PointData TASK_LIST_SCROLL_FROM = new PointData(360, 1100);
     private static final PointData TASK_LIST_SCROLL_TO = new PointData(360, 650);
     private static final int TASK_LIST_SCROLL_PASSES = 3;
@@ -301,6 +304,9 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     /** The panel's own "Local Time"/"UTC" line, or null when neither word read. */
     private static Boolean readTaskListClockMode(String panelText) {
+        if (panelText == null) {
+            return null;
+        }
         String text = panelText.toLowerCase();
         boolean local = text.contains("local");
         boolean utc = text.contains("utc");
@@ -358,7 +364,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             // The panel lists every alliance fight the game is currently advertising, so it is a
             // snapshot and this pass replaces the last one. Cleared only once the panel has actually
             // been read: on the passes where it does not open, the previous read is all there is.
-            taskListClockIsUtc = readTaskListClockMode(combined);
+            taskListClockIsUtc = readTaskListClockMode(
+                    readPanelBlock(TASK_LIST_CLOCK_TOP_LEFT, TASK_LIST_CLOCK_BOTTOM_RIGHT));
             if (taskListClockIsUtc == null) {
                 logWarning("bg_telemetry | Task List: the panel's clock-mode line did not read, so its"
                         + " times cannot be placed on a clock; recording those entries by date only.");
