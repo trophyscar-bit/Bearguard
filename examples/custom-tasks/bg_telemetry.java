@@ -1,4 +1,4 @@
-﻿package dev.frostguard.engine.listener.task.impl;
+package dev.frostguard.engine.listener.task.impl;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
