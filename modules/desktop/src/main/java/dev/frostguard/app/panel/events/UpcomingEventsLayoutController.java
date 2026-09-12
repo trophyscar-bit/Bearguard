@@ -124,18 +124,47 @@ public class UpcomingEventsLayoutController {
      * -- an entry with a real window beats one that only knows it started.</p>
      */
     private List<EventScheduleEntry> dedupe(List<EventScheduleEntry> entries) {
-        java.util.Map<String, EventScheduleEntry> best = new java.util.LinkedHashMap<>();
+        List<EventScheduleEntry> kept = new ArrayList<>();
         for (EventScheduleEntry entry : entries) {
-            String label = entry.getEventLabel() == null ? "" : entry.getEventLabel().trim().toLowerCase();
-            LocalDate startDate = entry.getActiveSince() == null ? null : entry.getActiveSince().toLocalDate();
-            String key = label + "|" + startDate;
-            EventScheduleEntry existing = best.get(key);
-            if (existing == null
-                    || (existing.getInactiveSince() == null && entry.getInactiveSince() != null)) {
-                best.put(key, entry);
+            boolean merged = false;
+            for (int i = 0; i < kept.size(); i++) {
+                EventScheduleEntry other = kept.get(i);
+                if (!sameEvent(entry, other) || !windowsOverlap(entry, other)) {
+                    continue;
+                }
+                // Same event, same stretch of time, two scans. Keep whichever states a real end:
+                // the chart gives both edges, while a presence check only ever knows it started.
+                if (other.getInactiveSince() == null && entry.getInactiveSince() != null) {
+                    kept.set(i, entry);
+                }
+                merged = true;
+                break;
+            }
+            if (!merged) {
+                kept.add(entry);
             }
         }
-        return new ArrayList<>(best.values());
+        return kept;
+    }
+
+    private boolean sameEvent(EventScheduleEntry a, EventScheduleEntry b) {
+        String left = a.getEventLabel() == null ? "" : a.getEventLabel().trim().toLowerCase();
+        String right = b.getEventLabel() == null ? "" : b.getEventLabel().trim().toLowerCase();
+        return !left.isEmpty() && left.equals(right);
+    }
+
+    /** Overlap, not an identical start: the two scans time the same event differently, so the same
+     *  fight can be recorded as starting at midnight by one and at 08:46 by the other. Distinct
+     *  occurrences on different days do not overlap and stay as separate rows. */
+    private boolean windowsOverlap(EventScheduleEntry a, EventScheduleEntry b) {
+        LocalDateTime aStart = a.getActiveSince();
+        LocalDateTime bStart = b.getActiveSince();
+        if (aStart == null || bStart == null) {
+            return false;
+        }
+        LocalDateTime aEnd = a.getInactiveSince() == null ? aStart : a.getInactiveSince();
+        LocalDateTime bEnd = b.getInactiveSince() == null ? bStart : b.getInactiveSince();
+        return !aStart.isAfter(bEnd) && !bStart.isAfter(aEnd);
     }
 
     /** Stops the polling timer; call if this page is ever torn down independently of the app. */
