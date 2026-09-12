@@ -478,6 +478,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final String SCAN_FORMAT_VERSION = "v4";
     /** Swipes back along the Events tab strip before giving up on finding Calendar. */
     private static final int CALENDAR_TAB_SWIPE_ATTEMPTS = 4;
+    /** Shorter than this and the read is noise, not an event name. */
+    private static final int MIN_CREDIBLE_LABEL_LENGTH = 3;
 
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int DEFAULT_TRAP_NUMBER = 1;
@@ -1061,7 +1063,10 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // "Alliance..." and "Alliance" are indistinguishable afterwards.
         String raw = label == null ? "" : label.trim();
         String name = cleanGanttLabel(label);
-        boolean truncated = name.isEmpty() || raw.endsWith("...") || raw.endsWith("…");
+        // A one or two character read is noise, not a name: the game has no such event. Treating it
+        // as unreadable keeps "oe" out of the calendar instead of recording it as an event.
+        boolean truncated = name.length() < MIN_CREDIBLE_LABEL_LENGTH
+                || raw.endsWith("...") || raw.endsWith("…");
 
         // The icon is consulted for every bar, not only truncated ones. A curated icon matches at
         // 98-100 against a best wrong score of 53, while the label OCR returns "Siow" for
