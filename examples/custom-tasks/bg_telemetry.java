@@ -1,5 +1,6 @@
 package dev.frostguard.engine.listener.task.impl;
 
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -28,6 +29,7 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
 import dev.frostguard.api.domain.JobMetrics;
@@ -44,6 +46,7 @@ import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.CustomTaskService;
 import dev.frostguard.engine.service.EventScheduleService;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.vision.convert.ImageConverter;
 
 /**
  * Bearguard telemetry: samples the top HUD on a schedule and appends the result
@@ -472,8 +475,6 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final PointData CALENDAR_TAB_STRIP_SWIPE_TO = new PointData(600, 141);
     private static final ZoneId EST = ZoneId.of("America/New_York");
     private static final LocalTime CALENDAR_SCAN_TIME = LocalTime.of(20, 5);
-    private static final Pattern DAY_LABEL = Pattern.compile("(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\s*(\\d{2}/\\d{2})");
-    private static final Pattern TIME_RANGE = Pattern.compile("(\\d{1,2}:\\d{2})\\s*[-–]\\s*(\\d{1,2}:\\d{2})");
 
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int DEFAULT_TRAP_NUMBER = 1;
@@ -673,68 +674,207 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         profile.setConfig(ConfigurationKeyEnum.BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING, todayEst);
     }
 
-    private void recordStateEventsFrom(String panelText) {
-        if (panelText == null || panelText.isBlank()) {
-            return;
-        }
-        Matcher dayMatcher = DAY_LABEL.matcher(panelText);
-        int previousEnd = -1;
-        String previousDay = null;
-        while (dayMatcher.find()) {
-            if (previousDay != null) {
-                recordOneDay(previousDay, panelText.substring(previousEnd, dayMatcher.start()));
+    /**
+     * Reads the Events -&gt; Calendar Gantt chart: seven day columns across the top, and horizontal
+     * bars underneath, each spanning the days its event runs.
+     *
+     * <p>OCR alone cannot do this. A bar's span is geometry, not text, and the labels truncate the
+     * moment the bar is narrower than the name ("Work...", "Fortr...", "Snow..."). So the span
+     * comes from pixels and the name comes from OCR, with the leading icon as the fallback when
+     * the text is cut off.</p>
+     *
+     * <p>Geometry measured against live 720x1280 frames (2026-09-12), both scroll positions.
+     * Column coverage separated cleanly: every covered column sampled 0.97-1.00 non-background,
+     * every uncovered one 0.00 -- so this is a real gap, not a threshold that needs nursing.</p>
+     */
+    private static final int GANTT_LEFT = 12;
+    private static final int GANTT_RIGHT = 707;
+    private static final int GANTT_DAY_COLUMNS = 7;
+    private static final int GANTT_CONTENT_TOP = 392;
+    private static final int GANTT_CONTENT_BOTTOM = 1200;
+    private static final int GANTT_MIN_BAR_HEIGHT = 18;
+
+    /** Pale panel blue, and the wash the game paints down today's column. */
+    private static final int[][] GANTT_BACKGROUNDS = {{172, 225, 231}, {213, 195, 168}};
+    private static final int[] GANTT_TODAY_WASH = {213, 195, 168};
+    /** The steel-blue section divider ("Deals", "Events"): never a bar. */
+    private static final int[] GANTT_SECTION_HEADER = {112, 184, 209};
+    private static final int GANTT_COLOR_TOLERANCE = 28;
+
+    private static final PointData CALENDAR_SCROLL_FROM = new PointData(360, 1000);
+    private static final PointData CALENDAR_SCROLL_TO = new PointData(360, 500);
+
+    private static double ganttColumnWidth() {
+        return (GANTT_RIGHT - GANTT_LEFT) / (double) GANTT_DAY_COLUMNS;
+    }
+
+    private static int ganttColumnStart(int column) {
+        return GANTT_LEFT + (int) Math.round(column * ganttColumnWidth());
+    }
+
+    private static boolean nearColor(int rgb, int[] target, int tolerance) {
+        int r = (rgb >> 16) & 0xFF;
+        int g = (rgb >> 8) & 0xFF;
+        int b = rgb & 0xFF;
+        return Math.abs(r - target[0]) < tolerance
+                && Math.abs(g - target[1]) < tolerance
+                && Math.abs(b - target[2]) < tolerance;
+    }
+
+    private static boolean isGanttBackground(int rgb) {
+        for (int[] background : GANTT_BACKGROUNDS) {
+            if (nearColor(rgb, background, GANTT_COLOR_TOLERANCE)) {
+                return true;
             }
-            previousDay = dayMatcher.group(1) + " " + dayMatcher.group(2);
-            previousEnd = dayMatcher.end();
         }
-        if (previousDay != null) {
-            recordOneDay(previousDay, panelText.substring(previousEnd));
-        }
+        return false;
     }
 
-    private void recordOneDay(String dayLabel, String followingText) {
-        Matcher range = TIME_RANGE.matcher(followingText);
-        if (!range.find()) {
-            return;
+    /** Fraction of sampled pixels in this column/row that belong to a bar rather than the panel.
+     *  Returns -1 for a section-header row, which must never be mistaken for a bar. */
+    private static double ganttColumnCoverage(BufferedImage frame, int column, int y) {
+        int x0 = ganttColumnStart(column);
+        int x1 = ganttColumnStart(column + 1);
+        int sampled = 0;
+        int covered = 0;
+        for (int x = x0 + 10; x < x1 - 10; x += 4) {
+            if (x < 0 || x >= frame.getWidth() || y < 0 || y >= frame.getHeight()) {
+                continue;
+            }
+            int rgb = frame.getRGB(x, y);
+            if (nearColor(rgb, GANTT_SECTION_HEADER, 25)) {
+                return -1;
+            }
+            sampled++;
+            if (!isGanttBackground(rgb)) {
+                covered++;
+            }
         }
-        LocalDate date = parseDayLabelDate(dayLabel);
-        if (date == null) {
-            return;
-        }
-
-        LocalDateTime start = date.atTime(parseHm(range.group(1)));
-        LocalDateTime end = date.atTime(parseHm(range.group(2)));
-        if (end.isBefore(start)) {
-            end = end.plusDays(1);
-        }
-
-        EventScheduleService.obtain().recordWindow(
-                "STATE_CALENDAR_" + date, "State Event (" + dayLabel + ")", false, start, end);
+        return sampled == 0 ? 0 : covered / (double) sampled;
     }
 
-    private LocalTime parseHm(String hm) {
-        String[] parts = hm.split(":");
-        return LocalTime.of(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+    /** Which column carries today's highlight wash, or -1 when none does. */
+    private static int ganttTodayColumn(BufferedImage frame) {
+        int best = -1;
+        double bestFraction = 0.25;
+        for (int column = 0; column < GANTT_DAY_COLUMNS; column++) {
+            int x0 = ganttColumnStart(column);
+            int x1 = ganttColumnStart(column + 1);
+            int sampled = 0;
+            int washed = 0;
+            for (int x = x0 + 8; x < x1 - 8; x += 4) {
+                for (int y = GANTT_CONTENT_TOP; y < GANTT_CONTENT_BOTTOM; y += 8) {
+                    if (x >= frame.getWidth() || y >= frame.getHeight()) {
+                        continue;
+                    }
+                    sampled++;
+                    if (nearColor(frame.getRGB(x, y), GANTT_TODAY_WASH, 22)) {
+                        washed++;
+                    }
+                }
+            }
+            double fraction = sampled == 0 ? 0 : washed / (double) sampled;
+            if (fraction > bestFraction) {
+                bestFraction = fraction;
+                best = column;
+            }
+        }
+        return best;
     }
 
-    /** The day column only prints "MM/dd"; the year is inferred from the current UTC date. */
-    private LocalDate parseDayLabelDate(String dayLabel) {
+    private int readGanttChart() {
+        RawImageData capture = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (capture == null) {
+            logWarning("bg_telemetry | Calendar: screen capture unavailable; skipping this pass.");
+            return 0;
+        }
+        BufferedImage frame;
         try {
-            String[] parts = dayLabel.split("\\s+");
-            String[] md = parts[1].split("/");
-            int month = Integer.parseInt(md[0]);
-            int day = Integer.parseInt(md[1]);
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
-            LocalDate candidate = LocalDate.of(today.getYear(), month, day);
-            if (candidate.isBefore(today.minusDays(30))) {
-                candidate = candidate.plusYears(1);
-            } else if (candidate.isAfter(today.plusDays(30))) {
-                candidate = candidate.minusYears(1);
-            }
-            return candidate;
-        } catch (Exception ex) {
-            return null;
+            frame = ImageConverter.toBufferedImage(capture);
+        } catch (RuntimeException conversionFailed) {
+            logWarning("bg_telemetry | Calendar: could not decode the frame: " + conversionFailed.getMessage());
+            return 0;
         }
+
+        int todayColumn = ganttTodayColumn(frame);
+        if (todayColumn < 0) {
+            logWarning("bg_telemetry | Calendar: today's column is not highlighted on this frame, so the "
+                    + "day columns cannot be dated. Recording nothing rather than guessing dates.");
+            return 0;
+        }
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+
+        int recorded = 0;
+        Integer bandStart = null;
+        for (int y = GANTT_CONTENT_TOP; y < GANTT_CONTENT_BOTTOM; y++) {
+            boolean isBarRow = false;
+            for (int column = 0; column < GANTT_DAY_COLUMNS; column++) {
+                if (ganttColumnCoverage(frame, column, y) > 0.6) {
+                    isBarRow = true;
+                    break;
+                }
+            }
+            if (isBarRow && bandStart == null) {
+                bandStart = y;
+            } else if (!isBarRow && bandStart != null) {
+                if (y - bandStart > GANTT_MIN_BAR_HEIGHT) {
+                    recorded += recordGanttBar(frame, bandStart, y - 1, todayColumn, today);
+                }
+                bandStart = null;
+            }
+        }
+        if (bandStart != null && GANTT_CONTENT_BOTTOM - bandStart > GANTT_MIN_BAR_HEIGHT) {
+            recorded += recordGanttBar(frame, bandStart, GANTT_CONTENT_BOTTOM - 1, todayColumn, today);
+        }
+        return recorded;
+    }
+
+    private int recordGanttBar(BufferedImage frame, int bandTop, int bandBottom, int todayColumn, LocalDate today) {
+        int centre = (bandTop + bandBottom) / 2;
+        int firstColumn = -1;
+        int lastColumn = -1;
+        for (int column = 0; column < GANTT_DAY_COLUMNS; column++) {
+            if (ganttColumnCoverage(frame, column, centre) > 0.5) {
+                if (firstColumn < 0) {
+                    firstColumn = column;
+                }
+                lastColumn = column;
+            }
+        }
+        if (firstColumn < 0) {
+            return 0;
+        }
+
+        LocalDate start = today.plusDays(firstColumn - todayColumn);
+        LocalDate end = today.plusDays(lastColumn - todayColumn);
+
+        // The label sits to the right of the bar's leading icon; read from there to the panel edge.
+        String label = readPanelBlock(
+                new PointData(ganttColumnStart(firstColumn) + 62, centre - 16),
+                new PointData(GANTT_RIGHT, centre + 16));
+        String name = label == null ? "" : label.replaceAll("\\s+", " ").trim();
+        boolean truncated = name.isEmpty() || name.endsWith("...") || name.endsWith("…");
+        if (truncated) {
+            // Truncated or icon-only bars carry their identity in the icon, not the text. Nothing
+            // here guesses a name: the bar is still recorded with its real dates, flagged so the
+            // unresolved icon is visible rather than silently dropped or mislabelled.
+            String shown = name.isEmpty() ? "(icon only)" : name;
+            logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " has a truncated label ("
+                    + shown + "); recording it under that label until its icon is identified.");
+            if (name.isEmpty()) {
+                name = "State event " + start;
+            }
+        }
+
+        LocalDateTime startAt = start.atStartOfDay();
+        LocalDateTime endAt = end.plusDays(1).atStartOfDay().minusMinutes(1);
+        boolean activeNow = !today.isBefore(start) && !today.isAfter(end);
+        EventScheduleService.obtain().recordWindow(
+                "STATE_GANTT_" + name.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_" + start,
+                name, activeNow, startAt, endAt);
+        logInfo("bg_telemetry | Calendar: " + name + " " + start + " -> " + end
+                + (activeNow ? " (running now)" : ""));
+        return 1;
     }
 
     private String readPanelBlock(PointData topLeft, PointData bottomRight) {

@@ -4,8 +4,13 @@
 <?import javafx.scene.layout.*?>
 
 <!-- Upcoming Events calendar: its own pinned nav page (like Chat/Config), not a cramped
-     sidebar-footer widget. Timezone lives under Config -> Calendar; scan toggles live under
-     Deals -> Random Events. -->
+     sidebar-footer widget. Two sections: State Events (Hall of Chiefs, Brothers in Arms,
+     Defeat Nearby Beasts, Events -> Calendar) and Alliance Events (Bear Trap, Alliance ->
+     Battle -> Fortress, Task List). Timezone lives under Config -> Calendar.
+
+     List/Month toggle switches between the card list below and a month Gantt mirroring the game's
+     own Events -> Calendar tab (day columns across the top, one bar per event spanning the days it
+     runs): built in code, not FXML, since its columns and bars are data-driven. -->
 <StackPane maxHeight="Infinity" maxWidth="Infinity"
            HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
            xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
@@ -14,17 +19,62 @@
                 styleClass="task-page-scroll">
         <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
 
-            <VBox styleClass="content-card">
-                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                    <Label text="Upcoming Events" />
-                </HBox>
-                <VBox spacing="10" styleClass="task-section-inner">
-                    <Label styleClass="task-card-description" wrapText="true"
-                           text="Hall of Chiefs, Brothers in Arms, Defeat Nearby Beasts, Bear Trap, occupied alliance Fortresses/Strongholds, and any state-wide event, from the last automated scan of each. Times shown in the timezone set under Config -&gt; Calendar." />
-                    <Separator style="-fx-opacity: 0.25;" />
-                    <VBox fx:id="cardsContainer" spacing="10" />
-                    <Label fx:id="labelEmpty" text="No data yet -- runs from the bg_telemetry custom task."
-                           wrapText="true" visible="false" managed="false" styleClass="task-card-description" />
+            <HBox spacing="0" styleClass="upcoming-events-view-toggle">
+                <ToggleButton fx:id="toggleListView" text="List" styleClass="upcoming-events-view-toggle-left" />
+                <ToggleButton fx:id="toggleMonthView" text="Month" styleClass="upcoming-events-view-toggle-right" />
+            </HBox>
+
+            <VBox fx:id="listView" spacing="14">
+
+                <VBox styleClass="content-card">
+                    <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                        <Label text="State Events" />
+                    </HBox>
+                    <VBox spacing="10" styleClass="task-section-inner">
+                        <Label styleClass="task-card-description" wrapText="true"
+                               text="Hall of Chiefs, Brothers in Arms, Defeat Nearby Beasts, and the Events -&gt; Calendar read. Times shown in the timezone set under Config -&gt; Calendar." />
+                        <Separator style="-fx-opacity: 0.25;" />
+                        <VBox fx:id="stateCardsContainer" spacing="10" />
+                        <Label fx:id="labelStateEmpty" text="No data yet -- runs from the bg_telemetry custom task."
+                               wrapText="true" visible="false" managed="false" styleClass="task-card-description" />
+                    </VBox>
+                </VBox>
+
+                <VBox styleClass="content-card">
+                    <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                        <Label text="Alliance Events" />
+                    </HBox>
+                    <VBox spacing="10" styleClass="task-section-inner">
+                        <Label styleClass="task-card-description" wrapText="true"
+                               text="Bear Trap, occupied alliance Fortresses/Strongholds, and the alliance Task List (Battle -&gt; Fortress + header-clock Task List)." />
+                        <Separator style="-fx-opacity: 0.25;" />
+                        <VBox fx:id="allianceCardsContainer" spacing="10" />
+                        <Label fx:id="labelAllianceEmpty" text="No data yet -- runs from the bg_telemetry custom task."
+                               wrapText="true" visible="false" managed="false" styleClass="task-card-description" />
+                    </VBox>
+                </VBox>
+
+            </VBox>
+
+            <VBox fx:id="monthView" spacing="14" visible="false" managed="false">
+                <VBox styleClass="content-card">
+                    <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                        <Label text="Month" />
+                    </HBox>
+                    <VBox spacing="10" styleClass="task-section-inner">
+                        <HBox spacing="16" alignment="CENTER_LEFT">
+                            <HBox spacing="6" alignment="CENTER_LEFT">
+                                <Region styleClass="upcoming-events-legend-dot-state" />
+                                <Label text="State Events" styleClass="task-card-description" />
+                            </HBox>
+                            <HBox spacing="6" alignment="CENTER_LEFT">
+                                <Region styleClass="upcoming-events-legend-dot-alliance" />
+                                <Label text="Alliance Events" styleClass="task-card-description" />
+                            </HBox>
+                        </HBox>
+                        <Separator style="-fx-opacity: 0.25;" />
+                        <StackPane fx:id="monthCalendarHost" />
+                    </VBox>
                 </VBox>
             </VBox>
 

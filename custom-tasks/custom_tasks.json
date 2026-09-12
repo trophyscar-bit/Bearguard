@@ -5,5 +5,5 @@
   "offsetMinutes" : 0,
   "priority" : 50,
   "firstExecutionUtc" : null,
-  "followUpDelayHours" : 2
+  "followUpDelayHours" : 1
 } ]
