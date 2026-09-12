@@ -304,106 +304,99 @@
     -fx-font-size: 10px;
 }
 
-/* Month Gantt -- day columns across the top, one bar per event spanning the days it runs,
- * mirroring the game's own Events -> Calendar tab. */
-.upcoming-events-gantt {
+/* Week timeline: event names in a fixed column on the left, seven day columns to the right, and
+ * one plain bar per event saying only when it runs. The name lives outside the grid because a
+ * month of readable day columns does not fit the page, and a name inside a one-day bar can only
+ * ever be an ellipsis. */
+.upcoming-events-week {
     -fx-hgap: 0;
-    -fx-vgap: 4;
+    -fx-vgap: 6;
     -fx-padding: 0 0 4 0;
 }
 
-.upcoming-events-gantt-scroll {
-    -fx-background-color: transparent;
-}
-
-.upcoming-events-gantt-scroll > .viewport {
-    -fx-background-color: transparent;
-}
-
-.upcoming-events-gantt-title {
+.upcoming-events-week-title {
     -fx-text-fill: -color-fg-emphasis;
     -fx-font-size: 15px;
     -fx-font-weight: bold;
+    -fx-padding: 0 0 0 6;
 }
 
-.upcoming-events-gantt-nav {
+.upcoming-events-week-nav {
     -fx-background-color: -color-bg-subtle;
     -fx-text-fill: -color-fg-default;
     -fx-border-color: -color-border-default;
     -fx-border-radius: 6;
     -fx-background-radius: 6;
     -fx-padding: 2 10;
+    -fx-font-size: 11px;
 }
 
-.upcoming-events-gantt-daycell {
+.upcoming-events-week-daycell {
     -fx-border-color: -color-border-muted;
-    -fx-border-width: 0 1 1 0;
-    -fx-padding: 4 0 6 0;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 4 0 8 0;
 }
 
-.upcoming-events-gantt-dow {
+.upcoming-events-week-dow {
     -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 9px;
+    -fx-font-size: 10px;
 }
 
-.upcoming-events-gantt-daynum {
+.upcoming-events-week-daynum {
     -fx-text-fill: -color-fg-default;
-    -fx-font-size: 14px;
+    -fx-font-size: 16px;
     -fx-font-weight: bold;
 }
 
-.upcoming-events-gantt-today .upcoming-events-gantt-daynum {
-    -fx-text-fill: -color-fg-emphasis;
-}
-
-.upcoming-events-gantt-today {
+.upcoming-events-week-today {
     -fx-background-color: -color-accent-emphasis;
     -fx-background-radius: 6 6 0 0;
 }
 
-.upcoming-events-gantt-today .upcoming-events-gantt-dow {
+.upcoming-events-week-today .upcoming-events-week-daynum,
+.upcoming-events-week-today .upcoming-events-week-dow {
     -fx-text-fill: -color-fg-emphasis;
 }
 
-/* Vertical wash down today's whole column, the way the game tints the current day. */
-.upcoming-events-gantt-today-wash {
+/* Wash down today's whole column, so the current day is findable without counting across. */
+.upcoming-events-week-today-wash {
     -fx-background-color: -color-accent-subtle;
-    -fx-opacity: 0.45;
+    -fx-opacity: 0.35;
 }
 
-/* The coloured chip carries the span; the name is a separate node beside it, because a one-day
- * chip is one column wide and could only ever show an ellipsis. */
-.upcoming-events-gantt-bar {
-    -fx-min-height: 26px;
-    -fx-background-radius: 5;
-    -fx-background-insets: 0 2 0 2;
+.upcoming-events-week-name-cell {
+    -fx-padding: 0 12 0 2;
 }
 
-/* Plain, not bold: the name annotates the bar from outside it, and styling it like the bar made a
- * one-day event look as though it ran for the width of its own label. */
-.upcoming-events-gantt-bar-label {
+.upcoming-events-week-name {
+    -fx-text-fill: -color-fg-default;
     -fx-font-size: 12px;
-    -fx-text-fill: -color-fg-muted;
-    -fx-padding: 0 0 0 10;
 }
 
-.upcoming-events-gantt-bar-glyph {
+.upcoming-events-week-glyph {
     -fx-font-size: 14px;
 }
 
-.upcoming-events-gantt-bar-state {
-    -fx-background-color: -color-accent-subtle;
+/* Scheduled bars sit back; the one running now is full strength. Nothing carries text: the row's
+ * name is already in the left column, so the bar only has to say when. */
+.upcoming-events-week-bar {
+    -fx-min-height: 22px;
+    -fx-pref-height: 22px;
+    -fx-background-radius: 4;
+    -fx-background-insets: 0 3 0 3;
+    -fx-opacity: 0.7;
 }
 
-.upcoming-events-gantt-bar-alliance {
-    -fx-background-color: -color-success-subtle;
+.upcoming-events-week-bar-state {
+    -fx-background-color: -color-accent-emphasis;
 }
 
-.upcoming-events-gantt-bar-active {
-    -fx-border-color: -color-accent-fg;
-    -fx-border-width: 0 0 0 3;
-    -fx-border-insets: 0 2 0 2;
-    -fx-border-radius: 5;
+.upcoming-events-week-bar-alliance {
+    -fx-background-color: -color-success-fg;
+}
+
+.upcoming-events-week-bar-active {
+    -fx-opacity: 1;
 }
 
 /* ---------------------------------------------------------------------------

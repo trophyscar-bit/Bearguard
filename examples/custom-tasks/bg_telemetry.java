@@ -475,7 +475,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
     /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
-    private static final String SCAN_FORMAT_VERSION = "v2";
+    private static final String SCAN_FORMAT_VERSION = "v3";
 
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int DEFAULT_TRAP_NUMBER = 1;
