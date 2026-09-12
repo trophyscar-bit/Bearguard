@@ -226,6 +226,7 @@ public class ResourceStockpileRoutine extends DelayedTask {
         logInfo("ResourceStockpileRoutine | Scanning Meat/Wood/Coal/Iron from the Overview panel.");
 
         Map<String, Long> read = readOverviewPanel();
+        recordObservations(read);
 
         if (read != null) {
             // "check the last couple days" turned up meat/wood/iron swinging 10x
@@ -368,6 +369,16 @@ public class ResourceStockpileRoutine extends DelayedTask {
 
     /** Puts a summary read through the plausibility guards and caches what survives. */
     private void cacheSummary(SummaryRead read) {
+        // A HashMap, not Map.of: any of these is null when its row did not resolve, and Map.of
+        // rejects nulls. The store drops them; a reading that did not resolve is not an observation.
+        java.util.Map<String, Long> observed = new java.util.LinkedHashMap<>();
+        observed.put("steel", read.steel());
+        observed.put("sp_general", read.general());
+        observed.put("sp_training", read.training());
+        observed.put("sp_construction", read.construction());
+        observed.put("sp_research", read.research());
+        observed.put("sp_healing", read.healing());
+        recordObservations(observed);
         Long steel = sanityCheckAgainstCached("steel", read.steel(),
                 ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG);
         if (steel != null) {
@@ -466,6 +477,54 @@ public class ResourceStockpileRoutine extends DelayedTask {
             out.put(OVERVIEW_ROW_ORDER.get(i), values.get(i));
         }
         return out;
+    }
+
+    /**
+     * Writes what was just read to the metric store, as an observation timestamped now.
+     *
+     * <p>Deliberately the raw reading, before the plausibility guard sees it. The guard exists to
+     * protect the cached figures that drive gather decisions, where a bad number causes bad
+     * behaviour. History is a different thing: it is a record of what the screen said and when, and
+     * a guard that holds a figure back for six hours and then releases it makes the history claim
+     * the change happened at the moment the guard relented. That is what made the Statistics tab
+     * report eight hours of construction speedup arriving in one eleven-minute interval.</p>
+     *
+     * <p>Nulls are dropped by the store: a reading that did not resolve is not an observation.
+     * Best-effort throughout -- recording a statistic must never be able to break a scan.</p>
+     */
+    private void recordObservations(java.util.Map<String, Long> values) {
+        if (values == null || values.isEmpty() || profile.getId() == null) {
+            return;
+        }
+        try {
+            java.util.Map<String, Long> present = new java.util.LinkedHashMap<>();
+            values.forEach((k, v) -> {
+                if (v != null) {
+                    present.put(k, v);
+                }
+            });
+            if (!present.isEmpty()) {
+                metricStore().recordAll(profile.getId(), java.time.Instant.now(), present);
+            }
+        } catch (Exception e) {
+            logWarning("ResourceStockpileRoutine | Could not record observations: " + e.getMessage());
+        }
+    }
+
+    private static volatile dev.frostguard.data.metrics.MetricStore metricStore;
+
+    private static dev.frostguard.data.metrics.MetricStore metricStore() {
+        dev.frostguard.data.metrics.MetricStore local = metricStore;
+        if (local == null) {
+            synchronized (ResourceStockpileRoutine.class) {
+                local = metricStore;
+                if (local == null) {
+                    local = dev.frostguard.data.metrics.MetricStore.forCurrentWorkspace();
+                    metricStore = local;
+                }
+            }
+        }
+        return local;
     }
 
     /** A settle time, lengthened on a retry. See {@link #RETRY_EXTRA_SETTLE_MS}. */

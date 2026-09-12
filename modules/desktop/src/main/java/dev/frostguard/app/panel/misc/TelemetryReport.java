@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import dev.frostguard.api.runtime.WorkspacePaths;
+import dev.frostguard.data.metrics.MetricStore;
 
 /**
  * Reads the telemetry history that {@code bg_telemetry} appends to
@@ -74,46 +75,49 @@ public final class TelemetryReport {
 
     /** Overload taking an explicit workspace root, for tests that don't want a real installed
      *  workspace on disk. */
+    /**
+     * Loads this profile's readings from the metric store.
+     *
+     * <p>It used to read {@code history.jsonl}, which was not a record of readings. bg_telemetry
+     * wrote a row every two hours containing whatever sat in the config cache, and that cache only
+     * moved when a reading passed a plausibility guard, so a row's timestamp said when a value was
+     * copied rather than when it was seen. Subtracting two of those rows measured when the guard
+     * changed its mind. That is how the tab came to report eight hours of construction speedup
+     * arriving inside one eleven-minute interval.</p>
+     *
+     * <p>The store holds one row per reading, written by whoever read it at the moment they read
+     * it. Readings taken in the same moment are grouped back into a sample here, because everything
+     * below already reasons in samples, and that reasoning was never the problem.</p>
+     */
     public static TelemetryReport load(Path workspaceRoot, long profileId) {
-        List<Sample> out = new ArrayList<>();
-        Path file = workspaceRoot.resolve("data").resolve("telemetry")
-                .resolve("profiles").resolve(String.valueOf(profileId)).resolve("history.jsonl");
-        if (!Files.isReadable(file)) {
-            return new TelemetryReport(out);
-        }
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            for (String line : Files.readAllLines(file)) {
-                if (line == null || line.isBlank()) continue;
-                JsonNode node;
-                try {
-                    node = mapper.readTree(line);
-                } catch (IOException badLine) {
-                    continue; // one corrupt line never sinks the whole history
-                }
-                Instant at = parseInstant(node.path("capturedAt").asText(null));
-                if (at == null) continue;
-                Map<String, Long> values = new LinkedHashMap<>();
-                for (String metric : METRICS) {
-                    JsonNode v = node.get(metric);
-                    if (v != null && v.isNumber()) {
-                        values.put(metric, v.asLong());
-                    }
-                }
-                // Activity fields are flattened as "run.<Task>" / "ctr.<Counter>".
-                Map<String, Long> activity = new LinkedHashMap<>();
-                node.fields().forEachRemaining(f -> {
-                    String k = f.getKey();
-                    if ((k.startsWith("run.") || k.startsWith("ctr.")) && f.getValue().isNumber()) {
-                        activity.put(k, f.getValue().asLong());
-                    }
-                });
-                out.add(new Sample(at, values, activity));
+        MetricStore store = new MetricStore(workspaceRoot
+                .resolve("data").resolve("telemetry").resolve("metrics.db"));
+
+        Map<Instant, Map<String, Long>> valuesAt = new java.util.TreeMap<>();
+        Map<Instant, Map<String, Long>> activityAt = new java.util.TreeMap<>();
+        Instant dawn = Instant.EPOCH;
+        Instant never = Instant.now().plus(java.time.Duration.ofDays(3650));
+        for (String metric : store.metrics(profileId)) {
+            boolean isActivity = metric.startsWith("run.") || metric.startsWith("ctr.");
+            if (!isActivity && !METRICS.contains(metric)) {
+                continue;
             }
-        } catch (IOException e) {
-            return new TelemetryReport(new ArrayList<>());
+            for (MetricStore.Observation o : store.between(profileId, metric, dawn, never)) {
+                Map<Instant, Map<String, Long>> into = isActivity ? activityAt : valuesAt;
+                into.computeIfAbsent(o.observedAt(), k -> new LinkedHashMap<>()).put(metric, o.value());
+            }
         }
-        out.sort((a, b) -> a.at().compareTo(b.at()));
+
+        java.util.TreeSet<Instant> moments = new java.util.TreeSet<>();
+        moments.addAll(valuesAt.keySet());
+        moments.addAll(activityAt.keySet());
+
+        List<Sample> out = new ArrayList<>();
+        for (Instant at : moments) {
+            out.add(new Sample(at,
+                    valuesAt.getOrDefault(at, new LinkedHashMap<>()),
+                    activityAt.getOrDefault(at, new LinkedHashMap<>())));
+        }
         return new TelemetryReport(despike(out));
     }
 
