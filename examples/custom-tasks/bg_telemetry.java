@@ -1063,14 +1063,19 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         String name = cleanGanttLabel(label);
         boolean truncated = name.isEmpty() || raw.endsWith("...") || raw.endsWith("…");
 
-        if (truncated && iconBox != null) {
-            // A truncated bar carries its identity in the icon, not the text. This is the only
-            // thing allowed to supply a name the label did not: it comes from a stored icon the
-            // operator (or an earlier untruncated bar) named, never from inference about the date.
+        // The icon is consulted for every bar, not only truncated ones. A curated icon matches at
+        // 98-100 against a best wrong score of 53, while the label OCR returns "Siow" for
+        // Snowbusters and "Halllof Chiefs" for Hall of Chiefs on the same frames. Where the icon is
+        // known it is simply the better evidence, so it wins; the OCR text is the fallback for
+        // events whose icon nobody has named yet.
+        if (iconBox != null) {
             String matched = matchIcon(capture, barLeft, barRight, bandTop, bandBottom);
             if (matched != null) {
-                logInfo("bg_telemetry | Calendar: bar " + start + ".." + end
-                        + " label was cut off; identified by its icon as \"" + matched + "\".");
+                if (!matched.equalsIgnoreCase(name)) {
+                    logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " read as \""
+                            + (name.isEmpty() ? "(nothing)" : name) + "\"; its icon says \""
+                            + matched + "\", which is the better evidence.");
+                }
                 name = matched;
                 truncated = false;
             }
