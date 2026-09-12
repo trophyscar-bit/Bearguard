@@ -372,31 +372,35 @@
 }
 
 .upcoming-events-gantt-section {
-    -fx-text-fill: -color-fg-emphasis;
-    -fx-background-color: -color-neutral-muted;
-    -fx-font-size: 10px;
+    -fx-text-fill: -color-fg-default;
+    -fx-background-color: -color-bg-inset;
+    -fx-font-size: 11px;
     -fx-font-weight: bold;
-    -fx-padding: 3 8;
+    -fx-padding: 4 10;
     -fx-background-radius: 4;
 }
 
+/* The coloured chip carries the span; the name is a separate node beside it, because a one-day
+ * chip is one column wide and could only ever show an ellipsis. */
 .upcoming-events-gantt-bar {
-    -fx-font-size: 12px;
-    -fx-font-weight: bold;
-    -fx-padding: 6 8;
+    -fx-min-height: 26px;
     -fx-background-radius: 5;
     -fx-background-insets: 0 2 0 2;
-    -fx-text-overrun: ELLIPSIS;
+}
+
+.upcoming-events-gantt-bar-label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-fg-default;
+    -fx-padding: 0 0 0 12;
 }
 
 .upcoming-events-gantt-bar-state {
     -fx-background-color: -color-accent-subtle;
-    -fx-text-fill: -color-accent-fg;
 }
 
 .upcoming-events-gantt-bar-alliance {
     -fx-background-color: -color-success-subtle;
-    -fx-text-fill: -color-success-fg;
 }
 
 .upcoming-events-gantt-bar-active {

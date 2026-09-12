@@ -16,6 +16,7 @@ import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.fxml.FXML;
+import javafx.geometry.VPos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
@@ -212,12 +213,12 @@ public class UpcomingEventsLayoutController {
      *  earlier within that group -- and the group as a whole always sorts after every real upcoming
      *  start, since that subtraction stays astronomically larger). */
     private long sortKey(EventScheduleEntry entry, LocalDateTime nowUtc) {
-        if (entry.isCurrentlyActive()) {
-            return Long.MIN_VALUE;
-        }
         LocalDateTime start = entry.getActiveSince();
         if (start != null && start.isAfter(nowUtc)) {
             return start.toEpochSecond(ZoneOffset.UTC);
+        }
+        if (entry.isCurrentlyActive()) {
+            return Long.MIN_VALUE;
         }
         LocalDateTime end = entry.getInactiveSince();
         return end != null ? Long.MAX_VALUE - end.toEpochSecond(ZoneOffset.UTC) : Long.MAX_VALUE;
@@ -332,26 +333,25 @@ public class UpcomingEventsLayoutController {
         return "📅";
     }
 
+    /** A start still in the future outranks the stored active flag. The scan marks an entry active
+     *  when the game showed it -- the Task List only lists an event once it is close -- but the row
+     *  beside it then prints a start hours away, and "Active / Starts 8:00 PM" contradicts itself. */
     private String badgeText(EventScheduleEntry entry, LocalDateTime nowUtc) {
-        if (entry.isCurrentlyActive()) {
-            return "Active";
-        }
         LocalDateTime start = entry.getActiveSince();
         if (start != null && start.isAfter(nowUtc)) {
             return "Upcoming";
         }
-        return "Ended";
+        return entry.isCurrentlyActive() ? "Active" : "Ended";
     }
 
     private String badgeStyleClass(EventScheduleEntry entry, LocalDateTime nowUtc) {
-        if (entry.isCurrentlyActive()) {
-            return "upcoming-events-badge-active";
-        }
         LocalDateTime start = entry.getActiveSince();
         if (start != null && start.isAfter(nowUtc)) {
             return "upcoming-events-badge-upcoming";
         }
-        return "upcoming-events-badge-ended";
+        return entry.isCurrentlyActive()
+                ? "upcoming-events-badge-active"
+                : "upcoming-events-badge-ended";
     }
 
     // Month Gantt
@@ -480,7 +480,12 @@ public class UpcomingEventsLayoutController {
 
         int row = startRow + 1;
         for (Bar bar : bars) {
-            chart.add(bar.node, bar.firstColumn, row, bar.span, 1);
+            chart.add(bar.chip, bar.firstColumn, row, bar.span, 1);
+            // The name is a separate node spanning to the end of the month rather than text inside
+            // the chip: a one-day bar is 58px and would render every label as "B...". Nothing else
+            // occupies this row, so the text is free to run past the chip and stay readable.
+            chart.add(bar.label, bar.firstColumn, row, dayCount - bar.firstColumn, 1);
+            GridPane.setValignment(bar.label, VPos.CENTER);
             row++;
         }
         return row;
@@ -503,30 +508,34 @@ public class UpcomingEventsLayoutController {
         LocalDate clippedFrom = from.isBefore(monthStart) ? monthStart : from;
         LocalDate clippedTo = to.isAfter(monthEnd) ? monthEnd : to;
 
-        String text = iconFor(entry.getEventLabel()) + "  " + entry.getEventLabel();
-        Label node = new Label(text);
-        node.setMaxWidth(Double.MAX_VALUE);
-        node.getStyleClass().addAll("upcoming-events-gantt-bar",
+        Region chip = new Region();
+        chip.setMaxWidth(Double.MAX_VALUE);
+        chip.getStyleClass().addAll("upcoming-events-gantt-bar",
                 isAllianceEvent(entry.getEventKey())
                         ? "upcoming-events-gantt-bar-alliance"
                         : "upcoming-events-gantt-bar-state");
         if (entry.isCurrentlyActive()) {
-            node.getStyleClass().add("upcoming-events-gantt-bar-active");
+            chip.getStyleClass().add("upcoming-events-gantt-bar-active");
         }
-        // The bar is clipped to the month and its label is usually truncated, so the full window
-        // stays reachable on hover instead of being lost to the layout.
-        node.setTooltip(new Tooltip(entry.getEventLabel() + "\n" + describeWindow(entry)));
+        // The bar is clipped to the displayed month, so the full window stays reachable on hover.
+        Tooltip.install(chip, new Tooltip(entry.getEventLabel() + "\n" + describeWindow(entry)));
+
+        Label label = new Label(iconFor(entry.getEventLabel()) + "  " + entry.getEventLabel());
+        label.getStyleClass().add("upcoming-events-gantt-bar-label");
+        label.setMouseTransparent(true);
 
         Bar bar = new Bar();
-        bar.node = node;
+        bar.chip = chip;
+        bar.label = label;
         bar.firstColumn = clippedFrom.getDayOfMonth() - 1;
         bar.span = clippedTo.getDayOfMonth() - clippedFrom.getDayOfMonth() + 1;
         return bar;
     }
 
-    /** One laid-out event bar: the node plus where it sits in the day grid. */
+    /** One laid-out event bar: the coloured chip, its name, and where both sit in the day grid. */
     private static final class Bar {
-        private Label node;
+        private Region chip;
+        private Label label;
         private int firstColumn;
         private int span;
     }
