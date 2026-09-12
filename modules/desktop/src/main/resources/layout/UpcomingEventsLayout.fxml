@@ -8,14 +8,14 @@
      Defeat Nearby Beasts, Events -> Calendar) and Alliance Events (Bear Trap, Alliance ->
      Battle -> Fortress, Task List). Timezone lives under Config -> Calendar.
 
-     List/Month toggle switches between the card list below and a month Gantt mirroring the game's
-     own Events -> Calendar tab (day columns across the top, one bar per event spanning the days it
-     runs): built in code, not FXML, since its columns and bars are data-driven. -->
+     List/Week toggle switches between the card list below and a seven day timeline: event names in
+     a fixed column, then one bar per event across the day columns. Built in code, not FXML, since
+     its rows and bars are data-driven. -->
 <StackPane maxHeight="Infinity" maxWidth="Infinity"
            HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
            xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
 
-    <!-- fitToHeight lets the Month chart claim the whole window: without it the card stops at its
+    <!-- fitToHeight lets the timeline claim the whole window: without it the card stops at its
          natural height and leaves the lower half of the page empty. Content taller than the
          viewport still scrolls normally. -->
     <ScrollPane fitToWidth="true" fitToHeight="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED"
@@ -24,7 +24,7 @@
 
             <HBox spacing="0" styleClass="upcoming-events-view-toggle">
                 <ToggleButton fx:id="toggleListView" text="List" styleClass="upcoming-events-view-toggle-left" />
-                <ToggleButton fx:id="toggleMonthView" text="Month" styleClass="upcoming-events-view-toggle-right" />
+                <ToggleButton fx:id="toggleMonthView" text="Week" styleClass="upcoming-events-view-toggle-right" />
             </HBox>
 
             <VBox fx:id="listView" spacing="14">
@@ -62,7 +62,7 @@
             <VBox fx:id="monthView" spacing="14" visible="false" managed="false" VBox.vgrow="ALWAYS">
                 <VBox styleClass="content-card" VBox.vgrow="ALWAYS">
                     <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                        <Label text="Month" />
+                        <Label text="Week" />
                     </HBox>
                     <VBox spacing="10" styleClass="task-section-inner" VBox.vgrow="ALWAYS">
                         <HBox spacing="16" alignment="CENTER_LEFT">

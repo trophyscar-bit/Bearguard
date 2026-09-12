@@ -115,6 +115,29 @@ public class UpcomingEventsLayoutController {
         refreshTimer.play();
     }
 
+    /**
+     * Collapses the same event seen by two different scans into one row.
+     *
+     * <p>The Task List, the Fortress read and the calendar chart all legitimately report the same
+     * fight, under different keys, so the raw cache holds "Castle Battle" three times over. Rows are
+     * keyed here by name and start date, and the survivor is the one that knows when the event ends
+     * -- an entry with a real window beats one that only knows it started.</p>
+     */
+    private List<EventScheduleEntry> dedupe(List<EventScheduleEntry> entries) {
+        java.util.Map<String, EventScheduleEntry> best = new java.util.LinkedHashMap<>();
+        for (EventScheduleEntry entry : entries) {
+            String label = entry.getEventLabel() == null ? "" : entry.getEventLabel().trim().toLowerCase();
+            LocalDate startDate = entry.getActiveSince() == null ? null : entry.getActiveSince().toLocalDate();
+            String key = label + "|" + startDate;
+            EventScheduleEntry existing = best.get(key);
+            if (existing == null
+                    || (existing.getInactiveSince() == null && entry.getInactiveSince() != null)) {
+                best.put(key, entry);
+            }
+        }
+        return new ArrayList<>(best.values());
+    }
+
     /** Stops the polling timer; call if this page is ever torn down independently of the app. */
     public void stopAutoRefresh() {
         if (refreshTimer != null) {
@@ -133,7 +156,7 @@ public class UpcomingEventsLayoutController {
     }
 
     private void refresh() {
-        latestEntries = EventScheduleService.obtain().findAll();
+        latestEntries = dedupe(EventScheduleService.obtain().findAll());
 
         stateCardsContainer.getChildren().clear();
         allianceCardsContainer.getChildren().clear();
@@ -448,10 +471,15 @@ public class UpcomingEventsLayoutController {
         chart.getColumnConstraints().add(nameColumn);
         for (int day = 0; day < WEEK_DAYS; day++) {
             ColumnConstraints column = new ColumnConstraints();
-            column.setPercentWidth(100.0 / WEEK_DAYS);
+            // Equal prefs plus ALWAYS, not percentages: a percentage is taken of the whole grid,
+            // so seven of 100/7 each claimed the entire width and pushed the last two days off the
+            // page. Sharing the leftover space after the fixed name column keeps all seven on screen.
+            column.setPrefWidth(1);
             column.setHgrow(Priority.ALWAYS);
+            column.setFillWidth(true);
             chart.getColumnConstraints().add(column);
         }
+        chart.setMaxWidth(Double.MAX_VALUE);
 
         int rowCount = 1 + bars.size();
         if (!today.isBefore(weekStart) && !today.isAfter(weekEnd)) {
@@ -528,8 +556,11 @@ public class UpcomingEventsLayoutController {
         return nav;
     }
 
+    /** The seven-day window the game itself shows: two days of context behind today, four ahead.
+     *  Anchoring to Monday instead pushed today to the far edge on a Saturday, which is exactly
+     *  when the week matters most. */
     private static LocalDate startOfWeek(LocalDate date) {
-        return date.minusDays(date.getDayOfWeek().getValue() - 1L);
+        return date.minusDays(2);
     }
 
     /** Clips one entry to the displayed week, or returns null when it does not touch it. An entry
