@@ -247,6 +247,13 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // snapshots to show "what the bot DID" over a window (27 intel runs, 6 pet adventures, ...).
         appendActivitySnapshot(sample);
 
+        // The readings this task took itself, plus the accomplishment counters, recorded as
+        // observations at the moment they were taken. The JSON Lines file is still written below,
+        // but it is a log of two-hourly copies of whatever the cache held; the store is a log of
+        // readings. Only the second can answer "what changed between 11pm and 8am" by subtracting
+        // two numbers, which is the whole point of it.
+        recordObservations(power, gems, coal, sample);
+
         String json = toJson(sample);
         writeSample(json);
 
@@ -260,6 +267,170 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         scanUpcomingEventsCalendar();
 
         scheduleNext();
+    }
+
+    /**
+     * The header clock ("UTC MM-dd HH:mm:ss", top-left on every screen) opens a "Task List"
+     * panel: dated sections (an explicit "yyyy/MM/dd" bar, or "Today") each holding entries --
+     * "Fortress Battles" / "Fortress No. N" or "Stronghold No. N" with a right-side "Ended" or a
+     * start time ("HH:mm"), and "Bear Hunt - Trap N" the same way. This is a strictly better
+     * alliance-events source than the Battle -&gt; Fortress summary (real dated start times, plus
+     * Bear Hunt, in one screen) so it's additive alongside the existing Fortress-panel scan
+     * rather than replacing it -- distinct key prefix, no collision.
+     *
+     * <p>Live-verified 2026-09-11 against a real "Local Time"-toggled list showing
+     * "2026/09/10 -&gt; Fortress No. 9: Ended", "Today -&gt; Stronghold No. 2: Ended",
+     * "Today -&gt; Fortress No. 12" (highlighted/in-progress, no time shown), and
+     * "Today -&gt; Bear Hunt - Trap 1: 15:00".</p>
+     */
+    private static final PointData HEADER_CLOCK_POINT = new PointData(230, 23);
+    private static final PointData TASK_LIST_CLOSE_POINT = new PointData(660, 359);
+    private static final PointData TASK_LIST_TITLE_TOP_LEFT = new PointData(20, 335);
+    private static final PointData TASK_LIST_TITLE_BOTTOM_RIGHT = new PointData(220, 385);
+    private static final PointData TASK_LIST_PANEL_TOP_LEFT = new PointData(10, 460);
+    private static final PointData TASK_LIST_PANEL_BOTTOM_RIGHT = new PointData(710, 1270);
+    private static final PointData TASK_LIST_SCROLL_FROM = new PointData(360, 1100);
+    private static final PointData TASK_LIST_SCROLL_TO = new PointData(360, 650);
+    private static final int TASK_LIST_SCROLL_PASSES = 3;
+
+    private static final Pattern TASK_LIST_DATE_MARKER = Pattern.compile("(\\d{4}/\\d{2}/\\d{2})|\\bToday\\b");
+    private static final Pattern TASK_LIST_ENTRY_TITLE = Pattern.compile(
+            "(Fortress Battles|Castle Battle|Bear Hunt\\s*-\\s*Trap\\s*\\d+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TASK_LIST_FACILITY_REF = Pattern.compile(
+            "(Fortress No\\.?\\s*\\d+|Stronghold No\\.?\\s*\\d+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TASK_LIST_TIME = Pattern.compile("(\\d{1,2}):(\\d{2})\\b");
+    private static final Pattern TASK_LIST_ENDED = Pattern.compile("\\bEnded\\b", Pattern.CASE_INSENSITIVE);
+
+    private void scanAllianceTaskList() {
+        // matt: the header clock only opens the Task List from the World map -- not City, and
+        // not on every tap even there (only when some alliance event is close). The scans before
+        // this one (Fortress) can leave the screen on City, so this must force World explicitly
+        // rather than assume execute()'s start-of-run WORLD requirement still holds mid-run.
+        navigationHelper.ensureCorrectScreenLocation(LaunchPoint.WORLD);
+
+        // A positive anchor (the panel's own "Task List" title) decides whether anything actually
+        // opened, rather than assuming a tap that did nothing was a panel to read; without this,
+        // the blind close-tap below would land on whatever else is on screen.
+        tapNear(HEADER_CLOCK_POINT);
+        sleepTask(PANEL_SETTLE_MS);
+
+        String title = readPanelBlock(TASK_LIST_TITLE_TOP_LEFT, TASK_LIST_TITLE_BOTTOM_RIGHT);
+        if (title == null || !title.toLowerCase().contains("task")) {
+            logInfo("bg_telemetry | Task List not open (no event close enough right now) -- skipping.");
+            return;
+        }
+
+        String combined = readPanelBlock(TASK_LIST_PANEL_TOP_LEFT, TASK_LIST_PANEL_BOTTOM_RIGHT);
+        if (combined == null) {
+            combined = "";
+        }
+        logDebug("bg_telemetry | Task List raw panel text (pass 0): " + combined);
+        for (int i = 0; i < TASK_LIST_SCROLL_PASSES; i++) {
+            swipe(TASK_LIST_SCROLL_FROM, TASK_LIST_SCROLL_TO);
+            sleepTask(700);
+            String more = readPanelBlock(TASK_LIST_PANEL_TOP_LEFT, TASK_LIST_PANEL_BOTTOM_RIGHT);
+            logDebug("bg_telemetry | Task List raw panel text (pass " + (i + 1) + "): " + more);
+            if (more != null && !more.isBlank()) {
+                combined = combined + "\n" + more;
+            }
+        }
+
+        if (combined.isBlank()) {
+            logInfo("bg_telemetry | Task List panel was empty; skipping this pass.");
+        } else {
+            recordTaskListFrom(combined);
+        }
+
+        tapNear(TASK_LIST_CLOSE_POINT);
+        sleepTask(600);
+    }
+
+    private void recordTaskListFrom(String panelText) {
+        // Walk the flattened text once, tracking the most recent date marker seen so each entry
+        // inherits the section it actually appeared under.
+        String currentDateMarker = "Today";
+        int cursor = 0;
+        int recorded = 0;
+
+        while (cursor < panelText.length()) {
+            Matcher dateMatcher = TASK_LIST_DATE_MARKER.matcher(panelText);
+            Matcher titleMatcher = TASK_LIST_ENTRY_TITLE.matcher(panelText);
+            boolean dateFound = dateMatcher.find(cursor);
+            boolean titleFound = titleMatcher.find(cursor);
+
+            if (dateFound && (!titleFound || dateMatcher.start() < titleMatcher.start())) {
+                currentDateMarker = dateMatcher.group();
+                cursor = dateMatcher.end();
+                continue;
+            }
+            if (!titleFound) {
+                break;
+            }
+
+            int entryEnd = findNextEntryBoundary(panelText, titleMatcher.end());
+            String entryText = panelText.substring(titleMatcher.end(), entryEnd);
+            if (recordOneTaskListEntry(titleMatcher.group(1), currentDateMarker, entryText)) {
+                recorded++;
+            }
+            cursor = titleMatcher.end();
+        }
+
+        logInfo("bg_telemetry | Task List: recorded " + recorded + " entr" + (recorded == 1 ? "y" : "ies") + ".");
+    }
+
+    /** An entry's own text runs until the next title or date marker, whichever comes first. */
+    private int findNextEntryBoundary(String panelText, int from) {
+        Matcher nextTitle = TASK_LIST_ENTRY_TITLE.matcher(panelText);
+        Matcher nextDate = TASK_LIST_DATE_MARKER.matcher(panelText);
+        int titleEnd = nextTitle.find(from) ? nextTitle.start() : panelText.length();
+        int dateEnd = nextDate.find(from) ? nextDate.start() : panelText.length();
+        return Math.min(titleEnd, dateEnd);
+    }
+
+    private boolean recordOneTaskListEntry(String title, String dateMarker, String entryText) {
+        LocalDate date = resolveTaskListDate(dateMarker);
+        if (date == null) {
+            return false;
+        }
+
+        Matcher facility = TASK_LIST_FACILITY_REF.matcher(entryText);
+        String facilityRef = facility.find() ? facility.group(1).replaceAll("\\s+", " ").trim() : null;
+
+        String label = facilityRef != null ? title + " (" + facilityRef + ")" : title;
+        String key = "TASKLIST_" + (facilityRef != null ? facilityRef : title).toUpperCase()
+                .replaceAll("[^A-Z0-9]+", "_") + "_" + date;
+
+        boolean ended = TASK_LIST_ENDED.matcher(entryText).find();
+        Matcher time = TASK_LIST_TIME.matcher(entryText);
+
+        if (ended) {
+            // A past section entry -- record it as a closed window so it stops showing as
+            // "upcoming" without inventing a start time nothing on screen actually gave.
+            LocalDateTime end = date.atStartOfDay();
+            EventScheduleService.obtain().recordWindow(key, label, false, end, end);
+            return true;
+        }
+        if (time.find()) {
+            LocalDateTime start = date.atTime(Integer.parseInt(time.group(1)), Integer.parseInt(time.group(2)));
+            EventScheduleService.obtain().recordWindow(key, label, false, start, null);
+            return true;
+        }
+        // Neither "Ended" nor a time -- the highlighted/in-progress entry (an arrow icon, not
+        // text). Recorded as currently active with an unknown end.
+        EventScheduleService.obtain().recordWindow(key, label, true, date.atStartOfDay(), null);
+        return true;
+    }
+
+    private LocalDate resolveTaskListDate(String marker) {
+        if ("Today".equalsIgnoreCase(marker)) {
+            return LocalDate.now(ZoneOffset.UTC);
+        }
+        try {
+            String[] parts = marker.split("/");
+            return LocalDate.of(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     // ── Upcoming Events calendar scans ──────────────────────────────────────────────
@@ -276,6 +447,12 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     };
     private static final String[] ROTATING_EVENT_LABELS = {
             "Hall of Chiefs", "Brothers in Arms", "Defeat Nearby Beasts",
+    };
+    /** Stable keys matching the original EventKind enum names -- NOT TemplatesEnum.name()
+     *  (EVENTS_TAB_HALL_OF_CHIEFS, ...), which briefly diverged and produced duplicate rows for
+     *  the same event under two different keys. */
+    private static final String[] ROTATING_EVENT_KEYS = {
+            "HALL_OF_CHIEFS", "BROTHERS_IN_ARMS", "DEFEAT_NEARBY_BEASTS",
     };
 
     private static final PointData FORTRESS_PANEL_TOP_LEFT = new PointData(10, 580);
@@ -306,6 +483,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         scanRotatingEvents();
         scanBearTrapWindow();
         scanAllianceFortress();
+        scanAllianceTaskList();
         maybeScanStateCalendar();
     }
 
@@ -325,7 +503,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             ImageSearchResultData tab = templateSearchHelper.locatePattern(
                     ROTATING_EVENT_TABS[i], SearchConfigConstants.QUICK_SEARCH);
             EventScheduleService.obtain().recordObservation(
-                    ROTATING_EVENT_TABS[i].name(), ROTATING_EVENT_LABELS[i], tab.isFound());
+                    ROTATING_EVENT_KEYS[i], ROTATING_EVENT_LABELS[i], tab.isFound());
         }
 
         pressBack();
@@ -480,9 +658,13 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         tapNear(calendarTab.getPoint());
         sleepTask(PANEL_SETTLE_MS);
 
-        String panelText = readPanelBlock(CALENDAR_PANEL_TOP_LEFT, CALENDAR_PANEL_BOTTOM_RIGHT);
-        logDebug("bg_telemetry | Calendar panel raw text: " + panelText);
-        recordStateEventsFrom(panelText);
+        int recorded = readGanttChart();
+        // One scroll down, then read again: the chart is taller than the panel and the day-header
+        // row stays pinned, so the same column geometry holds for both passes.
+        swipe(CALENDAR_SCROLL_FROM, CALENDAR_SCROLL_TO);
+        sleepTask(PANEL_SETTLE_MS);
+        recorded += readGanttChart();
+        logInfo("bg_telemetry | State calendar: recorded " + recorded + " event bar(s).");
 
         pressBack();
         sleepTask(600);
@@ -824,6 +1006,40 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             }
         } catch (Exception e) {
             logWarning("bg_telemetry | Could not snapshot activity stats: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Records this task's own live HUD readings and the accomplishment counters.
+     *
+     * <p>Only the three HUD figures are this task's own readings; meat, wood, iron, steel and the
+     * speedups are recorded by ResourceStockpileRoutine when it reads them, so they are not copied
+     * here. The counters are the application's own running totals rather than anything OCR'd, so
+     * they are as good at this moment as at any other.</p>
+     *
+     * <p>Best-effort: recording a statistic must never break a sample.</p>
+     */
+    private void recordObservations(Long power, Long gems, Long coal, Map<String, Object> sample) {
+        try {
+            if (profile.getId() == null) {
+                return;
+            }
+            Map<String, Long> seen = new LinkedHashMap<>();
+            if (power != null) seen.put("power", power);
+            if (gems != null) seen.put("gems", gems);
+            if (coal != null) seen.put("coal", coal);
+            for (Map.Entry<String, Object> e : sample.entrySet()) {
+                if ((e.getKey().startsWith("run.") || e.getKey().startsWith("ctr."))
+                        && e.getValue() instanceof Number n) {
+                    seen.put(e.getKey(), n.longValue());
+                }
+            }
+            if (!seen.isEmpty()) {
+                dev.frostguard.data.metrics.MetricStore.forCurrentWorkspace()
+                        .recordAll(profile.getId(), java.time.Instant.now(), seen);
+            }
+        } catch (Exception e) {
+            logWarning("bg_telemetry | Could not record observations: " + e.getMessage());
         }
     }
 
