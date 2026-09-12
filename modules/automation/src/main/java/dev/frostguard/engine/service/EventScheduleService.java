@@ -50,6 +50,12 @@ public final class EventScheduleService {
         repository.recordWindow(eventKey, eventLabel, activeNow, windowStart, windowEnd, LocalDateTime.now(ZoneOffset.UTC));
     }
 
+    /** Drops a whole family of cached entries, for a scan that reads its screen as one snapshot and
+     *  must therefore replace what the previous snapshot left behind. Returns how many went. */
+    public int forgetAll(String eventKeyPrefix) {
+        return repository.deleteByKeyPrefix(eventKeyPrefix);
+    }
+
     /** All cached entries, for the sidebar widget to render. */
     public List<EventScheduleEntry> findAll() {
         return repository.findAll();

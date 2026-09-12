@@ -41,6 +41,21 @@ public final class EventScheduleRepository {
     }
 
     /**
+     * Drops every cached entry whose key starts with {@code keyPrefix}, and returns how many went.
+     *
+     * <p>For scans that read a whole screen at once rather than one event at a time: that read is a
+     * complete snapshot, so the previous snapshot has to go with it. Without this, a bar the game
+     * stopped showing, or one whose OCR'd name came out differently on a later pass, stays behind
+     * forever as a second row beside its replacement.</p>
+     */
+    public int deleteByKeyPrefix(String keyPrefix) {
+        return store.withinTransaction(entityManager -> entityManager.createQuery(
+                        "DELETE FROM EventScheduleEntry e WHERE e.eventKey LIKE :prefix")
+                .setParameter("prefix", keyPrefix + "%")
+                .executeUpdate());
+    }
+
+    /**
      * Records one scan's presence/absence read for an event and derives the
      * active/inactive transition from it -- the first scan that disagrees with the
      * previously stored state resets the corresponding "since" timestamp to {@code scannedAt};

@@ -472,6 +472,10 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final PointData CALENDAR_TAB_STRIP_SWIPE_FROM = new PointData(150, 141);
     private static final PointData CALENDAR_TAB_STRIP_SWIPE_TO = new PointData(600, 141);
 
+    private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
+    /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
+    private static final String SCAN_FORMAT_VERSION = "v2";
+
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int DEFAULT_TRAP_NUMBER = 1;
     private static final int DEFAULT_TRAP_PREPARATION_MINUTES = 10;
@@ -613,13 +617,13 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     /** Gated to once per game day: the first hourly bg_telemetry run of each UTC date, tracked in
      *  BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING. The game's own day rolls at 00:00 UTC, so
      *  that first pass is also the freshest the chart gets, and the calendar has nothing new to say
-     *  between two resets. This
-     *  week's grid had no event bars posted, so the format of a populated day is not yet observed
-     *  -- this looks for an HH:mm-HH:mm range near each day label as a best-effort first pass and
-     *  logs the raw panel text at DEBUG every run specifically so the real format can be confirmed
-     *  and this parser tightened the next time a state event is actually scheduled. */
+     *  between two resets.
+     *
+     *  <p>The stored value carries SCAN_FORMAT_VERSION so that changing how a bar is read or named
+     *  invalidates what the previous version wrote, instead of leaving a day's worth of rows that
+     *  no later pass will ever revisit.</p> */
     private void maybeScanStateCalendar() {
-        String gameDay = LocalDate.now(ZoneOffset.UTC).toString();
+        String gameDay = LocalDate.now(ZoneOffset.UTC) + "/" + SCAN_FORMAT_VERSION;
         String lastScanned = profile.getConfig(
                 ConfigurationKeyEnum.BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING, String.class);
         if (gameDay.equals(lastScanned)) {
@@ -652,6 +656,14 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         }
         tapNear(calendarTab.getPoint());
         sleepTask(PANEL_SETTLE_MS);
+
+        // The chart is a complete snapshot of the state schedule, so this pass replaces the last
+        // one outright. Keeping the old rows would leave a bar the game has dropped, or one whose
+        // name this pass read differently, sitting beside its own replacement.
+        int forgotten = EventScheduleService.obtain().forgetAll(STATE_GANTT_KEY_PREFIX);
+        if (forgotten > 0) {
+            logInfo("bg_telemetry | Calendar: cleared " + forgotten + " row(s) from the previous read.");
+        }
 
         int recorded = readGanttChart();
         // One scroll down, then read again: the chart is taller than the panel and the day-header
@@ -846,8 +858,14 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         String label = readPanelBlock(
                 new PointData(ganttColumnStart(firstColumn) + 62, centre - 16),
                 new PointData(GANTT_RIGHT, centre + 16));
-        String name = label == null ? "" : label.replaceAll("\\s+", " ").trim();
-        boolean truncated = name.isEmpty() || name.endsWith("...") || name.endsWith("…");
+        // The game's own ellipsis has to be read off the raw text: cleaning strips punctuation, so
+        // "Alliance..." and "Alliance" are indistinguishable afterwards.
+        String raw = label == null ? "" : label.trim();
+        String name = cleanGanttLabel(label);
+        boolean truncated = name.isEmpty() || raw.endsWith("...") || raw.endsWith("…");
+        if (truncated && !name.isEmpty()) {
+            name = name + "...";
+        }
         if (truncated) {
             // Truncated or icon-only bars carry their identity in the icon, not the text. Nothing
             // here guesses a name: the bar is still recorded with its real dates, flagged so the
@@ -864,11 +882,33 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         LocalDateTime endAt = end.plusDays(1).atStartOfDay().minusMinutes(1);
         boolean activeNow = !today.isBefore(start) && !today.isAfter(end);
         EventScheduleService.obtain().recordWindow(
-                "STATE_GANTT_" + name.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_" + start,
+                STATE_GANTT_KEY_PREFIX + name.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_" + start,
                 name, activeNow, startAt, endAt);
         logInfo("bg_telemetry | Calendar: " + name + " " + start + " -> " + end
                 + (activeNow ? " (running now)" : ""));
         return 1;
+    }
+
+    /**
+     * Strips the wreckage the bar's own icon leaves in front of the name. The crop starts past the
+     * icon, but its right edge still lands in the block often enough to produce reads like
+     * "&laquo;Hall of Chiefs", ": Vault of Enigma" and "=~ Hero)Rally". This drops everything before
+     * the first letter, turns stray punctuation inside the name into spaces, and drops a leading
+     * one- or two-character lowercase fragment. It only ever removes characters, so a name can come
+     * out shortened or empty but never invented; an empty result falls through to the same
+     * truncated-label handling as a blank read.
+     */
+    private String cleanGanttLabel(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String text = raw.replaceAll("^[^\\p{L}]+", "");
+        text = text.replaceAll("[^\\p{L}\\p{N}\\s'-]+", " ").replaceAll("\\s+", " ").trim();
+        String[] words = text.split(" ");
+        if (words.length > 1 && words[0].length() <= 2 && words[0].equals(words[0].toLowerCase())) {
+            text = text.substring(words[0].length() + 1);
+        }
+        return text.trim();
     }
 
     private String readPanelBlock(PointData topLeft, PointData bottomRight) {
