@@ -28,6 +28,7 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.RowConstraints;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 
@@ -65,6 +66,8 @@ public class UpcomingEventsLayoutController {
     /** Month-Gantt day column. Wide enough for a two-day bar to still show a readable label; the
      *  chart scrolls horizontally rather than squeezing a whole month into the page width. */
     private static final int DAY_COLUMN_WIDTH = 58;
+    private static final int BAR_ROW_MIN_HEIGHT = 30;
+    private static final int BAR_ROW_MAX_HEIGHT = 58;
 
     /** Alliance Events: Bear Trap, every Fortress/Stronghold entry, and the Task List reads. */
     private static boolean isAllianceEvent(String eventKey) {
@@ -389,6 +392,18 @@ public class UpcomingEventsLayoutController {
         bars.addAll(allianceBars);
         int rowCount = 1 + bars.size();
 
+        // The day header keeps its natural height; the bar rows share whatever is left of the page,
+        // capped so a month holding two events does not draw them as two enormous slabs.
+        chart.getRowConstraints().add(new RowConstraints());
+        for (int bar = 0; bar < bars.size(); bar++) {
+            RowConstraints barRow = new RowConstraints();
+            barRow.setMinHeight(BAR_ROW_MIN_HEIGHT);
+            barRow.setPrefHeight(BAR_ROW_MIN_HEIGHT);
+            barRow.setMaxHeight(BAR_ROW_MAX_HEIGHT);
+            barRow.setVgrow(Priority.ALWAYS);
+            chart.getRowConstraints().add(barRow);
+        }
+
         // Today's column is washed behind everything, the way the game marks the current day.
         // Added first so later children paint on top of it.
         if (!today.isBefore(monthStart) && !today.isAfter(monthEnd)) {
@@ -441,7 +456,9 @@ public class UpcomingEventsLayoutController {
         empty.getStyleClass().add("upcoming-events-nothing-live");
 
         VBox body = new VBox(10, buildMonthNav(month));
-        body.getChildren().add(bars.isEmpty() ? empty : scroller);
+        javafx.scene.Node content = bars.isEmpty() ? empty : scroller;
+        VBox.setVgrow(content, Priority.ALWAYS);
+        body.getChildren().add(content);
         monthCalendarHost.getChildren().setAll(body);
     }
 
@@ -496,6 +513,7 @@ public class UpcomingEventsLayoutController {
 
         Region chip = new Region();
         chip.setMaxWidth(Double.MAX_VALUE);
+        chip.setMaxHeight(Double.MAX_VALUE);
         chip.getStyleClass().addAll("upcoming-events-gantt-bar",
                 isAllianceEvent(entry.getEventKey())
                         ? "upcoming-events-gantt-bar-alliance"

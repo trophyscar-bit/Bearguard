@@ -12,10 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -440,8 +437,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     //
     // Read-only: never taps Claim, Enable, Occupation Income, or anything else on these screens.
     // Hall of Chiefs / Brothers in Arms / Defeat Nearby Beasts and the Fortress read run every
-    // pass (hourly); the state Calendar read is gated to once a day near 8:05 PM EST (see
-    // maybeScanStateCalendar) since it has nothing new to say more often than that.
+    // pass (hourly); the state Calendar read is gated to the first pass of each UTC day (see
+    // maybeScanStateCalendar) since it has nothing new to say between two game resets.
 
     private static final TemplatesEnum[] ROTATING_EVENT_TABS = {
             TemplatesEnum.EVENTS_TAB_HALL_OF_CHIEFS,
@@ -473,8 +470,6 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final PointData CALENDAR_PANEL_BOTTOM_RIGHT = new PointData(710, 1200);
     private static final PointData CALENDAR_TAB_STRIP_SWIPE_FROM = new PointData(150, 141);
     private static final PointData CALENDAR_TAB_STRIP_SWIPE_TO = new PointData(600, 141);
-    private static final ZoneId EST = ZoneId.of("America/New_York");
-    private static final LocalTime CALENDAR_SCAN_TIME = LocalTime.of(20, 5);
 
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int DEFAULT_TRAP_NUMBER = 1;
@@ -614,21 +609,19 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 label, true, nowUtc, nowUtc.plus(remaining));
     }
 
-    /** Gated to once a day: the first hourly bg_telemetry run at/after 8:05 PM EST that has not
-     *  already scanned today (tracked in BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING). This
+    /** Gated to once per game day: the first hourly bg_telemetry run of each UTC date, tracked in
+     *  BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING. The game's own day rolls at 00:00 UTC, so
+     *  that first pass is also the freshest the chart gets, and the calendar has nothing new to say
+     *  between two resets. This
      *  week's grid had no event bars posted, so the format of a populated day is not yet observed
      *  -- this looks for an HH:mm-HH:mm range near each day label as a best-effort first pass and
      *  logs the raw panel text at DEBUG every run specifically so the real format can be confirmed
      *  and this parser tightened the next time a state event is actually scheduled. */
     private void maybeScanStateCalendar() {
-        ZonedDateTime nowEst = ZonedDateTime.now(EST);
-        if (nowEst.toLocalTime().isBefore(CALENDAR_SCAN_TIME)) {
-            return;
-        }
-        String todayEst = nowEst.toLocalDate().toString();
+        String gameDay = LocalDate.now(ZoneOffset.UTC).toString();
         String lastScanned = profile.getConfig(
                 ConfigurationKeyEnum.BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING, String.class);
-        if (todayEst.equals(lastScanned)) {
+        if (gameDay.equals(lastScanned)) {
             return;
         }
 
@@ -671,7 +664,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         sleepTask(600);
         pressBack();
 
-        profile.setConfig(ConfigurationKeyEnum.BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING, todayEst);
+        profile.setConfig(ConfigurationKeyEnum.BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING, gameDay);
     }
 
     /**

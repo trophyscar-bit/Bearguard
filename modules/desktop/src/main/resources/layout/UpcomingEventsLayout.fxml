@@ -15,7 +15,10 @@
            HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
            xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
 
-    <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED"
+    <!-- fitToHeight lets the Month chart claim the whole window: without it the card stops at its
+         natural height and leaves the lower half of the page empty. Content taller than the
+         viewport still scrolls normally. -->
+    <ScrollPane fitToWidth="true" fitToHeight="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED"
                 styleClass="task-page-scroll">
         <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
 
@@ -56,12 +59,12 @@
 
             </VBox>
 
-            <VBox fx:id="monthView" spacing="14" visible="false" managed="false">
-                <VBox styleClass="content-card">
+            <VBox fx:id="monthView" spacing="14" visible="false" managed="false" VBox.vgrow="ALWAYS">
+                <VBox styleClass="content-card" VBox.vgrow="ALWAYS">
                     <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
                         <Label text="Month" />
                     </HBox>
-                    <VBox spacing="10" styleClass="task-section-inner">
+                    <VBox spacing="10" styleClass="task-section-inner" VBox.vgrow="ALWAYS">
                         <HBox spacing="16" alignment="CENTER_LEFT">
                             <HBox spacing="6" alignment="CENTER_LEFT">
                                 <Region styleClass="upcoming-events-legend-dot-state" />
@@ -73,7 +76,7 @@
                             </HBox>
                         </HBox>
                         <Separator style="-fx-opacity: 0.25;" />
-                        <StackPane fx:id="monthCalendarHost" />
+                        <StackPane fx:id="monthCalendarHost" VBox.vgrow="ALWAYS" />
                     </VBox>
                 </VBox>
             </VBox>
