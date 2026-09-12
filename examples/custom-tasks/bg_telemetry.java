@@ -45,6 +45,7 @@ import dev.frostguard.engine.service.CustomTaskService;
 import dev.frostguard.engine.service.EventScheduleService;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.vision.convert.ImageConverter;
+import dev.frostguard.vision.match.OpenCvPatternLocator;
 
 /**
  * Bearguard telemetry: samples the top HUD on a schedule and appends the result
@@ -660,6 +661,11 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // The chart is a complete snapshot of the state schedule, so this pass replaces the last
         // one outright. Keeping the old rows would leave a bar the game has dropped, or one whose
         // name this pass read differently, sitting beside its own replacement.
+        // Loaded once per scan rather than per bar: both passes read the same library, and it is
+        // re-read each scan so a name corrected in the folder takes effect without a restart.
+        iconLibrary = loadIconLibrary();
+        logInfo("bg_telemetry | Calendar: icon library holds " + iconLibrary.size() + " entr(ies).");
+
         int forgotten = EventScheduleService.obtain().forgetAll(STATE_GANTT_KEY_PREFIX);
         if (forgotten > 0) {
             logInfo("bg_telemetry | Calendar: cleared " + forgotten + " row(s) from the previous read.");
@@ -709,6 +715,27 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final PointData CALENDAR_SCROLL_FROM = new PointData(360, 1000);
     private static final PointData CALENDAR_SCROLL_TO = new PointData(360, 500);
+
+    /**
+     * A match must score at least this much, and beat the runner-up by at least the margin. Both
+     * are required: a bare threshold will happily pick between two icons that are equally wrong.
+     *
+     * <p>Scores are OpenCV TM_CCOEFF_NORMED on the repo's usual 0-100 scale, the same matcher and
+     * scale every template search in the app already uses.</p>
+     */
+    private static final double ICON_MATCH_MIN_SCORE = 80.0;
+    private static final double ICON_MATCH_MIN_MARGIN = 15.0;
+    /** How far past the bar's own fill colour a pixel has to be to count as content. */
+    private static final int ICON_FILL_TOLERANCE = 40;
+    private static final int ICON_RUN_TO_CONFIRM = 6;
+    /** The bar's own darker edge, excluded so it never lands in a stored template. */
+    private static final int ICON_BAR_BORDER = 2;
+    /** Blank pixels between the icon and the start of the label. */
+    private static final int ICON_LABEL_GAP = 4;
+
+    /** Reloaded at the start of each calendar scan; empty outside one. Values are encoded PNGs,
+     *  passed straight to the matcher, so nothing here decodes or rescales an image by hand. */
+    private Map<String, byte[]> iconLibrary = new LinkedHashMap<>();
 
     private static double ganttColumnWidth() {
         return (GANTT_RIGHT - GANTT_LEFT) / (double) GANTT_DAY_COLUMNS;
@@ -788,6 +815,173 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         return best;
     }
 
+    /**
+     * The bar's own fill colour, as the most common pixel along its middle row. Modal rather than
+     * sampled at a fixed offset: the icon and the label both sit on that row, so any single sample
+     * point is a coin toss, but they never outnumber the fill.
+     */
+    private static int ganttBarFill(BufferedImage frame, int barLeft, int barRight, int centreY) {
+        Map<Integer, Integer> counts = new LinkedHashMap<>();
+        int best = 0;
+        int bestCount = 0;
+        for (int x = barLeft + 6; x < barRight - 6 && x < frame.getWidth(); x++) {
+            int rgb = frame.getRGB(x, centreY) & 0xFFFFFF;
+            int count = counts.merge(rgb, 1, Integer::sum);
+            if (count > bestCount) {
+                bestCount = count;
+                best = rgb;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Where the bar's icon starts, or -1 when the bar carries no content at all.
+     *
+     * <p>The icon is not at a fixed offset from the bar: the game centres the icon and label
+     * together inside the bar, so a wide bar's icon can sit hundreds of pixels in. Reading from a
+     * fixed offset is what put the icon in the middle of the label crop and produced names like
+     * ": Vault of Enigma". Finding the first sustained run of non-fill pixels locates it directly,
+     * whatever the bar's width.</p>
+     */
+    private static int ganttIconLeft(BufferedImage frame, int barLeft, int barRight, int centreY, int fill) {
+        int[] fillRgb = {(fill >> 16) & 0xFF, (fill >> 8) & 0xFF, fill & 0xFF};
+        int run = 0;
+        for (int x = barLeft + 4; x < barRight - 4 && x < frame.getWidth(); x++) {
+            if (nearColor(frame.getRGB(x, centreY), fillRgb, ICON_FILL_TOLERANCE)) {
+                run = 0;
+                continue;
+            }
+            run++;
+            if (run >= ICON_RUN_TO_CONFIRM) {
+                return x - run + 1;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * The icon's box within the bar: a square the height of the bar, anchored where the bar's
+     * content starts.
+     *
+     * <p>Square because the game's event icons are square sprites sized to the bar. Measuring the
+     * box from the pixels instead was tried and does not work: the bar carries a darker border
+     * along its top and bottom edge, so every column reads as full height, and the label sits only
+     * a few pixels after the icon, so no gap separates them. A box measured that way swallowed the
+     * label, which made a stored template match its own text rather than its icon.</p>
+     */
+    private static int[] ganttIconBox(int iconLeft, int bandTop, int bandBottom, int frameWidth) {
+        int side = (bandBottom - bandTop) - 2 * ICON_BAR_BORDER;
+        if (side <= 0 || iconLeft + side > frameWidth) {
+            return null;
+        }
+        return new int[]{iconLeft, bandTop + ICON_BAR_BORDER, iconLeft + side, bandTop + ICON_BAR_BORDER + side};
+    }
+
+    private Path calendarIconDir() {
+        return WorkspacePaths.current().root().resolve("data").resolve("calendar-icons");
+    }
+
+    /**
+     * The icon library, keyed by event name. Files are plain PNGs named after the event, so a name
+     * can be corrected or a new icon added by editing the folder -- no rebuild, no code change.
+     */
+    private Map<String, byte[]> loadIconLibrary() {
+        Map<String, byte[]> library = new LinkedHashMap<>();
+        Path dir = calendarIconDir();
+        if (!Files.isDirectory(dir)) {
+            return library;
+        }
+        try (java.util.stream.Stream<Path> files = Files.list(dir)) {
+            for (Path file : files.filter(p -> p.toString().toLowerCase().endsWith(".png")).sorted().toList()) {
+                try {
+                    String name = file.getFileName().toString();
+                    name = name.substring(0, name.length() - 4).replace('_', ' ');
+                    library.put(name, Files.readAllBytes(file));
+                } catch (IOException unreadable) {
+                    logWarning("bg_telemetry | Calendar: could not read icon " + file.getFileName()
+                            + ": " + unreadable.getMessage());
+                }
+            }
+        } catch (IOException listFailed) {
+            logWarning("bg_telemetry | Calendar: could not list the icon library: " + listFailed.getMessage());
+        }
+        return library;
+    }
+
+    /** Saves this bar's icon under a name read from its own label, so the next chart that truncates
+     *  that name can still resolve it. Never overwrites: an existing file is the operator's. */
+    private void learnIcon(BufferedImage frame, int[] box, String name) {
+        String fileName = name.replaceAll("[^A-Za-z0-9 ]", "").trim().replace(' ', '_');
+        if (fileName.isEmpty()) {
+            return;
+        }
+        Path target = calendarIconDir().resolve(fileName + ".png");
+        if (Files.exists(target)) {
+            return;
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            BufferedImage crop = frame.getSubimage(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+            javax.imageio.ImageIO.write(crop, "png", target.toFile());
+            logInfo("bg_telemetry | Calendar: learned the icon for \"" + name + "\".");
+        } catch (IOException | RuntimeException writeFailed) {
+            logWarning("bg_telemetry | Calendar: could not save the icon for \"" + name
+                    + "\": " + writeFailed.getMessage());
+        }
+    }
+
+    /**
+     * Best library name for this icon, or null when nothing matches clearly enough to say.
+     *
+     * <p>Every candidate is scored against the same captured frame, inside a box a few pixels
+     * larger than the icon, so the matcher absorbs scroll drift itself instead of the caller
+     * trying to cancel it out.</p>
+     */
+    private String matchIcon(RawImageData capture, int barLeft, int barRight, int bandTop, int bandBottom) {
+        if (iconLibrary.isEmpty()) {
+            return null;
+        }
+        // Searched across the whole bar, not a box around where the icon was located: the located
+        // edge moves by up to a dozen pixels between two reads of the same chart, and letting the
+        // matcher find the icon itself removes that from the answer entirely. Measured on a real
+        // before/after-scroll pair: same icon 98.4-99.4, best wrong icon 56.2.
+        PointData topLeft = new PointData(barLeft, bandTop);
+        PointData bottomRight = new PointData(barRight, bandBottom + 1);
+
+        String best = null;
+        double bestScore = -1;
+        double runnerUp = -1;
+        for (Map.Entry<String, byte[]> candidate : iconLibrary.entrySet()) {
+            double score;
+            try {
+                score = OpenCvPatternLocator.matchFromRawTemplate(
+                        capture, candidate.getValue(), topLeft, bottomRight, 0).getMatchScore();
+            } catch (RuntimeException matchFailed) {
+                logWarning("bg_telemetry | Calendar: icon \"" + candidate.getKey()
+                        + "\" could not be matched: " + matchFailed.getMessage());
+                continue;
+            }
+            if (score > bestScore) {
+                runnerUp = bestScore;
+                bestScore = score;
+                best = candidate.getKey();
+            } else if (score > runnerUp) {
+                runnerUp = score;
+            }
+        }
+        if (best == null || bestScore < ICON_MATCH_MIN_SCORE) {
+            return null;
+        }
+        if (runnerUp >= 0 && bestScore - runnerUp < ICON_MATCH_MIN_MARGIN) {
+            logInfo("bg_telemetry | Calendar: icon scores " + Math.round(bestScore) + " for \"" + best
+                    + "\" but " + Math.round(runnerUp) + " for the runner-up, too close to call;"
+                    + " leaving it unidentified.");
+            return null;
+        }
+        return best;
+    }
+
     private int readGanttChart() {
         RawImageData capture = emuManager.captureScreen(EMULATOR_NUMBER);
         if (capture == null) {
@@ -824,18 +1018,19 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 bandStart = y;
             } else if (!isBarRow && bandStart != null) {
                 if (y - bandStart > GANTT_MIN_BAR_HEIGHT) {
-                    recorded += recordGanttBar(frame, bandStart, y - 1, todayColumn, today);
+                    recorded += recordGanttBar(capture, frame, bandStart, y - 1, todayColumn, today);
                 }
                 bandStart = null;
             }
         }
         if (bandStart != null && GANTT_CONTENT_BOTTOM - bandStart > GANTT_MIN_BAR_HEIGHT) {
-            recorded += recordGanttBar(frame, bandStart, GANTT_CONTENT_BOTTOM - 1, todayColumn, today);
+            recorded += recordGanttBar(capture, frame, bandStart, GANTT_CONTENT_BOTTOM - 1, todayColumn, today);
         }
         return recorded;
     }
 
-    private int recordGanttBar(BufferedImage frame, int bandTop, int bandBottom, int todayColumn, LocalDate today) {
+    private int recordGanttBar(RawImageData capture, BufferedImage frame, int bandTop, int bandBottom,
+                               int todayColumn, LocalDate today) {
         int centre = (bandTop + bandBottom) / 2;
         int firstColumn = -1;
         int lastColumn = -1;
@@ -854,25 +1049,48 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         LocalDate start = today.plusDays(firstColumn - todayColumn);
         LocalDate end = today.plusDays(lastColumn - todayColumn);
 
-        // The label sits to the right of the bar's leading icon; read from there to the panel edge.
-        String label = readPanelBlock(
-                new PointData(ganttColumnStart(firstColumn) + 62, centre - 16),
-                new PointData(GANTT_RIGHT, centre + 16));
+        // The icon and label are centred together inside the bar, so both are found relative to
+        // where the bar's content actually begins rather than at a fixed offset from its left edge.
+        int barLeft = ganttColumnStart(firstColumn);
+        int barRight = ganttColumnStart(lastColumn + 1);
+        int fill = ganttBarFill(frame, barLeft, barRight, centre);
+        int iconLeft = ganttIconLeft(frame, barLeft, barRight, centre, fill);
+        int[] iconBox = iconLeft < 0 ? null
+                : ganttIconBox(iconLeft, bandTop, bandBottom, frame.getWidth());
+
+        String label = iconBox == null ? null : readPanelBlock(
+                new PointData(iconBox[2] + ICON_LABEL_GAP, centre - 16),
+                new PointData(barRight, centre + 16));
         // The game's own ellipsis has to be read off the raw text: cleaning strips punctuation, so
         // "Alliance..." and "Alliance" are indistinguishable afterwards.
         String raw = label == null ? "" : label.trim();
         String name = cleanGanttLabel(label);
         boolean truncated = name.isEmpty() || raw.endsWith("...") || raw.endsWith("…");
+
+        if (!truncated && iconBox != null) {
+            learnIcon(frame, iconBox, name);
+        }
+        if (truncated && iconBox != null) {
+            // A truncated bar carries its identity in the icon, not the text. This is the only
+            // thing allowed to supply a name the label did not: it comes from a stored icon the
+            // operator (or an earlier untruncated bar) named, never from inference about the date.
+            String matched = matchIcon(capture, barLeft, barRight, bandTop, bandBottom);
+            if (matched != null) {
+                logInfo("bg_telemetry | Calendar: bar " + start + ".." + end
+                        + " label was cut off; identified by its icon as \"" + matched + "\".");
+                name = matched;
+                truncated = false;
+            }
+        }
         if (truncated && !name.isEmpty()) {
             name = name + "...";
         }
         if (truncated) {
-            // Truncated or icon-only bars carry their identity in the icon, not the text. Nothing
-            // here guesses a name: the bar is still recorded with its real dates, flagged so the
-            // unresolved icon is visible rather than silently dropped or mislabelled.
+            // Still unresolved: recorded with its real dates and flagged, so the unknown icon is
+            // visible rather than silently dropped or given a made-up name.
             String shown = name.isEmpty() ? "(icon only)" : name;
             logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " has a truncated label ("
-                    + shown + "); recording it under that label until its icon is identified.");
+                    + shown + ") and no icon in the library matches it; recording it under that label.");
             if (name.isEmpty()) {
                 name = "State event " + start;
             }
