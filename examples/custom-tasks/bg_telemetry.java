@@ -476,6 +476,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
     /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
     private static final String SCAN_FORMAT_VERSION = "v4";
+    /** Swipes back along the Events tab strip before giving up on finding Calendar. */
+    private static final int CALENDAR_TAB_SWIPE_ATTEMPTS = 4;
 
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int DEFAULT_TRAP_NUMBER = 1;
@@ -631,6 +633,10 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             return;
         }
 
+        // The Events button lives on the base screen, and the scans before this one leave panels
+        // open. Without this the tap lands on whatever is in front and the panel never opens.
+        navigationHelper.ensureCorrectScreenLocation(LaunchPoint.WORLD);
+
         ImageSearchResultData eventsBtn = templateSearchHelper.locatePattern(
                 TemplatesEnum.HOME_EVENTS_BUTTON, SearchConfigConstants.SINGLE_WITH_RETRIES);
         if (!eventsBtn.isFound()) {
@@ -640,18 +646,20 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         tapNear(eventsBtn.getPoint());
         sleepTask(PANEL_SETTLE_MS);
 
+        // Calendar is the leftmost tab, and the strip keeps whatever scroll position the panel was
+        // last left at. One swipe back was not enough: the strip grows with the number of events
+        // running, so it takes several to reach the start during a busy week.
         ImageSearchResultData calendarTab = templateSearchHelper.locatePattern(
                 TemplatesEnum.EVENTS_CALENDAR_TAB, SearchConfigConstants.SINGLE_WITH_RETRIES);
-        if (!calendarTab.isFound()) {
-            // Calendar is the leftmost tab; one swipe toward the start recovers it if a prior
-            // session left the strip scrolled away.
+        for (int attempt = 0; attempt < CALENDAR_TAB_SWIPE_ATTEMPTS && !calendarTab.isFound(); attempt++) {
             swipe(CALENDAR_TAB_STRIP_SWIPE_FROM, CALENDAR_TAB_STRIP_SWIPE_TO);
             sleepTask(600);
             calendarTab = templateSearchHelper.locatePattern(
                     TemplatesEnum.EVENTS_CALENDAR_TAB, SearchConfigConstants.QUICK_SEARCH);
         }
         if (!calendarTab.isFound()) {
-            logWarning("bg_telemetry | Calendar tab not found even after scrolling; will retry next run.");
+            logWarning("bg_telemetry | Calendar tab not found after " + CALENDAR_TAB_SWIPE_ATTEMPTS
+                    + " swipes back along the tab strip; will retry next run.");
             pressBack();
             return;
         }
