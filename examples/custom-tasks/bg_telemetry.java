@@ -295,6 +295,21 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final PointData TASK_LIST_SCROLL_TO = new PointData(360, 650);
     private static final int TASK_LIST_SCROLL_PASSES = 3;
 
+    private static final String TASK_LIST_KEY_PREFIX = "TASKLIST_";
+    /** Which clock the panel is currently printing; null until a pass reads it. */
+    private Boolean taskListClockIsUtc;
+
+    /** The panel's own "Local Time"/"UTC" line, or null when neither word read. */
+    private static Boolean readTaskListClockMode(String panelText) {
+        String text = panelText.toLowerCase();
+        boolean local = text.contains("local");
+        boolean utc = text.contains("utc");
+        if (local == utc) {
+            return null;
+        }
+        return utc;
+    }
+
     private static final Pattern TASK_LIST_DATE_MARKER = Pattern.compile("(\\d{4}/\\d{2}/\\d{2})|\\bToday\\b");
     private static final Pattern TASK_LIST_ENTRY_TITLE = Pattern.compile(
             "(Fortress Battles|Castle Battle|Bear Hunt\\s*-\\s*Trap\\s*\\d+)", Pattern.CASE_INSENSITIVE);
@@ -340,6 +355,22 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         if (combined.isBlank()) {
             logInfo("bg_telemetry | Task List panel was empty; skipping this pass.");
         } else {
+            // The panel lists every alliance fight the game is currently advertising, so it is a
+            // snapshot and this pass replaces the last one. Cleared only once the panel has actually
+            // been read: on the passes where it does not open, the previous read is all there is.
+            taskListClockIsUtc = readTaskListClockMode(combined);
+            if (taskListClockIsUtc == null) {
+                logWarning("bg_telemetry | Task List: the panel's clock-mode line did not read, so its"
+                        + " times cannot be placed on a clock; recording those entries by date only.");
+            } else {
+                logInfo("bg_telemetry | Task List: times are shown in "
+                        + (taskListClockIsUtc ? "UTC" : "local time") + ".");
+            }
+
+            int forgotten = EventScheduleService.obtain().forgetAll(TASK_LIST_KEY_PREFIX);
+            if (forgotten > 0) {
+                logInfo("bg_telemetry | Task List: cleared " + forgotten + " row(s) from the previous read.");
+            }
             recordTaskListFrom(combined);
         }
 
@@ -350,9 +381,16 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private void recordTaskListFrom(String panelText) {
         // Walk the flattened text once, tracking the most recent date marker seen so each entry
         // inherits the section it actually appeared under.
-        String currentDateMarker = "Today";
+        //
+        // Starts unknown, not "Today". The panel opens on a past section whose entries carry no
+        // date header at all -- the ended Battles above the first "2026/09/13" -- and defaulting
+        // those to today stamped them with whatever day the scan happened to run. Rows are keyed by
+        // date, so a week of scanning turned one recurring fight into one row per day and Bear Hunt
+        // appeared to run daily. An entry with no date above it is simply not recorded.
+        String currentDateMarker = null;
         int cursor = 0;
         int recorded = 0;
+        int undated = 0;
 
         while (cursor < panelText.length()) {
             Matcher dateMatcher = TASK_LIST_DATE_MARKER.matcher(panelText);
@@ -371,13 +409,16 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
             int entryEnd = findNextEntryBoundary(panelText, titleMatcher.end());
             String entryText = panelText.substring(titleMatcher.end(), entryEnd);
-            if (recordOneTaskListEntry(titleMatcher.group(1), currentDateMarker, entryText)) {
+            if (currentDateMarker == null) {
+                undated++;
+            } else if (recordOneTaskListEntry(titleMatcher.group(1), currentDateMarker, entryText)) {
                 recorded++;
             }
             cursor = titleMatcher.end();
         }
 
-        logInfo("bg_telemetry | Task List: recorded " + recorded + " entr" + (recorded == 1 ? "y" : "ies") + ".");
+        logInfo("bg_telemetry | Task List: recorded " + recorded + " entr" + (recorded == 1 ? "y" : "ies")
+                + (undated == 0 ? "." : ", and skipped " + undated + " with no date heading above them."));
     }
 
     /** An entry's own text runs until the next title or date marker, whichever comes first. */
@@ -399,7 +440,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         String facilityRef = facility.find() ? facility.group(1).replaceAll("\\s+", " ").trim() : null;
 
         String label = facilityRef != null ? title + " (" + facilityRef + ")" : title;
-        String key = "TASKLIST_" + (facilityRef != null ? facilityRef : title).toUpperCase()
+        String key = TASK_LIST_KEY_PREFIX + (facilityRef != null ? facilityRef : title).toUpperCase()
                 .replaceAll("[^A-Z0-9]+", "_") + "_" + date;
 
         boolean ended = TASK_LIST_ENDED.matcher(entryText).find();
@@ -413,7 +454,16 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             return true;
         }
         if (time.find()) {
-            LocalDateTime start = date.atTime(Integer.parseInt(time.group(1)), Integer.parseInt(time.group(2)));
+            LocalDateTime shown = date.atTime(Integer.parseInt(time.group(1)), Integer.parseInt(time.group(2)));
+            LocalDateTime start = toUtcFromPanel(shown);
+            if (start == null) {
+                // The panel's own clock-mode line did not read. Everything here is stored as UTC,
+                // so a local time written straight in would be out by the whole offset. The date is
+                // still known, so it is kept as a whole-day entry rather than a wrong o'clock.
+                EventScheduleService.obtain().recordWindow(key, label, false,
+                        date.atStartOfDay(), date.plusDays(1).atStartOfDay().minusMinutes(1));
+                return true;
+            }
             EventScheduleService.obtain().recordWindow(key, label, false, start, null);
             return true;
         }
@@ -421,6 +471,27 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // text). Recorded as currently active with an unknown end.
         EventScheduleService.obtain().recordWindow(key, label, true, date.atStartOfDay(), null);
         return true;
+    }
+
+    /**
+     * Converts a time the Task List printed into UTC, or null when the panel never said which clock
+     * it was using.
+     *
+     * <p>The panel carries a "Local Time"/"UTC" toggle and remembers whichever the operator last
+     * chose, so the numbers on it are not always UTC. Everything in this cache is stored as UTC, so
+     * reading a local time straight in put every alliance fight out by the whole offset -- four
+     * hours, in this account's case.</p>
+     */
+    private LocalDateTime toUtcFromPanel(LocalDateTime shown) {
+        if (taskListClockIsUtc == null) {
+            return null;
+        }
+        if (taskListClockIsUtc) {
+            return shown;
+        }
+        return shown.atZone(ZoneId.systemDefault())
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .toLocalDateTime();
     }
 
     private LocalDate resolveTaskListDate(String marker) {
