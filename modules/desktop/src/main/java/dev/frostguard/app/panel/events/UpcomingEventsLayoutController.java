@@ -1,22 +1,15 @@
 package dev.frostguard.app.panel.events;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
-import dev.frostguard.api.runtime.WorkspacePaths;
 import dev.frostguard.data.entity.EventScheduleEntry;
 import dev.frostguard.engine.service.EventScheduleService;
 import javafx.animation.Animation;
@@ -31,8 +24,6 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
-import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -74,11 +65,10 @@ public class UpcomingEventsLayoutController {
     private static final int MAX_ENDED_ROWS = 5;
     /** How far ahead an event still counts as "starting soon" and gets highlighted. */
     private static final int HIGHLIGHT_WINDOW_HOURS = 8;
-    /** Month-Gantt day column. Wide enough for a two-day bar to still show a readable label; the
-     *  chart scrolls horizontally rather than squeezing a whole month into the page width. */
-    private static final int DAY_COLUMN_WIDTH = 58;
-    private static final int BAR_ROW_MIN_HEIGHT = 30;
-    private static final int BAR_ROW_MAX_HEIGHT = 58;
+    private static final int WEEK_DAYS = 7;
+    /** The name column. Fixed, so the seven day columns stay equal and a long event name cannot
+     *  squeeze the grid it belongs to. */
+    private static final int NAME_COLUMN_WIDTH = 230;
 
     /** Alliance Events: Bear Trap, every Fortress/Stronghold entry, and the Task List reads. */
     private static boolean isAllianceEvent(String eventKey) {
@@ -108,10 +98,7 @@ public class UpcomingEventsLayoutController {
 
     private Timeline refreshTimer;
     private List<EventScheduleEntry> latestEntries = List.of();
-    private YearMonth monthAnchor = YearMonth.now(EventScheduleClock.zone());
-    private Double monthScroll;
-    /** Label to artwork, including misses, so a 30-second poll does not re-walk the icon folder. */
-    private final Map<String, Image> iconCache = new HashMap<>();
+    private LocalDate weekStart = startOfWeek(LocalDate.now(EventScheduleClock.zone()));
 
     @FXML
     private void initialize() {
@@ -257,7 +244,7 @@ public class UpcomingEventsLayoutController {
     /** Full-size row: family icon, status pill, title, and a bold date line. "Last scanned" lives
      *  in the hover tooltip rather than taking a line of its own. */
     private VBox buildRow(EventScheduleEntry entry, LocalDateTime nowUtc) {
-        Node icon = iconNodeFor(entry.getEventLabel(), 28, "upcoming-events-icon");
+        Node icon = iconNodeFor(entry.getEventLabel(), "upcoming-events-icon");
 
         Label badge = new Label(badgeText(entry, nowUtc));
         badge.getStyleClass().add(badgeStyleClass(entry, nowUtc));
@@ -284,7 +271,7 @@ public class UpcomingEventsLayoutController {
     /** "Recently Ended" tail row: one compact muted line, deliberately smaller than the live rows
      *  above it so current and historical never compete for attention. */
     private HBox buildEndedRow(EventScheduleEntry entry) {
-        Node icon = iconNodeFor(entry.getEventLabel(), 16, "upcoming-events-ended-icon");
+        Node icon = iconNodeFor(entry.getEventLabel(), "upcoming-events-ended-icon");
 
         Label badge = new Label("Ended");
         badge.getStyleClass().add("upcoming-events-badge-ended-small");
@@ -354,75 +341,16 @@ public class UpcomingEventsLayoutController {
     }
 
     /**
-     * The event's own in-game icon where the calendar scan has collected one, falling back to a
-     * per-family glyph.
+     * A glanceable marker per event family.
      *
-     * <p>The scan already crops each bar's icon to name truncated events, so the real artwork is
-     * sitting in the workspace; showing it beats a stand-in emoji, and it is the same picture the
-     * game shows, which is what makes a row recognisable at a glance.</p>
+     * <p>Deliberately a glyph, not the game's own icon. Those were tried: the artwork is a busy
+     * 50px sprite drawn to sit on a saturated bar, and shrunk into a dark list row it reads as
+     * mud.</p>
      */
-    private Node iconNodeFor(String label, double size, String fallbackStyleClass) {
-        Image artwork = gameIcon(label);
-        if (artwork != null) {
-            ImageView view = new ImageView(artwork);
-            view.setFitWidth(size);
-            view.setFitHeight(size);
-            view.setPreserveRatio(true);
-            view.setSmooth(true);
-            return view;
-        }
+    private Node iconNodeFor(String label, String styleClass) {
         Label glyph = new Label(iconFor(label));
-        glyph.getStyleClass().add(fallbackStyleClass);
+        glyph.getStyleClass().add(styleClass);
         return glyph;
-    }
-
-    /**
-     * Icon artwork for an event label, or null when none is stored.
-     *
-     * <p>Labels carry qualifiers the file names do not ("Fortress Battles (Fortress No. 12)", or a
-     * trailing ellipsis on a truncated name), so an exact match is tried first and then the longest
-     * stored name that starts the label. Longest wins so "Alliance Championship" is not beaten by a
-     * shorter entry that happens to share its opening words.</p>
-     */
-    private Image gameIcon(String label) {
-        if (label == null || label.isBlank()) {
-            return null;
-        }
-        if (iconCache.containsKey(label)) {
-            return iconCache.get(label);
-        }
-        Image found = null;
-        try {
-            Path dir = WorkspacePaths.current().root().resolve("data").resolve("calendar-icons");
-            if (Files.isDirectory(dir)) {
-                String wanted = normaliseIconName(label);
-                Path best = null;
-                int bestLength = -1;
-                try (java.util.stream.Stream<Path> files = Files.list(dir)) {
-                    for (Path file : files.filter(p -> p.toString().endsWith(".png")).toList()) {
-                        String name = file.getFileName().toString();
-                        String candidate = normaliseIconName(
-                                name.substring(0, name.length() - 4).replace('_', ' '));
-                        if (wanted.equals(candidate)
-                                || (wanted.startsWith(candidate) && candidate.length() > bestLength)) {
-                            best = file;
-                            bestLength = wanted.equals(candidate) ? Integer.MAX_VALUE : candidate.length();
-                        }
-                    }
-                }
-                if (best != null) {
-                    found = new Image(best.toUri().toString(), 0, 0, true, true);
-                }
-            }
-        } catch (IOException | RuntimeException unavailable) {
-            found = null;
-        }
-        iconCache.put(label, found);
-        return found;
-    }
-
-    private static String normaliseIconName(String value) {
-        return value.replaceAll("[^A-Za-z0-9 ]", "").replaceAll("\\s+", " ").trim().toLowerCase();
     }
 
     /** A glanceable marker per event family, so the eye can sort the list without reading it. */
@@ -479,147 +407,135 @@ public class UpcomingEventsLayoutController {
                 : "upcoming-events-badge-ended";
     }
 
-    // Month Gantt
+    // Week timeline
 
+    /**
+     * One week at a time, with the event names in a column of their own to the left of the day grid.
+     *
+     * <p>Three layouts were tried before this one, and the reason they failed is arithmetic: a month
+     * is 31 columns, and 31 readable day columns do not fit the page. Putting the name inside the
+     * bar truncated every short event to an initial; letting it overflow to the right made a one-day
+     * event look like it ran for five. Once the name has its own column, the bar only has to say
+     * when -- which is the one thing a bar is good at -- and nothing is truncated at all.</p>
+     */
     private void rebuildMonthView() {
-        YearMonth month = monthAnchor;
-        LocalDate monthStart = month.atDay(1);
-        LocalDate monthEnd = month.atEndOfMonth();
+        LocalDate weekStart = this.weekStart;
+        LocalDate weekEnd = weekStart.plusDays(WEEK_DAYS - 1);
         LocalDate today = LocalDate.now(EventScheduleClock.zone());
-        int dayCount = month.lengthOfMonth();
 
         List<Bar> stateBars = new ArrayList<>();
         List<Bar> allianceBars = new ArrayList<>();
         for (EventScheduleEntry entry : latestEntries) {
-            Bar bar = toBar(entry, monthStart, monthEnd);
+            Bar bar = toBar(entry, weekStart, weekEnd);
             if (bar != null) {
                 (isAllianceEvent(entry.getEventKey()) ? allianceBars : stateBars).add(bar);
             }
         }
-        stateBars.sort(java.util.Comparator.comparingInt(b -> b.firstColumn));
-        allianceBars.sort(java.util.Comparator.comparingInt(b -> b.firstColumn));
+        java.util.Comparator<Bar> byRun = java.util.Comparator
+                .comparingInt((Bar b) -> b.span)
+                .thenComparingInt(b -> b.firstColumn);
+        stateBars.sort(byRun);
+        allianceBars.sort(byRun);
+        List<Bar> bars = new ArrayList<>(stateBars);
+        bars.addAll(allianceBars);
 
         GridPane chart = new GridPane();
-        chart.getStyleClass().add("upcoming-events-gantt");
-        for (int day = 0; day < dayCount; day++) {
+        chart.getStyleClass().add("upcoming-events-week");
+
+        ColumnConstraints nameColumn = new ColumnConstraints();
+        nameColumn.setMinWidth(NAME_COLUMN_WIDTH);
+        nameColumn.setPrefWidth(NAME_COLUMN_WIDTH);
+        chart.getColumnConstraints().add(nameColumn);
+        for (int day = 0; day < WEEK_DAYS; day++) {
             ColumnConstraints column = new ColumnConstraints();
-            column.setMinWidth(DAY_COLUMN_WIDTH);
-            column.setPrefWidth(DAY_COLUMN_WIDTH);
+            column.setPercentWidth(100.0 / WEEK_DAYS);
+            column.setHgrow(Priority.ALWAYS);
             chart.getColumnConstraints().add(column);
         }
 
-        // One continuous run of bars, as the game draws it. The bar colour plus the legend above
-        // the chart already say state from alliance, so no banding rows in between.
-        List<Bar> bars = new ArrayList<>(stateBars);
-        bars.addAll(allianceBars);
         int rowCount = 1 + bars.size();
-
-        // The day header keeps its natural height; the bar rows share whatever is left of the page,
-        // capped so a month holding two events does not draw them as two enormous slabs.
-        chart.getRowConstraints().add(new RowConstraints());
-        for (int bar = 0; bar < bars.size(); bar++) {
-            RowConstraints barRow = new RowConstraints();
-            barRow.setMinHeight(BAR_ROW_MIN_HEIGHT);
-            barRow.setPrefHeight(BAR_ROW_MIN_HEIGHT);
-            barRow.setMaxHeight(BAR_ROW_MAX_HEIGHT);
-            barRow.setVgrow(Priority.ALWAYS);
-            chart.getRowConstraints().add(barRow);
-        }
-
-        // Today's column is washed behind everything, the way the game marks the current day.
-        // Added first so later children paint on top of it.
-        if (!today.isBefore(monthStart) && !today.isAfter(monthEnd)) {
+        if (!today.isBefore(weekStart) && !today.isAfter(weekEnd)) {
             Region wash = new Region();
-            wash.getStyleClass().add("upcoming-events-gantt-today-wash");
-            chart.add(wash, today.getDayOfMonth() - 1, 0, 1, Math.max(rowCount, 1));
+            wash.getStyleClass().add("upcoming-events-week-today-wash");
+            wash.setMouseTransparent(true);
+            chart.add(wash, 1 + (int) java.time.temporal.ChronoUnit.DAYS.between(weekStart, today),
+                    0, 1, Math.max(rowCount, 1));
         }
 
-        for (int day = 0; day < dayCount; day++) {
-            LocalDate date = monthStart.plusDays(day);
+        for (int day = 0; day < WEEK_DAYS; day++) {
+            LocalDate date = weekStart.plusDays(day);
             Label dow = new Label(date.getDayOfWeek().getDisplayName(TextStyle.SHORT, Locale.getDefault()));
-            dow.getStyleClass().add("upcoming-events-gantt-dow");
+            dow.getStyleClass().add("upcoming-events-week-dow");
             Label number = new Label(String.valueOf(date.getDayOfMonth()));
-            number.getStyleClass().add("upcoming-events-gantt-daynum");
+            number.getStyleClass().add("upcoming-events-week-daynum");
             VBox header = new VBox(dow, number);
             header.setAlignment(javafx.geometry.Pos.CENTER);
-            header.getStyleClass().add("upcoming-events-gantt-daycell");
+            header.getStyleClass().add("upcoming-events-week-daycell");
             if (date.equals(today)) {
-                header.getStyleClass().add("upcoming-events-gantt-today");
+                header.getStyleClass().add("upcoming-events-week-today");
             }
-            chart.add(header, day, 0);
+            chart.add(header, 1 + day, 0);
         }
 
         int row = 1;
         for (Bar bar : bars) {
-            chart.add(bar.chip, bar.firstColumn, row, bar.span, 1);
-            // The name is a separate node spanning to the end of the month rather than text inside
-            // the chip: a one-day bar is 58px and would render every label as "B...". Nothing else
-            // occupies this row, so the text is free to run past the chip and stay readable.
-            chart.add(bar.label, bar.firstColumn, row, dayCount - bar.firstColumn, 1);
-            GridPane.setValignment(bar.label, VPos.CENTER);
+            chart.add(bar.name, 0, row);
+            GridPane.setValignment(bar.name, VPos.CENTER);
+            chart.add(bar.chip, 1 + bar.firstColumn, row, bar.span, 1);
+            GridPane.setValignment(bar.chip, VPos.CENTER);
             row++;
         }
 
-        ScrollPane scroller = new ScrollPane(chart);
-        scroller.setFitToHeight(true);
-        scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        scroller.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scroller.getStyleClass().add("upcoming-events-gantt-scroll");
-        // Open on today rather than the 1st, so the useful part of the month is what is on screen.
-        // The chart is rebuilt from scratch on every poll, so whatever the viewer scrolled to is
-        // carried across; without this the view would snap back to today every 30 seconds.
-        if (monthScroll == null) {
-            monthScroll = dayCount <= 1 ? 0d : (double) (today.getDayOfMonth() - 1) / (dayCount - 1);
-        }
-        scroller.setHvalue(monthScroll);
-        scroller.hvalueProperty().addListener((obs, was, now) -> monthScroll = now.doubleValue());
-
-        Label empty = new Label("Nothing scheduled in " + monthLabel(month) + ".");
+        Label empty = new Label("Nothing scheduled this week.");
         empty.getStyleClass().add("upcoming-events-nothing-live");
 
-        VBox body = new VBox(10, buildMonthNav(month));
-        javafx.scene.Node content = bars.isEmpty() ? empty : scroller;
-        VBox.setVgrow(content, Priority.ALWAYS);
-        body.getChildren().add(content);
+        VBox body = new VBox(12, buildWeekNav(weekStart, weekEnd));
+        body.getChildren().add(bars.isEmpty() ? empty : chart);
         monthCalendarHost.getChildren().setAll(body);
     }
 
-    private HBox buildMonthNav(YearMonth month) {
+    private HBox buildWeekNav(LocalDate weekStart, LocalDate weekEnd) {
         Button previous = new Button("◀");
-        previous.getStyleClass().add("upcoming-events-gantt-nav");
+        previous.getStyleClass().add("upcoming-events-week-nav");
         previous.setOnAction(event -> {
-            monthAnchor = monthAnchor.minusMonths(1);
-            monthScroll = 0d;
+            this.weekStart = this.weekStart.minusWeeks(1);
             rebuildMonthView();
         });
 
         Button next = new Button("▶");
-        next.getStyleClass().add("upcoming-events-gantt-nav");
+        next.getStyleClass().add("upcoming-events-week-nav");
         next.setOnAction(event -> {
-            monthAnchor = monthAnchor.plusMonths(1);
-            monthScroll = 0d;
+            this.weekStart = this.weekStart.plusWeeks(1);
             rebuildMonthView();
         });
 
-        Label title = new Label(monthLabel(month));
-        title.getStyleClass().add("upcoming-events-gantt-title");
+        Button thisWeek = new Button("Today");
+        thisWeek.getStyleClass().add("upcoming-events-week-nav");
+        thisWeek.setOnAction(event -> {
+            this.weekStart = startOfWeek(LocalDate.now(EventScheduleClock.zone()));
+            rebuildMonthView();
+        });
+
+        Label title = new Label(weekStart.format(DATE_ONLY_FORMAT) + "  –  "
+                + weekEnd.format(DATE_ONLY_FORMAT) + ", " + weekEnd.getYear());
+        title.getStyleClass().add("upcoming-events-week-title");
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox nav = new HBox(8, previous, title, spacer, next);
+        HBox nav = new HBox(8, previous, next, title, spacer, thisWeek);
         nav.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         return nav;
     }
 
-    private String monthLabel(YearMonth month) {
-        return month.getMonth().getDisplayName(TextStyle.FULL, Locale.getDefault()) + " " + month.getYear();
+    private static LocalDate startOfWeek(LocalDate date) {
+        return date.minusDays(date.getDayOfWeek().getValue() - 1L);
     }
 
-    /** Clips one entry to the displayed month, or returns null when it does not touch it. An entry
+    /** Clips one entry to the displayed week, or returns null when it does not touch it. An entry
      *  whose end the game never showed is a single-day bar on its start, never a bar to the edge --
      *  drawing an unknown end as a long run would state something that was never read. */
-    private Bar toBar(EventScheduleEntry entry, LocalDate monthStart, LocalDate monthEnd) {
+    private Bar toBar(EventScheduleEntry entry, LocalDate weekStart, LocalDate weekEnd) {
         boolean allDay = isAllDay(entry);
         LocalDate start = toViewerDate(entry.getActiveSince(), allDay);
         LocalDate end = toViewerDate(entry.getInactiveSince(), allDay);
@@ -628,46 +544,49 @@ public class UpcomingEventsLayoutController {
         }
         LocalDate from = start != null ? start : end;
         LocalDate to = (end != null && !end.isBefore(from)) ? end : from;
-        if (to.isBefore(monthStart) || from.isAfter(monthEnd)) {
+        if (to.isBefore(weekStart) || from.isAfter(weekEnd)) {
             return null;
         }
-        LocalDate clippedFrom = from.isBefore(monthStart) ? monthStart : from;
-        LocalDate clippedTo = to.isAfter(monthEnd) ? monthEnd : to;
+        LocalDate clippedFrom = from.isBefore(weekStart) ? weekStart : from;
+        LocalDate clippedTo = to.isAfter(weekEnd) ? weekEnd : to;
 
-        // The icon rides inside the coloured bar, the way the game draws it, so a one-day bar is
-        // still identifiable without its name.
-        HBox chip = new HBox(iconNodeFor(entry.getEventLabel(), 18, "upcoming-events-gantt-bar-glyph"));
-        chip.setAlignment(javafx.geometry.Pos.CENTER);
+        Label icon = new Label(iconFor(entry.getEventLabel()));
+        icon.getStyleClass().add("upcoming-events-week-glyph");
+        Label text = new Label(entry.getEventLabel());
+        text.getStyleClass().add("upcoming-events-week-name");
+        HBox name = new HBox(8, icon, text);
+        name.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        name.getStyleClass().add("upcoming-events-week-name-cell");
+
+        Region chip = new Region();
         chip.setMaxWidth(Double.MAX_VALUE);
-        chip.setMaxHeight(Double.MAX_VALUE);
-        chip.getStyleClass().addAll("upcoming-events-gantt-bar",
+        chip.getStyleClass().addAll("upcoming-events-week-bar",
                 isAllianceEvent(entry.getEventKey())
-                        ? "upcoming-events-gantt-bar-alliance"
-                        : "upcoming-events-gantt-bar-state");
+                        ? "upcoming-events-week-bar-alliance"
+                        : "upcoming-events-week-bar-state");
         if (entry.isCurrentlyActive()) {
-            chip.getStyleClass().add("upcoming-events-gantt-bar-active");
+            chip.getStyleClass().add("upcoming-events-week-bar-active");
         }
-        // The bar is clipped to the displayed month, so the full window stays reachable on hover.
-        Tooltip.install(chip, new Tooltip(entry.getEventLabel() + "\n" + describeWindow(entry)));
-
-        // Set outside the bar in plain text rather than styled like it: a one-day bar is 58px and
-        // a bold label across the next four days reads as though the event ran for five.
-        Label label = new Label(entry.getEventLabel());
-        label.getStyleClass().add("upcoming-events-gantt-bar-label");
-        label.setMouseTransparent(true);
+        // Arrows mark a run that carries on outside this week, so a clipped bar is not read as an
+        // event that starts on Monday or finishes on Sunday when it does neither.
+        String continues = (from.isBefore(weekStart) ? "◀ " : "")
+                + describeWindow(entry) + (to.isAfter(weekEnd) ? " ▶" : "");
+        Tooltip tooltip = new Tooltip(entry.getEventLabel() + "\n" + continues);
+        Tooltip.install(chip, tooltip);
+        Tooltip.install(name, tooltip);
 
         Bar bar = new Bar();
+        bar.name = name;
         bar.chip = chip;
-        bar.label = label;
-        bar.firstColumn = clippedFrom.getDayOfMonth() - 1;
-        bar.span = clippedTo.getDayOfMonth() - clippedFrom.getDayOfMonth() + 1;
+        bar.firstColumn = (int) java.time.temporal.ChronoUnit.DAYS.between(weekStart, clippedFrom);
+        bar.span = (int) java.time.temporal.ChronoUnit.DAYS.between(clippedFrom, clippedTo) + 1;
         return bar;
     }
 
-    /** One laid-out event bar: the coloured chip, its name, and where both sit in the day grid. */
+    /** One laid-out event row: its name cell, its coloured bar, and where the bar sits in the week. */
     private static final class Bar {
-        private HBox chip;
-        private Label label;
+        private HBox name;
+        private Region chip;
         private int firstColumn;
         private int span;
     }
