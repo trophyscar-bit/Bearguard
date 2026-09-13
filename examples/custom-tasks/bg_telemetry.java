@@ -107,11 +107,20 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      * (Power, Gems). Allowing K/M/B there costs accuracy for no benefit: with
      * the letters in the whitelist Tesseract read a clean "56,256" crop as
      * "596,256", inventing a digit. Only Coal actually abbreviates.
+     *
+     * <p>Read as a single WORD rather than a single line, because narrowing the whitelist only
+     * reduced that fault and did not remove it: on 9/12 at 23:11 a clean "53,893" gems crop came
+     * back as "593,893" -- the same invented 9 after the first digit -- and the plausibility guard
+     * had to hold the reading back at a ratio of 16.8. Line segmentation is what admits the extra
+     * glyph; these crops are one number and nothing else, so telling Tesseract that is both true
+     * and stricter. Checked over 30 saved full-screen frames: identical on 28, correct instead of
+     * wrong on the two that carried the fault, and no change to Power on any of them. Three frames
+     * gain a trailing comma, which parseScaled strips.</p>
      */
     private static final OcrSettingsData HUD_FULL_NUMBER_SETTINGS =
             OcrSettingsData.assembler()
                     .charWhitelist("0123456789,")
-                    .textLayout(TextLayout.SINGLE_LINE)
+                    .textLayout(TextLayout.SINGLE_WORD)
                     .stripBackground(true)
                     .setTextColor(new java.awt.Color(255, 255, 255))
                     .build();
