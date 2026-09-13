@@ -21,22 +21,21 @@ import dev.frostguard.api.runtime.WorkspacePaths;
 import dev.frostguard.data.metrics.MetricStore;
 
 /**
- * Reads the telemetry history that {@code bg_telemetry} appends to
- * {@code data/telemetry/profiles/<id>/history.jsonl} and turns it into the "what did the bot
- * earn" reports the Statistics tab shows.
+ * Turns this profile's recorded observations into the "what did the bot earn" reports the
+ * Statistics tab shows.
  *
  * <p>He wants the Statistics page to answer real questions —
  * "how many resources did I gather overnight", "how much power / how many gems
  * did botting earn me today / this week / total" — instead of run counts. Each
- * report is a delta between the snapshot at the start of a window and the most
- * recent one, so it reads directly off the same history the bot already logs.</p>
+ * report is a delta between the first reading inside a window and the last one.</p>
  *
- * <p>previously read {@code telemetry/history.jsonl} off
- * {@code user.dir} and filtered by profile NAME within one shared file -- and a row with no
- * "profile" field (or a null caller-supplied name) was accepted for every profile, not rejected.
- * Now that {@code bg_telemetry} writes one file per profile ID under the workspace, {@link #load}
- * just opens that profile's own file directly. There is nothing left to filter, so that bug class
- * is gone by construction rather than patched.</p>
+ * <p>The readings come from {@link dev.frostguard.data.metrics.MetricStore}, which records a
+ * value against the moment it was actually seen. Two earlier shapes of this are worth not
+ * repeating: one shared {@code history.jsonl} filtered by profile NAME, where a row with no
+ * "profile" field was accepted for every profile; and then a per-profile file whose rows were
+ * copies of a config cache, so a subtraction measured when a value was believed rather than when
+ * it changed. Both bug classes are gone by construction -- readings are keyed by profile id, and
+ * a reading is only written when something was actually read.</p>
  */
 public final class TelemetryReport {
 

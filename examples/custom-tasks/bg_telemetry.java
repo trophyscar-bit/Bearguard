@@ -1381,27 +1381,23 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      * which callers already handle.</p>
      */
     private Map<String, Object> readLastKnownGood() {
-        Path file = telemetryDir().resolve("history.jsonl");
         try {
-            if (!Files.exists(file)) {
+            if (profile.getId() == null) {
                 return null;
             }
-            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            // Asked of the observation store rather than by re-reading and regex-scanning a
+            // growing text file on every run. Same question, same answer -- the last recorded
+            // reading of each field -- but by index, and over everything recorded rather than
+            // only what this task happened to write.
+            dev.frostguard.data.metrics.MetricStore store =
+                    dev.frostguard.data.metrics.MetricStore.forCurrentWorkspace();
+            java.time.Instant now = java.time.Instant.now();
             Map<String, Object> result = new LinkedHashMap<>();
-            java.util.regex.Pattern pattern =
-                    java.util.regex.Pattern.compile("\"(\\w+)\":(-?\\d+)(?!\\.)");
-            for (int i = lines.size() - 1; i >= 0; i--) {
-                String line = lines.get(i);
-                if (line == null || line.isBlank()) {
-                    continue;
-                }
-                java.util.regex.Matcher m = pattern.matcher(line);
-                while (m.find()) {
-                    // putIfAbsent: walking backwards, the first value seen for a field is the
-                    // most recent one. Nulls do not match the pattern at all, so a rejected
-                    // reading is skipped rather than recorded as the last known-good.
-                    result.putIfAbsent(m.group(1), Long.parseLong(m.group(2)));
-                }
+            for (String metric : store.metrics(profile.getId())) {
+                // A rejected reading is never recorded, so the newest row for a field is by
+                // construction its last known-good value.
+                store.lastAtOrBefore(profile.getId(), metric, now)
+                        .ifPresent(o -> result.put(metric, o.value()));
             }
             return result.isEmpty() ? null : result;
         } catch (Exception e) {
@@ -1526,21 +1522,22 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final Object WRITE_LOCK = new Object();
 
     /**
-     * Appends to a JSON Lines history and atomically replaces the latest-sample file.
-     * JSONL is used for the history so a run can never corrupt earlier samples by rewriting a
-     * whole document, which matters for something appending unattended overnight. latest.json
-     * itself is written to a temp file and moved into place (atomically where the filesystem
-     * supports it) rather than truncate-written in place, so a reader can never observe a
-     * half-written file.
+     * Atomically replaces the latest-sample file.
+     *
+     * <p>A glanceable snapshot of the most recent sample, and nothing reads it to answer a
+     * question about a time span -- the observation store does that. It is written to a temp file
+     * and moved into place (atomically where the filesystem supports it) rather than
+     * truncate-written, so a reader can never observe a half-written file.</p>
      */
     private void writeSample(String json) {
         Path dir = telemetryDir();
         synchronized (WRITE_LOCK) {
             try {
                 Files.createDirectories(dir);
-                Files.write(dir.resolve("history.jsonl"),
-                        (json + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
-                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                // history.jsonl is no longer appended. The observation store is the record of
+                // what was read and when; a second parallel copy of the same numbers in a text
+                // file is what made "what changed overnight" ambiguous in the first place. The
+                // existing file is left alone -- it is what the store was seeded from.
                 writeAtomically(dir.resolve("latest.json"), json.getBytes(StandardCharsets.UTF_8));
             } catch (IOException e) {
                 logError("bg_telemetry | Could not write telemetry to " + dir + ": " + e.getMessage());
