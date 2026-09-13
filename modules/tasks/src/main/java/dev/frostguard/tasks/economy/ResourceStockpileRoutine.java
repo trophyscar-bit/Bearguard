@@ -107,6 +107,11 @@ public class ResourceStockpileRoutine extends DelayedTask {
     /** Bounds of one row's owned cell, for the digits-only re-read. */
     private static final int OWNED_CELL_LEFT = 430;
     private static final int OWNED_CELL_RIGHT = 600;
+    /** How far above and below the owned figure's own top edge its re-read box reaches. */
+    private static final int OWNED_CELL_ABOVE = 15;
+    private static final int OWNED_CELL_BELOW = 23;
+    /** Vertical distance from an owned figure to the shielded amount printed beneath it. */
+    private static final int OWNED_SHIELD_ROW_GAP = 34;
     /** Left edge of the Summary's "Total Resources" column, clear of "Total Items". */
     private static final int TOTAL_RESOURCES_COLUMN_X = 460;
     /**
@@ -606,7 +611,11 @@ public class ResourceStockpileRoutine extends DelayedTask {
             }
             Long parsed = parseScaled(owned.get().text().trim());
             if (parsed == null && frame != null) {
-                parsed = rereadOwnedCell(frame, row);
+                // The figure is present and merely unreadable -- 'A11.4M' where the panel shows
+                // 411.4M -- so the cell to re-read is the one this word occupies. Anchoring on the
+                // row instead would aim a row-gap higher, at blank panel, which is what happened
+                // on 9/12 at 23:29: the fallback fired, read nothing, and wood was dropped anyway.
+                parsed = rereadOwnedCell(frame, owned.get().top());
             }
             if (parsed != null) {
                 values.add(parsed);
@@ -633,14 +642,28 @@ public class ResourceStockpileRoutine extends DelayedTask {
      */
     private static Long rereadOwnedCell(RawImageData frame, PanelRowIndex.Row row) {
         java.util.OptionalInt top = row.words().stream().mapToInt(TextLine::top).min();
-        if (top.isEmpty() || top.getAsInt() < 60) {
+        if (top.isEmpty()) {
             return null;
         }
-        int bottom = top.getAsInt() - 11;
-        int topEdge = top.getAsInt() - 49;
+        // Nothing usable came back for the owned figure at all, so the topmost word in the row is
+        // the shielded amount, and the owned figure is one row-gap above it.
+        return rereadOwnedCell(frame, top.getAsInt() - OWNED_SHIELD_ROW_GAP);
+    }
+
+    /**
+     * Re-reads the owned cell whose figure's top edge sits at {@code ownedTop}.
+     *
+     * <p>Generous bounds on purpose: a tight box round these digits drops the decimal point and
+     * turns 411.6M into 4116M, which is the older fault this routine already carries scars from.</p>
+     */
+    private static Long rereadOwnedCell(RawImageData frame, int ownedTop) {
+        if (ownedTop < OWNED_CELL_ABOVE) {
+            return null;
+        }
         try {
             String text = OcrEngine.recognizeText(frame,
-                    new PointData(OWNED_CELL_LEFT, topEdge), new PointData(OWNED_CELL_RIGHT, bottom),
+                    new PointData(OWNED_CELL_LEFT, ownedTop - OWNED_CELL_ABOVE),
+                    new PointData(OWNED_CELL_RIGHT, ownedTop + OWNED_CELL_BELOW),
                     OWNED_CELL_SETTINGS);
             return text == null || text.isBlank() ? null : parseScaled(text.trim());
         } catch (Exception e) {
