@@ -103,6 +103,10 @@ public class ResourceStockpileRoutine extends DelayedTask {
 
     /** Left edge of the Overview's "Owned" column, clear of the Output column beside it. */
     private static final int OWNED_COLUMN_X = 440;
+
+    /** Bounds of one row's owned cell, for the digits-only re-read. */
+    private static final int OWNED_CELL_LEFT = 430;
+    private static final int OWNED_CELL_RIGHT = 600;
     /** Left edge of the Summary's "Total Resources" column, clear of "Total Items". */
     private static final int TOTAL_RESOURCES_COLUMN_X = 460;
     /**
@@ -457,7 +461,8 @@ public class ResourceStockpileRoutine extends DelayedTask {
         // would shift the assignment and file wood's stockpile under coal, which is worse than
         // skipping an hourly cycle and keeping the values already cached.
         List<Long> values = ownedValues(panel,
-                frame == null ? null : dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame));
+                frame == null ? null : dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame),
+                frame);
 
         if (values.size() != OVERVIEW_ROW_ORDER.size()) {
             // At WARN, with the rows it saw and the frame it saw them in. Of the last 76 short reads,
@@ -563,6 +568,27 @@ public class ResourceStockpileRoutine extends DelayedTask {
      * beneath it.</p>
      */
     static List<Long> ownedValues(PanelRowIndex panel, java.awt.image.BufferedImage image) {
+        return ownedValues(panel, image, null);
+    }
+
+    /**
+     * The same, with one more chance for a row the whole-column pass could not resolve.
+     *
+     * <p>Reading the column in one pass needs an open alphabet, because the pass has to cope with
+     * whatever is in it, and an open alphabet lets Tesseract answer with letters. On 9/12 it read
+     * wood's 411.6M as "A411.6M" and its 411.3M as "Al11.3M" -- a hallucinated leading A, and an l
+     * for a 1. Neither parses, so the row resolved nothing and the whole panel was refused; wood
+     * happened to be the value in the 400-millions, and it failed every cycle for six hours.</p>
+     *
+     * <p>Stripping the stray letters would be a bad trade: "Al11.3M" without its letters is 11.3M,
+     * and the real figure is 411.3M. The digit is not recoverable from a mangled word. So the row is
+     * read again from its own cell with an alphabet that has no letters in it, where those answers
+     * cannot be produced -- both frames then read exactly right. The cell is located from the row's
+     * own shield line rather than a fixed coordinate, and sits above it, so this can never pick up
+     * the shielded amount.</p>
+     */
+    static List<Long> ownedValues(PanelRowIndex panel, java.awt.image.BufferedImage image,
+                                  RawImageData frame) {
         List<Long> values = new java.util.ArrayList<>();
         if (image == null) {
             return values;
@@ -572,14 +598,54 @@ public class ResourceStockpileRoutine extends DelayedTask {
                     .filter(w -> !isShieldColoured(image, w))
                     .min(java.util.Comparator.comparingInt(TextLine::top));
             if (owned.isEmpty()) {
+                Long recovered = frame == null ? null : rereadOwnedCell(frame, row);
+                if (recovered != null) {
+                    values.add(recovered);
+                }
                 continue;
             }
             Long parsed = parseScaled(owned.get().text().trim());
+            if (parsed == null && frame != null) {
+                parsed = rereadOwnedCell(frame, row);
+            }
             if (parsed != null) {
                 values.add(parsed);
             }
         }
         return values;
+    }
+
+    /** Digits only: an alphabet with no letters in it cannot answer with letters. */
+    private static final OcrSettingsData OWNED_CELL_SETTINGS =
+            OcrSettingsData.assembler()
+                    .charWhitelist("0123456789.,KMB")
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .stripBackground(false)
+                    .build();
+
+    /**
+     * Re-reads one row's owned cell on its own.
+     *
+     * <p>The cell is placed relative to the row's own topmost line -- the shielded amount, when the
+     * owned figure is what went missing -- which sits a fixed 34px below the owned figure in this
+     * panel. Generous bounds on purpose: a tight box round these digits drops the decimal point and
+     * turns 411.6M into 4116M, which is the older fault this routine already carries scars from.</p>
+     */
+    private static Long rereadOwnedCell(RawImageData frame, PanelRowIndex.Row row) {
+        java.util.OptionalInt top = row.words().stream().mapToInt(TextLine::top).min();
+        if (top.isEmpty() || top.getAsInt() < 60) {
+            return null;
+        }
+        int bottom = top.getAsInt() - 11;
+        int topEdge = top.getAsInt() - 49;
+        try {
+            String text = OcrEngine.recognizeText(frame,
+                    new PointData(OWNED_CELL_LEFT, topEdge), new PointData(OWNED_CELL_RIGHT, bottom),
+                    OWNED_CELL_SETTINGS);
+            return text == null || text.isBlank() ? null : parseScaled(text.trim());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
