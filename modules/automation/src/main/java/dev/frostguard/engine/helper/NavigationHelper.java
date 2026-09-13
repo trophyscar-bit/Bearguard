@@ -67,6 +67,9 @@ public class NavigationHelper {
 
     // ── alliance menu ────────────────────────────────────────────────
 
+    /** How long the alliance panel takes to animate in before its buttons can be matched. */
+    private static final int ALLIANCE_MENU_SETTLE_MS = 1500;
+
     public boolean navigateToAllianceMenu(AllianceMenu menu) {
         // The bottom menu only exists on City or World, so a caller that is still inside a panel
         // taps empty space and then fails to find the menu button -- indistinguishable from having
@@ -74,6 +77,11 @@ public class NavigationHelper {
         // only worked because its callers happened to run it as their first navigation.
         ensureCorrectScreenLocation(LaunchPoint.ANY);
         taps.tapInside(ButtonConstants.BOTTOM_MENU_ALLIANCE_BUTTON);
+        // The panel animates in, and the search below was starting before it arrived: a live trace
+        // showed the tap at 18:23:04 and "not found" at 18:23:05, while the very same template
+        // scores 100 against a frame where the panel is actually open. The retries in the search
+        // config all expire inside that one second, so the wait has to be here.
+        interruptibleWait(ALLIANCE_MENU_SETTLE_MS);
 
         TemplatesEnum tpl;
         if (menu == AllianceMenu.WAR) tpl = TemplatesEnum.ALLIANCE_WAR_BUTTON;
