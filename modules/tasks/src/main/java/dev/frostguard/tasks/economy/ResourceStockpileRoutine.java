@@ -235,7 +235,6 @@ public class ResourceStockpileRoutine extends DelayedTask {
         logInfo("ResourceStockpileRoutine | Scanning Meat/Wood/Coal/Iron from the Overview panel.");
 
         Map<String, Long> read = readOverviewPanel();
-        recordObservations(read);
 
         if (read != null) {
             // "check the last couple days" turned up meat/wood/iron swinging 10x
@@ -255,6 +254,23 @@ public class ResourceStockpileRoutine extends DelayedTask {
                     ConfigurationKeyEnum.RESOURCE_STOCKPILE_COAL_LONG);
             Long iron = sanityCheckAgainstCached("iron", read.get("iron"),
                     ConfigurationKeyEnum.RESOURCE_STOCKPILE_IRON_LONG);
+
+            // Recorded after the guard, not before it. A misread is not a reading: on 9/13 at
+            // 00:17 wood came back as 11.9M against a standing 411.7M -- the leading digit
+            // dropped -- and recording the raw value put a cliff in the stats that only the
+            // despike could take back out, and only once a later reading existed to prove it.
+            //
+            // This is not the fault the store was built to fix. That one wrote the CACHE on a
+            // timer, so a row carried a stale value under a fresh timestamp. Here a rejected
+            // reading records nothing at all and leaves a gap, which is the honest answer and
+            // the one MetricStoreTest pins: a value is only ever written at the moment it was
+            // actually seen.
+            Map<String, Long> accepted = new java.util.LinkedHashMap<>();
+            accepted.put("meat", meat);
+            accepted.put("wood", wood);
+            accepted.put("coal", coal);
+            accepted.put("iron", iron);
+            recordObservations(accepted);
 
             if (meat != null) profile.setConfig(ConfigurationKeyEnum.RESOURCE_STOCKPILE_MEAT_LONG, meat);
             if (wood != null) profile.setConfig(ConfigurationKeyEnum.RESOURCE_STOCKPILE_WOOD_LONG, wood);
@@ -378,16 +394,6 @@ public class ResourceStockpileRoutine extends DelayedTask {
 
     /** Puts a summary read through the plausibility guards and caches what survives. */
     private void cacheSummary(SummaryRead read) {
-        // A HashMap, not Map.of: any of these is null when its row did not resolve, and Map.of
-        // rejects nulls. The store drops them; a reading that did not resolve is not an observation.
-        java.util.Map<String, Long> observed = new java.util.LinkedHashMap<>();
-        observed.put("steel", read.steel());
-        observed.put("sp_general", read.general());
-        observed.put("sp_training", read.training());
-        observed.put("sp_construction", read.construction());
-        observed.put("sp_research", read.research());
-        observed.put("sp_healing", read.healing());
-        recordObservations(observed);
         Long steel = sanityCheckAgainstCached("steel", read.steel(),
                 ConfigurationKeyEnum.RESOURCE_STOCKPILE_STEEL_LONG);
         if (steel != null) {
@@ -413,6 +419,20 @@ public class ResourceStockpileRoutine extends DelayedTask {
                 ConfigurationKeyEnum.SPEEDUP_RESEARCH_MIN_LONG, SPEEDUP_GUARD);
         Long heal = sanityCheckAgainstCached("sp_healing", read.healing(),
                 ConfigurationKeyEnum.SPEEDUP_HEALING_MIN_LONG, SPEEDUP_GUARD);
+
+        // Recorded after the guards, for the reason given on the Overview path: a reading the
+        // guard refused is a misread, and a misread belongs in the store as a gap rather than as
+        // a cliff for the despike to undo later. A LinkedHashMap, not Map.of, because any of
+        // these is null when its row did not resolve and Map.of rejects nulls; the store drops
+        // them, so nothing is written for a bucket that was not read.
+        java.util.Map<String, Long> accepted = new java.util.LinkedHashMap<>();
+        accepted.put("steel", steel);
+        accepted.put("sp_general", gen);
+        accepted.put("sp_training", tr);
+        accepted.put("sp_construction", con);
+        accepted.put("sp_research", res);
+        accepted.put("sp_healing", heal);
+        recordObservations(accepted);
 
         if (gen != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_GENERAL_MIN_LONG, gen);
         if (tr != null)   profile.setConfig(ConfigurationKeyEnum.SPEEDUP_TRAINING_MIN_LONG, tr);
