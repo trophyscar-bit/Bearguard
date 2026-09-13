@@ -250,6 +250,30 @@ class ResourceStockpilePanelReadTest {
                 "read again from its own cell, wood resolves -- and in its own row's place");
     }
 
+    /**
+     * The other shape of the same fault: the figure is read, but not as a number.
+     *
+     * <p>A real failure from 9/12 at 23:29, hours after the re-read above shipped. Here wood's
+     * 411.4M came back as "A11.4M" -- present in the row, just unparseable. The first re-read
+     * anchored on the row's topmost word on the assumption that it was the shielded amount, which
+     * only holds when the owned figure produced no word at all; with a word present the box aimed a
+     * row-gap too high, at blank panel, and wood was dropped anyway. The anchor has to be the
+     * figure's own position when there is one.</p>
+     */
+    @Test
+    void aRowReadAsLettersIsReadAgainFromItsOwnPosition() throws Exception {
+        BufferedImage img = load("overview-owned-letter-prefix-present.png");
+        PanelRowIndex panel = rows(img, OVERVIEW_TL, OVERVIEW_BR);
+
+        assertEquals(List.of(358_900_000L, 73_300_000L, 21_900_000L),
+                ResourceStockpileRoutine.ownedValues(panel, img),
+                "the column pass reads wood as 'A11.4M' and cannot use it");
+
+        assertEquals(List.of(358_900_000L, 411_400_000L, 73_300_000L, 21_900_000L),
+                ResourceStockpileRoutine.ownedValues(panel, img, capture(img)),
+                "re-read from where the unreadable word actually sits, wood resolves as 411.4M");
+    }
+
     /** A label matching more than one row is declined rather than guessed. */
     @Test
     void ambiguousLabelsAreDeclined() throws Exception {
