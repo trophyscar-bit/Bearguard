@@ -212,7 +212,33 @@ public final class TelemetryReport {
 
     public int size() { return samples.size(); }
 
-    public Sample latest() { return samples.isEmpty() ? null : samples.get(samples.size() - 1); }
+    /**
+     * The current value of every metric: for each one, the newest reading there is.
+     *
+     * <p>Deliberately not the newest sample. A sample is one instant, and the readings do not all
+     * arrive at the same instant -- bg_telemetry records power, gems and coal when it runs, and
+     * ResourceStockpileRoutine records the stockpiles a few seconds later and the speedups a few
+     * seconds after that. Returning the last sample therefore returned whichever three-to-six
+     * metrics happened to share the final millisecond.</p>
+     *
+     * <p>The Statistics tab skips any metric this does not carry ("metric never captured"), so on
+     * 9/13 it drew six tiles -- steel and the five speedups, the group written last -- and silently
+     * dropped power, gems, meat, wood, coal and iron. The old JSONL wrote one row per sample with
+     * every field in it, so this could not happen there; it became possible the moment readings
+     * were stored one metric at a time.</p>
+     */
+    public Sample latest() {
+        if (samples.isEmpty()) {
+            return null;
+        }
+        Map<String, Long> current = new LinkedHashMap<>();
+        Map<String, Long> activity = new LinkedHashMap<>();
+        for (Sample s : samples) {          // oldest first, so later readings overwrite earlier ones
+            s.values().forEach((k, v) -> { if (v != null) current.put(k, v); });
+            s.activity().forEach((k, v) -> { if (v != null) activity.put(k, v); });
+        }
+        return new Sample(samples.get(samples.size() - 1).at(), current, activity);
+    }
 
     public List<Sample> samples() { return samples; }
 
