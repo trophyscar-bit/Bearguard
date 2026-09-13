@@ -228,6 +228,28 @@ class ResourceStockpilePanelReadTest {
                 "meat resolves nothing; the panel comes back short instead of carrying a shield figure");
     }
 
+    /**
+     * A row the whole-column pass cannot read is read again from its own cell, with digits only.
+     *
+     * <p>The frame is a real failure from 9/12. The column pass has to use an open alphabet, and
+     * Tesseract answered "A411.6M" for wood's 411.6M -- a hallucinated leading letter. It does not
+     * parse, so the row resolved nothing and the panel was refused, every cycle for six hours,
+     * because wood happened to be the value in the 400-millions.</p>
+     */
+    @Test
+    void aRowTheColumnPassCannotReadIsReadAgainWithDigitsOnly() throws Exception {
+        BufferedImage img = load("overview-owned-letter-hallucination.png");
+        PanelRowIndex panel = rows(img, OVERVIEW_TL, OVERVIEW_BR);
+
+        assertEquals(List.of(360_200_000L, 73_300_000L, 21_400_000L),
+                ResourceStockpileRoutine.ownedValues(panel, img),
+                "the column pass alone loses wood entirely");
+
+        assertEquals(List.of(360_200_000L, 411_600_000L, 73_300_000L, 21_400_000L),
+                ResourceStockpileRoutine.ownedValues(panel, img, capture(img)),
+                "read again from its own cell, wood resolves -- and in its own row's place");
+    }
+
     /** A label matching more than one row is declined rather than guessed. */
     @Test
     void ambiguousLabelsAreDeclined() throws Exception {
