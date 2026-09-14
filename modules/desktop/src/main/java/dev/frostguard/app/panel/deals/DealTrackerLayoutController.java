@@ -53,6 +53,7 @@ public class DealTrackerLayoutController {
     private static final int PICKER_ICON_SIZE = 28;
     private static final int MOVING_AVERAGE_DAYS = 7;
     private static final DateTimeFormatter CHART_DAY = DateTimeFormatter.ofPattern("MMM d");
+    private static final java.util.regex.Pattern SAFE_ICON_NAME = java.util.regex.Pattern.compile("[A-Za-z0-9 '-]+");
 
     @FXML
     private Label labelScanStatus;
@@ -113,7 +114,17 @@ public class DealTrackerLayoutController {
         }
     }
 
+    /** A failure while building the page is shown on it; a blank page hides what broke. */
     private void refresh() {
+        try {
+            refreshContent();
+        } catch (RuntimeException failed) {
+            labelScanStatus.setText("The Deal Tracker could not show the scans: " + failed.getClass().getSimpleName()
+                    + " " + failed.getMessage());
+        }
+    }
+
+    private void refreshContent() {
         verdictContainer.getChildren().clear();
         latestContainer.getChildren().clear();
         weekContainer.getChildren().clear();
@@ -270,6 +281,10 @@ public class DealTrackerLayoutController {
     }
 
     private java.util.Optional<ImageView> iconFor(String item) {
+        // Item names can come from OCR text rows; only a plain name can be an icon file name.
+        if (!SAFE_ICON_NAME.matcher(item).matches()) {
+            return java.util.Optional.empty();
+        }
         for (String name : List.of(item + ".png", item.replace(' ', '_') + ".png")) {
             Path file = store.itemIconsDir().resolve(name);
             if (Files.isRegularFile(file)) {
