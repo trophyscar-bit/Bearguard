@@ -21,6 +21,35 @@ public final class CommonOCRSettings {
                     .allowedGlyphs(LATIN_LETTERS)
                     .build();
 
+    // Deal panels: every readable line with its position. No colour isolation, because titles,
+    // descriptions and "Remaining" use different colours on different panel skins.
+    public static final OcrSettingsData DEAL_PAGE_TEXT_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SPARSE)
+                    .build();
+
+    // Price label inside the orange purchase button, read from a WhiteTextIsolator mask, so no
+    // further colour isolation here.
+    public static final OcrSettingsData DEAL_PRICE_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .allowedGlyphs("$0123456789.")
+                    .build();
+
+    // Quantity in the bottom-right corner of an item tile, read from a WhiteTextIsolator mask.
+    public static final OcrSettingsData DEAL_ITEM_QUANTITY_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .allowedGlyphs("0123456789,")
+                    .build();
+
+    // Tab strip labels on the gem shop and Deals panels.
+    public static final OcrSettingsData DEAL_TAB_LABEL_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SPARSE)
+                    .allowedGlyphs(LATIN_LETTERS + "&/-'")
+                    .build();
+
     // stamina fraction: "123/500" style
     public static final OcrSettingsData STAMINA_FRACTION_SETTINGS =
             buildConfig("0123456789/", true, 255, 255, 255, TextLayout.SINGLE_LINE);
