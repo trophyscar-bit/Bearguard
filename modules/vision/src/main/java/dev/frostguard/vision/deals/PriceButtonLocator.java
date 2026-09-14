@@ -10,10 +10,11 @@ import java.util.List;
  * Finds the orange purchase buttons on shop and deal panels.
  *
  * <p>Detected by colour rather than a template because the button stretches to its layout:
- * measured widths run from 157 px on stacked Custom Chest cards to 301 px on the timed pack
- * pop-up. The hue band, size, aspect and fill limits were measured on seven 720 x 1280 frames
- * covering every panel layout seen on 2026-09-13; they found all ten visible buttons and
- * nothing else, including on frames full of gold item tiles and badges.</p>
+ * measured sizes run from 137 x 53 px on Daily Deals cards to 301 x 75 px on the timed pack
+ * pop-up. Fill separates buttons from other orange artwork: the thirteen buttons measured on eight
+ * 720 x 1280 frames fill 0.71 or more of their box, every other orange shape of comparable size
+ * fills 0.45 or less. The area limits only bound the size; a "Purchase All" button drawn on an
+ * orange banner merges with it and is not found.</p>
  */
 public final class PriceButtonLocator {
 
@@ -33,7 +34,7 @@ public final class PriceButtonLocator {
     private static final float MIN_BRIGHTNESS = 200f / 255f;
     /** Closing radius. Bridges the white price glyphs so the button reads as one component. */
     private static final int CLOSE_RADIUS = 4;
-    private static final int MIN_AREA = 8_000;
+    private static final int MIN_AREA = 6_000;
     private static final int MAX_AREA = 40_000;
     private static final double MIN_ASPECT = 1.8;
     private static final double MAX_ASPECT = 4.5;

@@ -84,9 +84,9 @@ class DealPriceTrackerTest {
         Map<LocalDate, DealScan> history = new TreeMap<>();
         history.put(DAY, scan(
                 new DealOffer("Deals", "Vault", "Vault", null, "Purchased", null, true,
-                        List.of(item("Gems", 2500)), "f.png"),
+                        List.of(item("Gems", 2500)), "f.png", null),
                 new DealOffer("Deals", "Top-up", "Top-up", null, "96,000 more top-up points", null, false,
-                        List.of(item("Gems", 500000)), "f.png")));
+                        List.of(item("Gems", 500000)), "f.png", null)));
 
         List<DealPriceTracker.Observation> observations = DealPriceTracker.observations(history, Map.of());
 
@@ -99,7 +99,7 @@ class DealPriceTrackerTest {
     }
 
     private static DealOffer pack(String title, double price, DealItem... items) {
-        return new DealOffer("Gem Shop", "Tab", title, price, "$" + price, 1, false, List.of(items), "f.png");
+        return new DealOffer("Gem Shop", "Tab", title, price, "$" + price, 1, false, List.of(items), "f.png", null);
     }
 
     private static DealItem item(String key, long quantity) {
