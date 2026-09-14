@@ -89,6 +89,7 @@ public final class DealFrameReader {
     private static final Pattern LISTED_ROW = Pattern.compile("^(.*[A-Za-z].*?)\\s+[xX]\\s?(\\d[\\d,]*)\\b.*$");
     private static final Pattern PURCHASED = Pattern.compile("(?i)\\bpurchased\\b");
     private static final Pattern POINTS_NEEDED = Pattern.compile("(?i)top.?up.*?([\\d,]{3,})\\s*more\\s*points");
+
     private static final Pattern QUANTITY = Pattern.compile("^\\d{1,3}(,\\d{3})*$|^\\d{1,7}$");
     private static final Pattern SHORT_SPEEDUP = Pattern.compile("^[lIi|]([hm])$");
     private static final List<String> NOT_A_TITLE = List.of("remaining", "purchase", "select your", "best deal",
