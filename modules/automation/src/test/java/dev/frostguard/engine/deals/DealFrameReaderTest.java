@@ -68,6 +68,30 @@ class DealFrameReaderTest {
     }
 
     @Test
+    void neverTakesTheStickyHeaderDescriptionAsACardTitleOnAScrolledPage() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-custom-chest-scrolled-live.png", "Mix & Match");
+
+        assertEquals(2, page.offers().size());
+        assertEquals(19.99, page.offers().get(0).priceUsd(), 1e-9);
+        assertEquals(49.99, page.offers().get(1).priceUsd(), 1e-9);
+        page.offers().forEach(o -> assertFalse(o.title().toLowerCase().contains("customize"), o.title()));
+        assertTrue(page.offers().get(1).title().startsWith("Exquisite Custom Chest"), page.offers().get(1).title());
+    }
+
+    @Test
+    void readsEachRegularPackCardUnderItsOwnBannerTitle() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-regular-pack-live.png", "Regular Pack");
+
+        assertEquals(3, page.offers().size(), page.offers().toString());
+        page.offers().forEach(o -> assertEquals(4.99, o.priceUsd(), 1e-9));
+        // Molly's Blessing sits on a gradient banner the white mask does not separate, so its title falls
+        // back to the page title plus price rather than borrowing the tab strip or a neighbour's banner.
+        assertEquals("Regular Pack - $4.99", page.offers().get(0).title());
+        assertTrue(page.offers().get(1).title().startsWith("Charm Design Pack"), page.offers().get(1).title());
+        assertTrue(page.offers().get(2).title().startsWith("Charm Craftsman Pack"), page.offers().get(2).title());
+        assertEquals(5, page.offers().get(2).remaining());
+    }
+    @Test
     void readsListedRowsOnTheTimedPackPopup() throws Exception {
         DealOffer offer = read("popup-city-construction.png", "Timed Pack").offers().get(0);
 

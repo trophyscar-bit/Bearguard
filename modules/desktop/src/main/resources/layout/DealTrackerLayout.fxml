@@ -41,7 +41,7 @@
                             <CategoryAxis label="Scan day" />
                         </xAxis>
                         <yAxis>
-                            <NumberAxis fx:id="priceAxis" label="$ per unit" forceZeroInRange="false" />
+                            <NumberAxis label="USD per unit" forceZeroInRange="false" />
                         </yAxis>
                     </LineChart>
                 </VBox>
