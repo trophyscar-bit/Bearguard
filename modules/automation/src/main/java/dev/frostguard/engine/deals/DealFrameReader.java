@@ -102,7 +102,10 @@ public final class DealFrameReader {
      */
     private static final int UNDER_BUTTON_HEIGHT = 44;
     private static final int UNDER_BUTTON_MARGIN = 50;
-    /** Quantity band of a tile, relative to the icon match (the template starts 6,4 into the tile). */
+    /**
+     * Quantity band of a full-size tile, relative to the icon match (the template starts 6,4 into the tile).
+     * Scaled by the match's tile size, since layouts draw tiles at 0.67-1.0 of full size.
+     */
     private static final int TILE_LEFT = -6;
     private static final int TILE_RIGHT = 89;
     private static final int QUANTITY_TOP = 46;
@@ -514,8 +517,8 @@ public final class DealFrameReader {
     }
 
     private static List<TextLine> rowStripWords(RawImageData mask, DealItemLibrary.Match match) {
-        int top = Math.max(0, match.y() + QUANTITY_TOP);
-        int bottom = Math.min(FRAME_BOTTOM_RIGHT.getY(), match.y() + QUANTITY_BOTTOM);
+        int top = Math.max(0, match.y() + scaled(QUANTITY_TOP, match));
+        int bottom = Math.min(FRAME_BOTTOM_RIGHT.getY(), match.y() + scaled(QUANTITY_BOTTOM, match));
         if (bottom <= top) {
             return List.of();
         }
@@ -529,15 +532,19 @@ public final class DealFrameReader {
 
     /** The rightmost number printed in the tile's bottom band; a tile with no readable number is left out. */
     private static Optional<Long> quantity(List<TextLine> words, DealItemLibrary.Match match) {
-        int left = match.x() + TILE_LEFT;
-        int right = match.x() + TILE_RIGHT;
-        int top = match.y() + QUANTITY_TOP;
-        int bottom = match.y() + QUANTITY_BOTTOM;
+        int left = match.x() + scaled(TILE_LEFT, match);
+        int right = match.x() + scaled(TILE_RIGHT, match);
+        int top = match.y() + scaled(QUANTITY_TOP, match);
+        int bottom = match.y() + scaled(QUANTITY_BOTTOM, match);
         return words.stream()
                 .filter(w -> centreX(w) >= left && centreX(w) <= right && centreY(w) >= top && centreY(w) <= bottom)
                 .filter(w -> QUANTITY.matcher(clean(w.text())).matches())
                 .max(Comparator.comparingInt(TextLine::left))
                 .map(w -> parseQuantity(w.text()));
+    }
+
+    private static int scaled(int fullSizeOffset, DealItemLibrary.Match match) {
+        return (int) Math.round(fullSizeOffset * match.scale());
     }
 
     private static List<DealItem> listedItems(List<TextLine> lines, int top, int bottom) {
