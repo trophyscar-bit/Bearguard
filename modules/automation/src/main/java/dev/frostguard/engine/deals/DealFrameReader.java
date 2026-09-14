@@ -1,6 +1,9 @@
 package dev.frostguard.engine.deals;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -16,12 +19,14 @@ import java.util.stream.Stream;
 
 import dev.frostguard.api.deals.DealItem;
 import dev.frostguard.api.deals.DealOffer;
+import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.WhiteTextIsolator;
 import dev.frostguard.vision.deals.PriceButtonLocator;
+import dev.frostguard.vision.match.OpenCvPatternLocator;
 import dev.frostguard.vision.ocr.OcrEngine;
 import dev.frostguard.vision.ocr.OcrException;
 import dev.frostguard.vision.ocr.TextLine;
@@ -35,9 +40,12 @@ import dev.frostguard.vision.ocr.TextLine;
  *
  * <p>Two readings of the frame are combined. Titles, prices, listed reward rows and tile
  * quantities are white glyphs, read from a {@link WhiteTextIsolator} mask of the whole frame;
- * {@code Remaining}, {@code Purchased} and top-up requirements are dark text, read from the plain
- * frame. On the saved frames the plain reading alone missed every card title and listed row, and
- * the mask alone misses dark text.</p>
+ * {@code Remaining}, purchase limits, {@code Purchased} and top-up requirements are dark text, read
+ * from the plain frame. On the saved frames the plain reading alone missed every card title and listed
+ * row, and the mask alone misses dark text.</p>
+ *
+ * <p>Choose-your-own packs (Mix &amp; Match, Custom Pet Chest), whose rewards are partly picked by the
+ * player in plus-sign slots, are left out entirely: their price does not buy a fixed set of items.</p>
  *
  * <p>Nothing is guessed: an unreadable price stays {@code null} with its raw text kept, a tile
  * whose quantity is not read is left out, and a card title that cannot be read becomes the page
@@ -48,8 +56,11 @@ public final class DealFrameReader {
     /**
      * @param clippedTileRowY centre y of a single-card tile row whose last tile runs into the card
      *                        edge, meaning more tiles are hidden to the right; {@code null} otherwise
+     * @param chooseYourOwn   the frame shows a choose-your-own page; it yields no offers, and callers
+     *                        should drop what they already collected from the same tab
      */
-    public record Page(String title, List<DealOffer> offers, List<String> problems, Integer clippedTileRowY) {
+    public record Page(String title, List<DealOffer> offers, List<String> problems, Integer clippedTileRowY,
+            boolean chooseYourOwn) {
     }
 
     private record Text(List<TextLine> plainLines, List<TextLine> whiteLines, List<TextLine> whiteWords,
@@ -82,7 +93,15 @@ public final class DealFrameReader {
     private static final double PRICE_TEXT_WIDTH_SHARE = 0.85;
     /** Height a button crop is normalised to before its fallback price read. */
     private static final int PRICE_CROP_HEIGHT = 40;
+    /** "Remaining" and per-card limit lines sit within this distance of their own button's top. */
     private static final int REMAINING_WINDOW = 110;
+    /**
+     * When those lines are missing from the page reads, they are read again from the strip directly
+     * under the button: "Remaining: 1", "Remaining: 5" and "Lifetime Limit: 1" print 13-38 px below the
+     * bottom edge of their buttons on the Regular Pack cards.
+     */
+    private static final int UNDER_BUTTON_HEIGHT = 44;
+    private static final int UNDER_BUTTON_MARGIN = 50;
     /** Quantity band of a tile, relative to the icon match (the template starts 6,4 into the tile). */
     private static final int TILE_LEFT = -6;
     private static final int TILE_RIGHT = 89;
@@ -94,12 +113,29 @@ public final class DealFrameReader {
     private static final int CLIPPED_TILE_MIN_RIGHT = 620;
 
     /**
+     * The plus sign inside a choose-your-own slot, cropped to the glyph so the card's silver, gold or red
+     * background stays out of the match. Measured on twelve saved frames: rows of three slots score 91-100,
+     * the nine other layouts (including the orange slots of the Weekly Benefits Card) score at most 78.
+     *
+     * <p>The glow pulses, so one card's slots can dip under the floor on a given frame while another
+     * card's pass. The decision is therefore made for the whole frame: any row of three slots makes it a
+     * choose-your-own page, since every tier on the Mix &amp; Match and Custom Pet Chest pages is one.</p>
+     */
+    private static final String PICK_SLOT_RESOURCE = "/deals/pick-slot.png";
+    private static final double PICK_SLOT_MIN_SCORE = 90.0;
+    private static final int PICK_SLOTS_IN_A_ROW = 3;
+    /** Bounds the search for a full row when partial rows are found first. */
+    private static final int MAX_SLOT_ROWS = 6;
+    private static final byte[] PICK_SLOT = loadPickSlot();
+
+    /**
      * A price inside a confirmed orange purchase button. The dollar sign is optional because the
      * Regular Pack card read as "4.99"; the digit guards on both sides keep thousands figures such as
      * the top-up badge's "2,500" from matching as "2,50".
      */
     private static final Pattern PRICE = Pattern.compile("(?<!\\d)\\$?\\s?(\\d{1,4})[.°,:](\\d{2})(?!\\d)");
     private static final Pattern REMAINING = Pattern.compile("(?i)remaining\\W*(\\d+)");
+    private static final Pattern LIMIT = Pattern.compile("(?i)\\b(daily|weekly|monthly|lifetime)\\s*limit\\W*(\\d+)");
     private static final Pattern TIMER = Pattern.compile("\\d{1,2}:\\d{2}(:\\d{2})?");
     private static final Pattern LISTED_ROW = Pattern.compile("^(.*[A-Za-z].*?)\\s+[xX]\\s?(\\d[\\d,]*)\\b.*$");
     private static final Pattern PURCHASED = Pattern.compile("(?i)\\bpurchased\\b");
@@ -108,7 +144,7 @@ public final class DealFrameReader {
     private static final Pattern QUANTITY = Pattern.compile("^\\d{1,3}(,\\d{3})*$|^\\d{1,7}$");
     private static final Pattern SHORT_SPEEDUP = Pattern.compile("^[lIi|]([hm])$");
     private static final List<String> NOT_A_TITLE = List.of("remaining", "purchase", "select your", "best deal",
-            "claimed", "top up", "one available", "resources", "traveling", "brilliant design", "utilize");
+            "claimed", "top up", "one available", "resources", "traveling", "brilliant design", "utilize", "limit");
 
     private final DealItemLibrary library;
 
@@ -133,6 +169,11 @@ public final class DealFrameReader {
             pageTitleLine = pageTitle(text.plainLines(), tabbed);
         }
         String pageTitle = pageTitleLine == null ? tab : cleanTitle(pageTitleLine.text());
+        if (isChooseYourOwn(capture, FRAME_TOP_LEFT.getY(), FRAME_BOTTOM_RIGHT.getY(), 0)) {
+            return new Page(pageTitle, List.of(), problems, null, true);
+        }
+        List<TextLine> allLines = Stream.concat(text.plainLines().stream(), text.whiteLines().stream()).toList();
+        String pageLimit = pageLimit(allLines, buttons);
         List<DealOffer> offers = new ArrayList<>();
         List<DealItemLibrary.Match> tiles = new ArrayList<>();
 
@@ -142,9 +183,11 @@ public final class DealFrameReader {
             int top = windowTop;
             int titleTop = previousButtonBottom;
             int bottom = button.bottom() + CARD_BELOW_BUTTON;
+            windowTop = bottom;
+            previousButtonBottom = button.bottom();
+
             String priceText = readPrice(image, text.whiteWords(), button);
-            Matcher price = PRICE.matcher(priceText.replace(" ", ""));
-            Double priceUsd = price.find() ? Double.valueOf(price.group(1) + "." + price.group(2)) : null;
+            Double priceUsd = parsePrice(priceText);
 
             String title;
             int cardTop;
@@ -165,19 +208,30 @@ public final class DealFrameReader {
             items.addAll(iconItems(text, cardTop, bottom, tiles));
             items.addAll(listedItems(text.whiteLines(), top, bottom));
 
-            List<TextLine> window = Stream.concat(text.plainLines().stream(), text.whiteLines().stream())
+            List<TextLine> window = allLines.stream()
                     .filter(l -> l.top() >= top && l.bottom() <= bottom)
                     .toList();
-            offers.add(new DealOffer(surface, tab, title, priceUsd, priceText, remaining(window, button),
-                    false, merge(items), frame));
-            windowTop = bottom;
-            previousButtonBottom = button.bottom();
+            Integer remaining = remaining(window, button);
+            String cardLimit = cardLimit(window, button);
+            if (remaining == null || cardLimit == null) {
+                String under = underButtonText(text, button);
+                if (remaining == null) {
+                    Matcher read = REMAINING.matcher(under);
+                    remaining = read.find() ? Integer.valueOf(read.group(1)) : null;
+                }
+                if (cardLimit == null) {
+                    Matcher read = LIMIT.matcher(under);
+                    cardLimit = read.find() ? read.group(1).toLowerCase(Locale.ROOT) : null;
+                }
+            }
+            offers.add(new DealOffer(surface, tab, title, priceUsd, priceText, remaining,
+                    false, merge(items), frame, cardLimit != null ? cardLimit : pageLimit));
         }
 
         if (buttons.isEmpty()) {
             unpricedOffer(text, pageTitleLine, surface, tab, pageTitle, frame).ifPresent(offers::add);
         }
-        return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null);
+        return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null, false);
     }
 
     private static Text readText(RawImageData capture, BufferedImage image, String surface, String tab,
@@ -206,6 +260,61 @@ public final class DealFrameReader {
         return letters >= 4 && inside.chars().noneMatch(Character::isDigit);
     }
 
+    /**
+     * A row of three plus-sign slots anywhere in the band: the player picks part of what the pack contains.
+     * A row with fewer slots above the floor is set aside and the bands above and below it are searched.
+     */
+    private static boolean isChooseYourOwn(RawImageData capture, int top, int bottom, int depth) {
+        int clampedTop = Math.max(FRAME_TOP_LEFT.getY(), top);
+        int clampedBottom = Math.min(FRAME_BOTTOM_RIGHT.getY(), bottom);
+        if (depth > MAX_SLOT_ROWS || clampedBottom <= clampedTop) {
+            return false;
+        }
+        ImageSearchResultData first = OpenCvPatternLocator.matchFromRawTemplate(capture, PICK_SLOT,
+                new PointData(0, clampedTop), new PointData(FRAME_BOTTOM_RIGHT.getX(), clampedBottom),
+                PICK_SLOT_MIN_SCORE);
+        if (!first.isFound()) {
+            return false;
+        }
+        int rowTop = Math.max(clampedTop, first.getY() - first.getMatchHeight() / 2 - SAME_ROW_TOLERANCE);
+        int rowBottom = Math.min(clampedBottom, first.getY() + first.getMatchHeight() / 2 + SAME_ROW_TOLERANCE);
+        if (slotsInRow(capture, 0, FRAME_BOTTOM_RIGHT.getX(), rowTop, rowBottom, 0) >= PICK_SLOTS_IN_A_ROW) {
+            return true;
+        }
+        return isChooseYourOwn(capture, clampedTop, rowTop, depth + 1)
+                || isChooseYourOwn(capture, rowBottom, clampedBottom, depth + 1);
+    }
+
+    /**
+     * Counts non-overlapping slots between {@code left} and {@code right}. Each search returns only the best
+     * match, which is rarely the leftmost slot, so both sides of every hit are searched.
+     */
+    private static int slotsInRow(RawImageData capture, int left, int right, int top, int bottom, int depth) {
+        if (depth > PICK_SLOTS_IN_A_ROW * 2 || right - left <= 0) {
+            return 0;
+        }
+        ImageSearchResultData slot = OpenCvPatternLocator.matchFromRawTemplate(capture, PICK_SLOT,
+                new PointData(left, top), new PointData(right, bottom), PICK_SLOT_MIN_SCORE);
+        if (!slot.isFound()) {
+            return 0;
+        }
+        int slotLeft = slot.getX() - slot.getMatchWidth() / 2;
+        int slotRight = slotLeft + slot.getMatchWidth();
+        return 1 + slotsInRow(capture, left, slotLeft, top, bottom, depth + 1)
+                + slotsInRow(capture, slotRight, right, top, bottom, depth + 1);
+    }
+
+    private static byte[] loadPickSlot() {
+        try (InputStream in = DealFrameReader.class.getResourceAsStream(PICK_SLOT_RESOURCE)) {
+            if (in == null) {
+                throw new IllegalStateException("Missing classpath resource " + PICK_SLOT_RESOURCE);
+            }
+            return in.readAllBytes();
+        } catch (IOException unreadable) {
+            throw new UncheckedIOException("Could not read " + PICK_SLOT_RESOURCE, unreadable);
+        }
+    }
+
     private Optional<DealOffer> unpricedOffer(Text text, TextLine pageTitleLine, String surface, String tab,
             String pageTitle, String frame) {
         int top = pageTitleLine == null ? FRAME_TOP_LEFT.getY() : pageTitleLine.bottom();
@@ -216,13 +325,13 @@ public final class DealFrameReader {
             if (points.find()) {
                 return Optional.of(new DealOffer(surface, tab, pageTitle, null,
                         points.group(1) + " more top-up points", null, false,
-                        merge(iconItems(text, top, line.top(), new ArrayList<>())), frame));
+                        merge(iconItems(text, top, line.top(), new ArrayList<>())), frame, null));
             }
         }
         for (TextLine line : lines) {
             if (PURCHASED.matcher(clean(line.text())).find()) {
                 return Optional.of(new DealOffer(surface, tab, pageTitle, null, "Purchased", null, true,
-                        merge(iconItems(text, top, line.top(), new ArrayList<>())), frame));
+                        merge(iconItems(text, top, line.top(), new ArrayList<>())), frame, null));
             }
         }
         return Optional.empty();
@@ -291,6 +400,16 @@ public final class DealFrameReader {
                 || token.matches("(?i)of|in|to|a|&");
     }
 
+    /** The last price on the button: a discounted button prints the struck-out original first ("$5.97 $4.99"). */
+    static Double parsePrice(String priceText) {
+        Matcher price = PRICE.matcher(priceText == null ? "" : priceText.replace(" ", ""));
+        Double last = null;
+        while (price.find()) {
+            last = Double.valueOf(price.group(1) + "." + price.group(2));
+        }
+        return last;
+    }
+
     private static String readPrice(BufferedImage image, List<TextLine> words, PriceButtonLocator.Box button) {
         String inside = wordsInside(words, button.x(), button.y(), button.right(), button.bottom());
         if (PRICE.matcher(inside.replace(" ", "")).find()) {
@@ -322,6 +441,51 @@ public final class DealFrameReader {
                 .map(l -> REMAINING.matcher(clean(l.text())))
                 .filter(Matcher::find)
                 .map(m -> Integer.valueOf(m.group(1)))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** Plain and white-mask readings of the strip just under a button, joined for pattern matching. */
+    private static String underButtonText(Text text, PriceButtonLocator.Box button) {
+        PointData topLeft = new PointData(Math.max(0, button.x() - UNDER_BUTTON_MARGIN), button.bottom());
+        PointData bottomRight = new PointData(Math.min(FRAME_BOTTOM_RIGHT.getX(), button.right() + UNDER_BUTTON_MARGIN),
+                Math.min(FRAME_BOTTOM_RIGHT.getY(), button.bottom() + UNDER_BUTTON_HEIGHT));
+        if (bottomRight.getY() <= topLeft.getY()) {
+            return "";
+        }
+        StringBuilder read = new StringBuilder();
+        for (RawImageData source : List.of(text.capture(), text.whiteMask())) {
+            try {
+                read.append(clean(OcrEngine.recognizeText(source, topLeft, bottomRight,
+                        CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS))).append(" ");
+            } catch (OcrException unreadable) {
+                // An unreadable strip leaves the value unknown, which is what the caller records.
+            }
+        }
+        return read.toString();
+    }
+
+    /** A limit printed beside this card's own button ("Lifetime Limit: 1"). */
+    private static String cardLimit(List<TextLine> window, PriceButtonLocator.Box button) {
+        return window.stream()
+                .filter(l -> Math.abs(l.top() - button.y()) <= REMAINING_WINDOW)
+                .map(l -> LIMIT.matcher(clean(l.text())))
+                .filter(Matcher::find)
+                .map(m -> m.group(1).toLowerCase(Locale.ROOT))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * A limit that belongs to no single button applies to every card on the page: the Daily Deals tab
+     * prints one "Daily Limit: 1" above all of its cards.
+     */
+    private static String pageLimit(List<TextLine> lines, List<PriceButtonLocator.Box> buttons) {
+        return lines.stream()
+                .filter(l -> buttons.stream().noneMatch(b -> Math.abs(l.top() - b.y()) <= REMAINING_WINDOW))
+                .map(l -> LIMIT.matcher(clean(l.text())))
+                .filter(Matcher::find)
+                .map(m -> m.group(1).toLowerCase(Locale.ROOT))
                 .findFirst()
                 .orElse(null);
     }

@@ -37,6 +37,16 @@ class PriceButtonLocatorTest {
     }
 
     @Test
+    void findsTheSmallDailyDealsCardButtonsButNotTheBannerMergedPurchaseAll() throws Exception {
+        List<PriceButtonLocator.Box> boxes = locate("tab-strip-scrolled-one.png");
+
+        assertEquals(3, boxes.size(), boxes.toString());
+        assertNear(boxes.get(0), 521, 734, 137, 53);
+        assertNear(boxes.get(1), 521, 920, 137, 54);
+        assertNear(boxes.get(2), 521, 1105, 137, 56);
+    }
+
+    @Test
     void findsNoButtonOnAPurchasedPack() throws Exception {
         assertTrue(locate("deals-vault-purchased.png").isEmpty());
     }
