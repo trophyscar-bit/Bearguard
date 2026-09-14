@@ -163,6 +163,9 @@ class DealFrameReaderTest {
         assertEquals("Shining Custom Chest", DealFrameReader.cleanTitle("Shining Custom Chest / my"));
         assertEquals("Dazzling Custom Chest", DealFrameReader.cleanTitle("q Dazzling Custom Chest"));
         assertFalse(DealFrameReader.isTitleText("et no po"));
+        assertTrue(DealFrameReader.isListedItemName("5m Construction Speedup"));
+        assertFalse(DealFrameReader.isListedItemName("\"fy;"));
+        assertFalse(DealFrameReader.isListedItemName("oF"));
     }
 
     private static DealFrameReader.Page read(String name, String tab) throws Exception {
