@@ -65,8 +65,18 @@ public final class DealFrameReader {
     private static final int TAB_STRIP_BOTTOM = 190;
     /** Card titles on stacked cards always sit below the panel's sticky header. */
     private static final int CARD_TITLE_MIN_TOP = 330;
+    /**
+     * A card's title banner ends 153-175 px above its price button on every stacked card measured
+     * (Custom Chest tiers, Regular Pack cards). Anything further up is the sticky header's description,
+     * which a scrolled page otherwise offers as the tallest nearby line.
+     */
+    private static final int CARD_TITLE_MAX_ABOVE_BUTTON = 230;
     private static final int MIN_TITLE_LETTERS = 5;
-    /** Item tiles on stacked cards sit beside and just below their button. */
+    /**
+     * Item tiles on stacked cards sit beside and just below their button, so a card's items and
+     * "Remaining" are searched this far below it. Titles are not: on tightly stacked Regular Pack cards
+     * the next card's title starts within this band, so title search starts at the button's own bottom.
+     */
     private static final int CARD_BELOW_BUTTON = 90;
     /** Purchase buttons carry their label on the left; the right edge holds a badge. */
     private static final double PRICE_TEXT_WIDTH_SHARE = 0.85;
@@ -83,7 +93,12 @@ public final class DealFrameReader {
     /** A row whose last tile ends past this x is cut off by the card edge (inner edge ~640). */
     private static final int CLIPPED_TILE_MIN_RIGHT = 620;
 
-    private static final Pattern PRICE = Pattern.compile("\\$\\s?(\\d{1,4})[.°,:](\\d{2})");
+    /**
+     * A price inside a confirmed orange purchase button. The dollar sign is optional because the
+     * Regular Pack card read as "4.99"; the digit guards on both sides keep thousands figures such as
+     * the top-up badge's "2,500" from matching as "2,50".
+     */
+    private static final Pattern PRICE = Pattern.compile("(?<!\\d)\\$?\\s?(\\d{1,4})[.°,:](\\d{2})(?!\\d)");
     private static final Pattern REMAINING = Pattern.compile("(?i)remaining\\W*(\\d+)");
     private static final Pattern TIMER = Pattern.compile("\\d{1,2}:\\d{2}(:\\d{2})?");
     private static final Pattern LISTED_ROW = Pattern.compile("^(.*[A-Za-z].*?)\\s+[xX]\\s?(\\d[\\d,]*)\\b.*$");
@@ -122,8 +137,10 @@ public final class DealFrameReader {
         List<DealItemLibrary.Match> tiles = new ArrayList<>();
 
         int windowTop = FRAME_TOP_LEFT.getY();
+        int previousButtonBottom = FRAME_TOP_LEFT.getY();
         for (PriceButtonLocator.Box button : buttons) {
             int top = windowTop;
+            int titleTop = previousButtonBottom;
             int bottom = button.bottom() + CARD_BELOW_BUTTON;
             String priceText = readPrice(image, text.whiteWords(), button);
             Matcher price = PRICE.matcher(priceText.replace(" ", ""));
@@ -135,7 +152,7 @@ public final class DealFrameReader {
                 title = pageTitle;
                 cardTop = pageTitleLine == null ? top : pageTitleLine.bottom();
             } else {
-                TextLine cardTitle = cardTitle(text.whiteLines(), top, button);
+                TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button);
                 title = cardTitle != null ? cleanTitle(cardTitle.text())
                         : pageTitle + (priceUsd == null ? "" : " - $" + String.format(Locale.US, "%.2f", priceUsd));
                 cardTop = cardTitle == null ? Math.max(top, CARD_TITLE_MIN_TOP) : cardTitle.bottom();
@@ -154,6 +171,7 @@ public final class DealFrameReader {
             offers.add(new DealOffer(surface, tab, title, priceUsd, priceText, remaining(window, button),
                     false, merge(items), frame));
             windowTop = bottom;
+            previousButtonBottom = button.bottom();
         }
 
         if (buttons.isEmpty()) {
@@ -222,20 +240,25 @@ public final class DealFrameReader {
     private static TextLine pageTitle(List<TextLine> lines, boolean tabbed) {
         int top = tabbed ? TAB_STRIP_BOTTOM : PAGE_TITLE_TOP;
         return lines.stream()
-                .filter(l -> l.top() >= top && l.bottom() <= PAGE_TITLE_BOTTOM && isTitleText(l.text()))
+                .filter(l -> l.top() >= top && l.bottom() <= PAGE_TITLE_BOTTOM && isTitleText(cleanTitle(l.text())))
                 .max(Comparator.comparingInt(TextLine::height))
                 .orElse(null);
     }
 
     private static TextLine cardTitle(List<TextLine> lines, int windowTop, PriceButtonLocator.Box button) {
         return lines.stream()
-                .filter(l -> l.top() >= Math.max(windowTop, CARD_TITLE_MIN_TOP) && l.bottom() <= button.y())
-                .filter(l -> isTitleText(l.text()))
+                .filter(l -> l.top() >= Math.max(windowTop, CARD_TITLE_MIN_TOP) && l.bottom() <= button.y()
+                        && button.y() - l.bottom() <= CARD_TITLE_MAX_ABOVE_BUTTON)
+                .filter(l -> isTitleText(cleanTitle(l.text())))
                 .max(Comparator.comparingInt(TextLine::height))
                 .orElse(null);
     }
 
-    /** Real titles are mostly real words; OCR of artwork is mostly one- and two-letter fragments. */
+    /**
+     * Real titles are mostly real words; OCR of artwork is mostly one- and two-letter fragments.
+     * Callers judge the line after {@link #cleanTitle} trims stray glyphs off its ends, because a real
+     * banner title often carries several ("Charm Craftsman Pack ,,. on | So.").
+     */
     static boolean isTitleText(String raw) {
         String text = clean(raw);
         String lower = text.toLowerCase(Locale.ROOT);
