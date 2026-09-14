@@ -125,6 +125,12 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final Pattern COUNTDOWN = Pattern.compile("\\d{1,2}:\\d{2}:\\d{2}|\\d+d\\s?\\d{1,2}:\\d{2}");
     /** Surfaces this task already reads through their own templates, or that hold no offers. */
     private static final Pattern NOT_A_DEAL_SHORTCUT = Pattern.compile("(?i)event|^[bdo]eals?$");
+    /**
+     * The gem shop's gem-bag button in the top bar. Its template missed on a city frame where the button
+     * was plainly visible (the icon sparkles), while the top bar itself never moves: the button spans
+     * x 580-715, y 45-95 on every city frame captured. A tap there is only trusted once a tabbed panel opens.
+     */
+    private static final PointData GEM_SHOP_HUD_BUTTON = new PointData(648, 70);
     /** Panel headers such as "Deals" sit at the top left, beside the back arrow. */
     private static final PointData HEADER_TOP_LEFT = new PointData(90, 12);
     private static final PointData HEADER_BOTTOM_RIGHT = new PointData(420, 70);
@@ -196,8 +202,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         }
         logInfo("bg_deals_telemetry | Starting deal scan into " + frameDir);
 
-        surveyTemplatePanel("Gem Shop", TemplatesEnum.HOME_SHOP_CART_BUTTON);
-        surveyTemplatePanel("Deals", TemplatesEnum.HOME_DEALS_BUTTON);
+        surveyTemplatePanel("Gem Shop", TemplatesEnum.HOME_SHOP_CART_BUTTON, GEM_SHOP_HUD_BUTTON);
+        surveyTemplatePanel("Deals", TemplatesEnum.HOME_DEALS_BUTTON, null);
         surveyShortcutColumn();
         if (!returnToCity()) {
             problems.add("Scan ended without confirming the city view.");
@@ -226,7 +232,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     // ── surfaces ────────────────────────────────────────────────────
 
-    private void surveyTemplatePanel(String surface, TemplatesEnum shortcut) {
+    /**
+     * @param hudFallback fixed top-bar position of the shortcut, tried when its template does not match,
+     *                    or {@code null} when the shortcut has no fixed position
+     */
+    private void surveyTemplatePanel(String surface, TemplatesEnum shortcut, PointData hudFallback) {
         try {
             if (!returnToCity()) {
                 problems.add(surface + ": skipped because the city view could not be confirmed first.");
@@ -234,13 +244,23 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             }
             ImageSearchResultData button = templateSearchHelper.locatePattern(
                     shortcut, SearchConfigConstants.SINGLE_WITH_RETRIES);
-            if (!button.isFound()) {
+            if (button.isFound()) {
+                tapNear(button.getPoint());
+            } else if (hudFallback != null) {
+                logWarning("bg_deals_telemetry | " + surface + " shortcut template did not match; trying its fixed "
+                        + "top-bar position " + hudFallback.getX() + "," + hudFallback.getY() + ".");
+                tapNear(hudFallback);
+            } else {
                 problems.add(surface + ": shortcut not found on the city view; surface skipped.");
                 logWarning("bg_deals_telemetry | " + surface + " shortcut not found; skipping it.");
                 return;
             }
-            tapNear(button.getPoint());
             sleepTask(PANEL_SETTLE_MS);
+            if (TabStripCells.locate(ImageConverter.toBufferedImage(capture())).size() < MIN_TABS_FOR_STRIP) {
+                problems.add(surface + ": no tabbed panel opened from its shortcut; surface skipped.");
+                logWarning("bg_deals_telemetry | " + surface + " did not open a tabbed panel; skipping it.");
+                return;
+            }
             surveyTabbedPanel(surface);
         } catch (RuntimeException failed) {
             recordFailure(surface, failed);
@@ -253,6 +273,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      */
     private void surveyShortcutColumn() {
         List<PointData> visited = new ArrayList<>();
+        // Every icon any read of the column found. The column is re-read after each pop-up closes, but
+        // OCR over the animated city misses labels on some reads: the second read on 2026-09-13 lost two of
+        // the three icons the first read had found, and the scan stopped.
+        List<Shortcut> known = new ArrayList<>();
         for (int opened = 0; opened < MAX_SHORTCUTS; opened++) {
             Shortcut next;
             RawImageData home;
@@ -267,7 +291,12 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     logInfo("bg_deals_telemetry | Shortcut column (" + saveFrame(home) + "): "
                             + column.stream().map(Shortcut::name).collect(Collectors.joining(", ")));
                 }
-                next = column.stream()
+                for (Shortcut found : column) {
+                    if (known.stream().noneMatch(k -> distance(k.icon(), found.icon()) < SAME_ICON_DISTANCE)) {
+                        known.add(found);
+                    }
+                }
+                next = known.stream()
                         .filter(s -> visited.stream().noneMatch(v -> distance(v, s.icon()) < SAME_ICON_DISTANCE))
                         .findFirst()
                         .orElse(null);
