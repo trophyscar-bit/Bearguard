@@ -50,6 +50,7 @@ class DealFrameReaderTest {
         assertEquals(25L, items.get("100 VIP XP"));
         assertEquals(500L, items.get("10K Meat"));
         assertTrue(page.clippedTileRowY() != null, "the fifth tile is cut off, so the row must be swiped");
+
     }
 
     @Test
