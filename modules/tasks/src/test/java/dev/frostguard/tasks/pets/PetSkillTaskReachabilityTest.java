@@ -40,6 +40,8 @@ class PetSkillTaskReachabilityTest {
         expected.put(PetSkillsRoutine.PetSkill.NATURAL_INTUITION,
                 ConfigurationKeyEnum.PET_SKILL_NATURAL_INTUITION_BOOL);
         expected.put(PetSkillsRoutine.PetSkill.TREASURE, ConfigurationKeyEnum.PET_SKILL_TREASURE_BOOL);
+        expected.put(PetSkillsRoutine.PetSkill.MYSTICAL_FINDING,
+                ConfigurationKeyEnum.PET_SKILL_MYSTICAL_FINDING_BOOL);
         return expected;
     }
 
