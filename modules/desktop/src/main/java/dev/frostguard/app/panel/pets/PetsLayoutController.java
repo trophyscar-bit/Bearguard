@@ -11,7 +11,7 @@ import java.util.List;
 public class PetsLayoutController extends AbstractProfileController {
 	@FXML
 	private CheckBox checkBoxPetSkills, checkBoxPetAllianceTreasure, checkBoxPetPersonalTreasure, checkboxFoodSkill, checkboxNaturalIntuitionSkill,
-			checkboxGatheringSkill, checkboxStaminaSkill, checkboxTreasureSkill;
+			checkboxGatheringSkill, checkboxStaminaSkill, checkboxTreasureSkill, checkboxMysticalFindingSkill;
 
 	@FXML
 	private ComboBox<String> comboBoxGatheringResource;
@@ -31,6 +31,7 @@ public class PetsLayoutController extends AbstractProfileController {
 			new PetSwitch(checkBoxPetPersonalTreasure, ConfigurationKeyEnum.PET_PERSONAL_TREASURE_BOOL),
 			new PetSwitch(checkboxFoodSkill, ConfigurationKeyEnum.PET_SKILL_FOOD_BOOL),
 			new PetSwitch(checkboxNaturalIntuitionSkill, ConfigurationKeyEnum.PET_SKILL_NATURAL_INTUITION_BOOL),
+			new PetSwitch(checkboxMysticalFindingSkill, ConfigurationKeyEnum.PET_SKILL_MYSTICAL_FINDING_BOOL),
 			new PetSwitch(checkboxGatheringSkill, ConfigurationKeyEnum.PET_SKILL_GATHERING_BOOL),
 			new PetSwitch(checkboxStaminaSkill, ConfigurationKeyEnum.PET_SKILL_STAMINA_BOOL),
 			new PetSwitch(checkboxTreasureSkill, ConfigurationKeyEnum.PET_SKILL_TREASURE_BOOL)

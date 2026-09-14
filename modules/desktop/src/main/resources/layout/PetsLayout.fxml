@@ -40,6 +40,8 @@
                                   text="Natural Intuition - finds 500 Pet Food (23h)" />
                         <CheckBox fx:id="checkboxTreasureSkill" mnemonicParsing="false"
                                   text="Razorbeak - -2% enemy health for 2h (20h)" />
+                        <CheckBox fx:id="checkboxMysticalFindingSkill" mnemonicParsing="false"
+                                  text="Mystical Finding - unearths an item lost on the Tundra (2d 3h)" />
 
                         <Separator style="-fx-opacity: 0.25;" />
 
