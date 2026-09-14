@@ -35,7 +35,7 @@ class DealScoringTest {
         Map<LocalDate, DealScan> history = history(DAY,
                 offer("No items", 4.99),
                 new DealOffer("Deals", "Tab", "No price", null, "$4?99", 1, false,
-                        List.of(item("1h Speedup", 16)), "f.png"));
+                        List.of(item("1h Speedup", 16)), "f.png", null));
 
         List<DealScoring.ScoredOffer> scored = DealScoring.score(history, Map.of());
 
@@ -96,7 +96,7 @@ class DealScoringTest {
     }
 
     private static DealOffer offer(String title, double price, DealItem... items) {
-        return new DealOffer("Gem Shop", "Tab", title, price, "$" + price, 1, false, List.of(items), "f.png");
+        return new DealOffer("Gem Shop", "Tab", title, price, "$" + price, 1, false, List.of(items), "f.png", null);
     }
 
     private static DealItem item(String key, long quantity) {

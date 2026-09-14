@@ -23,7 +23,7 @@ class DealsStoreTest {
     void roundTripsAScanAndReportsACorruptDayInsteadOfDroppingIt(@TempDir Path workspace) throws Exception {
         DealsStore store = DealsStore.forWorkspace(workspace);
         DealOffer offer = new DealOffer("Gem Shop", "Hall of Chiefs", "Hall of Chiefs Pack", 4.99, "$4.99", 1,
-                false, List.of(new DealItem("1h Speedup", 16, "icon")), "001.png");
+                false, List.of(new DealItem("1h Speedup", 16, "icon")), "001.png", "daily");
         store.write(DAY, new DealScan(DAY + "T20:30", List.of(offer), List.of("Deals: tab strip unreadable")));
         Files.writeString(store.scansDir().resolve(DAY.plusDays(1) + ".json"), "{not json");
 

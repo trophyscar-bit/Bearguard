@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
@@ -131,6 +132,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private final Map<String, DealOffer> offers = new LinkedHashMap<>();
     private final List<String> problems = new ArrayList<>();
+    /** Tabs found to hold choose-your-own packs; nothing from them is kept. */
+    private final Set<String> chooseYourOwnTabs = new HashSet<>();
     private DealsStore store;
     private DealFrameReader reader;
     private Path frameDir;
@@ -173,6 +176,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     protected void execute() {
         offers.clear();
         problems.clear();
+        chooseYourOwnTabs.clear();
         frameNumber = 0;
         LocalDate day = LocalDate.now();
         store = DealsStore.forWorkspace(WorkspacePaths.current().root());
@@ -466,10 +470,19 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         String file = saveFrame(frame);
         DealFrameReader.Page page = reader.read(frame, surface, tab == null ? "" : tab, file, tabbed);
         String tabName = tab == null ? page.title() : tab;
-        for (DealOffer read : page.offers()) {
-            DealOffer offer = new DealOffer(read.surface(), tabName, read.title(), read.priceUsd(), read.priceText(),
-                    read.remaining(), read.purchased(), read.items(), read.frame());
-            offers.merge(offer.packKey() + "|" + offer.priceText(), offer, bg_deals_telemetry::mergeReads);
+        String tabKey = surface + "|" + tabName;
+        if (page.chooseYourOwn()) {
+            if (chooseYourOwnTabs.add(tabKey)) {
+                // The pick slots glow on and off, so earlier frames of this tab may not have been flagged.
+                offers.values().removeIf(o -> o.surface().equals(surface) && Objects.equals(o.tab(), tabName));
+                logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " holds choose-your-own packs; left out.");
+            }
+        } else if (!chooseYourOwnTabs.contains(tabKey)) {
+            for (DealOffer read : page.offers()) {
+                DealOffer offer = new DealOffer(read.surface(), tabName, read.title(), read.priceUsd(), read.priceText(),
+                        read.remaining(), read.purchased(), read.items(), read.frame(), read.limitPeriod());
+                offers.merge(offer.packKey() + "|" + offer.priceText(), offer, bg_deals_telemetry::mergeReads);
+            }
         }
         problems.addAll(page.problems());
         logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " (" + file + "): " + page.offers().size()
@@ -485,7 +498,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         return new DealOffer(first.surface(), first.tab(), first.title(),
                 first.priceUsd() != null ? first.priceUsd() : second.priceUsd(), first.priceText(),
                 first.remaining() != null ? first.remaining() : second.remaining(),
-                first.purchased() || second.purchased(), new ArrayList<>(items.values()), first.frame());
+                first.purchased() || second.purchased(), new ArrayList<>(items.values()), first.frame(),
+                first.limitPeriod() != null ? first.limitPeriod() : second.limitPeriod());
     }
 
     // ── navigation ──────────────────────────────────────────────────

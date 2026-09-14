@@ -319,6 +319,14 @@ public class DealTrackerLayoutController {
         if (scored.offer().remaining() != null) {
             detail.append(" · ").append(scored.offer().remaining()).append(" left");
         }
+        if (scored.offer().limitPeriod() != null) {
+            detail.append(" · ").append(scored.offer().limitPeriod()).append(" limit");
+            Integer perMonth = scored.offer().purchasesPerMonth();
+            if (perMonth != null && perMonth > 1 && scored.offer().priceUsd() != null) {
+                detail.append(" (buying it every time: about ").append(perMonth).append(" a month, ")
+                        .append(usd(perMonth * scored.offer().priceUsd())).append(")");
+            }
+        }
         if (scored.basis() != null) {
             detail.append(" · ").append(scored.basis());
         }

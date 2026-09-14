@@ -2,12 +2,12 @@ package dev.frostguard.engine.deals;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -44,53 +44,65 @@ class DealFrameReaderTest {
         assertEquals("Hall of Chiefs Pack", offer.title());
         assertEquals(4.99, offer.priceUsd(), 1e-9);
         assertEquals(1, offer.remaining());
+        assertNull(offer.limitPeriod());
         Map<String, Long> items = quantities(offer);
         assertEquals(16L, items.get("1h Speedup"));
         assertEquals(160L, items.get("5min Speedup"));
         assertEquals(25L, items.get("100 VIP XP"));
         assertEquals(500L, items.get("10K Meat"));
         assertTrue(page.clippedTileRowY() != null, "the fifth tile is cut off, so the row must be swiped");
-
     }
 
     @Test
-    void keepsStackedCardsApartByTitleAndPrice() throws Exception {
-        DealFrameReader.Page page = read("gem-shop-custom-chest-top.png", "Custom Pet Chest");
+    void leavesOutChooseYourOwnCustomChestCards() throws Exception {
+        for (String frame : List.of("gem-shop-custom-chest-top.png", "gem-shop-custom-chest-middle.png",
+                "gem-shop-custom-chest-scrolled-live.png")) {
+            DealFrameReader.Page page = read(frame, "Mix & Match");
 
-        assertEquals(2, page.offers().size());
-        DealOffer first = page.offers().get(0);
-        DealOffer second = page.offers().get(1);
-        assertEquals(4.99, first.priceUsd(), 1e-9);
-        assertEquals(9.99, second.priceUsd(), 1e-9);
-        assertTrue(first.title().startsWith("Shining Custom Chest"), first.title());
-        assertNotEquals(first.packKey(), second.packKey());
-        assertEquals(1, first.remaining());
+            assertTrue(page.chooseYourOwn(), frame);
+            assertTrue(page.offers().isEmpty(), frame + " -> " + page.offers());
+        }
     }
 
     @Test
-    void neverTakesTheStickyHeaderDescriptionAsACardTitleOnAScrolledPage() throws Exception {
-        DealFrameReader.Page page = read("gem-shop-custom-chest-scrolled-live.png", "Mix & Match");
+    void recordsNothingForTheWeeklyBenefitsCardPickYourPackPage() throws Exception {
+        DealFrameReader.Page page = read("deals-weekly-benefits-card-live.png", "Weekly Benefits Card");
 
-        assertEquals(2, page.offers().size());
-        assertEquals(19.99, page.offers().get(0).priceUsd(), 1e-9);
-        assertEquals(49.99, page.offers().get(1).priceUsd(), 1e-9);
-        page.offers().forEach(o -> assertFalse(o.title().toLowerCase().contains("customize"), o.title()));
-        assertTrue(page.offers().get(1).title().startsWith("Exquisite Custom Chest"), page.offers().get(1).title());
+        assertFalse(page.chooseYourOwn(), "its orange pick slots are not the Custom Chest plus sign");
+        assertTrue(page.offers().isEmpty(), page.offers().toString());
     }
 
     @Test
-    void readsEachRegularPackCardUnderItsOwnBannerTitle() throws Exception {
+    void readsEachRegularPackCardWithItsOwnTitleAndPurchaseLimit() throws Exception {
         DealFrameReader.Page page = read("gem-shop-regular-pack-live.png", "Regular Pack");
 
+        assertFalse(page.chooseYourOwn());
         assertEquals(3, page.offers().size(), page.offers().toString());
         page.offers().forEach(o -> assertEquals(4.99, o.priceUsd(), 1e-9));
         // Molly's Blessing sits on a gradient banner the white mask does not separate, so its title falls
         // back to the page title plus price rather than borrowing the tab strip or a neighbour's banner.
         assertEquals("Regular Pack - $4.99", page.offers().get(0).title());
+        assertEquals("lifetime", page.offers().get(0).limitPeriod());
         assertTrue(page.offers().get(1).title().startsWith("Charm Design Pack"), page.offers().get(1).title());
+        assertNull(page.offers().get(1).limitPeriod());
+        assertEquals(1, page.offers().get(1).remaining());
         assertTrue(page.offers().get(2).title().startsWith("Charm Craftsman Pack"), page.offers().get(2).title());
         assertEquals(5, page.offers().get(2).remaining());
     }
+
+    @Test
+    void appliesThePageWideDailyLimitToEveryDailyDealsCard() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-daily-deals-live.png", "Daily Deals");
+
+        assertFalse(page.chooseYourOwn());
+        // The "Purchase All" button is drawn on an orange banner and merges with it, so only the three card
+        // buttons are found.
+        List<Double> prices = page.offers().stream().map(DealOffer::priceUsd).toList();
+        assertEquals(List.of(0.99, 1.99, 2.99), prices, page.offers().toString());
+        page.offers().forEach(o -> assertEquals("daily", o.limitPeriod(), o.toString()));
+        assertEquals(30, page.offers().get(0).purchasesPerMonth());
+    }
+
     @Test
     void readsListedRowsOnTheTimedPackPopup() throws Exception {
         DealOffer offer = read("popup-city-construction.png", "Timed Pack").offers().get(0);
@@ -135,6 +147,13 @@ class DealFrameReaderTest {
         assertNull(offer.priceUsd());
         assertTrue(offer.priceText().contains("96,000"), offer.priceText());
         assertTrue(page.problems().isEmpty(), page.problems().toString());
+    }
+
+    @Test
+    void takesTheDiscountedPriceWhenTheOriginalIsStruckOut() {
+        assertEquals(4.99, DealFrameReader.parsePrice("$5.97 $4.99"), 1e-9);
+        assertEquals(4.99, DealFrameReader.parsePrice("4.99"), 1e-9);
+        assertNull(DealFrameReader.parsePrice("2,500"));
     }
 
     @Test
