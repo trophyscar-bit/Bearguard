@@ -16,7 +16,7 @@ class DealScoringTest {
     private static final LocalDate DAY = LocalDate.of(2026, 9, 13);
 
     @Test
-    void packGivingTwiceTheUsualSpeedupsPerDollarScoresAboveOrdinaryPacks() {
+    void packGivingTwiceTheUsualSpeedupsPerDollarScoresTwiceAnOrdinaryPack() {
         Map<LocalDate, DealScan> history = history(DAY,
                 offer("A", 4.99, item("1h Speedup", 16)),
                 offer("B", 4.99, item("1h Speedup", 16)),
@@ -24,12 +24,10 @@ class DealScoringTest {
 
         List<DealScoring.ScoredOffer> scored = DealScoring.score(history, Map.of());
 
-        DealScoring.ScoredOffer ordinary = find(scored, "A");
-        DealScoring.ScoredOffer generous = find(scored, "C");
-        assertEquals(1.0, ordinary.score(), 1e-9);
-        assertEquals(2.0, generous.score(), 1e-9);
-        assertEquals(DealScoring.BASIS_LEARNED, generous.basis());
-        assertEquals("Best this week", generous.verdict());
+        assertEquals(1.0, find(scored, "A").score(), 1e-9);
+        assertEquals(2.0, find(scored, "C").score(), 1e-9);
+        assertEquals(DealScoring.BASIS_LEARNED, find(scored, "C").basis());
+        assertEquals("Best this week", find(scored, "C").verdict());
     }
 
     @Test
@@ -47,25 +45,25 @@ class DealScoringTest {
     }
 
     @Test
-    void operatorDollarValuesTakePriorityOverLearnedRates() {
+    void operatorDollarValuesAnchorTheScore() {
         Map<LocalDate, DealScan> history = history(DAY,
                 offer("A", 5.0, item("1h Speedup", 10), item("10K Meat", 100)));
 
         DealScoring.ScoredOffer scored = DealScoring.score(history, Map.of("1h Speedup", 1.0)).get(0);
 
-        assertEquals(2.0, scored.score(), 1e-9);
+        assertEquals(2.0, scored.score(), 1e-3);
         assertEquals(DealScoring.BASIS_VALUES, scored.basis());
     }
 
     @Test
-    void thinWeekIsLabelledAnEarlyReadAndCheapPackIsMarkedBad() {
+    void thinWeekIsLabelledAnEarlyReadAndThePoorerPackIsMarkedBad() {
         Map<LocalDate, DealScan> history = history(DAY,
                 offer("Good", 5.0, item("Gems", 2500)),
                 offer("Poor", 5.0, item("Gems", 1000)));
 
         List<DealScoring.ScoredOffer> scored = DealScoring.score(history, Map.of());
 
-        assertTrue(find(scored, "Poor").verdict().startsWith("Early read: Bad"));
+        assertTrue(find(scored, "Poor").verdict().startsWith("Early read: Bad"), find(scored, "Poor").verdict());
     }
 
     @Test

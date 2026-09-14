@@ -27,4 +27,9 @@ public record DealOffer(String surface, String tab, String title, Double priceUs
     public String packKey() {
         return (surface + "|" + title).toLowerCase(Locale.ROOT).trim();
     }
+
+    /** A pack that can be priced per item: it has a price, was not already bought, and items were read. */
+    public boolean isPricedPack() {
+        return priceUsd != null && priceUsd > 0 && !purchased && !items.isEmpty();
+    }
 }
