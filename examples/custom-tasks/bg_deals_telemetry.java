@@ -61,7 +61,7 @@ import dev.frostguard.vision.ocr.TextLine;
  * of the icon, because the column changes with live events: an icon nobody has seen before still
  * carries a label, and gets opened and read like the rest.</p>
  */
-public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
+public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigurable {
 
     /** Shortly after the 00:00 UTC daily reset (20:00 Eastern daylight time). */
     private static final LocalTime RUN_AT = LocalTime.of(20, 30);
@@ -133,14 +133,14 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
     private record Shortcut(String name, PointData icon) {
     }
 
-    public bg_deals(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
+    public bg_deals_telemetry(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
         reschedule(nextRun(LocalDateTime.now()));
     }
 
     @Override
     protected Object getDistinctKey() {
-        return "bg_deals";
+        return "bg_deals_telemetry";
     }
 
     @Override
@@ -158,7 +158,7 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
             reschedule(LocalDateTime.parse(first, UTC_INPUT).atOffset(ZoneOffset.UTC)
                     .atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime());
         } catch (RuntimeException unparseable) {
-            logWarning("bg_deals | Unparseable first-execution time '" + first + "'; keeping the daily "
+            logWarning("bg_deals_telemetry | Unparseable first-execution time '" + first + "'; keeping the daily "
                     + RUN_AT + " schedule.");
         }
     }
@@ -179,12 +179,12 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
             }
             reader = new DealFrameReader(library);
         } catch (IOException setupFailed) {
-            logError("bg_deals | Cannot prepare " + store.root() + ": " + setupFailed.getMessage()
+            logError("bg_deals_telemetry | Cannot prepare " + store.root() + ": " + setupFailed.getMessage()
                     + ". Nothing scanned; retrying at the next daily run.");
             reschedule(nextRun(LocalDateTime.now()));
             return;
         }
-        logInfo("bg_deals | Starting deal scan into " + frameDir);
+        logInfo("bg_deals_telemetry | Starting deal scan into " + frameDir);
 
         surveyTemplatePanel("Gem Shop", TemplatesEnum.HOME_SHOP_CART_BUTTON);
         surveyTemplatePanel("Deals", TemplatesEnum.HOME_DEALS_BUTTON);
@@ -192,14 +192,14 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
 
         if (offers.isEmpty()) {
             problems.add("No offers were read at all.");
-            logWarning("bg_deals | Scan finished with no offers read; the scan file records it as a failure.");
+            logWarning("bg_deals_telemetry | Scan finished with no offers read; the scan file records it as a failure.");
         }
         try {
             store.write(day, new DealScan(LocalDateTime.now().toString(), new ArrayList<>(offers.values()), problems));
-            logInfo("bg_deals | Wrote " + offers.size() + " offer(s) and " + problems.size() + " problem(s) for "
+            logInfo("bg_deals_telemetry | Wrote " + offers.size() + " offer(s) and " + problems.size() + " problem(s) for "
                     + day + ".");
         } catch (IOException writeFailed) {
-            logError("bg_deals | Could not write the scan for " + day + ": " + writeFailed.getMessage());
+            logError("bg_deals_telemetry | Could not write the scan for " + day + ": " + writeFailed.getMessage());
         }
         pruneOldFrames(day);
         reschedule(nextRun(LocalDateTime.now()));
@@ -220,7 +220,7 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
                     shortcut, SearchConfigConstants.SINGLE_WITH_RETRIES);
             if (!button.isFound()) {
                 problems.add(surface + ": shortcut not found on the city view; surface skipped.");
-                logWarning("bg_deals | " + surface + " shortcut not found; skipping it.");
+                logWarning("bg_deals_telemetry | " + surface + " shortcut not found; skipping it.");
                 return;
             }
             tapNear(button.getPoint());
@@ -254,7 +254,7 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
                 return;
             }
             if (next == null) {
-                logInfo("bg_deals | Shortcut column: " + visited.size() + " icon(s) opened.");
+                logInfo("bg_deals_telemetry | Shortcut column: " + visited.size() + " icon(s) opened.");
                 return;
             }
             visited.add(next.icon());
@@ -347,7 +347,7 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
                 break;
             }
         }
-        logInfo("bg_deals | " + surface + ": " + visited.size() + " labelled tab(s) surveyed.");
+        logInfo("bg_deals_telemetry | " + surface + ": " + visited.size() + " labelled tab(s) surveyed.");
         if (visited.isEmpty()) {
             problems.add(surface + ": no tab labels were readable; only the opening tab was surveyed.");
         }
@@ -398,10 +398,10 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
         for (DealOffer read : page.offers()) {
             DealOffer offer = new DealOffer(read.surface(), tabName, read.title(), read.priceUsd(), read.priceText(),
                     read.remaining(), read.purchased(), read.items(), read.frame());
-            offers.merge(offer.packKey() + "|" + offer.priceText(), offer, bg_deals::mergeReads);
+            offers.merge(offer.packKey() + "|" + offer.priceText(), offer, bg_deals_telemetry::mergeReads);
         }
         problems.addAll(page.problems());
-        logInfo("bg_deals | " + surface + " / " + tabName + " (" + file + "): " + page.offers().size()
+        logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " (" + file + "): " + page.offers().size()
                 + " offer(s)" + (page.problems().isEmpty() ? "" : ", " + page.problems().size() + " problem(s)"));
         return page;
     }
@@ -478,7 +478,7 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
 
     private void recordFailure(String surface, RuntimeException failed) {
         problems.add(surface + ": " + failed.getClass().getSimpleName() + " " + failed.getMessage());
-        logError("bg_deals | " + surface + " failed with " + failed.getClass().getName() + ": " + failed.getMessage());
+        logError("bg_deals_telemetry | " + surface + " failed with " + failed.getClass().getName() + ": " + failed.getMessage());
     }
 
     private void pruneOldFrames(LocalDate today) {
@@ -501,7 +501,7 @@ public class bg_deals extends DelayedTask implements CustomTaskConfigurable {
                 }
             }
         } catch (IOException pruneFailed) {
-            logWarning("bg_deals | Could not prune old frames: " + pruneFailed.getMessage());
+            logWarning("bg_deals_telemetry | Could not prune old frames: " + pruneFailed.getMessage());
         }
     }
 
