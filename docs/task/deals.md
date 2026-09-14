@@ -36,6 +36,12 @@ Measured on 720 x 1280 frames on 2026-09-13.
 - Top-up Gift has no price: its orange `TOP UP NOW` button is an action, and the points still
   needed are recorded instead.
 - Purchased packs show `Purchased` instead of a price button.
+- Choose-your-own packs (Mix & Match, Custom Pet Chest) have rows of glowing plus-sign slots for
+  rewards the player picks. Their price does not buy a fixed set of items, so they are left out
+  entirely. The Weekly Benefits Card's pick-your-pack page has no price button and yields nothing.
+- Purchase limits print under or beside the button (`Remaining: 5`, `Lifetime Limit: 1`) or once
+  for a whole page (`Daily Limit: 1` above every Daily Deals card). A limit with a period is kept
+  so daily and weekly packs can be judged by what buying them every time costs per month.
 
 ## Detection evidence
 
@@ -66,6 +72,20 @@ its items are worth; operator values stay fixed. A pack scores its worth per dol
 ordinary). Gem prices divide an item's dollar price by the fitted dollar value of the `Gems` item;
 without gems in the history they stay unknown. Unpriced, purchased and itemless offers never
 become prices.
+
+## Choose-your-own and limit evidence
+
+- The pick-slot template is the plus glyph alone (36 x 36), so the card's silver, gold or red banner
+  stays out of the match. Rows of three slots score 91-100 on the three Custom Chest frames; the
+  nine other layouts, including the Weekly Benefits Card's orange slots, score at most 78.
+- The glow pulses: the same gold tier scored 91 on one frame and under 90 on another. A row of three
+  anywhere on a frame marks the whole page, and the task drops everything already collected from
+  that tab.
+- Daily Deals card buttons are 137 x 53 px. The `Purchase All` button sits on an orange banner of
+  the same colour and is not found.
+- `Lifetime Limit: 1` on Molly's Blessing is missing from both full-frame reads; the strip under
+  each button (13-38 px below its bottom edge) is read again when a card has no limit or
+  `Remaining` line.
 
 ## End-of-list detection
 
