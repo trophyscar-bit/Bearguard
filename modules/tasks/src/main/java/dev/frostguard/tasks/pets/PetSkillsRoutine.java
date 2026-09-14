@@ -86,6 +86,7 @@ public class PetSkillsRoutine extends DelayedTask {
     //   slot 3  x 367-494  Burden Bearer      instant gather on arrival    -> GATHERING
     //   slot 4  x 512-639  Natural Intuition  500 Pet Food                 -> NATURAL_INTUITION
     //   slot 5  x  77-204  Razorbeak          -2% enemy Health 2h          -> TREASURE (misnomer)
+    //   slot 6  x 221-352  Mystical Finding   unearths a lost item, 2d 3h  -> MYSTICAL_FINDING
     //
     // Row 1 spans y 240-373 and row 2 y 387-516; the constants below are inset inside those bounds.
     // Tile pitch is ~145px, confirmed by the four row-1 taps that each selected the intended skill.
@@ -104,6 +105,11 @@ public class PetSkillsRoutine extends DelayedTask {
     // its clock is drawn wider, so a 620 bound clipped the final digit and the colon with it,
     // turning 22:24:23 into 22:2423. Slot 4 ends at 639, so this stays inside its own tile.
     private static final PointData NATURAL_INTUITION_SKILL_BOTTOM_RIGHT = new PointData(634, 350);
+
+    // Row 2, second tile -- directly beneath slot 2, so it takes that column inset. Measured on a
+    // live 720x1280 panel on 2026-09-13 at x 221-352 when the roster grew to six skills.
+    private static final PointData MYSTICAL_FINDING_SKILL_TOP_LEFT = new PointData(240, 410);
+    private static final PointData MYSTICAL_FINDING_SKILL_BOTTOM_RIGHT = new PointData(330, 500);
 
     // Repointed from (240,410)-(320,490), which is bare panel background next to the row-2 tile
     // rather than any tile at all -- every run logged "TREASURE skill is not available. Skipping."
@@ -192,6 +198,7 @@ public class PetSkillsRoutine extends DelayedTask {
     private boolean staminaEnabled;
     private boolean foodEnabled;
     private boolean naturalIntuitionEnabled;
+    private boolean mysticalFindingEnabled;
     private boolean treasureEnabled;
     private boolean gatheringEnabled;
 
@@ -288,6 +295,8 @@ public class PetSkillsRoutine extends DelayedTask {
         this.foodEnabled = getConfigBoolean(ConfigurationKeyEnum.PET_SKILL_FOOD_BOOL, false);
         this.naturalIntuitionEnabled = getConfigBoolean(
                 ConfigurationKeyEnum.PET_SKILL_NATURAL_INTUITION_BOOL, false);
+        this.mysticalFindingEnabled = getConfigBoolean(
+                ConfigurationKeyEnum.PET_SKILL_MYSTICAL_FINDING_BOOL, false);
         this.treasureEnabled = getConfigBoolean(ConfigurationKeyEnum.PET_SKILL_TREASURE_BOOL, false);
         this.gatheringEnabled = getConfigBoolean(ConfigurationKeyEnum.PET_SKILL_GATHERING_BOOL, false);
 
@@ -429,6 +438,7 @@ public class PetSkillsRoutine extends DelayedTask {
             case STAMINA -> staminaEnabled;
             case FOOD -> foodEnabled;
             case NATURAL_INTUITION -> naturalIntuitionEnabled;
+            case MYSTICAL_FINDING -> mysticalFindingEnabled;
             case TREASURE -> treasureEnabled;
             case GATHERING -> gatheringEnabled;
         };
@@ -812,6 +822,7 @@ public class PetSkillsRoutine extends DelayedTask {
             case STAMINA:
             case FOOD:
             case NATURAL_INTUITION:
+            case MYSTICAL_FINDING:
             case TREASURE:
             case GATHERING: {
                 // Read the clock on the skill's OWN tile.
@@ -1596,6 +1607,9 @@ public class PetSkillsRoutine extends DelayedTask {
 
         /** Natural Intuition - the Giant Tapir skill that locates Pet Food */
         NATURAL_INTUITION(NATURAL_INTUITION_SKILL_TOP_LEFT, NATURAL_INTUITION_SKILL_BOTTOM_RIGHT),
+
+        /** Mystical Finding - the Giant Elk skill that unearths an item lost on the Tundra */
+        MYSTICAL_FINDING(MYSTICAL_FINDING_SKILL_TOP_LEFT, MYSTICAL_FINDING_SKILL_BOTTOM_RIGHT),
 
         /** Treasure skill - historical alias; this slot holds Razorbeak */
         TREASURE(TREASURE_SKILL_TOP_LEFT, TREASURE_SKILL_BOTTOM_RIGHT);
