@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import javax.imageio.ImageIO;
@@ -45,6 +46,7 @@ import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.CustomTaskService;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.WhiteTextIsolator;
+import dev.frostguard.vision.deals.TabStripCells;
 import dev.frostguard.vision.ocr.OcrEngine;
 import dev.frostguard.vision.ocr.OcrException;
 import dev.frostguard.vision.ocr.TextLine;
@@ -54,8 +56,8 @@ import dev.frostguard.vision.ocr.TextLine;
  * icon in the city view's right-hand column. Writes one scan per day under {@code data/deals},
  * which the Deal Tracker page scores.
  *
- * <p>Never taps a price button. The only interactions are opening a surface, tapping a tab label
- * in the tab strip band, swiping, and back.</p>
+ * <p>Never taps a price button. The only interactions are opening a surface, tapping a tab in the
+ * tab strip band, swiping, and back.</p>
  *
  * <p>Shortcut icons are found by the label or countdown printed under each one, not by a picture
  * of the icon, because the column changes with live events: an icon nobody has seen before still
@@ -72,6 +74,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final int PANEL_SETTLE_MS = 2500;
     private static final int TAB_SETTLE_MS = 2000;
     private static final int SCROLL_SETTLE_MS = 1600;
+    private static final int BACK_SETTLE_MS = 1200;
 
     private static final int MAX_TABS_PER_PANEL = 40;
     private static final int MAX_STRIP_SWIPES = 20;
@@ -79,16 +82,15 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final int MAX_POPUP_SCROLLS = 3;
     private static final int MAX_ROW_SWIPES = 3;
     private static final int MAX_SHORTCUTS = 12;
+    private static final int MAX_BACKS_TO_CITY = 6;
 
     /** Tab labels sit in this band on both the gem shop and the Deals panel. */
-    private static final PointData TAB_LABEL_TOP_LEFT = new PointData(30, 140);
-    private static final PointData TAB_LABEL_BOTTOM_RIGHT = new PointData(700, 190);
+    private static final int TAB_LABEL_TOP = 140;
+    private static final int TAB_LABEL_BOTTOM = 190;
     private static final int TAB_TAP_Y = 150;
-    /** Labels clipped by the strip edges are read again after the next swipe instead. */
-    private static final int TAB_EDGE_MARGIN = 12;
-    /** A panel is tabbed when its strip shows at least this many labels. */
+    /** A panel is tabbed when its strip shows at least this many whole tabs. */
     private static final int MIN_TABS_FOR_STRIP = 2;
-    /** About one 198 px tab per gesture: 500 px swipes skipped whole labels between frames. */
+    /** About one 199 px tab per gesture: 500 px swipes skipped whole tabs between frames. */
     private static final PointData STRIP_SWIPE_FROM = new PointData(560, 150);
     private static final PointData STRIP_SWIPE_TO = new PointData(340, 150);
     private static final PointData CONTENT_SWIPE_FROM = new PointData(360, 1000);
@@ -107,8 +109,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     /**
      * Right-hand shortcut column on the city view. Measured on 2026-09-13: labels and countdowns
-     * print 28-42 px below their icon's centre, and the column's lowest deal icon label sat at y 582;
-     * the paw, scales and mail buttons below it are not deal surfaces.
+     * print 28-42 px below their icon's centre; the paw, scales and mail buttons below y 760 are not
+     * deal surfaces.
      */
     private static final PointData SHORTCUT_TOP_LEFT = new PointData(500, 90);
     private static final PointData SHORTCUT_BOTTOM_RIGHT = new PointData(720, 760);
@@ -122,6 +124,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final Pattern COUNTDOWN = Pattern.compile("\\d{1,2}:\\d{2}:\\d{2}|\\d+d\\s?\\d{1,2}:\\d{2}");
     /** Surfaces this task already reads through their own templates, or that hold no offers. */
     private static final Pattern NOT_A_DEAL_SHORTCUT = Pattern.compile("(?i)event|^[bdo]eals?$");
+    /** Panel headers such as "Deals" sit at the top left, beside the back arrow. */
+    private static final PointData HEADER_TOP_LEFT = new PointData(90, 12);
+    private static final PointData HEADER_BOTTOM_RIGHT = new PointData(420, 70);
+    private static final Pattern ALREADY_SURVEYED_HEADER = Pattern.compile("(?i)\\bdeals\\b");
 
     private final Map<String, DealOffer> offers = new LinkedHashMap<>();
     private final List<String> problems = new ArrayList<>();
@@ -189,6 +195,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         surveyTemplatePanel("Gem Shop", TemplatesEnum.HOME_SHOP_CART_BUTTON);
         surveyTemplatePanel("Deals", TemplatesEnum.HOME_DEALS_BUTTON);
         surveyShortcutColumn();
+        if (!returnToCity()) {
+            problems.add("Scan ended without confirming the city view.");
+        }
 
         if (offers.isEmpty()) {
             problems.add("No offers were read at all.");
@@ -196,8 +205,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         }
         try {
             store.write(day, new DealScan(LocalDateTime.now().toString(), new ArrayList<>(offers.values()), problems));
-            logInfo("bg_deals_telemetry | Wrote " + offers.size() + " offer(s) and " + problems.size() + " problem(s) for "
-                    + day + ".");
+            logInfo("bg_deals_telemetry | Wrote " + offers.size() + " offer(s) and " + problems.size()
+                    + " problem(s) for " + day + ".");
         } catch (IOException writeFailed) {
             logError("bg_deals_telemetry | Could not write the scan for " + day + ": " + writeFailed.getMessage());
         }
@@ -215,7 +224,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private void surveyTemplatePanel(String surface, TemplatesEnum shortcut) {
         try {
-            navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
+            if (!returnToCity()) {
+                problems.add(surface + ": skipped because the city view could not be confirmed first.");
+                return;
+            }
             ImageSearchResultData button = templateSearchHelper.locatePattern(
                     shortcut, SearchConfigConstants.SINGLE_WITH_RETRIES);
             if (!button.isFound()) {
@@ -228,8 +240,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             surveyTabbedPanel(surface);
         } catch (RuntimeException failed) {
             recordFailure(surface, failed);
-        } finally {
-            returnHome();
         }
     }
 
@@ -243,9 +253,17 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             Shortcut next;
             RawImageData home;
             try {
-                navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
+                if (!returnToCity()) {
+                    problems.add("Shortcut column: skipped because the city view could not be confirmed.");
+                    return;
+                }
                 home = capture();
-                next = shortcuts(home).stream()
+                List<Shortcut> column = shortcuts(home);
+                if (opened == 0) {
+                    logInfo("bg_deals_telemetry | Shortcut column (" + saveFrame(home) + "): "
+                            + column.stream().map(Shortcut::name).collect(Collectors.joining(", ")));
+                }
+                next = column.stream()
                         .filter(s -> visited.stream().noneMatch(v -> distance(v, s.icon()) < SAME_ICON_DISTANCE))
                         .findFirst()
                         .orElse(null);
@@ -254,7 +272,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 return;
             }
             if (next == null) {
-                logInfo("bg_deals_telemetry | Shortcut column: " + visited.size() + " icon(s) opened.");
+                logInfo("bg_deals_telemetry | Shortcut column: " + visited.size() + " icon(s) tried.");
                 return;
             }
             visited.add(next.icon());
@@ -266,15 +284,17 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     problems.add(next.name() + ": icon tapped but nothing opened.");
                     continue;
                 }
-                if (tabLabels(openedFrame).size() >= MIN_TABS_FOR_STRIP) {
+                if (isAlreadySurveyedPanel(openedFrame)) {
+                    logInfo("bg_deals_telemetry | " + next.name() + " opened the Deals panel, already surveyed; skipping.");
+                    continue;
+                }
+                if (TabStripCells.locate(ImageConverter.toBufferedImage(openedFrame)).size() >= MIN_TABS_FOR_STRIP) {
                     surveyTabbedPanel(next.name());
                 } else {
                     surveyPage(next.name(), next.name(), MAX_POPUP_SCROLLS, false);
                 }
             } catch (RuntimeException failed) {
                 recordFailure(next.name(), failed);
-            } finally {
-                returnHome();
             }
         }
         problems.add("Shortcut column: stopped after " + MAX_SHORTCUTS + " icons; more may be unread.");
@@ -320,25 +340,52 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             int right = label.get(label.size() - 1).left() + label.get(label.size() - 1).width();
             int top = label.stream().mapToInt(TextLine::top).min().orElse(0);
             PointData icon = new PointData((left + right) / 2, Math.max(SHORTCUT_TOP_LEFT.getY(), top - ICON_ABOVE_LABEL));
-            String name = countdown ? "Timed offer" : text.replaceAll("[^A-Za-z' -]", "").trim();
+            String name = countdown ? "Timed offer" : text.replaceAll("[^A-Za-z' -]", "").replaceAll("^[ '-]+", "").trim();
             shortcuts.add(new Shortcut(name, icon));
         }
         return shortcuts;
     }
 
+    private boolean isAlreadySurveyedPanel(RawImageData frame) {
+        BufferedImage image = ImageConverter.toBufferedImage(frame);
+        RawImageData mask = WhiteTextIsolator.isolate(image, 0, 0, image.getWidth(), image.getHeight(), 0);
+        try {
+            String header = OcrEngine.recognizeText(mask, HEADER_TOP_LEFT, HEADER_BOTTOM_RIGHT,
+                    CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
+            return ALREADY_SURVEYED_HEADER.matcher(header).find();
+        } catch (OcrException unreadable) {
+            return false;
+        }
+    }
+
+    /**
+     * Tabs are tapped by their measured box, one whole tab at a time; the label read inside each box
+     * only names the tab and remembers it across strip swipes.
+     */
     private void surveyTabbedPanel(String surface) {
         Set<String> visited = new HashSet<>();
-        surveyPage(surface, null, MAX_PAGE_SCROLLS, true);
+        String opening = surveyPage(surface, null, MAX_PAGE_SCROLLS, true);
+        if (opening != null) {
+            visited.add(tabKey(opening));
+        }
+        int surveyed = 0;
         int strips = 0;
-        while (strips++ < MAX_STRIP_SWIPES && visited.size() < MAX_TABS_PER_PANEL) {
-            for (TextLine label : tabLabels(capture())) {
-                String name = label.text().replaceAll("\\s+", " ").trim();
-                if (!visited.add(name.toLowerCase(Locale.ROOT))) {
+        while (strips++ < MAX_STRIP_SWIPES && surveyed < MAX_TABS_PER_PANEL) {
+            RawImageData strip = capture();
+            BufferedImage image = ImageConverter.toBufferedImage(strip);
+            for (TabStripCells.Cell cell : TabStripCells.locate(image)) {
+                if (TabStripCells.isSelected(image, cell)) {
                     continue;
                 }
-                tapNear(new PointData(label.left() + label.width() / 2, TAB_TAP_Y));
+                String label = tabLabel(strip, cell);
+                if (!label.isEmpty() && visited.contains(tabKey(label))) {
+                    continue;
+                }
+                tapNear(new PointData(cell.centre(), TAB_TAP_Y));
                 sleepTask(TAB_SETTLE_MS);
-                surveyPage(surface, name, MAX_PAGE_SCROLLS, true);
+                String title = surveyPage(surface, label.isEmpty() ? null : label, MAX_PAGE_SCROLLS, true);
+                visited.add(tabKey(label.isEmpty() && title != null ? title : label));
+                surveyed++;
             }
             RawImageData before = capture();
             swipe(STRIP_SWIPE_FROM, STRIP_SWIPE_TO, SWIPE_MS);
@@ -347,19 +394,42 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 break;
             }
         }
-        logInfo("bg_deals_telemetry | " + surface + ": " + visited.size() + " labelled tab(s) surveyed.");
-        if (visited.isEmpty()) {
-            problems.add(surface + ": no tab labels were readable; only the opening tab was surveyed.");
+        logInfo("bg_deals_telemetry | " + surface + ": " + surveyed + " tab(s) surveyed after the opening tab.");
+        if (surveyed == 0) {
+            problems.add(surface + ": no other tabs were found; only the opening tab was surveyed.");
         }
+    }
+
+    private String tabLabel(RawImageData frame, TabStripCells.Cell cell) {
+        try {
+            return OcrEngine.recognizeLines(frame, new PointData(cell.left() + 4, TAB_LABEL_TOP),
+                            new PointData(cell.right() - 4, TAB_LABEL_BOTTOM), CommonOCRSettings.DEAL_TAB_LABEL_SETTINGS)
+                    .stream()
+                    .map(TextLine::text)
+                    .collect(Collectors.joining(" "))
+                    .replaceAll("\\s+", " ")
+                    .trim();
+        } catch (OcrException unreadable) {
+            return "";
+        }
+    }
+
+    /** Letters only, so "Hall of'Heroes" and "Hall of Heroes" are the same tab. */
+    private static String tabKey(String label) {
+        return label.replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
     }
 
     // ── pages ───────────────────────────────────────────────────────
 
-    /** Reads a page, then scrolls it until the content stops moving. */
-    private void surveyPage(String surface, String tab, int maxScrolls, boolean tabbed) {
+    /** Reads a page, then scrolls it until the content stops moving. Returns the first read's page title. */
+    private String surveyPage(String surface, String tab, int maxScrolls, boolean tabbed) {
         RawImageData frame = capture();
+        String firstTitle = null;
         for (int scroll = 0; scroll <= maxScrolls; scroll++) {
             DealFrameReader.Page page = readAndCollect(frame, surface, tab, tabbed);
+            if (firstTitle == null) {
+                firstTitle = page.title();
+            }
             if (page.offers().size() == 1 && page.clippedTileRowY() != null) {
                 frame = swipeTileRow(frame, surface, tab, tabbed, page.clippedTileRowY());
             }
@@ -367,12 +437,13 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             sleepTask(SCROLL_SETTLE_MS);
             RawImageData next = capture();
             if (meanDiff(frame, next, CONTENT_REGION) < STILL_MEAN_DIFF) {
-                return;
+                return firstTitle;
             }
             frame = next;
         }
         problems.add(surface + " / " + (tab == null ? "opening tab" : tab) + ": still scrolling after "
                 + maxScrolls + " swipes; lower offers may be unread.");
+        return firstTitle;
     }
 
     /** Item rows wider than their card scroll sideways; the fifth tile is always clipped. */
@@ -417,19 +488,30 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 first.purchased() || second.purchased(), new ArrayList<>(items.values()), first.frame());
     }
 
-    private List<TextLine> tabLabels(RawImageData frame) {
-        try {
-            return OcrEngine.recognizeLines(frame, TAB_LABEL_TOP_LEFT, TAB_LABEL_BOTTOM_RIGHT,
-                            CommonOCRSettings.DEAL_TAB_LABEL_SETTINGS).stream()
-                    .filter(l -> l.text().chars().filter(Character::isLetter).count() >= 3)
-                    .filter(l -> l.left() > TAB_LABEL_TOP_LEFT.getX() + TAB_EDGE_MARGIN
-                            && l.left() + l.width() < TAB_LABEL_BOTTOM_RIGHT.getX() - TAB_EDGE_MARGIN)
-                    .sorted(Comparator.comparingInt(TextLine::left))
-                    .toList();
-        } catch (OcrException unreadable) {
-            problems.add("Tab strip unreadable: " + unreadable.getMessage());
-            return List.of();
+    // ── navigation ──────────────────────────────────────────────────
+
+    /**
+     * Presses back until the city view is confirmed by its Deals shortcut. The engine's home check
+     * alone is not enough here: on 2026-09-13 it matched the furnace template while the Deals panel was
+     * still open, so the shortcut scan read and tapped the panel instead of the city. The shortcut is
+     * covered by every panel and pop-up this task opens.
+     */
+    private boolean returnToCity() {
+        for (int attempt = 0; attempt <= MAX_BACKS_TO_CITY; attempt++) {
+            try {
+                navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
+            } catch (RuntimeException notYet) {
+                logDebug("bg_deals_telemetry | Home check failed on attempt " + attempt + ": " + notYet.getMessage());
+            }
+            if (templateSearchHelper.locatePattern(TemplatesEnum.HOME_DEALS_BUTTON,
+                    SearchConfigConstants.DEFAULT_SINGLE).isFound()) {
+                return true;
+            }
+            pressBack();
+            sleepTask(BACK_SETTLE_MS);
         }
+        logWarning("bg_deals_telemetry | City view not confirmed after " + MAX_BACKS_TO_CITY + " back presses.");
+        return false;
     }
 
     // ── frames ──────────────────────────────────────────────────────
@@ -478,7 +560,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private void recordFailure(String surface, RuntimeException failed) {
         problems.add(surface + ": " + failed.getClass().getSimpleName() + " " + failed.getMessage());
-        logError("bg_deals_telemetry | " + surface + " failed with " + failed.getClass().getName() + ": " + failed.getMessage());
+        logError("bg_deals_telemetry | " + surface + " failed with " + failed.getClass().getName() + ": "
+                + failed.getMessage());
     }
 
     private void pruneOldFrames(LocalDate today) {
@@ -502,18 +585,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             }
         } catch (IOException pruneFailed) {
             logWarning("bg_deals_telemetry | Could not prune old frames: " + pruneFailed.getMessage());
-        }
-    }
-
-    private void returnHome() {
-        for (int attempt = 0; attempt < 3; attempt++) {
-            try {
-                navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
-                return;
-            } catch (RuntimeException notYet) {
-                pressBack();
-                sleepTask(800);
-            }
         }
     }
 }
