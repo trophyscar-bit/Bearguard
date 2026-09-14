@@ -146,6 +146,7 @@ public final class DealFrameReader {
 
     private static final Pattern QUANTITY = Pattern.compile("^\\d{1,3}(,\\d{3})*$|^\\d{1,7}$");
     private static final Pattern SHORT_SPEEDUP = Pattern.compile("^[lIi|]([hm])$");
+    private static final Pattern LISTED_ITEM_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9 '-]*");
     private static final List<String> NOT_A_TITLE = List.of("remaining", "purchase", "select your", "best deal",
             "claimed", "top up", "one available", "resources", "traveling", "brilliant design", "utilize", "limit");
 
@@ -557,7 +558,7 @@ public final class DealFrameReader {
             if (row.matches()) {
                 Long quantity = parseQuantity(row.group(2));
                 String name = itemName(row.group(1));
-                if (quantity != null && !name.isEmpty()) {
+                if (quantity != null && isListedItemName(name)) {
                     items.add(new DealItem(name, quantity, "text"));
                 }
             }
@@ -580,6 +581,15 @@ public final class DealFrameReader {
             }
         }
         return String.join(" ", kept).trim();
+    }
+
+    /**
+     * A listed reward row names its item in plain words ("5m Construction Speedup", "10K Meat"). The
+     * Weekly/Monthly Cards page produced rows such as "\"fy; x2" and "oF x2" from its artwork; those are not items.
+     */
+    static boolean isListedItemName(String name) {
+        return LISTED_ITEM_NAME.matcher(name).matches()
+                && Arrays.stream(name.split(" ")).anyMatch(word -> word.chars().filter(Character::isLetter).count() >= 3);
     }
 
     /** An item name starts with an amount ("5m", "10K", "100") or a real word, never a stray glyph pair. */
