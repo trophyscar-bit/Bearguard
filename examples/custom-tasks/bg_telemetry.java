@@ -562,11 +562,16 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
     /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
-    private static final String SCAN_FORMAT_VERSION = "v6";
+    private static final String SCAN_FORMAT_VERSION = "v7";
     /** Swipes back along the Events tab strip before giving up on finding Calendar. */
     private static final int CALENDAR_TAB_SWIPE_ATTEMPTS = 4;
     /** Shorter than this and the read is noise, not an event name. */
     private static final int MIN_CREDIBLE_LABEL_LENGTH = 3;
+    /** The operator-owned list of real event names, under the workspace data directory. */
+    private static final String CALENDAR_NAMES_FILE = "calendar-events.txt";
+    /** Measured on three days of real reads: worst correct 76, best wrong 50. */
+    private static final double NAME_MATCH_MIN_SCORE = 65.0;
+    private static final double NAME_MATCH_MIN_MARGIN = 12.0;
 
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int DEFAULT_TRAP_NUMBER = 1;
@@ -761,7 +766,9 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // Loaded once per scan rather than per bar: both passes read the same library, and it is
         // re-read each scan so a name corrected in the folder takes effect without a restart.
         iconLibrary = loadIconLibrary();
-        logInfo("bg_telemetry | Calendar: icon library holds " + iconLibrary.size() + " entr(ies).");
+        knownEventNames = loadKnownEventNames();
+        logInfo("bg_telemetry | Calendar: icon library holds " + iconLibrary.size()
+                + " entr(ies); event list holds " + knownEventNames.size() + " name(s).");
 
         int forgotten = EventScheduleService.obtain().forgetAll(STATE_GANTT_KEY_PREFIX);
         if (forgotten > 0) {
@@ -833,6 +840,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     /** Reloaded at the start of each calendar scan; empty outside one. Values are encoded PNGs,
      *  passed straight to the matcher, so nothing here decodes or rescales an image by hand. */
     private Map<String, byte[]> iconLibrary = new LinkedHashMap<>();
+    /** Reloaded alongside the icon library at the start of each calendar scan. */
+    private java.util.List<String> knownEventNames = java.util.List.of();
 
     private static double ganttColumnWidth() {
         return (GANTT_RIGHT - GANTT_LEFT) / (double) GANTT_DAY_COLUMNS;
@@ -973,6 +982,145 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             return null;
         }
         return new int[]{iconLeft, bandTop + ICON_BAR_BORDER, iconLeft + side, bandTop + ICON_BAR_BORDER + side};
+    }
+
+    /**
+     * Saves this bar's icon under a name that has already been established.
+     *
+     * <p>Only ever called with a name that matched the curated list. Saving under whatever the OCR
+     * said was tried first and filled the library with "Fontns" and "aWork y", which would then
+     * have been matched against for good. Never overwrites: an existing file is the operator's.</p>
+     */
+    private void learnIcon(BufferedImage frame, int[] box, String canonicalName) {
+        String fileName = canonicalName.replaceAll("[^A-Za-z0-9 ]", "").trim().replace(' ', '_');
+        if (fileName.isEmpty()) {
+            return;
+        }
+        Path target = calendarIconDir().resolve(fileName + ".png");
+        if (Files.exists(target)) {
+            return;
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            BufferedImage crop = frame.getSubimage(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+            javax.imageio.ImageIO.write(crop, "png", target.toFile());
+            logInfo("bg_telemetry | Calendar: learned the icon for \"" + canonicalName
+                    + "\", so it no longer depends on reading that label.");
+        } catch (IOException | RuntimeException writeFailed) {
+            logWarning("bg_telemetry | Calendar: could not save the icon for \"" + canonicalName
+                    + "\": " + writeFailed.getMessage());
+        }
+    }
+
+    /**
+     * The canonical event names, one per line, from a file the operator owns.
+     *
+     * <p>Re-read every scan so a name can be added or corrected without a rebuild. Blank lines and
+     * lines starting with '#' are ignored.</p>
+     */
+    private java.util.List<String> loadKnownEventNames() {
+        Path file = WorkspacePaths.current().root().resolve("data").resolve(CALENDAR_NAMES_FILE);
+        if (!Files.isRegularFile(file)) {
+            return java.util.List.of();
+        }
+        try {
+            java.util.List<String> names = new java.util.ArrayList<>();
+            for (String line : Files.readAllLines(file)) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                    names.add(trimmed);
+                }
+            }
+            return names;
+        } catch (IOException unreadable) {
+            logWarning("bg_telemetry | Calendar: could not read " + CALENDAR_NAMES_FILE + ": "
+                    + unreadable.getMessage());
+            return java.util.List.of();
+        }
+    }
+
+    /** Letters and digits only, lower case: the OCR noise this has to survive is punctuation,
+     *  spacing and case far more often than it is a wrong letter. */
+    private static String normaliseForMatch(String value) {
+        return value.replaceAll("[^A-Za-z0-9]+", "").toLowerCase();
+    }
+
+    private static int editDistance(String a, String b) {
+        if (a.length() < b.length()) {
+            String swap = a;
+            a = b;
+            b = swap;
+        }
+        int[] previous = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) {
+            previous[j] = j;
+        }
+        for (int i = 1; i <= a.length(); i++) {
+            int[] current = new int[b.length() + 1];
+            current[0] = i;
+            for (int j = 1; j <= b.length(); j++) {
+                int substitute = previous[j - 1] + (a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1);
+                current[j] = Math.min(Math.min(previous[j] + 1, current[j - 1] + 1), substitute);
+            }
+            previous = current;
+        }
+        return previous[b.length()];
+    }
+
+    /**
+     * How closely an OCR read matches one candidate name, 0-100.
+     *
+     * <p>Scored against the best-matching window of the read as well as the whole of it, because
+     * the noise is mostly at the ends -- the icon's right edge and the bar's arrow tip bleed into
+     * the crop, giving "vse e a VisionofDawn" -- while a genuinely different event differs in the
+     * middle, where a window cannot rescue it.</p>
+     */
+    private static double nameSimilarity(String observed, String candidate) {
+        String o = normaliseForMatch(observed);
+        String n = normaliseForMatch(candidate);
+        if (o.isEmpty() || n.isEmpty()) {
+            return 0;
+        }
+        double best = 1.0 - editDistance(o, n) / (double) Math.max(o.length(), n.length());
+        for (int i = 0; o.length() > n.length() && i + n.length() <= o.length(); i++) {
+            String window = o.substring(i, i + n.length());
+            best = Math.max(best, 1.0 - editDistance(window, n) / (double) n.length());
+        }
+        return best * 100.0;
+    }
+
+    /**
+     * The canonical name this read is close enough to, or null.
+     *
+     * <p>Thresholds measured against every label the scan actually logged over three days: the
+     * worst correct match scores 76, the best wrong one 50, so 65 sits in the middle of a 26 point
+     * gap. The runner-up margin is what stops a bare "Alliance" being assigned to whichever of
+     * Alliance Championship or Alliance Mobilization happens to sort first.</p>
+     */
+    private String snapToKnownName(String observed) {
+        String best = null;
+        double bestScore = -1;
+        double runnerUp = -1;
+        for (String candidate : knownEventNames) {
+            double score = nameSimilarity(observed, candidate);
+            if (score > bestScore) {
+                runnerUp = bestScore;
+                bestScore = score;
+                best = candidate;
+            } else if (score > runnerUp) {
+                runnerUp = score;
+            }
+        }
+        if (best == null || bestScore < NAME_MATCH_MIN_SCORE) {
+            return null;
+        }
+        if (runnerUp >= 0 && bestScore - runnerUp < NAME_MATCH_MIN_MARGIN) {
+            logInfo("bg_telemetry | Calendar: \"" + observed + "\" scores " + Math.round(bestScore)
+                    + " for \"" + best + "\" but " + Math.round(runnerUp)
+                    + " for the runner-up, too close to call; leaving it unidentified.");
+            return null;
+        }
+        return best;
     }
 
     private Path calendarIconDir() {
@@ -1152,43 +1300,55 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         String name = cleanGanttLabel(label);
         // A one or two character read is noise, not a name: the game has no such event. Treating it
         // as unreadable keeps "oe" out of the calendar instead of recording it as an event.
-        boolean truncated = name.length() < MIN_CREDIBLE_LABEL_LENGTH
-                || raw.endsWith("...") || raw.endsWith("â€¦");
         if (name.length() < MIN_CREDIBLE_LABEL_LENGTH) {
             // Discarded outright rather than carried as a stub: showing "oe..." claims the game
             // printed a name beginning "oe", and it did not.
             name = "";
         }
 
-        // The icon is consulted for every bar, not only truncated ones. A curated icon matches at
-        // 98-100 against a best wrong score of 53, while the label OCR returns "Siow" for
-        // Snowbusters and "Halllof Chiefs" for Hall of Chiefs on the same frames. Where the icon is
-        // known it is simply the better evidence, so it wins; the OCR text is the fallback for
-        // events whose icon nobody has named yet.
+        // Three sources, strongest first. The label text is never used as a name on its own: it is
+        // a 12px string on a saturated bar, and the reads it produces -- "Whortress Battlessuy",
+        // "aBizarne Bazaar", "Halllof Chiefs" -- are evidence, not answers. Something has to agree
+        // with it before it becomes a name, and when nothing does the bar says so.
+        String resolved = null;
+        String how = null;
+
         if (iconBox != null) {
             String matched = matchIcon(capture, barLeft, barRight, bandTop, bandBottom);
             if (matched != null) {
-                if (!matched.equalsIgnoreCase(name)) {
-                    logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " read as \""
-                            + (name.isEmpty() ? "(nothing)" : name) + "\"; its icon says \""
-                            + matched + "\", which is the better evidence.");
+                resolved = matched;
+                how = "its icon";
+            }
+        }
+        if (resolved == null && !name.isEmpty()) {
+            String snapped = snapToKnownName(name);
+            if (snapped != null) {
+                resolved = snapped;
+                how = "the event list";
+                // Its icon is not in the library yet and the name is now established, so this is the
+                // one moment it is safe to learn: the file is written under a curated name, never
+                // under whatever the OCR happened to say.
+                if (iconBox != null) {
+                    learnIcon(frame, iconBox, snapped);
                 }
-                name = matched;
-                truncated = false;
             }
         }
-        if (truncated && !name.isEmpty()) {
-            name = name + "...";
-        }
-        if (truncated) {
-            // Still unresolved: recorded with its real dates and flagged, so the unknown icon is
-            // visible rather than silently dropped or given a made-up name.
-            String shown = name.isEmpty() ? "(icon only)" : name;
-            logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " has a truncated label ("
-                    + shown + ") and no icon in the library matches it; recording it under that label.");
-            if (name.isEmpty()) {
-                name = "State event " + start;
+
+        boolean identified = resolved != null;
+        if (identified) {
+            if (!resolved.equalsIgnoreCase(name)) {
+                logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " read as \""
+                        + (name.isEmpty() ? "(nothing)" : name) + "\"; " + how + " says \""
+                        + resolved + "\", which is the better evidence.");
             }
+            name = resolved;
+        } else {
+            // Nothing agreed. The dates are real and are kept; the name is not invented, and the
+            // raw read is logged so an event missing from the list can be added to it.
+            logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " read as \""
+                    + (name.isEmpty() ? "(icon only)" : name) + "\" -- no icon and nothing in "
+                    + "data/calendar-events.txt matches it. Recording it as unidentified.");
+            name = "Unidentified · " + start;
         }
 
         LocalDateTime startAt = start.atStartOfDay();
