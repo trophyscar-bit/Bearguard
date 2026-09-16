@@ -105,8 +105,11 @@ public class UpcomingEventsLayoutController {
         ToggleGroup viewToggle = new ToggleGroup();
         toggleListView.setToggleGroup(viewToggle);
         toggleMonthView.setToggleGroup(viewToggle);
-        toggleListView.setSelected(true);
+        // Week is the default: it answers "what is on and when" at a glance, which is what the
+        // page is for; the list is the detail view behind it.
+        toggleMonthView.setSelected(true);
         toggleListView.selectedProperty().addListener((obs, was, isSelected) -> showListView(isSelected));
+        showListView(toggleListView.isSelected());
 
         refresh();
         refreshTimer = new Timeline(new KeyFrame(
@@ -144,7 +147,41 @@ public class UpcomingEventsLayoutController {
                 kept.add(entry);
             }
         }
+        dropGenericBearTrapWhenNumbered(kept);
         return kept;
+    }
+
+    /**
+     * Removes the computed "Bear Trap" row when a numbered "Bear Hunt - Trap N" covers the same
+     * window.
+     *
+     * <p>Both describe the same fight: one is derived from the configured anchor, the other read
+     * off the Task List. The numbered one wins because it says which trap it is. Trap 1 and Trap 2
+     * are different facilities and both stay.</p>
+     */
+    private void dropGenericBearTrapWhenNumbered(List<EventScheduleEntry> entries) {
+        List<EventScheduleEntry> numbered = new ArrayList<>();
+        for (EventScheduleEntry entry : entries) {
+            String label = entry.getEventLabel() == null ? "" : entry.getEventLabel().toLowerCase();
+            if (label.contains("bear hunt") && label.contains("trap")) {
+                numbered.add(entry);
+            }
+        }
+        if (numbered.isEmpty()) {
+            return;
+        }
+        entries.removeIf(entry -> {
+            String label = entry.getEventLabel() == null ? "" : entry.getEventLabel().trim();
+            if (!label.equalsIgnoreCase("Bear Trap")) {
+                return false;
+            }
+            for (EventScheduleEntry specific : numbered) {
+                if (windowsOverlap(entry, specific)) {
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 
     private boolean sameEvent(EventScheduleEntry a, EventScheduleEntry b) {

@@ -1348,7 +1348,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " read as \""
                     + (name.isEmpty() ? "(icon only)" : name) + "\" -- no icon and nothing in "
                     + "data/calendar-events.txt matches it. Recording it as unidentified.");
-            name = "Unidentified · " + start;
+            name = "Unidentified - " + start;
         }
 
         LocalDateTime startAt = start.atStartOfDay();
