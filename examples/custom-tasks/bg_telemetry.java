@@ -1210,6 +1210,33 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         return best;
     }
 
+    /** "UTC Time 2026-09-16 02:44:52" -- the banner directly above the day columns. */
+    private static final PointData GAME_CLOCK_TOP_LEFT = new PointData(120, 226);
+    private static final PointData GAME_CLOCK_BOTTOM_RIGHT = new PointData(604, 290);
+    private static final Pattern GAME_CLOCK_DATE = Pattern.compile("([0-9]{4})[-/]([0-9]{2})[-/]([0-9]{2})");
+
+    /** The game's current UTC date as the chart itself states it, or null when the banner does not
+     *  read. Every column is dated as an offset from this, so it is worth reading rather than
+     *  assuming the two clocks agree. */
+    private LocalDate readGameUtcDate() {
+        String banner = readPanelBlock(GAME_CLOCK_TOP_LEFT, GAME_CLOCK_BOTTOM_RIGHT);
+        if (banner == null) {
+            return null;
+        }
+        Matcher matcher = GAME_CLOCK_DATE.matcher(banner);
+        if (!matcher.find()) {
+            logInfo("bg_telemetry | Calendar: clock banner read as \"" + banner.trim()
+                    + "\", which carries no date.");
+            return null;
+        }
+        try {
+            return LocalDate.of(Integer.parseInt(matcher.group(1)),
+                    Integer.parseInt(matcher.group(2)), Integer.parseInt(matcher.group(3)));
+        } catch (RuntimeException notADate) {
+            return null;
+        }
+    }
+
     private int readGanttChart() {
         RawImageData capture = emuManager.captureScreen(EMULATOR_NUMBER);
         if (capture == null) {
@@ -1230,7 +1257,16 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                     + "day columns cannot be dated. Recording nothing rather than guessing dates.");
             return 0;
         }
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        // Anchored to the game's own clock, printed in the banner above the chart, not to this
+        // machine's. They are the same only while the PC clock is right, and the whole chart is
+        // dated by offsets from this one value, so a drifting local clock would silently move every
+        // bar. The machine clock stays as a fallback, and says so when it is used.
+        LocalDate today = readGameUtcDate();
+        if (today == null) {
+            today = LocalDate.now(ZoneOffset.UTC);
+            logWarning("bg_telemetry | Calendar: could not read the game's UTC clock from the panel"
+                    + " banner; dating the chart from this machine's clock instead.");
+        }
 
         int recorded = 0;
         Integer bandStart = null;
