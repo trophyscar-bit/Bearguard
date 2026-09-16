@@ -562,7 +562,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
     /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
-    private static final String SCAN_FORMAT_VERSION = "v8";
+    private static final String SCAN_FORMAT_VERSION = "v9";
     /** Swipes back along the Events tab strip before giving up on finding Calendar. */
     private static final int CALENDAR_TAB_SWIPE_ATTEMPTS = 4;
     /** Shorter than this and the read is noise, not an event name. */
@@ -785,7 +785,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // Mobilization and Foundry Battle every single pass. A slow drag moves exactly as far as it is
         // told, each step overlaps the last so no bar can fall between two reads, and a frame that
         // is still moving is never read -- which is also why labels were coming back empty.
-        int recorded = readGanttChart();
+        int recorded = readGanttChart(false);
         long previous = chartFingerprint();
         int steps = 0;
         while (steps < CALENDAR_MAX_SCROLL_STEPS) {
@@ -794,10 +794,14 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             steps++;
             long current = chartFingerprint();
             if (current != 0 && current == previous) {
+                // The chart has stopped: this is the last screen there is. Read it once more with
+                // clipped bars allowed, because the final bar sits against the footer and is never
+                // shown whole -- skipping it here would lose that event on every pass.
+                recorded += readGanttChart(true);
                 break;
             }
             previous = current;
-            recorded += readGanttChart();
+            recorded += readGanttChart(false);
         }
         if (steps >= CALENDAR_MAX_SCROLL_STEPS) {
             logWarning("bg_telemetry | Calendar: still scrolling after " + CALENDAR_MAX_SCROLL_STEPS
@@ -832,6 +836,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final int GANTT_CONTENT_TOP = 392;
     private static final int GANTT_CONTENT_BOTTOM = 1200;
     private static final int GANTT_MIN_BAR_HEIGHT = 18;
+    /** Midway between a clipped bar (21-34px) and a whole one (51-56px) on a live sweep. */
+    private static final int GANTT_FULL_BAR_MIN_HEIGHT = 44;
 
     /** Pale panel blue, and the wash the game paints down today's column. */
     private static final int[][] GANTT_BACKGROUNDS = {{172, 225, 231}, {213, 195, 168}};
@@ -1207,10 +1213,26 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         PointData topLeft = new PointData(barLeft, bandTop);
         PointData bottomRight = new PointData(barRight, bandBottom + 1);
 
+        // Two stages. Curated names are scored among themselves first, and this pass's unidentified
+        // identities are consulted only when no curated name wins. Scoring them together let an
+        // identity -- which is only a crop of some bar -- stand as runner-up to that very bar's real
+        // icon, and the margin rule then refused a correct match it should never have been compared to.
+        String curated = bestIconMatch(capture, topLeft, bottomRight, false);
+        if (curated != null) {
+            return curated;
+        }
+        return bestIconMatch(capture, topLeft, bottomRight, true);
+    }
+
+    private String bestIconMatch(RawImageData capture, PointData topLeft, PointData bottomRight,
+                                 boolean unidentifiedOnly) {
         String best = null;
         double bestScore = -1;
         double runnerUp = -1;
         for (Map.Entry<String, byte[]> candidate : iconLibrary.entrySet()) {
+            if (candidate.getKey().startsWith(UNIDENTIFIED_ICON_PREFIX) != unidentifiedOnly) {
+                continue;
+            }
             double score;
             try {
                 score = OpenCvPatternLocator.matchFromRawTemplate(
@@ -1324,7 +1346,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         return identity;
     }
 
-    private int readGanttChart() {
+    private int readGanttChart(boolean finalScreen) {
         RawImageData capture = emuManager.captureScreen(EMULATOR_NUMBER);
         if (capture == null) {
             logWarning("bg_telemetry | Calendar: screen capture unavailable; skipping this pass.");
@@ -1369,19 +1391,28 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 bandStart = y;
             } else if (!isBarRow && bandStart != null) {
                 if (y - bandStart > GANTT_MIN_BAR_HEIGHT) {
-                    recorded += recordGanttBar(capture, frame, bandStart, y - 1, todayColumn, today);
+                    recorded += recordGanttBar(capture, frame, bandStart, y - 1, todayColumn, today, finalScreen);
                 }
                 bandStart = null;
             }
         }
         if (bandStart != null && GANTT_CONTENT_BOTTOM - bandStart > GANTT_MIN_BAR_HEIGHT) {
-            recorded += recordGanttBar(capture, frame, bandStart, GANTT_CONTENT_BOTTOM - 1, todayColumn, today);
+            recorded += recordGanttBar(capture, frame, bandStart, GANTT_CONTENT_BOTTOM - 1, todayColumn, today, finalScreen);
         }
         return recorded;
     }
 
     private int recordGanttBar(RawImageData capture, BufferedImage frame, int bandTop, int bandBottom,
-                               int todayColumn, LocalDate today) {
+                               int todayColumn, LocalDate today, boolean finalScreen) {
+        // A bar partly hidden under the day header or the footer is only half a bar: its icon crop
+        // is partial and matches nothing. Recording it registered that half-icon as an unidentified
+        // identity, and when the same bar appeared whole on the next screen it matched both its real
+        // icon and that copy of itself -- too close to call -- so Foundry Battle went unrecorded and
+        // left four phantom unknowns behind. The next overlapping screen always shows it whole, so
+        // it is skipped here. Measured on a live sweep: whole bars 51-56px, clipped ones 21-34px.
+        if (bandBottom - bandTop < GANTT_FULL_BAR_MIN_HEIGHT && !finalScreen) {
+            return 0;
+        }
         int centre = (bandTop + bandBottom) / 2;
         int firstColumn = -1;
         int lastColumn = -1;
