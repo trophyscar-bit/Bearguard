@@ -562,7 +562,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
     /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
-    private static final String SCAN_FORMAT_VERSION = "v7";
+    private static final String SCAN_FORMAT_VERSION = "v8";
     /** Swipes back along the Events tab strip before giving up on finding Calendar. */
     private static final int CALENDAR_TAB_SWIPE_ATTEMPTS = 4;
     /** Shorter than this and the read is noise, not an event name. */
@@ -767,6 +767,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // re-read each scan so a name corrected in the folder takes effect without a restart.
         iconLibrary = loadIconLibrary();
         knownEventNames = loadKnownEventNames();
+        unidentifiedCount = 0;
+        unidentifiedIdentity = null;
         logInfo("bg_telemetry | Calendar: icon library holds " + iconLibrary.size()
                 + " entr(ies); event list holds " + knownEventNames.size() + " name(s).");
 
@@ -775,13 +777,34 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             logInfo("bg_telemetry | Calendar: cleared " + forgotten + " row(s) from the previous read.");
         }
 
+        // Read the chart a screen at a time, in small slow steps, until it stops moving.
+        //
+        // It used to be one read, one swipe, one more read. That swipe was a fling, and a fling
+        // carries the list well past where the finger stopped: two reads covered the top screen and
+        // the bottom screen and skipped the middle outright. On a live capture that dropped Alliance
+        // Mobilization and Foundry Battle every single pass. A slow drag moves exactly as far as it is
+        // told, each step overlaps the last so no bar can fall between two reads, and a frame that
+        // is still moving is never read -- which is also why labels were coming back empty.
         int recorded = readGanttChart();
-        // One scroll down, then read again: the chart is taller than the panel and the day-header
-        // row stays pinned, so the same column geometry holds for both passes.
-        swipe(CALENDAR_SCROLL_FROM, CALENDAR_SCROLL_TO);
-        sleepTask(PANEL_SETTLE_MS);
-        recorded += readGanttChart();
-        logInfo("bg_telemetry | State calendar: recorded " + recorded + " event bar(s).");
+        long previous = chartFingerprint();
+        int steps = 0;
+        while (steps < CALENDAR_MAX_SCROLL_STEPS) {
+            swipe(CALENDAR_STEP_FROM, CALENDAR_STEP_TO, CALENDAR_STEP_DURATION_MS);
+            sleepTask(CALENDAR_STEP_SETTLE_MS);
+            steps++;
+            long current = chartFingerprint();
+            if (current != 0 && current == previous) {
+                break;
+            }
+            previous = current;
+            recorded += readGanttChart();
+        }
+        if (steps >= CALENDAR_MAX_SCROLL_STEPS) {
+            logWarning("bg_telemetry | Calendar: still scrolling after " + CALENDAR_MAX_SCROLL_STEPS
+                    + " steps; stopped there, so bars below that point were not read this pass.");
+        }
+        logInfo("bg_telemetry | State calendar: read " + (steps + 1) + " screen(s), recorded "
+                + recorded + " bar reading(s).");
 
         pressBack();
         sleepTask(600);
@@ -817,8 +840,15 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final int[] GANTT_SECTION_HEADER = {112, 184, 209};
     private static final int GANTT_COLOR_TOLERANCE = 28;
 
-    private static final PointData CALENDAR_SCROLL_FROM = new PointData(360, 1000);
-    private static final PointData CALENDAR_SCROLL_TO = new PointData(360, 500);
+    /** One slow step down the chart. 250px against an ~800px viewport, so every step overlaps the
+     *  last by more than two bar rows, and dragged over 1.5s so the list moves exactly that far
+     *  instead of flinging. Measured on a live sweep: 16 bars in 6 steps, bottom found on the 7th. */
+    private static final PointData CALENDAR_STEP_FROM = new PointData(360, 900);
+    private static final PointData CALENDAR_STEP_TO = new PointData(360, 650);
+    private static final int CALENDAR_STEP_DURATION_MS = 1500;
+    private static final int CALENDAR_STEP_SETTLE_MS = 1200;
+    /** Far more than a busy week needs; only a stuck or unrecognised screen ever reaches it. */
+    private static final int CALENDAR_MAX_SCROLL_STEPS = 20;
 
     /**
      * A match must score at least this much, and beat the runner-up by at least the margin. Both
@@ -1237,6 +1267,63 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         }
     }
 
+    /**
+     * A coarse fingerprint of the scrolling chart area only, or 0 when no frame is available.
+     *
+     * <p>Used to tell when a step no longer moves the list, which is the bottom. The whole frame
+     * cannot be compared: the banner above the chart is a ticking clock, so two captures of the same
+     * resting chart are never identical and the bottom was never detected.</p>
+     */
+    private long chartFingerprint() {
+        RawImageData capture = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (capture == null) {
+            return 0;
+        }
+        BufferedImage frame;
+        try {
+            frame = ImageConverter.toBufferedImage(capture);
+        } catch (RuntimeException unreadable) {
+            return 0;
+        }
+        long hash = 1125899906842597L;
+        for (int y = GANTT_CONTENT_TOP; y < GANTT_CONTENT_BOTTOM && y < frame.getHeight(); y += 7) {
+            for (int x = GANTT_LEFT; x < GANTT_RIGHT && x < frame.getWidth(); x += 7) {
+                hash = 31 * hash + (frame.getRGB(x, y) & 0xF0F0F0);
+            }
+        }
+        return hash == 0 ? 1 : hash;
+    }
+
+    /** Prefix of the in-memory, never-saved icon entries that stand for a bar nobody could name. */
+    private static final String UNIDENTIFIED_ICON_PREFIX = "__unidentified_";
+    private int unidentifiedCount;
+    private String unidentifiedIdentity;
+
+    /**
+     * Registers an unidentified bar's icon for the rest of this pass, and returns its identity.
+     *
+     * <p>Held in memory only, never written to the icon folder -- it has no real name to file under.
+     * Its only job is to let {@code matchIcon} recognise the same bar on the next overlapping screen,
+     * so one bar is not recorded twice and two different bars are not merged into one.</p>
+     */
+    private String rememberUnidentifiedIcon(BufferedImage frame, int[] iconBox) {
+        String identity = UNIDENTIFIED_ICON_PREFIX + (++unidentifiedCount);
+        if (iconBox == null) {
+            return identity;
+        }
+        try {
+            BufferedImage crop = frame.getSubimage(iconBox[0], iconBox[1],
+                    iconBox[2] - iconBox[0], iconBox[3] - iconBox[1]);
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(crop, "png", png);
+            iconLibrary.put(identity, png.toByteArray());
+        } catch (IOException | RuntimeException unencodable) {
+            logWarning("bg_telemetry | Calendar: could not hold the icon of an unidentified bar: "
+                    + unencodable.getMessage());
+        }
+        return identity;
+    }
+
     private int readGanttChart() {
         RawImageData capture = emuManager.captureScreen(EMULATOR_NUMBER);
         if (capture == null) {
@@ -1349,9 +1436,14 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         String resolved = null;
         String how = null;
 
+        String sameUnidentifiedAs = null;
         if (iconBox != null) {
             String matched = matchIcon(capture, barLeft, barRight, bandTop, bandBottom);
-            if (matched != null) {
+            if (matched != null && matched.startsWith(UNIDENTIFIED_ICON_PREFIX)) {
+                // Not a name: this is a bar an earlier screen of this same pass already failed to
+                // identify, seen again because the screens overlap. It keeps that bar's identity.
+                sameUnidentifiedAs = matched;
+            } else if (matched != null) {
                 resolved = matched;
                 how = "its icon";
             }
@@ -1381,18 +1473,29 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         } else {
             // Nothing agreed. The dates are real and are kept; the name is not invented, and the
             // raw read is logged so an event missing from the list can be added to it.
-            logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " read as \""
-                    + (name.isEmpty() ? "(icon only)" : name) + "\" -- no icon and nothing in "
-                    + "data/calendar-events.txt matches it. Recording it as unidentified.");
+            if (sameUnidentifiedAs == null) {
+                logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " read as \""
+                        + (name.isEmpty() ? "(icon only)" : name) + "\" -- no icon and nothing in "
+                        + "data/calendar-events.txt matches it. Recording it as unidentified.");
+                sameUnidentifiedAs = rememberUnidentifiedIcon(frame, iconBox);
+            }
+            unidentifiedIdentity = sameUnidentifiedAs;
             name = "Unidentified - " + start;
         }
 
         LocalDateTime startAt = start.atStartOfDay();
         LocalDateTime endAt = end.plusDays(1).atStartOfDay().minusMinutes(1);
         boolean activeNow = !today.isBefore(start) && !today.isAfter(end);
+        // Keyed by name and start for a named event. An unidentified one is keyed by the icon identity
+        // instead: Wander Theater and Wanderer Missions share both dates exactly, so a date-based key
+        // made the second overwrite the first and one of them silently vanished.
+        String keyTail = unidentifiedIdentity != null
+                ? unidentifiedIdentity + "_" + start + "_" + end
+                : name.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_" + start;
         EventScheduleService.obtain().recordWindow(
-                STATE_GANTT_KEY_PREFIX + name.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_" + start,
+                STATE_GANTT_KEY_PREFIX + keyTail.toUpperCase().replaceAll("[^A-Z0-9_]+", "_"),
                 name, activeNow, startAt, endAt);
+        unidentifiedIdentity = null;
         logInfo("bg_telemetry | Calendar: " + name + " " + start + " -> " + end
                 + (activeNow ? " (running now)" : ""));
         return 1;
