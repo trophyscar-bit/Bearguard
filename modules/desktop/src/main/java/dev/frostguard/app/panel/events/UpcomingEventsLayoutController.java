@@ -175,12 +175,10 @@ public class UpcomingEventsLayoutController {
             if (!label.equalsIgnoreCase("Bear Trap")) {
                 return false;
             }
-            for (EventScheduleEntry specific : numbered) {
-                if (windowsOverlap(entry, specific)) {
-                    return true;
-                }
-            }
-            return false;
+            // Any numbered trap at all is enough. The generic row is a prediction from the
+            // configured anchor; the numbered ones are read off the game's own Task List, which
+            // says which trap and when. Keeping both showed the trap three times.
+            return true;
         });
     }
 
@@ -388,12 +386,16 @@ public class UpcomingEventsLayoutController {
     }
 
     /**
-     * Whether this entry is a whole-day window rather than a moment.
+     * Whether this entry covers whole game days rather than a moment in one.
      *
-     * <p>The calendar chart gives dates, not times, and they are stored as midnight-to-23:59 UTC.
-     * Rendering those through a timezone moved every one of them: an event on the 12th displayed
-     * as "Sep 11, 8:00 PM" in New York, a day out and an invented time. A date has no timezone, so
-     * these are shown as the dates they are.</p>
+     * <p>A game day is not a calendar day: the chart's own header reads "UTC Time 2026-09-16" while
+     * the local clock still says Tuesday the 15th, because the game rolls over at 00:00 UTC, which
+     * is 8pm here. So a bar the chart draws on Wed 09/16 genuinely begins on Tuesday evening for
+     * the viewer, and that is the day they will call it.</p>
+     *
+     * <p>These are therefore converted like any other instant, and rendered as dates only. Showing
+     * the raw UTC date instead puts every bar a day late; showing the converted instant with its
+     * time attached puts a meaningless "8:00 PM" on an all-day event. Both were tried.</p>
      */
     private boolean isAllDay(EventScheduleEntry entry) {
         LocalDateTime start = entry.getActiveSince();
@@ -408,8 +410,8 @@ public class UpcomingEventsLayoutController {
      *  it starts and stops there, rather than printing "Unknown" as if that were a fact. */
     private String describeWindow(EventScheduleEntry entry) {
         if (isAllDay(entry)) {
-            LocalDate from = entry.getActiveSince().toLocalDate();
-            LocalDate to = entry.getInactiveSince() == null ? null : entry.getInactiveSince().toLocalDate();
+            LocalDate from = toViewerDate(entry.getActiveSince(), true);
+            LocalDate to = toViewerDate(entry.getInactiveSince(), true);
             if (to == null || to.equals(from)) {
                 return from.format(DATE_ONLY_FORMAT) + "   ·   all day";
             }
@@ -688,14 +690,11 @@ public class UpcomingEventsLayoutController {
         private int span;
     }
 
-    /** Converts for a real instant; passes a whole-day date through untouched, since shifting one
-     *  by a timezone is what put every calendar bar on the wrong day. */
+    /** Every stored value is a UTC instant, whole-day ones included, so all of them convert. The
+     *  allDay flag is kept only to document that the caller knows which kind it is holding. */
     private LocalDate toViewerDate(LocalDateTime storedUtc, boolean allDay) {
         if (storedUtc == null) {
             return null;
-        }
-        if (allDay) {
-            return storedUtc.toLocalDate();
         }
         return storedUtc.atZone(ZoneOffset.UTC)
                 .withZoneSameInstant(EventScheduleClock.zone())

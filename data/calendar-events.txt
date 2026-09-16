@@ -1,0 +1,35 @@
+# Canonical Whiteout Survival event names, one per line.
+# A calendar bar's OCR'd label is matched against this list; a close match is
+# taken as the name, anything else is left unidentified rather than guessed.
+# Edit freely -- the scan re-reads this file every pass, no rebuild needed.
+Alliance Championship
+Alliance Mobilization
+Alliance Showdown
+Bear Trap
+Bizarre Bazaar
+Brothers in Arms
+Canyon Clash
+Castle Battle
+Crazy Joe
+Defeat Nearby Beasts
+Fishing Tournament
+Flame and Fangs
+Fortress Battles
+Foundry Battle
+Frostfire Mine
+Gina's Revenge
+Hall of Chiefs
+Hall of Heroes
+Hero Ascension Training
+Hero Rally
+Journey of Light
+King of Icefield
+Mercenary Prestige
+Snowbusters
+State of Power
+Sunfire Castle
+Symphony of Change
+Vault of Enigma
+Vision of Dawn
+Wander Theater
+Wanderer Missions
