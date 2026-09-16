@@ -562,7 +562,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
     /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
-    private static final String SCAN_FORMAT_VERSION = "v9";
+    private static final String SCAN_FORMAT_VERSION = "v10";
     /** Swipes back along the Events tab strip before giving up on finding Calendar. */
     private static final int CALENDAR_TAB_SWIPE_ATTEMPTS = 4;
     /** Shorter than this and the read is noise, not an event name. */
@@ -769,6 +769,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         knownEventNames = loadKnownEventNames();
         unidentifiedCount = 0;
         unidentifiedIdentity = null;
+        tooltipsRead = 0;
+        calendarPassAborted = false;
         logInfo("bg_telemetry | Calendar: icon library holds " + iconLibrary.size()
                 + " entr(ies); event list holds " + knownEventNames.size() + " name(s).");
 
@@ -788,7 +790,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         int recorded = readGanttChart(false);
         long previous = chartFingerprint();
         int steps = 0;
-        while (steps < CALENDAR_MAX_SCROLL_STEPS) {
+        while (steps < CALENDAR_MAX_SCROLL_STEPS && !calendarPassAborted) {
             swipe(CALENDAR_STEP_FROM, CALENDAR_STEP_TO, CALENDAR_STEP_DURATION_MS);
             sleepTask(CALENDAR_STEP_SETTLE_MS);
             steps++;
@@ -1346,6 +1348,230 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         return identity;
     }
 
+    /** What a bar's tooltip card says about its event. */
+    private static final class Tooltip {
+        private final String title;
+        private final LocalDateTime start;
+        private final LocalDateTime end;
+
+        private Tooltip(String title, LocalDateTime start, LocalDateTime end) {
+            this.title = title;
+            this.start = start;
+            this.end = end;
+        }
+    }
+
+    /** "2026-09-18 00:00 - 2026-09-19 24:00" -- the card's own window line, always in UTC. */
+    private static final Pattern TOOLTIP_WINDOW = Pattern.compile(
+            "([0-9]{4})-([0-9]{2})-([0-9]{2}) +([0-9]{1,2}):([0-9]{2}) *- *"
+                    + "([0-9]{4})-([0-9]{2})-([0-9]{2}) +([0-9]{1,2}):([0-9]{2})");
+    /** Tapping here closes a card and does nothing else: the clock banner sits above the chart, so
+     *  it can never be under a card -- some cards carry a Go button that would act on the event. */
+    private static final PointData TOOLTIP_CLOSE_POINT = new PointData(360, 256);
+    private static final int TOOLTIP_SETTLE_MS = 1200;
+    /** Upper bound on taps a single pass may make, so a chart full of unknowns cannot run away. */
+    private static final int TOOLTIP_MAX_PER_PASS = 8;
+    private int tooltipsRead;
+    private boolean calendarPassAborted;
+
+    /**
+     * The card's near-white header block as {left, right, top}, or null when no card is open.
+     *
+     * <p>Found by colour rather than position: the card opens below the bar or above it depending on
+     * where the bar sits, and moves sideways with it. Its fill is (243,253,255), brighter than
+     * anything else on the chart, so the first rows dominated by that colour are its top edge.</p>
+     */
+    private static int[] findTooltipCard(BufferedImage frame) {
+        int width = frame.getWidth();
+        int top = -1;
+        for (int y = GANTT_CONTENT_TOP; y < GANTT_CONTENT_BOTTOM && y < frame.getHeight(); y++) {
+            int bright = 0;
+            for (int x = 0; x < width; x += 2) {
+                if (isTooltipFill(frame.getRGB(x, y))) {
+                    bright++;
+                }
+            }
+            if (bright > 120) {
+                top = y;
+                break;
+            }
+        }
+        if (top < 0 || top + 170 >= frame.getHeight()) {
+            return null;
+        }
+        int probe = top + 6;
+        int left = -1;
+        int right = -1;
+        for (int x = 0; x < width; x++) {
+            if (isTooltipFill(frame.getRGB(x, probe))) {
+                if (left < 0) {
+                    left = x;
+                }
+                right = x;
+            }
+        }
+        return left < 0 || right - left < 200 ? null : new int[]{left, right, top};
+    }
+
+    private static boolean isTooltipFill(int rgb) {
+        return ((rgb >> 16) & 0xFF) >= 232 && ((rgb >> 8) & 0xFF) >= 244 && (rgb & 0xFF) >= 246;
+    }
+
+    /**
+     * Taps a bar, reads the card it opens, and closes it again. Null when anything about that is not
+     * exactly as expected -- no card, no window line, or a card that will not close -- because
+     * each of those means the screen is no longer the one being read.
+     */
+    private Tooltip readBarTooltip(int x, int y) {
+        if (calendarPassAborted || tooltipsRead >= TOOLTIP_MAX_PER_PASS) {
+            return null;
+        }
+        tooltipsRead++;
+
+        tapNear(new PointData(x, y));
+        sleepTask(TOOLTIP_SETTLE_MS);
+
+        Tooltip result = null;
+        BufferedImage frame = captureFrame();
+        int[] card = frame == null ? null : findTooltipCard(frame);
+        if (card == null) {
+            logInfo("bg_telemetry | Calendar: tapping the bar at " + x + "," + y + " opened no card.");
+        } else {
+            // Title is read to the right of the icon, the window across the full card below it. One
+            // box for both let the icon leak in as a stray first word ("Sh City Development").
+            int left = card[0];
+            int right = card[1];
+            int top = card[2];
+            String titleText = readPanelBlock(new PointData(left + 100, top + 35),
+                    new PointData(right - 8, top + 100));
+            String windowText = readPanelBlock(new PointData(left + 8, top + 105),
+                    new PointData(right - 8, top + 160));
+            String title = cleanGanttLabel(titleText);
+            LocalDateTime[] window = parseTooltipWindow(windowText);
+            if (window == null) {
+                logInfo("bg_telemetry | Calendar: card opened but its window line read as \""
+                        + (windowText == null ? "" : windowText.trim()) + "\"; not trusting it.");
+            } else if (title.length() < MIN_CREDIBLE_LABEL_LENGTH) {
+                logInfo("bg_telemetry | Calendar: card opened but its title read as \""
+                        + (titleText == null ? "" : titleText.trim()) + "\"; not trusting it.");
+            } else {
+                result = new Tooltip(title, window[0], window[1]);
+            }
+        }
+
+        if (!closeTooltip()) {
+            calendarPassAborted = true;
+            logWarning("bg_telemetry | Calendar: a tooltip card would not close; stopping this pass"
+                    + " rather than keep tapping a screen that is no longer the chart.");
+            return null;
+        }
+        // No check that the chart is pixel-identical afterwards: animated bar art changes the exact
+        // fingerprint on its own, and that aborted a live pass on a card that had closed cleanly. A
+        // small shift is harmless anyway -- every screen is dated from its own columns.
+        return result;
+    }
+
+    private boolean closeTooltip() {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            tapNear(TOOLTIP_CLOSE_POINT);
+            sleepTask(TOOLTIP_SETTLE_MS);
+            BufferedImage frame = captureFrame();
+            if (frame != null && findTooltipCard(frame) == null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Parses the card's window line. "24:00" is the end of that day, stored as 23:59 like every
+     *  other whole-day window here. */
+    private static LocalDateTime[] parseTooltipWindow(String text) {
+        if (text == null) {
+            return null;
+        }
+        Matcher m = TOOLTIP_WINDOW.matcher(text);
+        if (!m.find()) {
+            return null;
+        }
+        try {
+            LocalDateTime from = tooltipTime(m.group(1), m.group(2), m.group(3), m.group(4), m.group(5));
+            LocalDateTime to = tooltipTime(m.group(6), m.group(7), m.group(8), m.group(9), m.group(10));
+            return to.isBefore(from) ? null : new LocalDateTime[]{from, to};
+        } catch (RuntimeException notATime) {
+            return null;
+        }
+    }
+
+    private static LocalDateTime tooltipTime(String year, String month, String day, String hour, String minute) {
+        LocalDate date = LocalDate.of(Integer.parseInt(year), Integer.parseInt(month), Integer.parseInt(day));
+        int h = Integer.parseInt(hour);
+        int mm = Integer.parseInt(minute);
+        return h == 24 ? date.atTime(23, 59) : date.atTime(h, mm);
+    }
+
+    private BufferedImage captureFrame() {
+        RawImageData capture = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (capture == null) {
+            return null;
+        }
+        try {
+            return ImageConverter.toBufferedImage(capture);
+        } catch (RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    /** Saves the icon under a name the game itself printed, and holds it for the rest of this pass,
+     *  so the same bar on the next overlapping screen is recognised without tapping it again. */
+    private void learnIconNow(BufferedImage frame, int[] iconBox, String name) {
+        learnIcon(frame, iconBox, name);
+        try {
+            BufferedImage crop = frame.getSubimage(iconBox[0], iconBox[1],
+                    iconBox[2] - iconBox[0], iconBox[3] - iconBox[1]);
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(crop, "png", png);
+            iconLibrary.put(name, png.toByteArray());
+        } catch (IOException | RuntimeException unencodable) {
+            logWarning("bg_telemetry | Calendar: could not hold the new icon for \"" + name + "\": "
+                    + unencodable.getMessage());
+        }
+    }
+
+    /** An icon's name comes from its file name, which cannot hold an apostrophe ("Mias_Fortune_Hut");
+     *  the list's own spelling is the one shown. */
+    private String listSpelling(String iconName) {
+        String bare = iconName.replaceAll("[^A-Za-z0-9]", "");
+        for (String known : knownEventNames) {
+            if (known.replaceAll("[^A-Za-z0-9]", "").equalsIgnoreCase(bare)) {
+                return known;
+            }
+        }
+        return iconName;
+    }
+
+    /** Adds a name read from a tooltip to the operator's list, unless it is already there. */
+    private void rememberEventName(String name) {
+        for (String known : knownEventNames) {
+            if (known.equalsIgnoreCase(name)) {
+                return;
+            }
+        }
+        Path file = WorkspacePaths.current().root().resolve("data").resolve(CALENDAR_NAMES_FILE);
+        try {
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, name + "\n",
+                    java.nio.charset.StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            java.util.List<String> updated = new java.util.ArrayList<>(knownEventNames);
+            updated.add(name);
+            knownEventNames = updated;
+            logInfo("bg_telemetry | Calendar: added \"" + name + "\" to " + CALENDAR_NAMES_FILE + ".");
+        } catch (IOException unwritable) {
+            logWarning("bg_telemetry | Calendar: could not add \"" + name + "\" to "
+                    + CALENDAR_NAMES_FILE + ": " + unwritable.getMessage());
+        }
+    }
+
     private int readGanttChart(boolean finalScreen) {
         RawImageData capture = emuManager.captureScreen(EMULATOR_NUMBER);
         if (capture == null) {
@@ -1475,7 +1701,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 // identify, seen again because the screens overlap. It keeps that bar's identity.
                 sameUnidentifiedAs = matched;
             } else if (matched != null) {
-                resolved = matched;
+                resolved = listSpelling(matched);
                 how = "its icon";
             }
         }
@@ -1501,21 +1727,49 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                         + resolved + "\", which is the better evidence.");
             }
             name = resolved;
-        } else {
-            // Nothing agreed. The dates are real and are kept; the name is not invented, and the
-            // raw read is logged so an event missing from the list can be added to it.
+        }
+
+        LocalDateTime startAt = start.atStartOfDay();
+        LocalDateTime endAt = end.plusDays(1).atStartOfDay().minusMinutes(1);
+
+        if (!identified && sameUnidentifiedAs == null) {
+            // Nothing on the chart names it, and it has not been seen earlier in this pass. Ask the
+            // game: tapping a bar opens a card with the event's full name and its exact window, in
+            // large clean text. This is the only way to name an event the chart truncates -- "Mia's...",
+            // "Stand...", a bar with no room for any text at all.
+            Tooltip tooltip = readBarTooltip((barLeft + barRight) / 2, centre);
+            if (tooltip != null) {
+                String canonical = snapToKnownName(tooltip.title);
+                String adopted = canonical != null ? canonical : tooltip.title;
+                logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " read as \""
+                        + (name.isEmpty() ? "(icon only)" : name) + "\"; its tooltip names it \""
+                        + tooltip.title + "\", " + tooltip.start + " -> " + tooltip.end + " UTC.");
+                name = adopted;
+                identified = true;
+                // The tooltip's window is the real one, the chart's is only what fits in the week:
+                // Grow your heroes runs 09/20-09/21 but the chart, ending on the 20th, shows one day.
+                startAt = tooltip.start;
+                endAt = tooltip.end;
+                start = tooltip.start.toLocalDate();
+                end = tooltip.end.toLocalDate();
+                if (iconBox != null) {
+                    learnIconNow(frame, iconBox, adopted);
+                }
+                rememberEventName(adopted);
+            }
+        }
+        if (!identified) {
+            // Nothing agreed and the tooltip gave nothing either. The dates are real and are kept;
+            // the name is not invented, and the raw read is logged.
             if (sameUnidentifiedAs == null) {
                 logInfo("bg_telemetry | Calendar: bar " + start + ".." + end + " read as \""
-                        + (name.isEmpty() ? "(icon only)" : name) + "\" -- no icon and nothing in "
-                        + "data/calendar-events.txt matches it. Recording it as unidentified.");
+                        + (name.isEmpty() ? "(icon only)" : name) + "\" -- no icon, nothing in "
+                        + "data/calendar-events.txt, and no tooltip. Recording it as unidentified.");
                 sameUnidentifiedAs = rememberUnidentifiedIcon(frame, iconBox);
             }
             unidentifiedIdentity = sameUnidentifiedAs;
             name = "Unidentified - " + start;
         }
-
-        LocalDateTime startAt = start.atStartOfDay();
-        LocalDateTime endAt = end.plusDays(1).atStartOfDay().minusMinutes(1);
         boolean activeNow = !today.isBefore(start) && !today.isAfter(end);
         // Keyed by name and start for a named event. An unidentified one is keyed by the icon identity
         // instead: Wander Theater and Wanderer Missions share both dates exactly, so a date-based key
