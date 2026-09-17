@@ -308,6 +308,85 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final int TASK_LIST_SCROLL_PASSES = 3;
 
     private static final String TASK_LIST_KEY_PREFIX = "TASKLIST_";
+    /** Rows are classified down this column, inside every row's rounded fill. */
+    private static final int TASK_LIST_ROW_PROBE_X = 34;
+    private static final int TASK_LIST_ROW_MIN_HEIGHT = 25;
+    /** Measured fills: "Today" heading, dated heading, entry card. */
+    private static final int[] TASK_LIST_TODAY_FILL = {211, 157, 99};
+    private static final int[] TASK_LIST_DATE_FILL = {143, 173, 221};
+    private static final int[] TASK_LIST_ENTRY_FILL = {168, 188, 227};
+
+    /** 'T' today heading, 'D' dated heading, 'E' entry, or 0 for background. */
+    private static char taskListRowKind(int rgb) {
+        if (nearFill(rgb, TASK_LIST_TODAY_FILL)) {
+            return 'T';
+        }
+        if (nearFill(rgb, TASK_LIST_DATE_FILL)) {
+            return 'D';
+        }
+        return nearFill(rgb, TASK_LIST_ENTRY_FILL) ? 'E' : 0;
+    }
+
+    private static boolean nearFill(int rgb, int[] fill) {
+        return Math.abs(((rgb >> 16) & 0xFF) - fill[0]) <= 10
+                && Math.abs(((rgb >> 8) & 0xFF) - fill[1]) <= 10
+                && Math.abs((rgb & 0xFF) - fill[2]) <= 10;
+    }
+
+    /**
+     * The whole rows on one screen of the panel, top to bottom, as clean text lines: a heading reads
+     * as "Today" or its date, an entry as its title and subtitle followed by its time or "Ended".
+     * Rows cut off by the panel's top or bottom edge are left for the screen that shows them whole.
+     */
+    private java.util.List<String> readTaskListRows(BufferedImage frame) {
+        java.util.List<String> rows = new java.util.ArrayList<>();
+        int top = TASK_LIST_PANEL_TOP_LEFT.getY();
+        int bottom = Math.min(TASK_LIST_PANEL_BOTTOM_RIGHT.getY(), frame.getHeight());
+        char kind = 0;
+        int start = top;
+        for (int y = top; y <= bottom; y++) {
+            char here = y < bottom ? taskListRowKind(frame.getRGB(TASK_LIST_ROW_PROBE_X, y)) : 0;
+            if (here == kind) {
+                continue;
+            }
+            if (kind != 0 && y - start >= TASK_LIST_ROW_MIN_HEIGHT && start > top && y < bottom) {
+                String row = readTaskListRow(kind, start, y - 1);
+                if (row != null) {
+                    rows.add(row);
+                }
+            }
+            kind = here;
+            start = y;
+        }
+        return rows;
+    }
+
+    private String readTaskListRow(char kind, int rowTop, int rowBottom) {
+        if (kind == 'T') {
+            return "Today";
+        }
+        if (kind == 'D') {
+            String date = readPanelBlock(new PointData(40, rowTop), new PointData(680, rowBottom));
+            return date == null ? null : date.replaceAll("\\s+", "");
+        }
+        String title = readPanelBlock(new PointData(150, rowTop + 4), new PointData(550, rowBottom - 4));
+        if (title == null || title.isBlank()) {
+            return null;
+        }
+        String status = readPanelBlock(new PointData(550, rowTop + 4), new PointData(690, rowBottom - 4));
+        return title.replaceAll("\\s+", " ").trim() + " " + (status == null ? "" : status.trim());
+    }
+
+    /** Coarse hash of the panel, to notice a scroll that did not move it. */
+    private static long taskListFingerprint(BufferedImage frame) {
+        long hash = 1125899906842597L;
+        int bottom = Math.min(TASK_LIST_PANEL_BOTTOM_RIGHT.getY(), frame.getHeight());
+        for (int y = TASK_LIST_PANEL_TOP_LEFT.getY(); y < bottom; y += 9) {
+            hash = 31 * hash + (frame.getRGB(TASK_LIST_ROW_PROBE_X, y) & 0xF0F0F0);
+            hash = 31 * hash + (frame.getRGB(360, y) & 0xF0F0F0);
+        }
+        return hash;
+    }
     /** Which clock the panel is currently printing; null until a pass reads it. */
     private Boolean taskListClockIsUtc;
 
@@ -352,22 +431,43 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             return;
         }
 
-        String combined = readPanelBlock(TASK_LIST_PANEL_TOP_LEFT, TASK_LIST_PANEL_BOTTOM_RIGHT);
-        if (combined == null) {
-            combined = "";
-        }
-        logDebug("bg_telemetry | Task List raw panel text (pass 0): " + combined);
-        for (int i = 0; i < TASK_LIST_SCROLL_PASSES; i++) {
-            swipe(TASK_LIST_SCROLL_FROM, TASK_LIST_SCROLL_TO);
-            sleepTask(700);
-            String more = readPanelBlock(TASK_LIST_PANEL_TOP_LEFT, TASK_LIST_PANEL_BOTTOM_RIGHT);
-            logDebug("bg_telemetry | Task List raw panel text (pass " + (i + 1) + "): " + more);
-            if (more != null && !more.isBlank()) {
-                combined = combined + "\n" + more;
+        // Read row by row, not as one block. One OCR pass over the whole panel mixed the white bear
+        // icons into the text and dropped the date heading or the times at random -- the same
+        // screen read "2026/09/17Osae ineOseo" on one pass and lost the heading on the next, and
+        // every entry under it was then skipped. Each row is found by its fill colour and read on
+        // its own, as the calendar's cards are.
+        java.util.List<String> seen = new java.util.ArrayList<>();
+        StringBuilder combined = new StringBuilder();
+        long previousScreen = 0;
+        for (int pass = 0; pass <= TASK_LIST_SCROLL_PASSES; pass++) {
+            if (pass > 0) {
+                swipe(TASK_LIST_SCROLL_FROM, TASK_LIST_SCROLL_TO);
+                sleepTask(700);
+            }
+            BufferedImage screen = captureFrame();
+            if (screen == null) {
+                break;
+            }
+            long fingerprint = taskListFingerprint(screen);
+            if (pass > 0 && fingerprint == previousScreen) {
+                break;
+            }
+            previousScreen = fingerprint;
+            java.util.List<String> rows = readTaskListRows(screen);
+            logDebug("bg_telemetry | Task List rows (screen " + pass + "): " + rows);
+            for (String row : rows) {
+                // A row already read on the screen before is the overlap, not a new entry; carrying it
+                // again would place it under whichever heading the earlier screen ended on.
+                boolean heading = TASK_LIST_DATE_MARKER.matcher(row).find();
+                if (!heading && seen.contains(row)) {
+                    continue;
+                }
+                seen.add(row);
+                combined.append(row).append('\n');
             }
         }
 
-        if (combined.isBlank()) {
+        if (combined.toString().isBlank()) {
             logInfo("bg_telemetry | Task List panel was empty; skipping this pass.");
         } else {
             // The panel lists every alliance fight the game is currently advertising, so it is a
@@ -387,7 +487,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             // is small text in a large OCR block and sometimes drops out; the entries under it are
             // then undated and skipped, and clearing first had emptied the Bear Traps from the
             // calendar on every such pass. Unknown contributes nothing -- it does not erase either.
-            int[] preview = recordTaskListFrom(combined, false);
+            int[] preview = recordTaskListFrom(combined.toString(), false);
             if (preview[0] == 0 || preview[1] > 0) {
                 logWarning("bg_telemetry | Task List: this read found " + preview[0] + " dated and "
                         + preview[1] + " undated entr" + (preview[0] + preview[1] == 1 ? "y" : "ies")
@@ -397,7 +497,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 if (forgotten > 0) {
                     logInfo("bg_telemetry | Task List: cleared " + forgotten + " row(s) from the previous read.");
                 }
-                recordTaskListFrom(combined, true);
+                recordTaskListFrom(combined.toString(), true);
             }
         }
 
