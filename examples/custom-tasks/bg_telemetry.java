@@ -383,18 +383,30 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                         + (taskListClockIsUtc ? "UTC" : "local time") + ".");
             }
 
-            int forgotten = EventScheduleService.obtain().forgetAll(TASK_LIST_KEY_PREFIX);
-            if (forgotten > 0) {
-                logInfo("bg_telemetry | Task List: cleared " + forgotten + " row(s) from the previous read.");
+            // The previous read is replaced only by a read at least as trustworthy. The date heading
+            // is small text in a large OCR block and sometimes drops out; the entries under it are
+            // then undated and skipped, and clearing first had emptied the Bear Traps from the
+            // calendar on every such pass. Unknown contributes nothing -- it does not erase either.
+            int[] preview = recordTaskListFrom(combined, false);
+            if (preview[0] == 0 || preview[1] > 0) {
+                logWarning("bg_telemetry | Task List: this read found " + preview[0] + " dated and "
+                        + preview[1] + " undated entr" + (preview[0] + preview[1] == 1 ? "y" : "ies")
+                        + "; keeping the previous read rather than replace it with a partial one.");
+            } else {
+                int forgotten = EventScheduleService.obtain().forgetAll(TASK_LIST_KEY_PREFIX);
+                if (forgotten > 0) {
+                    logInfo("bg_telemetry | Task List: cleared " + forgotten + " row(s) from the previous read.");
+                }
+                recordTaskListFrom(combined, true);
             }
-            recordTaskListFrom(combined);
         }
 
         tapNear(TASK_LIST_CLOSE_POINT);
         sleepTask(600);
     }
 
-    private void recordTaskListFrom(String panelText) {
+    /** Returns {dated, undated}. With {@code write} false nothing is stored, only counted. */
+    private int[] recordTaskListFrom(String panelText, boolean write) {
         // Walk the flattened text once, tracking the most recent date marker seen so each entry
         // inherits the section it actually appeared under.
         //
@@ -427,14 +439,19 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             String entryText = panelText.substring(titleMatcher.end(), entryEnd);
             if (currentDateMarker == null) {
                 undated++;
-            } else if (recordOneTaskListEntry(titleMatcher.group(1), currentDateMarker, entryText)) {
+            } else if (write
+                    ? recordOneTaskListEntry(titleMatcher.group(1), currentDateMarker, entryText)
+                    : resolveTaskListDate(currentDateMarker) != null) {
                 recorded++;
             }
             cursor = titleMatcher.end();
         }
 
-        logInfo("bg_telemetry | Task List: recorded " + recorded + " entr" + (recorded == 1 ? "y" : "ies")
-                + (undated == 0 ? "." : ", and skipped " + undated + " with no date heading above them."));
+        if (write) {
+            logInfo("bg_telemetry | Task List: recorded " + recorded + " entr" + (recorded == 1 ? "y" : "ies")
+                    + (undated == 0 ? "." : ", and skipped " + undated + " with no date heading above them."));
+        }
+        return new int[]{recorded, undated};
     }
 
     /** An entry's own text runs until the next title or date marker, whichever comes first. */
@@ -562,7 +579,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final String STATE_GANTT_KEY_PREFIX = "STATE_GANTT_";
     /** Bump whenever a bar's span or name is read differently, to invalidate the stored scan. */
-    private static final String SCAN_FORMAT_VERSION = "v10";
+    private static final String SCAN_FORMAT_VERSION = "v11";
     /** Swipes back along the Events tab strip before giving up on finding Calendar. */
     private static final int CALENDAR_TAB_SWIPE_ATTEMPTS = 4;
     /** Shorter than this and the read is noise, not an event name. */
@@ -770,14 +787,12 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         unidentifiedCount = 0;
         unidentifiedIdentity = null;
         tooltipsRead = 0;
+        cardWindows.clear();
         calendarPassAborted = false;
         logInfo("bg_telemetry | Calendar: icon library holds " + iconLibrary.size()
                 + " entr(ies); event list holds " + knownEventNames.size() + " name(s).");
 
-        int forgotten = EventScheduleService.obtain().forgetAll(STATE_GANTT_KEY_PREFIX);
-        if (forgotten > 0) {
-            logInfo("bg_telemetry | Calendar: cleared " + forgotten + " row(s) from the previous read.");
-        }
+        pendingCalendarRows.clear();
 
         // Read the chart a screen at a time, in small slow steps, until it stops moving.
         //
@@ -811,12 +826,31 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         }
         logInfo("bg_telemetry | State calendar: read " + (steps + 1) + " screen(s), recorded "
                 + recorded + " bar reading(s).");
+        // Written only once the whole chart has been read. A pass that stopped part-way used to have
+        // cleared the previous read already, and left the calendar holding the six bars of its one
+        // screen; the previous full read is the better answer until a new one completes.
+        if (calendarPassAborted) {
+            logWarning("bg_telemetry | Calendar: this pass stopped early; keeping the previous read"
+                    + " and discarding " + pendingCalendarRows.size() + " partial row(s).");
+        } else {
+            int forgotten = EventScheduleService.obtain().forgetAll(STATE_GANTT_KEY_PREFIX);
+            if (forgotten > 0) {
+                logInfo("bg_telemetry | Calendar: cleared " + forgotten + " row(s) from the previous read.");
+            }
+            for (Object[] row : pendingCalendarRows.values()) {
+                EventScheduleService.obtain().recordWindow((String) row[0], (String) row[1],
+                        (Boolean) row[2], (LocalDateTime) row[3], (LocalDateTime) row[4]);
+            }
+            logInfo("bg_telemetry | Calendar: stored " + pendingCalendarRows.size() + " event(s).");
+        }
 
         pressBack();
         sleepTask(600);
         pressBack();
 
-        profile.setConfig(ConfigurationKeyEnum.BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING, gameDay);
+        if (!calendarPassAborted) {
+            profile.setConfig(ConfigurationKeyEnum.BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING, gameDay);
+        }
     }
 
     /**
@@ -1365,13 +1399,24 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final Pattern TOOLTIP_WINDOW = Pattern.compile(
             "([0-9]{4})-([0-9]{2})-([0-9]{2}) +([0-9]{1,2}):([0-9]{2}) *- *"
                     + "([0-9]{4})-([0-9]{2})-([0-9]{2}) +([0-9]{1,2}):([0-9]{2})");
-    /** Tapping here closes a card and does nothing else: the clock banner sits above the chart, so
-     *  it can never be under a card -- some cards carry a Go button that would act on the event. */
-    private static final PointData TOOLTIP_CLOSE_POINT = new PointData(360, 256);
+    /** Tapping here closes a card and does nothing else: the footer note under the chart. Not the
+     *  clock banner -- a card for a bar high on the chart opens above it and covers the banner, so the
+     *  tap landed on the card and it stayed open. Some cards carry a Go button that would act on the
+     *  event, so the close tap must never be anywhere a card can reach. */
+    private static final PointData TOOLTIP_CLOSE_POINT = new PointData(360, 1234);
+    /** Just below the panel's own white top band (rows 184-206), which would otherwise read as a card. */
+    private static final int TOOLTIP_CARD_SEARCH_TOP = 208;
     private static final int TOOLTIP_SETTLE_MS = 1200;
     /** Upper bound on taps a single pass may make, so a chart full of unknowns cannot run away. */
-    private static final int TOOLTIP_MAX_PER_PASS = 8;
+    private static final int TOOLTIP_MAX_PER_PASS = 24;
+    /** This pass's rows by key; a later screen's read of the same bar replaces an earlier one. */
+    private final Map<String, Object[]> pendingCalendarRows = new LinkedHashMap<>();
+    /** Windows read from cards this pass, by event name. A list per name: the same event can
+     *  show twice, this week's run and next week's. */
+    private final Map<String, java.util.List<LocalDateTime[]>> cardWindows = new LinkedHashMap<>();
     private int tooltipsRead;
+    /** The last tap was answered with a readable frame and no card: the game says it is not an event. */
+    private boolean lastTapOpenedNoCard;
     private boolean calendarPassAborted;
 
     /**
@@ -1384,7 +1429,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static int[] findTooltipCard(BufferedImage frame) {
         int width = frame.getWidth();
         int top = -1;
-        for (int y = GANTT_CONTENT_TOP; y < GANTT_CONTENT_BOTTOM && y < frame.getHeight(); y++) {
+        for (int y = TOOLTIP_CARD_SEARCH_TOP; y < GANTT_CONTENT_BOTTOM && y < frame.getHeight(); y++) {
             int bright = 0;
             for (int x = 0; x < width; x += 2) {
                 if (isTooltipFill(frame.getRGB(x, y))) {
@@ -1423,6 +1468,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      * each of those means the screen is no longer the one being read.
      */
     private Tooltip readBarTooltip(int x, int y) {
+        lastTapOpenedNoCard = false;
         if (calendarPassAborted || tooltipsRead >= TOOLTIP_MAX_PER_PASS) {
             return null;
         }
@@ -1435,6 +1481,7 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         BufferedImage frame = captureFrame();
         int[] card = frame == null ? null : findTooltipCard(frame);
         if (card == null) {
+            lastTapOpenedNoCard = frame != null;
             logInfo("bg_telemetry | Calendar: tapping the bar at " + x + "," + y + " opened no card.");
         } else {
             // Title is read to the right of the icon, the window across the full card below it. One
@@ -1537,6 +1584,21 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         }
     }
 
+    private void rememberCardWindow(String name, Tooltip tooltip) {
+        cardWindows.computeIfAbsent(name.toLowerCase(), k -> new java.util.ArrayList<>())
+                .add(new LocalDateTime[]{tooltip.start, tooltip.end});
+    }
+
+    /** A window already read from this event's card that contains what the chart shows, if any. */
+    private LocalDateTime[] cardWindowCovering(String name, LocalDateTime from, LocalDateTime to) {
+        for (LocalDateTime[] window : cardWindows.getOrDefault(name.toLowerCase(), java.util.List.of())) {
+            if (!window[0].isAfter(from) && !window[1].isBefore(to)) {
+                return window;
+            }
+        }
+        return null;
+    }
+
     /** An icon's name comes from its file name, which cannot hold an apostrophe ("Mias_Fortune_Hut");
      *  the list's own spelling is the one shown. */
     private String listSpelling(String iconName) {
@@ -1636,7 +1698,11 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         // icon and that copy of itself -- too close to call -- so Foundry Battle went unrecorded and
         // left four phantom unknowns behind. The next overlapping screen always shows it whole, so
         // it is skipped here. Measured on a live sweep: whole bars 51-56px, clipped ones 21-34px.
-        if (bandBottom - bandTop < GANTT_FULL_BAR_MIN_HEIGHT && !finalScreen) {
+        // On the last screen only the bar cut off by the footer is let through. One cut off by the day
+        // header was seen whole a screen earlier; letting it through too recorded its half-icon as an
+        // unidentified event, and a tap on its hidden half opened no card.
+        boolean clippedByFooter = finalScreen && bandBottom >= GANTT_CONTENT_BOTTOM - 1;
+        if (bandBottom - bandTop < GANTT_FULL_BAR_MIN_HEIGHT && !clippedByFooter) {
             return 0;
         }
         int centre = (bandTop + bandBottom) / 2;
@@ -1752,11 +1818,50 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
                 endAt = tooltip.end;
                 start = tooltip.start.toLocalDate();
                 end = tooltip.end.toLocalDate();
+                rememberCardWindow(adopted, tooltip);
                 if (iconBox != null) {
                     learnIconNow(frame, iconBox, adopted);
                 }
                 rememberEventName(adopted);
             }
+        } else if (identified && (firstColumn == 0 || lastColumn == GANTT_DAY_COLUMNS - 1)) {
+            // The chart shows seven days, so a bar reaching its first or last column is cut to them:
+            // King of Icefield runs 09/21-09/27 but the chart, ending on the 21st, drew one day, and
+            // once its icon was learned that clipped read overwrote the card's window. The card for
+            // such a bar is read once per pass and reused on every overlapping screen.
+            LocalDateTime[] window = cardWindowCovering(name, startAt, endAt);
+            if (window == null) {
+                Tooltip tooltip = readBarTooltip((barLeft + barRight) / 2, centre);
+                if (tooltip == null) {
+                    logInfo("bg_telemetry | Calendar: " + name + " runs off the chart edge and its card"
+                            + " could not be read; keeping the visible " + start + ".." + end + ".");
+                } else if (!name.equalsIgnoreCase(listSpelling(tooltip.title))
+                        && !name.equalsIgnoreCase(snapToKnownName(tooltip.title))) {
+                    logInfo("bg_telemetry | Calendar: tapped " + name + " but its card says \""
+                            + tooltip.title + "\"; keeping the visible " + start + ".." + end + ".");
+                } else if (tooltip.start.isAfter(startAt) || tooltip.end.isBefore(endAt)) {
+                    logInfo("bg_telemetry | Calendar: " + name + "'s card window " + tooltip.start
+                            + " -> " + tooltip.end + " does not cover the bar " + start + ".." + end
+                            + "; keeping the visible dates.");
+                } else {
+                    rememberCardWindow(name, tooltip);
+                    window = new LocalDateTime[]{tooltip.start, tooltip.end};
+                }
+            }
+            if (window != null) {
+                startAt = window[0];
+                endAt = window[1];
+                start = startAt.toLocalDate();
+                end = endAt.toLocalDate();
+            }
+        }
+        if (!identified && sameUnidentifiedAs == null && lastTapOpenedNoCard) {
+            // No icon, no name, and the game opens no card for it: every event bar has one, so this
+            // is chart furniture read as a bar, not an event nobody could name.
+            lastTapOpenedNoCard = false;
+            logInfo("bg_telemetry | Calendar: band " + start + ".." + end + " at y=" + centre
+                    + " has no icon, no name and no card; not an event, not recorded.");
+            return 0;
         }
         if (!identified) {
             // Nothing agreed and the tooltip gave nothing either. The dates are real and are kept;
@@ -1777,9 +1882,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         String keyTail = unidentifiedIdentity != null
                 ? unidentifiedIdentity + "_" + start + "_" + end
                 : name.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_" + start;
-        EventScheduleService.obtain().recordWindow(
-                STATE_GANTT_KEY_PREFIX + keyTail.toUpperCase().replaceAll("[^A-Z0-9_]+", "_"),
-                name, activeNow, startAt, endAt);
+        String rowKey = STATE_GANTT_KEY_PREFIX + keyTail.toUpperCase().replaceAll("[^A-Z0-9_]+", "_");
+        pendingCalendarRows.put(rowKey, new Object[]{rowKey, name, activeNow, startAt, endAt});
         unidentifiedIdentity = null;
         logInfo("bg_telemetry | Calendar: " + name + " " + start + " -> " + end
                 + (activeNow ? " (running now)" : ""));
