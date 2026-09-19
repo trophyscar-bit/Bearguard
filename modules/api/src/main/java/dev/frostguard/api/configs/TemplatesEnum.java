@@ -132,7 +132,8 @@ public enum TemplatesEnum {
     // The event's bottom button has two states - "Find a Cryptid" (costs a Horn
     // to spawn one) and "Attack a Cryptid" (one is already on the map, free) -
     // so both are matched rather than assuming a single label.
-    GINAS_REVENGE_TAB, CRYPTID_FIND_BUTTON, CRYPTID_ATTACK_BUTTON;
+    GINAS_REVENGE_TAB, CRYPTID_FIND_BUTTON, CRYPTID_ATTACK_BUTTON,
+    ENDLESS_TRIAL_TAB, ENDLESS_TRIAL_ATTACK_BUTTON, ENDLESS_TRIAL_RESULT_CONFIRM_BUTTON;
 
     /* ================================================================
      *  Functional area taxonomy for batch queries and filtering.
