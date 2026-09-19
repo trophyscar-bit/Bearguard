@@ -73,6 +73,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final DateTimeFormatter UTC_INPUT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private static final int PANEL_SETTLE_MS = 2500;
+    private static final int PANEL_RECHECK_MS = 1500;
+    private static final int PANEL_OPEN_CHECKS = 4;
+    private static final int PANEL_OPEN_ATTEMPTS = 2;
     private static final int TAB_SETTLE_MS = 2000;
     private static final int SCROLL_SETTLE_MS = 1600;
     private static final int BACK_SETTLE_MS = 1200;
@@ -238,33 +241,62 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      */
     private void surveyTemplatePanel(String surface, TemplatesEnum shortcut, PointData hudFallback) {
         try {
-            if (!returnToCity()) {
-                problems.add(surface + ": skipped because the city view could not be confirmed first.");
-                return;
+            for (int attempt = 1; attempt <= PANEL_OPEN_ATTEMPTS; attempt++) {
+                if (!returnToCity()) {
+                    problems.add(surface + ": skipped because the city view could not be confirmed first.");
+                    return;
+                }
+                ImageSearchResultData button = templateSearchHelper.locatePattern(
+                        shortcut, SearchConfigConstants.SINGLE_WITH_RETRIES);
+                if (button.isFound()) {
+                    tapNear(button.getPoint());
+                } else if (hudFallback != null) {
+                    logWarning("bg_deals_telemetry | " + surface + " shortcut template did not match; trying its "
+                            + "fixed top-bar position " + hudFallback.getX() + "," + hudFallback.getY() + ".");
+                    tapNear(hudFallback);
+                } else {
+                    problems.add(surface + ": shortcut not found on the city view; surface skipped.");
+                    logWarning("bg_deals_telemetry | " + surface + " shortcut not found; skipping it.");
+                    return;
+                }
+                RawImageData opened = awaitTabbedPanel();
+                if (opened == null) {
+                    surveyTabbedPanel(surface);
+                    return;
+                }
+                // The frame the check rejected is the only evidence of what covered or replaced the panel.
+                String evidence = saveFrame(opened);
+                if (attempt < PANEL_OPEN_ATTEMPTS) {
+                    logWarning("bg_deals_telemetry | " + surface + " showed no tab strip after tapping its shortcut ("
+                            + evidence + "); returning to the city and tapping it again.");
+                } else {
+                    problems.add(surface + ": no tabbed panel opened after " + PANEL_OPEN_ATTEMPTS
+                            + " taps (last screen " + evidence + "); surface skipped.");
+                    logWarning("bg_deals_telemetry | " + surface + " did not open a tabbed panel after "
+                            + PANEL_OPEN_ATTEMPTS + " taps (last screen " + evidence + "); skipping it.");
+                }
             }
-            ImageSearchResultData button = templateSearchHelper.locatePattern(
-                    shortcut, SearchConfigConstants.SINGLE_WITH_RETRIES);
-            if (button.isFound()) {
-                tapNear(button.getPoint());
-            } else if (hudFallback != null) {
-                logWarning("bg_deals_telemetry | " + surface + " shortcut template did not match; trying its fixed "
-                        + "top-bar position " + hudFallback.getX() + "," + hudFallback.getY() + ".");
-                tapNear(hudFallback);
-            } else {
-                problems.add(surface + ": shortcut not found on the city view; surface skipped.");
-                logWarning("bg_deals_telemetry | " + surface + " shortcut not found; skipping it.");
-                return;
-            }
-            sleepTask(PANEL_SETTLE_MS);
-            if (TabStripCells.locate(ImageConverter.toBufferedImage(capture())).size() < MIN_TABS_FOR_STRIP) {
-                problems.add(surface + ": no tabbed panel opened from its shortcut; surface skipped.");
-                logWarning("bg_deals_telemetry | " + surface + " did not open a tabbed panel; skipping it.");
-                return;
-            }
-            surveyTabbedPanel(surface);
         } catch (RuntimeException failed) {
             recordFailure(surface, failed);
         }
+    }
+
+    /**
+     * Waits for a panel that is still sliding in or loading. Returns {@code null} once a tab strip is
+     * visible, otherwise the last frame checked.
+     */
+    private RawImageData awaitTabbedPanel() {
+        sleepTask(PANEL_SETTLE_MS);
+        RawImageData frame = capture();
+        for (int check = 1; check < PANEL_OPEN_CHECKS; check++) {
+            if (TabStripCells.locate(ImageConverter.toBufferedImage(frame)).size() >= MIN_TABS_FOR_STRIP) {
+                return null;
+            }
+            sleepTask(PANEL_RECHECK_MS);
+            frame = capture();
+        }
+        return TabStripCells.locate(ImageConverter.toBufferedImage(frame)).size() >= MIN_TABS_FOR_STRIP
+                ? null : frame;
     }
 
     /**
