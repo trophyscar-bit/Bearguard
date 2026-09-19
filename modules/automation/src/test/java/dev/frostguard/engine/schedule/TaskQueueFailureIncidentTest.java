@@ -118,6 +118,34 @@ class TaskQueueFailureIncidentTest {
         assertTrue(diagnosticLog.contains("consecutiveFailures=1"));
     }
 
+    @Test
+    void taskThrowingAnErrorIsRescheduledInsteadOfEndingTheQueue() {
+        AccountDescriptor profile = new AccountDescriptor(
+                null, "Error failure " + UUID.randomUUID(), "2", false, 100L, 30L);
+        assertTrue(ProfileService.obtain().createAccount(profile));
+        ErrorThrowingTask task = new ErrorThrowingTask(profile);
+        RecordingQueue queue = new RecordingQueue(profile);
+        List<LogMessageData> logs = new ArrayList<>();
+        LoggingService.obtain().attachObserver(logs::add);
+        queue.enqueue(task);
+
+        LocalDateTime before = LocalDateTime.now();
+        queue.runSchedulerTick();
+
+        assertEquals(1, task.executionCount);
+        assertTrue(task.isRecurring());
+        assertTrue(task.getScheduled().isAfter(before.plusMinutes(4)),
+                "a crashing task must back off, not retry on the next tick");
+        String diagnosticLog = logs.stream().map(LogMessageData::getMessage)
+                .reduce("", (left, right) -> left + "\n" + right);
+        assertTrue(diagnosticLog.contains("Unexpected StackOverflowError: simulated recursion"));
+
+        queue.runSchedulerTick();
+        assertEquals(1, task.executionCount, "the queue keeps ticking and waits for the retry time");
+        assertTrue(TaskFailureStreakRepository.getRepository().clear(profile.getId(), "INITIALIZE"),
+                "the Error must count toward the task-failure streak");
+    }
+
     private static void runDue(RecordingQueue queue, AlternatingFailureTask task) {
         task.reschedule(LocalDateTime.now().minusSeconds(1));
         queue.runSchedulerTick();
@@ -146,6 +174,21 @@ class TaskQueueFailureIncidentTest {
                 throw new IllegalStateException("stable simulated failure 42");
             }
             setRecurring(false);
+        }
+    }
+
+    private static final class ErrorThrowingTask extends DelayedTask {
+
+        private int executionCount;
+
+        private ErrorThrowingTask(AccountDescriptor profile) {
+            super(profile, TpDailyTaskEnum.INITIALIZE);
+        }
+
+        @Override
+        protected void execute() {
+            executionCount++;
+            throw new StackOverflowError("simulated recursion");
         }
     }
 
