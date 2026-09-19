@@ -169,6 +169,7 @@ public enum TpDailyTaskEnum {
     // Live-verified by hand -- tab icon cropped fresh from a live account, real
     // ranking (15th, 1,004,289 points) with 4 tiers already green/ready to claim.
     EVENT_BROTHERS_IN_ARMS (915, "Event: Brothers in Arms",       ConfigurationKeyEnum.EVENT_BROTHERS_IN_ARMS_CLAIM_BOOL,      RoutineCategory.MILITARY),
+    EVENT_ENDLESS_TRIAL    (917, "Event: Endless Trial",          ConfigurationKeyEnum.EVENT_ENDLESS_TRIAL_BOOL,               RoutineCategory.MILITARY),
 
     // Top-right cart-icon Shop panel, built tab by tab. Custom
     // Armament Chest's free Claimable badge is periodic -- once-a-day recheck.

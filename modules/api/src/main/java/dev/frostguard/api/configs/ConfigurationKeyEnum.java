@@ -515,6 +515,7 @@ public enum ConfigurationKeyEnum {
     EVENT_HERO_RALLY_CLAIM_BOOL          ("false",   Boolean.class,  ConfigCategory.EVENTS),
     EVENT_LUCKY_CHIP_SUPPLY_CLAIM_BOOL   ("false",   Boolean.class,  ConfigCategory.EVENTS),
     EVENT_BROTHERS_IN_ARMS_CLAIM_BOOL    ("false",   Boolean.class,  ConfigCategory.EVENTS),
+    EVENT_ENDLESS_TRIAL_BOOL             ("false",   Boolean.class,  ConfigCategory.EVENTS),
 
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
