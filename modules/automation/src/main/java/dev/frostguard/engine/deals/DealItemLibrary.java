@@ -11,6 +11,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.stream.Stream;
 
 import javax.imageio.ImageIO;
@@ -43,6 +47,12 @@ public final class DealItemLibrary {
     static final double[] TILE_SCALES = {1.0, 0.89, 0.83, 0.73, 0.67};
     /** Candidates overlapping more than this share of the smaller box are one tile. */
     private static final double MAX_OVERLAP = 0.3;
+    /** Template matching is CPU-bound; a handful of threads covers the 110 searches without starving the app. */
+    private static final ExecutorService SEARCHES = Executors.newFixedThreadPool(8, runnable -> {
+        Thread thread = new Thread(runnable, "deal-icon-search");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     /** @param scale the tile size this match was found at, relative to a full 94 px tile */
     public record Match(String key, int x, int y, int width, int height, double score, double scale) {
@@ -90,11 +100,30 @@ public final class DealItemLibrary {
     }
 
     /** Best location of every icon inside the region, at whichever tile size fits best, keeping one icon per tile. */
+    private static ImageSearchResultData await(Future<ImageSearchResultData> search) {
+        try {
+            return search.get();
+        } catch (ExecutionException failed) {
+            throw new IllegalStateException("Item icon search failed", failed.getCause());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Item icon search interrupted", interrupted);
+        }
+    }
+
     public List<Match> find(RawImageData capture, PointData topLeft, PointData bottomRight) {
-        List<Match> candidates = new ArrayList<>();
+        // One full-page search per icon and scale: 110 of them took 3.8 s of a 5.2 s page read in sequence
+        // on 2026-09-18 frames. Each search is independent; results are gathered in variant order so ties
+        // resolve exactly as a sequential pass would.
+        List<Future<ImageSearchResultData>> searches = new ArrayList<>();
         for (Variant variant : variants) {
-            ImageSearchResultData result = OpenCvPatternLocator.matchFromRawTemplate(
-                    capture, variant.png(), topLeft, bottomRight, MIN_SCORE);
+            searches.add(SEARCHES.submit(() -> OpenCvPatternLocator.matchFromRawTemplate(
+                    capture, variant.png(), topLeft, bottomRight, MIN_SCORE)));
+        }
+        List<Match> candidates = new ArrayList<>();
+        for (int i = 0; i < variants.size(); i++) {
+            Variant variant = variants.get(i);
+            ImageSearchResultData result = await(searches.get(i));
             if (result.isFound()) {
                 candidates.add(new Match(variant.key(), result.getX() - variant.width() / 2,
                         result.getY() - variant.height() / 2, variant.width(), variant.height(),

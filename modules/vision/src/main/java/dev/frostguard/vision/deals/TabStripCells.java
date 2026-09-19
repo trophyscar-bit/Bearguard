@@ -33,10 +33,14 @@ public final class TabStripCells {
     private static final double MIN_BACKGROUND_SHARE = 0.85;
     private static final int MIN_TAB_WIDTH = 180;
     private static final int MAX_TAB_WIDTH = 215;
-    /** The open tab is drawn white; unselected tabs are mid blue (brightest channel ~153). */
+    /**
+     * The open tab is drawn white; unselected tabs are mid blue. Measured on the 62 selected and 123
+     * unselected cells of 2026-09-18's 63 frames: selected 211.7 or more (the icon-only Dawn Market tab,
+     * whose chest artwork reaches into this band; labelled tabs read 220+), unselected 156 at most.
+     */
     private static final int SELECTED_LABEL_TOP = 168;
     private static final int SELECTED_LABEL_BOTTOM = 180;
-    private static final int MIN_SELECTED_BRIGHTNESS = 220;
+    private static final int MIN_SELECTED_BRIGHTNESS = 185;
 
     private TabStripCells() {
     }
