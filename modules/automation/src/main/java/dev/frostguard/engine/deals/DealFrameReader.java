@@ -12,6 +12,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -130,6 +134,11 @@ public final class DealFrameReader {
     /** Bounds the search for a full row when partial rows are found first. */
     private static final int MAX_SLOT_ROWS = 6;
     private static final byte[] PICK_SLOT = loadPickSlot();
+    private static final ExecutorService OCR_PASSES = Executors.newFixedThreadPool(3, runnable -> {
+        Thread thread = new Thread(runnable, "deal-page-ocr");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     /**
      * A price inside a confirmed orange purchase button. The dollar sign is optional because the
@@ -241,20 +250,29 @@ public final class DealFrameReader {
     private static Text readText(RawImageData capture, BufferedImage image, String surface, String tab,
             List<String> problems) {
         RawImageData mask = WhiteTextIsolator.isolate(image, 0, 0, image.getWidth(), image.getHeight(), 0);
-        List<TextLine> plain = List.of();
-        List<TextLine> white = List.of();
-        List<TextLine> words = List.of();
+        // The three passes are independent (each builds its own Tesseract instance) and were most of a
+        // page read: about 5.5 s in sequence on 2026-09-18 frames. Together they take the slowest one.
+        Future<List<TextLine>> plain = OCR_PASSES.submit(() -> OcrEngine.recognizeLines(capture,
+                FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT, CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS));
+        Future<List<TextLine>> white = OCR_PASSES.submit(() -> OcrEngine.recognizeLines(mask,
+                FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT, CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS));
+        Future<List<TextLine>> words = OCR_PASSES.submit(() -> OcrEngine.recognizeWords(mask,
+                FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT, CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS));
+        return new Text(pass(plain, surface, tab, problems), pass(white, surface, tab, problems),
+                pass(words, surface, tab, problems), capture, mask);
+    }
+
+    private static List<TextLine> pass(Future<List<TextLine>> result, String surface, String tab,
+            List<String> problems) {
         try {
-            plain = OcrEngine.recognizeLines(capture, FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT,
-                    CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
-            white = OcrEngine.recognizeLines(mask, FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT,
-                    CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
-            words = OcrEngine.recognizeWords(mask, FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT,
-                    CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
-        } catch (OcrException ocrFailed) {
-            problems.add(surface + " / " + tab + ": page text unreadable (" + ocrFailed.getMessage() + ")");
+            return result.get();
+        } catch (ExecutionException failed) {
+            problems.add(surface + " / " + tab + ": page text unreadable (" + failed.getCause().getMessage() + ")");
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            problems.add(surface + " / " + tab + ": page text read interrupted");
         }
-        return new Text(plain, white, words, capture, mask);
+        return List.of();
     }
 
     /** "TOP UP NOW" uses the purchase button's colour; a label made of words is not a price. */

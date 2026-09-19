@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -72,8 +73,11 @@ import dev.frostguard.vision.ocr.TextLine;
  */
 public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigurable {
 
-    /** Shortly after the 00:00 UTC daily reset (20:00 Eastern daylight time). */
-    private static final LocalTime RUN_AT = LocalTime.of(20, 30);
+    /**
+     * Two hours after the 00:00 UTC daily reset: 22:00 Eastern daylight time, 21:00 standard. Kept in UTC
+     * so it follows the reset, not the clock change.
+     */
+    private static final LocalTime RUN_AT_UTC = LocalTime.of(2, 0);
     private static final int RUN_JITTER_MINUTES = 10;
     private static final int FRAME_RETENTION_DAYS = 7;
     private static final DateTimeFormatter UTC_INPUT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
@@ -187,7 +191,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     .atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime());
         } catch (RuntimeException unparseable) {
             logWarning("bg_deals_telemetry | Unparseable first-execution time '" + first + "'; keeping the daily "
-                    + RUN_AT + " schedule.");
+                    + RUN_AT_UTC + " UTC schedule.");
         }
     }
 
@@ -238,9 +242,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     }
 
     static LocalDateTime nextRun(LocalDateTime now) {
-        LocalDateTime today = now.toLocalDate().atTime(RUN_AT);
-        LocalDateTime next = now.isBefore(today) ? today : today.plusDays(1);
-        return next.plusMinutes(ThreadLocalRandom.current().nextInt(RUN_JITTER_MINUTES + 1));
+        ZonedDateTime nowUtc = now.atZone(ZoneId.systemDefault()).withZoneSameInstant(ZoneOffset.UTC);
+        ZonedDateTime today = nowUtc.toLocalDate().atTime(RUN_AT_UTC).atZone(ZoneOffset.UTC);
+        ZonedDateTime next = nowUtc.isBefore(today) ? today : today.plusDays(1);
+        return next.plusMinutes(ThreadLocalRandom.current().nextInt(RUN_JITTER_MINUTES + 1))
+                .withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
     }
 
     // ── surfaces ────────────────────────────────────────────────────
@@ -675,20 +681,25 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** Names each read by its banner and, when there is an option row, by the option's place in it. */
     private String collectCarousel(List<CarouselRead> reads, String surface, String tab) {
         List<Integer> options = reads.stream().map(CarouselRead::optionCentre).distinct().sorted().toList();
+        // An opening tab is named by its page title, which OCR sometimes takes from the line under it
+        // ("Welcome to the Dawn Market," on 3 of 20 reads); one carousel is one tab.
+        String tabName = tab != null ? tab : reads.stream()
+                .collect(Collectors.groupingBy(read -> read.page().title(), Collectors.counting()))
+                .entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
         for (CarouselRead read : reads) {
             String name = read.packName().isBlank() ? null : read.packName();
             if (name == null) {
-                problems.add(surface + " / " + tabName(tab, read.page()) + ": pack name unreadable on "
+                problems.add(surface + " / " + tabName + ": pack name unreadable on "
                         + read.page().offers().stream().map(DealOffer::frame).findFirst().orElse("a frame")
                         + "; kept the page title.");
             } else if (options.size() > 1) {
                 name += " (option " + (options.indexOf(read.optionCentre()) + 1) + " of " + options.size() + ")";
             }
-            collect(surface, tabName(tab, read.page()), read.page().offers(), name);
+            collect(surface, tabName, read.page().offers(), name);
         }
         logInfo("bg_deals_telemetry | " + surface + " / " + (tab == null ? "opening tab" : tab) + ": carousel read "
                 + reads.size() + " pack page(s) across " + options.size() + " option(s).");
-        return reads.isEmpty() ? null : reads.get(0).page().title();
+        return tabName;
     }
 
     private static boolean isNear(Collection<Integer> known, int centre, int tolerance) {
