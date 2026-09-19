@@ -62,6 +62,8 @@ public class CustomTaskService {
     private final Map<String, CustomTaskSettings> savedTaskSettings = new ConcurrentHashMap<>();
 
     private URLClassLoader taskClassLoader;
+    /** Every loader handed out since startup; each stays open while its class is in use. */
+    private final List<URLClassLoader> openClassLoaders = new ArrayList<>();
 
     // ========================================================================
     // Settings DTO (immutable)
@@ -172,14 +174,15 @@ public class CustomTaskService {
     }
 
     public synchronized void shutdown() {
-        if (taskClassLoader != null) {
+        for (URLClassLoader loader : openClassLoaders) {
             try {
-                taskClassLoader.close();
+                loader.close();
             } catch (IOException exception) {
                 logger.warn("Could not close custom task class loader: {}", exception.getMessage());
             }
-            taskClassLoader = null;
         }
+        openClassLoaders.clear();
+        taskClassLoader = null;
         loadedClasses.clear();
         sourceFiles.clear();
         logger.info("Custom task service stopped");
@@ -303,14 +306,18 @@ public class CustomTaskService {
         } catch (IOException ignored) {}
     }
 
+    /**
+     * A fresh loader per load picks up recompiled bytes. The previous loader is not closed: the
+     * class it defined is still scheduled and loads its nested classes lazily, on first use, through
+     * that loader. Closing it made bg_telemetry$Tooltip fail with NoClassDefFoundError the first
+     * time the calendar needed it after a second custom task was loaded.
+     */
     private void reloadClassLoader() throws Exception {
-        if (taskClassLoader != null) {
-            try { taskClassLoader.close(); } catch (IOException ignored) {}
-        }
         taskClassLoader = new URLClassLoader(
                 new URL[]{ compiledDir.toUri().toURL() },
                 getClass().getClassLoader()
         );
+        openClassLoaders.add(taskClassLoader);
     }
 
     // ========================================================================
