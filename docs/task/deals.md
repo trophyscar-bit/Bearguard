@@ -67,6 +67,24 @@ Measured on 720 x 1280 frames on 2026-09-13.
   The floor is 80 and overlapping matches keep the higher score. A tile whose icon is not in
   the library is not read; adding its PNG starts tracking it.
 
+## Pack carousels
+
+Measured on 2026-09-18 on the gem shop's Dawn Market (opening tab):
+
+- White arrows either side of a title banner switch between five price tiers ($4.99 to $99.99),
+  and the carousel wraps from the last tier back to the first. The banner names the tier's pack.
+- A row of four category chests between banner and item panel selects the pack's contents; the
+  selected chest is framed by white corner marks. Tapping a chest keeps the current tier, and every
+  chest shows the same banner and price, so each offer is named `<banner> (option k of n)`.
+- The right arrow is the left one mirrored. Both score 100 on every tier and option; the closest
+  other artwork scores 74 (Weekly Cards speedup chevrons). Corner marks 87-100 vs 68 noise.
+- Chests change colour with the tier and the selection glow merges with neighbours, so options are
+  found by contrast with the panel beside the arrows and confirmed by the frame moving to the tapped
+  one; each tap reveals neighbours the glow hid.
+- Tiers are stepped until the banner matches the option's first tier (0.05 mean difference for the
+  same tier, 12-14 between tiers) or stops changing.
+- The pink "Best Deals" rosette overlaps the banner's right end; the banner is read up to it.
+
 ## Pricing model
 
 Each pack's price is shared across its items in proportion to quantity times unit value. Unit
@@ -100,3 +118,4 @@ about one 198 px tab; 500 px swipes skipped labels between frames.
 
 - Craftsman's Treasure grade tabs other than the one showing on open.
 - Unlabelled shortcut icons, and items missing from the icon library.
+- A carousel on a page that also scrolls: only the visible part of the page is read.
