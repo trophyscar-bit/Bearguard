@@ -20,6 +20,9 @@ Measured on 720 x 1280 frames on 2026-09-13.
 - Gem shop (cart/gem-bag shortcut) and Deals (red present): horizontal tab strip at y ~150.
   A tab holds one pack (no vertical scroll) or stacked pack cards that scroll vertically. The
   Deals strip also carries a `Top-up Gift` tab.
+  A panel counts as open only when its tab strip is visible. The scan waits up to ~7 s for it,
+  taps the shortcut a second time, and then skips the surface, saving the rejected frame
+  (2026-09-15 Deals was skipped once with no frame kept; cause unknown).
 - Right-hand shortcut column on the city view: icons come and go with live events, so they
   are found by the label or countdown printed 28-42 px below each icon, not by icon pictures.
   Events and Deals are skipped; everything else is opened and read, as a tabbed panel when its
