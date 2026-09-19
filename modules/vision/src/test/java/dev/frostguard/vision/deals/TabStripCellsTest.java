@@ -29,6 +29,16 @@ class TabStripCellsTest {
     }
 
     @Test
+    void recognisesAnOpenIconOnlyTabAsSelected() throws Exception {
+        BufferedImage frame = load("tab-strip-icon-tab-selected.png");
+
+        List<TabStripCells.Cell> cells = TabStripCells.locate(frame);
+
+        assertTrue(TabStripCells.isSelected(frame, cells.get(0)), "the open Dawn Market tab has only artwork");
+        assertFalse(TabStripCells.isSelected(frame, cells.get(1)));
+    }
+
+    @Test
     void dropsTabsClippedByEitherEdgeAfterTheStripScrolled() throws Exception {
         List<TabStripCells.Cell> scrolledOnce = TabStripCells.locate(load("tab-strip-scrolled-one.png"));
         List<TabStripCells.Cell> scrolledTwice = TabStripCells.locate(load("tab-strip-scrolled-two.png"));
