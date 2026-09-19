@@ -10,14 +10,18 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
@@ -36,6 +40,7 @@ import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.runtime.WorkspacePaths;
+import dev.frostguard.engine.deals.DealCarousel;
 import dev.frostguard.engine.deals.DealFrameReader;
 import dev.frostguard.engine.deals.DealItemLibrary;
 import dev.frostguard.engine.deals.DealsStore;
@@ -58,7 +63,8 @@ import dev.frostguard.vision.ocr.TextLine;
  * which the Deal Tracker page scores.
  *
  * <p>Never taps a price button. The only interactions are opening a surface, tapping a tab in the
- * tab strip band, swiping, and back.</p>
+ * tab strip band, a pack carousel's right arrow and its option row above the item panel, swiping,
+ * and back.</p>
  *
  * <p>Shortcut icons are found by the label or countdown printed under each one, not by a picture
  * of the icon, because the column changes with live events: an icon nobody has seen before still
@@ -85,6 +91,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final int MAX_PAGE_SCROLLS = 8;
     private static final int MAX_POPUP_SCROLLS = 3;
     private static final int MAX_ROW_SWIPES = 3;
+    /** Dawn Market has 5 tiers and 4 options; a carousel past these limits is reported, not looped. */
+    private static final int MAX_CAROUSEL_TIERS = 10;
+    private static final int MAX_CAROUSEL_OPTIONS = 8;
+    private static final int CAROUSEL_SETTLE_MS = 2000;
     private static final int MAX_SHORTCUTS = 12;
     private static final int MAX_BACKS_TO_CITY = 6;
 
@@ -489,6 +499,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** Reads a page, then scrolls it until the content stops moving. Returns the first read's page title. */
     private String surveyPage(String surface, String tab, int maxScrolls, boolean tabbed) {
         RawImageData frame = capture();
+        Optional<DealCarousel.Layout> carousel = DealCarousel.locate(frame);
+        if (carousel.isPresent()) {
+            return surveyCarousel(frame, carousel.get(), surface, tab, tabbed);
+        }
         String firstTitle = null;
         for (int scroll = 0; scroll <= maxScrolls; scroll++) {
             DealFrameReader.Page page = readAndCollect(frame, surface, tab, tabbed);
@@ -528,27 +542,157 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     }
 
     private DealFrameReader.Page readAndCollect(RawImageData frame, String surface, String tab, boolean tabbed) {
+        DealFrameReader.Page page = readPage(frame, surface, tab, tabbed);
+        collect(surface, tabName(tab, page), page.offers(), null);
+        return page;
+    }
+
+    /** Reads and logs one frame, and drops its tab if it turns out to hold choose-your-own packs. */
+    private DealFrameReader.Page readPage(RawImageData frame, String surface, String tab, boolean tabbed) {
         String file = saveFrame(frame);
         DealFrameReader.Page page = reader.read(frame, surface, tab == null ? "" : tab, file, tabbed);
-        String tabName = tab == null ? page.title() : tab;
-        String tabKey = surface + "|" + tabName;
-        if (page.chooseYourOwn()) {
-            if (chooseYourOwnTabs.add(tabKey)) {
-                // The pick slots glow on and off, so earlier frames of this tab may not have been flagged.
-                offers.values().removeIf(o -> o.surface().equals(surface) && Objects.equals(o.tab(), tabName));
-                logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " holds choose-your-own packs; left out.");
-            }
-        } else if (!chooseYourOwnTabs.contains(tabKey)) {
-            for (DealOffer read : page.offers()) {
-                DealOffer offer = new DealOffer(read.surface(), tabName, read.title(), read.priceUsd(), read.priceText(),
-                        read.remaining(), read.purchased(), read.items(), read.frame(), read.limitPeriod());
-                offers.merge(offer.packKey() + "|" + offer.priceText(), offer, bg_deals_telemetry::mergeReads);
-            }
+        String tabName = tabName(tab, page);
+        if (page.chooseYourOwn() && chooseYourOwnTabs.add(surface + "|" + tabName)) {
+            // The pick slots glow on and off, so earlier frames of this tab may not have been flagged.
+            offers.values().removeIf(o -> o.surface().equals(surface) && Objects.equals(o.tab(), tabName));
+            logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " holds choose-your-own packs; left out.");
         }
         problems.addAll(page.problems());
         logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " (" + file + "): " + page.offers().size()
                 + " offer(s)" + (page.problems().isEmpty() ? "" : ", " + page.problems().size() + " problem(s)"));
         return page;
+    }
+
+    /** @param title replaces the title the reader gave each offer, or {@code null} to keep it */
+    private void collect(String surface, String tabName, List<DealOffer> read, String title) {
+        if (chooseYourOwnTabs.contains(surface + "|" + tabName)) {
+            return;
+        }
+        for (DealOffer offer : read) {
+            DealOffer kept = new DealOffer(offer.surface(), tabName, title == null ? offer.title() : title,
+                    offer.priceUsd(), offer.priceText(), offer.remaining(), offer.purchased(), offer.items(),
+                    offer.frame(), offer.limitPeriod());
+            offers.merge(kept.packKey() + "|" + kept.priceText(), kept, bg_deals_telemetry::mergeReads);
+        }
+    }
+
+    private static String tabName(String tab, DealFrameReader.Page page) {
+        return tab == null ? page.title() : tab;
+    }
+
+    // ── carousels ───────────────────────────────────────────────────
+
+    /** One read of a carousel pack, kept until every option is known so each can be numbered. */
+    private record CarouselRead(int optionCentre, String packName, DealFrameReader.Page page) {
+    }
+
+    /**
+     * Reads every pack behind a carousel: each option in its row, when it has one, and for each option
+     * every tier behind the arrows. A tap on an option keeps the tier, so each option's tiers are stepped
+     * until the banner comes round to the one it started on. Every option tap is confirmed by the option
+     * frame moving there. Returns the page title of the first read.
+     */
+    private String surveyCarousel(RawImageData frame, DealCarousel.Layout layout, String surface, String tab,
+            boolean tabbed) {
+        String where = surface + " / " + (tab == null ? "opening tab" : tab);
+        List<CarouselRead> reads = new ArrayList<>();
+        Optional<DealCarousel.Box> selected = DealCarousel.selectedOption(frame, layout);
+        List<Integer> visited = new ArrayList<>();
+        Deque<Integer> pending = new ArrayDeque<>();
+        RawImageData current = frame;
+        int option = selected.map(DealCarousel.Box::centreX).orElse(0);
+        for (int round = 0; round < MAX_CAROUSEL_OPTIONS && current != null; round++) {
+            visited.add(option);
+            current = surveyTiers(current, layout, option, where, surface, tab, tabbed, reads);
+            if (current == null || selected.isEmpty()) {
+                break;
+            }
+            Optional<DealCarousel.Box> shown = DealCarousel.selectedOption(current, layout);
+            if (shown.isEmpty()) {
+                problems.add(where + ": the option frame vanished; remaining options unread.");
+                break;
+            }
+            int halfWidth = shown.get().width() / 2;
+            for (int centre : DealCarousel.otherOptionCentres(current, layout, shown.get())) {
+                if (!isNear(visited, centre, halfWidth) && !isNear(pending, centre, halfWidth)) {
+                    pending.add(centre);
+                }
+            }
+            Integer next = pending.poll();
+            if (next == null) {
+                break;
+            }
+            tapNear(new PointData(next, shown.get().centreY()));
+            sleepTask(CAROUSEL_SETTLE_MS);
+            current = capture();
+            Optional<DealCarousel.Box> moved = DealCarousel.selectedOption(current, layout);
+            if (moved.isEmpty() || Math.abs(moved.get().centreX() - next) > halfWidth) {
+                problems.add(where + ": tapping the option at x=" + next + " did not select it ("
+                        + saveFrame(current) + "); remaining options unread.");
+                break;
+            }
+            option = moved.get().centreX();
+        }
+        if (!pending.isEmpty()) {
+            problems.add(where + ": " + pending.size() + " option(s) left unread after " + MAX_CAROUSEL_OPTIONS
+                    + " options.");
+        }
+        return collectCarousel(reads, surface, tab);
+    }
+
+    /**
+     * Steps one option's tiers with the right arrow, reading each, until the banner shows the first tier
+     * again (Dawn Market wraps round) or stops changing. Returns the last frame, or {@code null} when the
+     * carousel is no longer on screen.
+     */
+    private RawImageData surveyTiers(RawImageData frame, DealCarousel.Layout layout, int option, String where,
+            String surface, String tab, boolean tabbed, List<CarouselRead> reads) {
+        DealCarousel.Box banner = layout.banner();
+        int[] bannerRegion = {banner.x(), banner.y(), banner.right(), banner.bottom()};
+        PointData rightArrow = new PointData(layout.rightArrow().centreX(), layout.rightArrow().centreY());
+        RawImageData current = frame;
+        for (int tier = 0; tier < MAX_CAROUSEL_TIERS; tier++) {
+            reads.add(new CarouselRead(option, DealCarousel.bannerTitle(current, layout),
+                    readPage(current, surface, tab, tabbed)));
+            tapNear(rightArrow);
+            sleepTask(CAROUSEL_SETTLE_MS);
+            RawImageData next = capture();
+            if (DealCarousel.locate(next).isEmpty()) {
+                problems.add(where + ": the pack arrows vanished after a tier tap (" + saveFrame(next)
+                        + "); remaining packs unread.");
+                return null;
+            }
+            if (meanDiff(next, frame, bannerRegion) < STILL_MEAN_DIFF
+                    || meanDiff(next, current, bannerRegion) < STILL_MEAN_DIFF) {
+                return next;
+            }
+            current = next;
+        }
+        problems.add(where + ": still finding new tiers after " + MAX_CAROUSEL_TIERS + "; later tiers unread.");
+        return current;
+    }
+
+    /** Names each read by its banner and, when there is an option row, by the option's place in it. */
+    private String collectCarousel(List<CarouselRead> reads, String surface, String tab) {
+        List<Integer> options = reads.stream().map(CarouselRead::optionCentre).distinct().sorted().toList();
+        for (CarouselRead read : reads) {
+            String name = read.packName().isBlank() ? null : read.packName();
+            if (name == null) {
+                problems.add(surface + " / " + tabName(tab, read.page()) + ": pack name unreadable on "
+                        + read.page().offers().stream().map(DealOffer::frame).findFirst().orElse("a frame")
+                        + "; kept the page title.");
+            } else if (options.size() > 1) {
+                name += " (option " + (options.indexOf(read.optionCentre()) + 1) + " of " + options.size() + ")";
+            }
+            collect(surface, tabName(tab, read.page()), read.page().offers(), name);
+        }
+        logInfo("bg_deals_telemetry | " + surface + " / " + (tab == null ? "opening tab" : tab) + ": carousel read "
+                + reads.size() + " pack page(s) across " + options.size() + " option(s).");
+        return reads.isEmpty() ? null : reads.get(0).page().title();
+    }
+
+    private static boolean isNear(Collection<Integer> known, int centre, int tolerance) {
+        return known.stream().anyMatch(k -> Math.abs(k - centre) <= tolerance);
     }
 
     /** Two reads of the same pack: keep every item, and the larger quantity when they disagree. */
