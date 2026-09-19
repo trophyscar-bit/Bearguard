@@ -111,8 +111,16 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** About one 199 px tab per gesture: 500 px swipes skipped whole tabs between frames. */
     private static final PointData STRIP_SWIPE_FROM = new PointData(560, 150);
     private static final PointData STRIP_SWIPE_TO = new PointData(340, 150);
-    private static final PointData CONTENT_SWIPE_FROM = new PointData(360, 1000);
-    private static final PointData CONTENT_SWIPE_TO = new PointData(360, 600);
+    /**
+     * Panel pages are dragged by the cards' left margin. Card item rows scroll sideways, and a vertical drag
+     * that starts on one moves the row, not the page: on 2026-09-19 the Regular Pack tab stopped at Mastery
+     * Forging with more cards below, because x 360 landed on its item row; drags at x 34 went on to Pet
+     * Food, Taming Manual and Pet Energy. Pop-ups are narrower than the panel and keep the centre line.
+     */
+    private static final PointData PANEL_SWIPE_FROM = new PointData(34, 1000);
+    private static final PointData PANEL_SWIPE_TO = new PointData(34, 600);
+    private static final PointData POPUP_SWIPE_FROM = new PointData(360, 1000);
+    private static final PointData POPUP_SWIPE_TO = new PointData(360, 600);
     private static final int ROW_SWIPE_FROM_X = 560;
     private static final int ROW_SWIPE_TO_X = 140;
     private static final int SWIPE_MS = 800;
@@ -518,7 +526,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             if (page.offers().size() == 1 && page.clippedTileRowY() != null) {
                 frame = swipeTileRow(frame, surface, tab, tabbed, page.clippedTileRowY());
             }
-            swipe(CONTENT_SWIPE_FROM, CONTENT_SWIPE_TO, SWIPE_MS);
+            swipe(tabbed ? PANEL_SWIPE_FROM : POPUP_SWIPE_FROM, tabbed ? PANEL_SWIPE_TO : POPUP_SWIPE_TO, SWIPE_MS);
             sleepTask(SCROLL_SETTLE_MS);
             RawImageData next = capture();
             if (meanDiff(frame, next, CONTENT_REGION) < STILL_MEAN_DIFF) {
