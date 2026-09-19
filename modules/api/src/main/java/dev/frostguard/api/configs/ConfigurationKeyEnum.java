@@ -149,6 +149,7 @@ public enum ConfigurationKeyEnum {
     HERO_MISSION_EVENT_BOOL                     ("false",   Boolean.class,       ConfigCategory.EVENTS),
     HERO_MISSION_FLAG_INT                       ("0",       Integer.class,       ConfigCategory.EVENTS),
     JOURNEY_OF_LIGHT_BOOL                       ("false",   Boolean.class,       ConfigCategory.EVENTS),
+    EVENT_ENDLESS_TRIAL_BOOL                    ("false",   Boolean.class,       ConfigCategory.EVENTS),
     MERCENARY_EVENT_BOOL                        ("false",   Boolean.class,       ConfigCategory.EVENTS),
     MERCENARY_FLAG_INT                          ("0",       Integer.class,       ConfigCategory.EVENTS),
     MYRIAD_BAZAAR_EVENT_BOOL                    ("false",   Boolean.class,       ConfigCategory.EVENTS),

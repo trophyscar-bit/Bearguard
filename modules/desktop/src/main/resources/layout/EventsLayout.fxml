@@ -35,6 +35,22 @@
                 </VBox>
             </VBox>
 
+            <!-- Endless Trial Configuration -->
+            <VBox styleClass="content-card">
+                <HBox styleClass="header-green" maxWidth="Infinity" alignment="CENTER_LEFT">
+                    <CheckBox text="Endless Trial" style="-fx-font-weight: bold;" 
+                              mnemonicParsing="false" fx:id="checkBoxEndlessTrial" />
+                </HBox>
+                <VBox styleClass="task-section-inner">
+                    <Label wrapText="true" styleClass="task-card-description" 
+                           text="Attacks the Endless Trial boss 3 times a day and claims the Daily Rewards" />
+                    <Separator style="-fx-opacity: 0.25;" />
+                    <Label wrapText="true" style="-fx-font-style: italic;" 
+                           styleClass="task-card-description" 
+                           text="Runs 1 hour after the daily reset (00:00 UTC)" />
+                </VBox>
+            </VBox>
+
             <!-- Journey of Light Configuration -->
             <VBox styleClass="content-card">
                 <HBox styleClass="header-yellow" maxWidth="Infinity" alignment="CENTER_LEFT">
