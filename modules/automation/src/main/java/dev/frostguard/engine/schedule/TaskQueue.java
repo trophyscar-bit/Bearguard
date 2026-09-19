@@ -520,9 +520,19 @@ public class TaskQueue {
     // ========================================================================
 
     private void mainLoop() {
-        acquireSlot();
-        while (statusModel.isRunning() && !shuttingDown) {
-            runSchedulerTick();
+        try {
+            acquireSlot();
+            while (statusModel.isRunning() && !shuttingDown) {
+                runSchedulerTick();
+            }
+        } catch (RuntimeException | Error fatal) {
+            // An uncaught throwable on this virtual thread only reaches stderr, which the desktop
+            // launcher discards, so the queue would stop with nothing in the log.
+            logger.error("{} - Queue worker stopped by an uncaught {}", profile.getName(),
+                    fatal.getClass().getName(), fatal);
+            emitError("Queue worker stopped by an uncaught " + fatal.getClass().getSimpleName()
+                    + ": " + fatal.getMessage());
+            throw fatal;
         }
     }
 
@@ -700,6 +710,18 @@ public class TaskQueue {
                 AnalyticsService.getInstance().trackTaskCompleted(task.getTaskName(), "failed", (System.currentTimeMillis()-t0)/1000);
                 ok = false;
             }
+        } catch (Error fatal) {
+            // Task code, including custom tasks compiled at runtime, can throw an Error such as
+            // StackOverflowError or LinkageError. Left uncaught it ends the queue worker for every
+            // task; treat it as that task's failure instead. Out of memory is not recoverable here.
+            logger.error("{} - {} threw {}", profile.getName(), task.getTaskName(),
+                    fatal.getClass().getName(), fatal);
+            if (fatal instanceof OutOfMemoryError) {
+                throw fatal;
+            }
+            routeUnexpectedFailure(task, fatal);
+            AnalyticsService.getInstance().trackTaskCompleted(task.getTaskName(), "failed", (System.currentTimeMillis()-t0)/1000);
+            ok = false;
         } finally {
             synchronized (this) { if (runningContext != null) runningContext.clear(); runningContext = null; }
             if (!shuttingDown) {
@@ -836,7 +858,7 @@ public class TaskQueue {
         }
     }
 
-    private void routeUnexpectedFailure(DelayedTask task, Exception failure) {
+    private void routeUnexpectedFailure(DelayedTask task, Throwable failure) {
         LocalDateTime retryAt = LocalDateTime.now()
                 .plus(TaskFailureIncidentService.DEFAULT_UNHANDLED_RETRY_DELAY);
         int consecutiveFailures = 0;
