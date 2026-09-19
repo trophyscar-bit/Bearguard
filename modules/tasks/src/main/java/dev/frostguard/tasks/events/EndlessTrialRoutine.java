@@ -43,6 +43,7 @@ import dev.frostguard.vision.convert.ImageConverter;
 public class EndlessTrialRoutine extends DelayedTask {
 
     private static final int DAILY_ATTACKS = 3;
+    private static final Duration RUN_AFTER_RESET = Duration.ofHours(1);
 
     private static final PointData TITLE_TL = new PointData(30, 205);
     private static final PointData TITLE_BR = new PointData(340, 260);
@@ -124,8 +125,8 @@ public class EndlessTrialRoutine extends DelayedTask {
         sleepTask(ACTION_SETTLE_MS);
         pressBack();
 
-        LocalDateTime next = GameTimeUtils.dailyResetTime();
-        logInfo(logLine("Done for today. Next run after the daily reset: " + next.format(DATETIME_FORMATTER) + "."));
+        LocalDateTime next = GameTimeUtils.dailyResetTime().plus(RUN_AFTER_RESET);
+        logInfo(logLine("Done for today. Next run one hour after the daily reset: " + next.format(DATETIME_FORMATTER) + "."));
         reschedule(next);
     }
 
