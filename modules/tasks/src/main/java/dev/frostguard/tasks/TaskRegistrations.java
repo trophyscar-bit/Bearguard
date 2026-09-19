@@ -105,6 +105,7 @@ public class TaskRegistrations {
             case MERCENARY_EVENT -> new MercenaryEventRoutine(profile, type);
             case EVENT_JOURNEY_OF_LIGHT -> new JourneyofLightRoutine(profile, type);
             case EVENT_MYRIAD_BAZAAR -> new MyriadBazaarEventRoutine(profile, type);
+            case EVENT_ENDLESS_TRIAL -> new EndlessTrialRoutine(profile, type);
             case FISHING_MINIGAME -> new FishingMinigameRoutine(profile, type);
 
             // Lifecycle

@@ -198,6 +198,7 @@ public class NavigationHelper {
             case ALLIANCE_CHAMPIONSHIP -> TemplatesEnum.ALLIANCE_CHAMPIONSHIP_TAB;
             case ALLIANCE_MOBILIZATION -> TemplatesEnum.ALLIANCE_MOBILIZATION_TAB;
             case TUNDRA_TRUCK -> TemplatesEnum.TUNDRA_TRUCK_TAB;
+            case ENDLESS_TRIAL -> TemplatesEnum.ENDLESS_TRIAL_TAB;
         };
 
         // The horizontal event strip continues moving after the swipe gesture returns. Searching during
@@ -333,5 +334,5 @@ public class NavigationHelper {
 
     private enum ScreenState { HOME, WORLD, RECONNECT, UNKNOWN }
     public enum AllianceMenu { WAR, CHESTS, TERRITORY, SHOP, TECH, HELP, TRIUMPH }
-    public enum EventMenu { HERO_MISSION, MERCENARY, ALLIANCE_CHAMPIONSHIP, ALLIANCE_MOBILIZATION, TUNDRA_TRUCK }
+    public enum EventMenu { HERO_MISSION, MERCENARY, ALLIANCE_CHAMPIONSHIP, ALLIANCE_MOBILIZATION, TUNDRA_TRUCK, ENDLESS_TRIAL }
 }

@@ -63,6 +63,7 @@ public enum TpDailyTaskEnum {
 
     /* ── events ── */
 
+    EVENT_ENDLESS_TRIAL    (917, "Endless Trial Event",          ConfigurationKeyEnum.EVENT_ENDLESS_TRIAL_BOOL,               RoutineCategory.EVENT),
     EVENT_BERSERK_CRYPTID  (206, "Manual Rally Join",            ConfigurationKeyEnum.RALLY_ENABLED_BOOL,                     RoutineCategory.EVENT),
     EVENT_HERO_MISSION     (201, "Hero Mission Event",           ConfigurationKeyEnum.HERO_MISSION_EVENT_BOOL,                RoutineCategory.EVENT),
     EVENT_JOURNEY_OF_LIGHT (203, "Journey of Light Event",       ConfigurationKeyEnum.JOURNEY_OF_LIGHT_BOOL,                  RoutineCategory.EVENT),
