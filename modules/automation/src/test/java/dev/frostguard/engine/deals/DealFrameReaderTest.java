@@ -180,7 +180,7 @@ class DealFrameReaderTest {
         return offer.items().stream().collect(Collectors.toMap(DealItem::key, DealItem::quantity, (a, b) -> a));
     }
 
-    private static RawImageData rgbaFrame(BufferedImage image) {
+    static RawImageData rgbaFrame(BufferedImage image) {
         byte[] rgba = new byte[image.getWidth() * image.getHeight() * 4];
         int offset = 0;
         for (int y = 0; y < image.getHeight(); y++) {
