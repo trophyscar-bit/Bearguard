@@ -143,6 +143,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      * scales and mail buttons below y 760 are not deal surfaces.
      */
     private static final int MIN_HEADER_LETTERS = 3;
+    /** Half an icon apart: a slot this close to a located shortcut is that shortcut. */
+    private static final int SAME_ICON_RADIUS = 50;
     private static final int[] ICON_COLUMN_X = {557, 665};
     private static final int[] ICON_ROW_Y = {160, 260, 355, 455, 550};
     /** Surfaces this task already reads through their own templates, or that hold no offers. */
@@ -323,6 +325,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      */
     private void surveyShortcutColumn() {
         Set<String> surveyed = new HashSet<>();
+        // The Deals icon sits in the same column. Its panel header did not read on the 2026-09-22 run, so
+        // the whole panel was surveyed a second time under a slot name, costing 2.5 minutes and filing its
+        // offers twice. Its own template says where it is, so that slot is left alone.
+        ImageSearchResultData dealsIcon = templateSearchHelper.locatePattern(
+                TemplatesEnum.HOME_DEALS_BUTTON, SearchConfigConstants.DEFAULT_SINGLE);
         int opened = 0;
         for (int x : ICON_COLUMN_X) {
             for (int y : ICON_ROW_Y) {
@@ -331,6 +338,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     return;
                 }
                 String slot = x + "," + y;
+                if (dealsIcon.isFound() && Math.abs(dealsIcon.getPoint().getX() - x) < SAME_ICON_RADIUS
+                        && Math.abs(dealsIcon.getPoint().getY() - y) < SAME_ICON_RADIUS) {
+                    logInfo("bg_deals_telemetry | " + slot + " is the Deals shortcut, already surveyed; skipping.");
+                    continue;
+                }
                 try {
                     if (!returnToCity()) {
                         problems.add("City icons: skipped because the city view could not be confirmed.");
