@@ -682,10 +682,12 @@ public class UpcomingEventsLayoutController {
         } else {
             text.append("All day");
         }
-        if (date.equals(first) && !date.equals(last)) {
-            text.append("  |  starts today");
-        } else if (date.equals(last) && !date.equals(first)) {
-            text.append("  |  last day");
+        // "starts today" was wrong on every row but one: the row belongs to its own day, not to the
+        // real today, so a Friday row announced a Friday start as if it were happening now.
+        if (first != null && date.equals(first) && !date.equals(last)) {
+            text.append("  |  begins");
+        } else if (last != null && date.equals(last) && !date.equals(first)) {
+            text.append("  |  final day");
         }
         return text.toString();
     }
@@ -694,14 +696,14 @@ public class UpcomingEventsLayoutController {
         Button previous = new Button("◀");
         previous.getStyleClass().add("upcoming-events-week-nav");
         previous.setOnAction(event -> {
-            this.weekStart = this.weekStart.minusWeeks(1);
+            this.weekStart = this.weekStart.minusDays(WEEK_DAYS);
             rebuildMonthView();
         });
 
         Button next = new Button("▶");
         next.getStyleClass().add("upcoming-events-week-nav");
         next.setOnAction(event -> {
-            this.weekStart = this.weekStart.plusWeeks(1);
+            this.weekStart = this.weekStart.plusDays(WEEK_DAYS);
             rebuildMonthView();
         });
 
@@ -724,11 +726,10 @@ public class UpcomingEventsLayoutController {
         return nav;
     }
 
-    /** The seven-day window the game itself shows: two days of context behind today, four ahead.
-     *  Anchoring to Monday instead pushed today to the far edge on a Saturday, which is exactly
-     *  when the week matters most. */
+    /** Today first, then the six days after it. The chart only ever shows seven days out, so those
+     *  are the seven there is anything to say about; yesterday is not one of them. */
     private static LocalDate startOfWeek(LocalDate date) {
-        return date.minusDays(2);
+        return date;
     }
 
     /** Every stored value is a UTC instant, whole-day ones included, so all of them convert. The

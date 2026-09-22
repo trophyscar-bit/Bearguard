@@ -62,7 +62,7 @@
             <VBox fx:id="monthView" spacing="14" VBox.vgrow="ALWAYS">
                 <VBox styleClass="content-card" VBox.vgrow="ALWAYS">
                     <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                        <Label text="Week" />
+                        <Label text="Next 7 days" />
                     </HBox>
                     <VBox spacing="10" styleClass="task-section-inner" VBox.vgrow="ALWAYS">
                         <HBox spacing="16" alignment="CENTER_LEFT">
