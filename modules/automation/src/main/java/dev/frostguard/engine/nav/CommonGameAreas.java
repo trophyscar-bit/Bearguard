@@ -151,6 +151,9 @@ public final class CommonGameAreas {
     public static final AreaData[] MARCH_QUEUE_TITLE  = marchQueueRows(70, -29, 340, -1);
     // padded past the 46x46 icon so template matching has room to slide
     public static final AreaData[] MARCH_QUEUE_ICON   = marchQueueRows(18, -27, 72, 27);
+    // Everything right of the activity icon, where a row's recall button sits. Deliberately wide:
+    // the button is found by its own template rather than by a measured offset.
+    public static final AreaData[] MARCH_QUEUE_ACTION = marchQueueRows(70, -28, 470, 28);
 
     private static AreaData[] marchQueueRows(int x1, int offsetY1, int x2, int offsetY2) {
         AreaData[] rows = new AreaData[MARCH_QUEUE_ROW_Y.length];
