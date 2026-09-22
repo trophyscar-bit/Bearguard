@@ -712,7 +712,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
         UpcomingEventsLayoutController upcomingEventsCtrl = new UpcomingEventsLayoutController();
         Parent upcomingEventsPane = loadNode("UpcomingEventsLayout", upcomingEventsCtrl);
-        addPinnedButton("Calendar", MaterialDesignC.CALENDAR_OUTLINE, upcomingEventsPane);
+        Button calendarButton = addPinnedButton("Calendar", MaterialDesignC.CALENDAR_OUTLINE, upcomingEventsPane);
 
         // Named "Deal Tracker", not "Deals": the Deals config module already owns that name in the nav.
         DealTrackerLayoutController dealTrackerCtrl = new DealTrackerLayoutController();
@@ -723,6 +723,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         // Control tab (Tasks) and fire the Control button so startup lands there with it highlighted.
         controlTabs.getSelectionModel().selectFirst();
         controlButton.fire();
+        calendarButton.fire(); // TEMPORARY: land on Calendar while its redesign is being checked
     }
 
     private Tab makeTab(String title, Parent content) { /* internal */
