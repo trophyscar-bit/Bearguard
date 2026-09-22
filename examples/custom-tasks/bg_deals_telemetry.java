@@ -67,9 +67,10 @@ import dev.frostguard.vision.ocr.TextLine;
  * tab strip band, a pack carousel's right arrow and its option row above the item panel, swiping,
  * and back.</p>
  *
- * <p>Shortcut icons are found by the label or countdown printed under each one, not by a picture
- * of the icon, because the column changes with live events: an icon nobody has seen before still
- * carries a label, and gets opened and read like the rest.</p>
+ * <p>City event icons are tapped by position rather than recognised, because the column changes with
+ * live events and neither their pictures nor their labels can be relied on. Whatever opens is named by
+ * its own panel header and read like any other surface, so an event nobody has seen before is still
+ * covered.</p>
  */
 public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigurable {
 
@@ -134,20 +135,14 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final double OPENED_MEAN_DIFF = 12.0;
 
     /**
-     * Right-hand shortcut column on the city view. Measured on 2026-09-13: labels and countdowns
-     * print 28-42 px below their icon's centre; the paw, scales and mail buttons below y 760 are not
-     * deal surfaces.
+     * Event icons on the city view. They fill up to two fixed columns on the right of the map, about 95 px
+     * apart, and are tapped by position: their labels are cream on snow, which the white-text mask cannot
+     * isolate, and OCR read nothing at all on the 2026-09-21 city frame, so the scan opened no icon on any
+     * run. A slot that opens nothing is skipped, and whatever does open is named by its own header. The paw,
+     * scales and mail buttons below y 760 are not deal surfaces.
      */
-    private static final PointData SHORTCUT_TOP_LEFT = new PointData(500, 90);
-    private static final PointData SHORTCUT_BOTTOM_RIGHT = new PointData(720, 760);
-    private static final int ICON_ABOVE_LABEL = 32;
-    private static final int LABEL_MIN_HEIGHT = 8;
-    private static final int LABEL_MAX_HEIGHT = 24;
-    private static final int LABEL_WORD_GAP = 22;
-    private static final int SAME_LABEL_ROW = 10;
-    /** Two labels closer than this are the same icon seen again after the column shifted. */
-    private static final int SAME_ICON_DISTANCE = 40;
-    private static final Pattern COUNTDOWN = Pattern.compile("\\d{1,2}:\\d{2}:\\d{2}|\\d+d\\s?\\d{1,2}:\\d{2}");
+    private static final int[] ICON_COLUMN_X = {557, 665};
+    private static final int[] ICON_ROW_Y = {160, 260, 355, 455, 550};
     /** Surfaces this task already reads through their own templates, or that hold no offers. */
     private static final Pattern NOT_A_DEAL_SHORTCUT = Pattern.compile("(?i)event|^[bdo]eals?$");
     /**
@@ -169,9 +164,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private DealFrameReader reader;
     private Path frameDir;
     private int frameNumber;
-
-    private record Shortcut(String name, PointData icon) {
-    }
 
     public bg_deals_telemetry(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
@@ -328,123 +320,67 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      * icon because closing a pop-up can remove or reorder icons (an expired offer drops out).
      */
     private void surveyShortcutColumn() {
-        List<PointData> visited = new ArrayList<>();
-        // Every icon any read of the column found. The column is re-read after each pop-up closes, but
-        // OCR over the animated city misses labels on some reads: the second read on 2026-09-13 lost two of
-        // the three icons the first read had found, and the scan stopped.
-        List<Shortcut> known = new ArrayList<>();
-        for (int opened = 0; opened < MAX_SHORTCUTS; opened++) {
-            Shortcut next;
-            RawImageData home;
-            try {
-                if (!returnToCity()) {
-                    problems.add("Shortcut column: skipped because the city view could not be confirmed.");
+        Set<String> surveyed = new HashSet<>();
+        int opened = 0;
+        for (int x : ICON_COLUMN_X) {
+            for (int y : ICON_ROW_Y) {
+                if (opened >= MAX_SHORTCUTS) {
+                    problems.add("City icons: stopped after " + MAX_SHORTCUTS + " panels; more may be unread.");
                     return;
                 }
-                home = capture();
-                List<Shortcut> column = shortcuts(home);
-                if (opened == 0) {
-                    logInfo("bg_deals_telemetry | Shortcut column (" + saveFrame(home) + "): "
-                            + column.stream().map(Shortcut::name).collect(Collectors.joining(", ")));
-                }
-                for (Shortcut found : column) {
-                    if (known.stream().noneMatch(k -> distance(k.icon(), found.icon()) < SAME_ICON_DISTANCE)) {
-                        known.add(found);
+                String slot = x + "," + y;
+                try {
+                    if (!returnToCity()) {
+                        problems.add("City icons: skipped because the city view could not be confirmed.");
+                        return;
                     }
+                    RawImageData home = capture();
+                    tapNear(new PointData(x, y));
+                    sleepTask(PANEL_SETTLE_MS);
+                    RawImageData frame = capture();
+                    if (meanDiff(home, frame, WHOLE_FRAME) < OPENED_MEAN_DIFF) {
+                        logDebug("bg_deals_telemetry | No icon at " + slot + "; nothing opened.");
+                        continue;
+                    }
+                    opened++;
+                    String header = panelHeader(frame);
+                    String name = header.isBlank() ? "City icon " + slot : header;
+                    if (NOT_A_DEAL_SHORTCUT.matcher(header).find()) {
+                        logInfo("bg_deals_telemetry | " + slot + " opened " + name + ", not a deal surface; skipping.");
+                        continue;
+                    }
+                    if (!surveyed.add(tabKey(name))) {
+                        logInfo("bg_deals_telemetry | " + slot + " opened " + name + " again; skipping.");
+                        continue;
+                    }
+                    if (TabStripCells.locate(ImageConverter.toBufferedImage(frame)).size() >= MIN_TABS_FOR_STRIP) {
+                        surveyTabbedPanel(name);
+                    } else {
+                        surveyPage(name, name, MAX_POPUP_SCROLLS, false);
+                    }
+                } catch (RuntimeException failed) {
+                    recordFailure("City icon " + slot, failed);
                 }
-                next = known.stream()
-                        .filter(s -> visited.stream().noneMatch(v -> distance(v, s.icon()) < SAME_ICON_DISTANCE))
-                        .findFirst()
-                        .orElse(null);
-            } catch (RuntimeException failed) {
-                recordFailure("Shortcut column", failed);
-                return;
-            }
-            if (next == null) {
-                logInfo("bg_deals_telemetry | Shortcut column: " + visited.size() + " icon(s) tried.");
-                return;
-            }
-            visited.add(next.icon());
-            try {
-                tapNear(next.icon());
-                sleepTask(PANEL_SETTLE_MS);
-                RawImageData openedFrame = capture();
-                if (meanDiff(home, openedFrame, WHOLE_FRAME) < OPENED_MEAN_DIFF) {
-                    problems.add(next.name() + ": icon tapped but nothing opened.");
-                    continue;
-                }
-                if (isAlreadySurveyedPanel(openedFrame)) {
-                    logInfo("bg_deals_telemetry | " + next.name() + " opened the Deals panel, already surveyed; skipping.");
-                    continue;
-                }
-                if (TabStripCells.locate(ImageConverter.toBufferedImage(openedFrame)).size() >= MIN_TABS_FOR_STRIP) {
-                    surveyTabbedPanel(next.name());
-                } else {
-                    surveyPage(next.name(), next.name(), MAX_POPUP_SCROLLS, false);
-                }
-            } catch (RuntimeException failed) {
-                recordFailure(next.name(), failed);
             }
         }
-        problems.add("Shortcut column: stopped after " + MAX_SHORTCUTS + " icons; more may be unread.");
+        logInfo("bg_deals_telemetry | City icons: " + opened + " panel(s) opened, " + surveyed.size() + " surveyed.");
     }
 
     /** Label and countdown text in the column, top to bottom, each turned into its icon's tap point. */
-    private List<Shortcut> shortcuts(RawImageData home) {
-        BufferedImage image = ImageConverter.toBufferedImage(home);
-        RawImageData mask = WhiteTextIsolator.isolate(image, 0, 0, image.getWidth(), image.getHeight(), 0);
-        List<TextLine> words;
-        try {
-            words = OcrEngine.recognizeWords(mask, SHORTCUT_TOP_LEFT, SHORTCUT_BOTTOM_RIGHT,
-                    CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
-        } catch (OcrException unreadable) {
-            problems.add("Shortcut column unreadable: " + unreadable.getMessage());
-            return List.of();
-        }
-        List<List<TextLine>> labels = new ArrayList<>();
-        words.stream()
-                .filter(w -> w.height() >= LABEL_MIN_HEIGHT && w.height() <= LABEL_MAX_HEIGHT)
-                .sorted(Comparator.comparingInt(TextLine::top).thenComparingInt(TextLine::left))
-                .forEach(word -> labels.stream()
-                        .filter(label -> {
-                            TextLine last = label.get(label.size() - 1);
-                            return Math.abs(last.top() - word.top()) <= SAME_LABEL_ROW
-                                    && word.left() - (last.left() + last.width()) <= LABEL_WORD_GAP;
-                        })
-                        .findFirst()
-                        .ifPresentOrElse(label -> label.add(word), () -> labels.add(new ArrayList<>(List.of(word)))));
-
-        List<Shortcut> shortcuts = new ArrayList<>();
-        for (List<TextLine> label : labels) {
-            String text = label.stream().map(TextLine::text).reduce((a, b) -> a + " " + b).orElse("").trim();
-            boolean countdown = COUNTDOWN.matcher(text).find();
-            long letters = text.chars().filter(Character::isLetter).count();
-            if (!countdown && letters < 4) {
-                continue;
-            }
-            if (!countdown && NOT_A_DEAL_SHORTCUT.matcher(text.replaceAll("[^A-Za-z]", "")).find()) {
-                continue;
-            }
-            int left = label.get(0).left();
-            int right = label.get(label.size() - 1).left() + label.get(label.size() - 1).width();
-            int top = label.stream().mapToInt(TextLine::top).min().orElse(0);
-            PointData icon = new PointData((left + right) / 2, Math.max(SHORTCUT_TOP_LEFT.getY(), top - ICON_ABOVE_LABEL));
-            String name = countdown ? "Timed offer" : text.replaceAll("[^A-Za-z' -]", "").replaceAll("^[ '-]+", "").trim();
-            shortcuts.add(new Shortcut(name, icon));
-        }
-        return shortcuts;
-    }
-
-    private boolean isAlreadySurveyedPanel(RawImageData frame) {
+    /** The panel's own name, from the white header beside its back arrow, or "" when it cannot be read. */
+    private String panelHeader(RawImageData frame) {
         BufferedImage image = ImageConverter.toBufferedImage(frame);
         RawImageData mask = WhiteTextIsolator.isolate(image, 0, 0, image.getWidth(), image.getHeight(), 0);
         try {
-            String header = OcrEngine.recognizeText(mask, HEADER_TOP_LEFT, HEADER_BOTTOM_RIGHT,
-                    CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
-            return ALREADY_SURVEYED_HEADER.matcher(header).find();
+            return OcrEngine.recognizeText(mask, HEADER_TOP_LEFT, HEADER_BOTTOM_RIGHT,
+                    CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS).replaceAll("\\s+", " ").trim();
         } catch (OcrException unreadable) {
-            return false;
+            return "";
         }
+    }
+
+    private boolean isAlreadySurveyedPanel(RawImageData frame) {
+        return ALREADY_SURVEYED_HEADER.matcher(panelHeader(frame)).find();
     }
 
     /**
@@ -792,9 +728,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         return samples == 0 ? 0 : (double) total / samples;
     }
 
-    private static double distance(PointData a, PointData b) {
-        return Math.hypot(a.getX() - b.getX(), a.getY() - b.getY());
-    }
 
     private void recordFailure(String surface, RuntimeException failed) {
         problems.add(surface + ": " + failed.getClass().getSimpleName() + " " + failed.getMessage());
