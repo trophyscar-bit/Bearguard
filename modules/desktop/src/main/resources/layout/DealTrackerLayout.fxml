@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.chart.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<!-- Deal Tracker: reads the daily bg_deals_telemetry scans under data/deals. Pack verdicts and
+     the per-item price tracker share one fitted set of item values. Rows are data-driven, so
+     they are built in code. -->
+<StackPane maxHeight="Infinity" maxWidth="Infinity"
+           HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
+           xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
+
+    <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" styleClass="task-page-scroll">
+        <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="Verdict" />
+                </HBox>
+                <VBox spacing="8" styleClass="task-section-inner">
+                    <Label fx:id="labelScanStatus" wrapText="true" styleClass="task-card-description" />
+                    <VBox fx:id="verdictContainer" spacing="6" />
+                    <Button fx:id="buttonRefresh" text="Refresh" onAction="#handleRefresh" />
+                </VBox>
+            </VBox>
+
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="Price tracker" />
+                </HBox>
+                <VBox spacing="10" styleClass="task-section-inner">
+                    <Label styleClass="task-card-description" wrapText="true"
+                           text="What one unit of an item cost inside each pack it came in. A pack's price is shared across its items by their fitted values, so every dollar of every pack is accounted for once. Gem prices divide that by the fitted dollar value of one gem, once gems have been seen in packs." />
+                    <FlowPane fx:id="itemPicker" hgap="6" vgap="6" />
+                    <ComboBox fx:id="comboItem" promptText="Pick an item" />
+                    <VBox fx:id="trackerStats" spacing="4" />
+                    <LineChart fx:id="priceChart" animated="false" createSymbols="true" prefHeight="280"
+                               legendVisible="true" visible="false" managed="false">
+                        <xAxis>
+                            <CategoryAxis label="Scan day" />
+                        </xAxis>
+                        <yAxis>
+                            <NumberAxis label="USD per unit" forceZeroInRange="false" />
+                        </yAxis>
+                    </LineChart>
+                </VBox>
+            </VBox>
+
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label fx:id="labelLatestHeader" text="Latest scan" />
+                </HBox>
+                <VBox spacing="8" styleClass="task-section-inner">
+                    <Label styleClass="task-card-description" wrapText="true"
+                           text="Every offer the scan read, best score first. A score is what the pack's items are worth per dollar: 1.00 is an ordinary pack, 2.00 is twice the usual worth. Unread prices or items are left unscored rather than guessed." />
+                    <Separator style="-fx-opacity: 0.25;" />
+                    <VBox fx:id="latestContainer" spacing="8" />
+                </VBox>
+            </VBox>
+
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="Best of the last 7 days" />
+                </HBox>
+                <VBox spacing="8" styleClass="task-section-inner">
+                    <VBox fx:id="weekContainer" spacing="8" />
+                </VBox>
+            </VBox>
+
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="Item values" />
+                </HBox>
+                <VBox spacing="8" styleClass="task-section-inner">
+                    <Label fx:id="labelValuesHelp" styleClass="task-card-description" wrapText="true" />
+                    <Separator style="-fx-opacity: 0.25;" />
+                    <VBox fx:id="itemsContainer" spacing="4" />
+                </VBox>
+            </VBox>
+
+            <VBox fx:id="problemsCard" styleClass="content-card" visible="false" managed="false">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="What the last scan could not read" />
+                </HBox>
+                <VBox spacing="4" styleClass="task-section-inner">
+                    <VBox fx:id="problemsContainer" spacing="4" />
+                </VBox>
+            </VBox>
+
+        </VBox>
+    </ScrollPane>
+</StackPane>

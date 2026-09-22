@@ -54,6 +54,8 @@
                               text="Lucky Chip Supply (free daily pack only)" />
                     <CheckBox fx:id="checkBoxEventBrothersInArms" mnemonicParsing="false"
                               text="Brothers in Arms" />
+                    <CheckBox fx:id="checkBoxEventEndlessTrial" mnemonicParsing="false"
+                              text="Endless Trial (3 daily attacks + daily rewards, runs 1 hour after reset)" />
                 </VBox>
             </VBox>
 

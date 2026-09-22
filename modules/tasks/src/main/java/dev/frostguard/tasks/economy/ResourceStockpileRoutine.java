@@ -103,6 +103,15 @@ public class ResourceStockpileRoutine extends DelayedTask {
 
     /** Left edge of the Overview's "Owned" column, clear of the Output column beside it. */
     private static final int OWNED_COLUMN_X = 440;
+
+    /** Bounds of one row's owned cell, for the digits-only re-read. */
+    private static final int OWNED_CELL_LEFT = 430;
+    private static final int OWNED_CELL_RIGHT = 600;
+    /** How far above and below the owned figure's own top edge its re-read box reaches. */
+    private static final int OWNED_CELL_ABOVE = 15;
+    private static final int OWNED_CELL_BELOW = 23;
+    /** Vertical distance from an owned figure to the shielded amount printed beneath it. */
+    private static final int OWNED_SHIELD_ROW_GAP = 34;
     /** Left edge of the Summary's "Total Resources" column, clear of "Total Items". */
     private static final int TOTAL_RESOURCES_COLUMN_X = 460;
     /**
@@ -245,6 +254,23 @@ public class ResourceStockpileRoutine extends DelayedTask {
                     ConfigurationKeyEnum.RESOURCE_STOCKPILE_COAL_LONG);
             Long iron = sanityCheckAgainstCached("iron", read.get("iron"),
                     ConfigurationKeyEnum.RESOURCE_STOCKPILE_IRON_LONG);
+
+            // Recorded after the guard, not before it. A misread is not a reading: on 9/13 at
+            // 00:17 wood came back as 11.9M against a standing 411.7M -- the leading digit
+            // dropped -- and recording the raw value put a cliff in the stats that only the
+            // despike could take back out, and only once a later reading existed to prove it.
+            //
+            // This is not the fault the store was built to fix. That one wrote the CACHE on a
+            // timer, so a row carried a stale value under a fresh timestamp. Here a rejected
+            // reading records nothing at all and leaves a gap, which is the honest answer and
+            // the one MetricStoreTest pins: a value is only ever written at the moment it was
+            // actually seen.
+            Map<String, Long> accepted = new java.util.LinkedHashMap<>();
+            accepted.put("meat", meat);
+            accepted.put("wood", wood);
+            accepted.put("coal", coal);
+            accepted.put("iron", iron);
+            recordObservations(accepted);
 
             if (meat != null) profile.setConfig(ConfigurationKeyEnum.RESOURCE_STOCKPILE_MEAT_LONG, meat);
             if (wood != null) profile.setConfig(ConfigurationKeyEnum.RESOURCE_STOCKPILE_WOOD_LONG, wood);
@@ -394,6 +420,20 @@ public class ResourceStockpileRoutine extends DelayedTask {
         Long heal = sanityCheckAgainstCached("sp_healing", read.healing(),
                 ConfigurationKeyEnum.SPEEDUP_HEALING_MIN_LONG, SPEEDUP_GUARD);
 
+        // Recorded after the guards, for the reason given on the Overview path: a reading the
+        // guard refused is a misread, and a misread belongs in the store as a gap rather than as
+        // a cliff for the despike to undo later. A LinkedHashMap, not Map.of, because any of
+        // these is null when its row did not resolve and Map.of rejects nulls; the store drops
+        // them, so nothing is written for a bucket that was not read.
+        java.util.Map<String, Long> accepted = new java.util.LinkedHashMap<>();
+        accepted.put("steel", steel);
+        accepted.put("sp_general", gen);
+        accepted.put("sp_training", tr);
+        accepted.put("sp_construction", con);
+        accepted.put("sp_research", res);
+        accepted.put("sp_healing", heal);
+        recordObservations(accepted);
+
         if (gen != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_GENERAL_MIN_LONG, gen);
         if (tr != null)   profile.setConfig(ConfigurationKeyEnum.SPEEDUP_TRAINING_MIN_LONG, tr);
         if (con != null)  profile.setConfig(ConfigurationKeyEnum.SPEEDUP_CONSTRUCTION_MIN_LONG, con);
@@ -445,12 +485,9 @@ public class ResourceStockpileRoutine extends DelayedTask {
         // sits beneath it -- and the panel is only accepted when all four resolve. A partial read
         // would shift the assignment and file wood's stockpile under coal, which is worse than
         // skipping an hourly cycle and keeping the values already cached.
-        List<Long> values = new java.util.ArrayList<>();
-        for (PanelRowIndex.Row row : panel.rows()) {
-            Optional<TextLine> owned = row.topmostFrom(OWNED_COLUMN_X, t -> parseScaled(t) != null);
-            if (owned.isEmpty()) continue;
-            values.add(parseScaled(owned.get().text().trim()));
-        }
+        List<Long> values = ownedValues(panel,
+                frame == null ? null : dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame),
+                frame);
 
         if (values.size() != OVERVIEW_ROW_ORDER.size()) {
             // At WARN, with the rows it saw and the frame it saw them in. Of the last 76 short reads,
@@ -472,9 +509,229 @@ public class ResourceStockpileRoutine extends DelayedTask {
         return out;
     }
 
+    /**
+     * Writes what was just read to the metric store, as an observation timestamped now.
+     *
+     * <p>Deliberately the raw reading, before the plausibility guard sees it. The guard exists to
+     * protect the cached figures that drive gather decisions, where a bad number causes bad
+     * behaviour. History is a different thing: it is a record of what the screen said and when, and
+     * a guard that holds a figure back for six hours and then releases it makes the history claim
+     * the change happened at the moment the guard relented. That is what made the Statistics tab
+     * report eight hours of construction speedup arriving in one eleven-minute interval.</p>
+     *
+     * <p>Nulls are dropped by the store: a reading that did not resolve is not an observation.
+     * Best-effort throughout -- recording a statistic must never be able to break a scan.</p>
+     */
+    private void recordObservations(java.util.Map<String, Long> values) {
+        if (values == null || values.isEmpty() || profile.getId() == null) {
+            return;
+        }
+        try {
+            java.util.Map<String, Long> present = new java.util.LinkedHashMap<>();
+            values.forEach((k, v) -> {
+                if (v != null) {
+                    present.put(k, v);
+                }
+            });
+            if (!present.isEmpty()) {
+                metricStore().recordAll(profile.getId(), java.time.Instant.now(), present);
+            }
+        } catch (Exception e) {
+            logWarning("ResourceStockpileRoutine | Could not record observations: " + e.getMessage());
+        }
+    }
+
+    private static volatile dev.frostguard.data.metrics.MetricStore metricStore;
+
+    private static dev.frostguard.data.metrics.MetricStore metricStore() {
+        dev.frostguard.data.metrics.MetricStore local = metricStore;
+        if (local == null) {
+            synchronized (ResourceStockpileRoutine.class) {
+                local = metricStore;
+                if (local == null) {
+                    local = dev.frostguard.data.metrics.MetricStore.forCurrentWorkspace();
+                    metricStore = local;
+                }
+            }
+        }
+        return local;
+    }
+
     /** A settle time, lengthened on a retry. See {@link #RETRY_EXTRA_SETTLE_MS}. */
     private static long settleFor(long baseMs, int attempt) {
         return baseMs + (attempt - 1) * RETRY_EXTRA_SETTLE_MS;
+    }
+
+    /**
+     * Green minus red at or above which a word on the Overview is the shielded amount rather than
+     * the owned figure.
+     *
+     * <p>Owned figures are dark navy, (72, 101, 146) measured; the shielded amount printed under
+     * each is a bright teal, (58, 153, 196), and so is its shield icon. Green minus red is about 29
+     * for the one and about 96 for the other, identical to within two units across frames from
+     * different days and screens. Sixty sits in the middle with some thirty to spare either way.</p>
+     */
+    static final int SHIELD_GREEN_MINUS_RED = 60;
+
+    /**
+     * The owned figure in each Overview row, top to bottom -- and never the shielded amount under it.
+     *
+     * <p>This used to take the topmost word in each row that parsed as a number. That skipped the
+     * green + button, which the whole-panel read needed, but once the read narrowed to the Owned
+     * column there was no button left to skip and the fallback turned into a hazard: if the owned
+     * figure did not come through, the next parseable word down was the shielded amount, and it was
+     * taken in its place. On 9/10 at 23:40 that is what the log shows -- meat read 210.8M and coal
+     * 40.0M, against owned figures of 301.2M and 59.9M and shields of about 207M and 40M. The
+     * plausibility guard refused both, but only because the cache happened to be high after a spend;
+     * a shield runs at 43-70% of its owned figure, and the band accepts anything above 67%. On an
+     * ordinary cycle meat's shield would have been cached as its stockpile.</p>
+     *
+     * <p>So a row's owned figure is its topmost <em>navy</em> word, told apart by colour, which is the
+     * one thing the two figures never share. Teal words are not candidates at all. A row with no navy
+     * word, or whose navy word does not parse, resolves nothing -- the panel then comes back short,
+     * the cycle keeps its cached values and the frame is saved -- rather than borrowing the figure
+     * beneath it.</p>
+     */
+    static List<Long> ownedValues(PanelRowIndex panel, java.awt.image.BufferedImage image) {
+        return ownedValues(panel, image, null);
+    }
+
+    /**
+     * The same, with one more chance for a row the whole-column pass could not resolve.
+     *
+     * <p>Reading the column in one pass needs an open alphabet, because the pass has to cope with
+     * whatever is in it, and an open alphabet lets Tesseract answer with letters. On 9/12 it read
+     * wood's 411.6M as "A411.6M" and its 411.3M as "Al11.3M" -- a hallucinated leading A, and an l
+     * for a 1. Neither parses, so the row resolved nothing and the whole panel was refused; wood
+     * happened to be the value in the 400-millions, and it failed every cycle for six hours.</p>
+     *
+     * <p>Stripping the stray letters would be a bad trade: "Al11.3M" without its letters is 11.3M,
+     * and the real figure is 411.3M. The digit is not recoverable from a mangled word. So the row is
+     * read again from its own cell with an alphabet that has no letters in it, where those answers
+     * cannot be produced -- both frames then read exactly right. The cell is located from the row's
+     * own shield line rather than a fixed coordinate, and sits above it, so this can never pick up
+     * the shielded amount.</p>
+     */
+    static List<Long> ownedValues(PanelRowIndex panel, java.awt.image.BufferedImage image,
+                                  RawImageData frame) {
+        List<Long> values = new java.util.ArrayList<>();
+        if (image == null) {
+            return values;
+        }
+        for (PanelRowIndex.Row row : panel.rows()) {
+            Optional<TextLine> owned = row.wordsFrom(OWNED_COLUMN_X).stream()
+                    .filter(w -> !isShieldColoured(image, w))
+                    .min(java.util.Comparator.comparingInt(TextLine::top));
+            if (owned.isEmpty()) {
+                Long recovered = frame == null ? null : rereadOwnedCell(frame, row);
+                if (recovered != null) {
+                    values.add(recovered);
+                }
+                continue;
+            }
+            Long parsed = parseScaled(owned.get().text().trim());
+            if (parsed == null && frame != null) {
+                // The figure is present and merely unreadable -- 'A11.4M' where the panel shows
+                // 411.4M -- so the cell to re-read is the one this word occupies. Anchoring on the
+                // row instead would aim a row-gap higher, at blank panel, which is what happened
+                // on 9/12 at 23:29: the fallback fired, read nothing, and wood was dropped anyway.
+                parsed = rereadOwnedCell(frame, owned.get().top());
+            }
+            if (parsed != null) {
+                values.add(parsed);
+            }
+        }
+        return values;
+    }
+
+    /** Digits only: an alphabet with no letters in it cannot answer with letters. */
+    private static final OcrSettingsData OWNED_CELL_SETTINGS =
+            OcrSettingsData.assembler()
+                    .charWhitelist("0123456789.,KMB")
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .stripBackground(false)
+                    .build();
+
+    /**
+     * Re-reads one row's owned cell on its own.
+     *
+     * <p>The cell is placed relative to the row's own topmost line -- the shielded amount, when the
+     * owned figure is what went missing -- which sits a fixed 34px below the owned figure in this
+     * panel. Generous bounds on purpose: a tight box round these digits drops the decimal point and
+     * turns 411.6M into 4116M, which is the older fault this routine already carries scars from.</p>
+     */
+    private static Long rereadOwnedCell(RawImageData frame, PanelRowIndex.Row row) {
+        java.util.OptionalInt top = row.words().stream().mapToInt(TextLine::top).min();
+        if (top.isEmpty()) {
+            return null;
+        }
+        // Nothing usable came back for the owned figure at all, so the topmost word in the row is
+        // the shielded amount, and the owned figure is one row-gap above it.
+        return rereadOwnedCell(frame, top.getAsInt() - OWNED_SHIELD_ROW_GAP);
+    }
+
+    /**
+     * Re-reads the owned cell whose figure's top edge sits at {@code ownedTop}.
+     *
+     * <p>Generous bounds on purpose: a tight box round these digits drops the decimal point and
+     * turns 411.6M into 4116M, which is the older fault this routine already carries scars from.</p>
+     */
+    private static Long rereadOwnedCell(RawImageData frame, int ownedTop) {
+        if (ownedTop < OWNED_CELL_ABOVE) {
+            return null;
+        }
+        try {
+            String text = OcrEngine.recognizeText(frame,
+                    new PointData(OWNED_CELL_LEFT, ownedTop - OWNED_CELL_ABOVE),
+                    new PointData(OWNED_CELL_RIGHT, ownedTop + OWNED_CELL_BELOW),
+                    OWNED_CELL_SETTINGS);
+            return text == null || text.isBlank() ? null : parseScaled(text.trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether a word's ink is the shield teal rather than the owned navy.
+     *
+     * <p>Judged on the darkest quarter of the pixels in its box, which is the core of the glyphs:
+     * the rest is panel background or anti-aliased edge, and would pull every word toward the same
+     * pale blue. A box that straddles both colours -- the reader occasionally fuses an owned figure
+     * with the shield below it -- is dominated by the darker navy, is treated as owned, and then
+     * fails to parse, which is the safe outcome.</p>
+     */
+    static boolean isShieldColoured(java.awt.image.BufferedImage image, TextLine word) {
+        int x0 = Math.max(0, word.left()), y0 = Math.max(0, word.top());
+        int x1 = Math.min(image.getWidth(), word.left() + word.width());
+        int y1 = Math.min(image.getHeight(), word.top() + word.height());
+        if (x1 <= x0 || y1 <= y0) {
+            return false;
+        }
+        int n = (x1 - x0) * (y1 - y0);
+        int[] rgb = new int[n];
+        int[] lum = new int[n];
+        int k = 0;
+        for (int y = y0; y < y1; y++) {
+            for (int x = x0; x < x1; x++) {
+                int p = image.getRGB(x, y);
+                rgb[k] = p;
+                lum[k] = (299 * ((p >> 16) & 0xFF) + 587 * ((p >> 8) & 0xFF) + 114 * (p & 0xFF)) / 1000;
+                k++;
+            }
+        }
+        int[] sorted = lum.clone();
+        java.util.Arrays.sort(sorted);
+        int cutoff = sorted[Math.max(0, n / 4 - 1)];
+        long r = 0, g = 0;
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            if (lum[i] <= cutoff) {
+                r += (rgb[i] >> 16) & 0xFF;
+                g += (rgb[i] >> 8) & 0xFF;
+                count++;
+            }
+        }
+        return count > 0 && (g - r) / count >= SHIELD_GREEN_MINUS_RED;
     }
 
     /**
@@ -646,8 +903,32 @@ public class ResourceStockpileRoutine extends DelayedTask {
      *  cache -- and by extension GatherRoutine's Smart Gathering priority and the Statistics tab --
      *  with a number that can't be real. */
     private static final double MAX_TRUSTABLE_STREAK_RATIO = 10.0;
-    private final Map<String, Long> rejectStreakAnchor = new java.util.HashMap<>();
-    private final Map<String, Integer> rejectStreakCount = new java.util.HashMap<>();
+    /**
+     * The streak toward trusting a consistent new reading, keyed "&lt;profileId&gt;:&lt;field&gt;" and
+     * held for the life of the process rather than the life of this task object.
+     *
+     * <p>These were instance fields, which assumed the queue runs the same object every cycle. It
+     * usually does, and six streaks in the log completed. It does not across a queue stop:
+     * stopping clears the backlog outright (TaskQueue.completeStop), so every task that runs
+     * after the next start is a new object. On 9/10 the queue was stopped at 22:22 and started
+     * again at 23:11 -- Bearguard itself never restarted -- and the stockpile scan that followed
+     * began with empty maps.
+     * Training had read 1603 and then 2310, construction 1426 and then 1741 -- consistent pairs,
+     * inside the band, exactly what the streak exists to accept -- and both came back "streak
+     * 1/2" and were rejected again. A streak that stopping the queue can erase is a guard that can be
+     * made to hold a stale figure indefinitely, which is the fault it was written to prevent.</p>
+     *
+     * <p>Static and keyed by profile, the same as bg_telemetry's confirmation map, which has
+     * survived exactly this. It still resets when Bearguard itself restarts; that costs one extra
+     * cycle, not a lasting fault.</p>
+     */
+    private static final Map<String, Long> REJECT_STREAK_ANCHOR = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, Integer> REJECT_STREAK_COUNT = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** This profile's key for {@code field} in the streak maps. */
+    private String streakKey(String field) {
+        return profile.getId() + ":" + field;
+    }
 
     /**
      * What "implausible" means for one family of fields. Stockpiles and speedups are both OCR'd
@@ -713,8 +994,8 @@ public class ResourceStockpileRoutine extends DelayedTask {
         return sanityCheckAgainstCached(field, candidate, cacheKey, STOCKPILE_GUARD);
     }
 
-    private Long sanityCheckAgainstCached(String field, Long candidate, ConfigurationKeyEnum cacheKey,
-                                          GuardPolicy policy) {
+    Long sanityCheckAgainstCached(String field, Long candidate, ConfigurationKeyEnum cacheKey,
+                                  GuardPolicy policy) {
         if (candidate == null) {
             return null;
         }
@@ -725,13 +1006,13 @@ public class ResourceStockpileRoutine extends DelayedTask {
             cached = null;
         }
         if (cached == null || cached <= 0L) {
-            rejectStreakCount.remove(field);
-            rejectStreakAnchor.remove(field);
+            REJECT_STREAK_COUNT.remove(streakKey(field));
+            REJECT_STREAK_ANCHOR.remove(streakKey(field));
             return candidate;
         }
         if (inBand(candidate, cached, policy.absoluteTolerance())) {
-            rejectStreakCount.remove(field);
-            rejectStreakAnchor.remove(field);
+            REJECT_STREAK_COUNT.remove(streakKey(field));
+            REJECT_STREAK_ANCHOR.remove(streakKey(field));
             return candidate;
         }
         long corrected = candidate / 10L;
@@ -739,16 +1020,16 @@ public class ResourceStockpileRoutine extends DelayedTask {
             logWarning("ResourceStockpileRoutine | " + field + " reading " + candidate + " is implausibly "
                     + "far from the last cached " + cached + ", but /10 (" + corrected + ") fits -- this is "
                     + "the known dropped-decimal-point misread, using the corrected value.");
-            rejectStreakCount.remove(field);
-            rejectStreakAnchor.remove(field);
+            REJECT_STREAK_COUNT.remove(streakKey(field));
+            REJECT_STREAK_ANCHOR.remove(streakKey(field));
             return corrected;
         }
 
-        Long anchor = rejectStreakAnchor.get(field);
+        Long anchor = REJECT_STREAK_ANCHOR.get(streakKey(field));
         int streak = (anchor != null && inBand(candidate, anchor, policy.absoluteTolerance()))
-                ? rejectStreakCount.getOrDefault(field, 0) + 1 : 1;
-        rejectStreakAnchor.put(field, candidate);
-        rejectStreakCount.put(field, streak);
+                ? REJECT_STREAK_COUNT.getOrDefault(streakKey(field), 0) + 1 : 1;
+        REJECT_STREAK_ANCHOR.put(streakKey(field), candidate);
+        REJECT_STREAK_COUNT.put(streakKey(field), streak);
 
         double cacheRatio = (double) candidate / cached;
         boolean withinTrustableCeiling = cacheRatio <= policy.maxTrustableRatio()
@@ -758,8 +1039,8 @@ public class ResourceStockpileRoutine extends DelayedTask {
             logWarning("ResourceStockpileRoutine | " + field + " has now read consistently near "
                     + candidate + " for " + streak + " consecutive cycles while cached stays at "
                     + cached + " -- trusting the consistent new readings over the stale cache.");
-            rejectStreakCount.remove(field);
-            rejectStreakAnchor.remove(field);
+            REJECT_STREAK_COUNT.remove(streakKey(field));
+            REJECT_STREAK_ANCHOR.remove(streakKey(field));
             return candidate;
         }
         if (streak >= policy.streakToTrust()) {

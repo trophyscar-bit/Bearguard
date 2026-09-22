@@ -63,11 +63,12 @@ public class TaskRegistrations {
             case TRAINING_MARKSMAN -> new TrainingRoutine(profile, type);
             case HEAL_INJURED_TROOPS -> new HealInjuredRoutine(profile, type);
             case MONUMENT -> new MonumentRoutine(profile, type);
-            case EVENT_HALL_OF_CHIEFS -> new EventClaimRoutine(profile, type, EventClaimRoutine.EventKind.HALL_OF_CHIEFS);
-            case EVENT_DEFEAT_BEASTS -> new EventClaimRoutine(profile, type, EventClaimRoutine.EventKind.DEFEAT_NEARBY_BEASTS);
-            case EVENT_BROTHERS_IN_ARMS -> new EventClaimRoutine(profile, type, EventClaimRoutine.EventKind.BROTHERS_IN_ARMS);
+            case EVENT_HALL_OF_CHIEFS -> new EventClaimRoutine(profile, type, EventKind.HALL_OF_CHIEFS);
+            case EVENT_DEFEAT_BEASTS -> new EventClaimRoutine(profile, type, EventKind.DEFEAT_NEARBY_BEASTS);
+            case EVENT_BROTHERS_IN_ARMS -> new EventClaimRoutine(profile, type, EventKind.BROTHERS_IN_ARMS);
             case EVENT_HERO_RALLY_CLAIM -> new HeroRallyClaimRoutine(profile, type);
             case EVENT_LUCKY_CHIP_SUPPLY -> new LuckyChipSupplyRoutine(profile, type);
+            case EVENT_ENDLESS_TRIAL -> new EndlessTrialRoutine(profile, type);
             case SHOP_CUSTOM_ARMAMENT_CHEST -> new CustomArmamentChestRoutine(profile, type);
             case SHOP_DAILY_DEALS_FREE_CHEST -> new DailyDealsFreeChestRoutine(profile, type);
             case RESEARCH -> new ResearchRoutine(profile, type);

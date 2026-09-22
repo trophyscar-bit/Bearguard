@@ -1,4 +1,4 @@
-# Graceful stop for a Bearguard instance.
+﻿# Graceful stop for a Bearguard instance.
 #
 # Settings have been lost twice to a hard kill leaving writes stranded in the SQLite WAL, so
 # nothing here terminates the process. It checkpoints and backs the settings up first, then asks
@@ -83,9 +83,15 @@ function Get-BearguardProcesses([string]$root) {
     # Match on the directory, not the bare string. 'C:\Bearguard' is a prefix of
     # 'C:\Bearguard-dev', so a substring test reports dev as prod and closes the wrong instance.
     # The trailing separator is what keeps the two roots apart.
+    #
+    # Case-insensitively, because Windows paths are. Resolve-Path hands back the on-disk casing
+    # ('C:\BearGuard') while the launcher passes through whatever was typed ('C:\Bearguard\.'),
+    # and String.Contains is ordinal: on 9/12 this reported a running instance as not running,
+    # which is how a second javaw ends up on the same emulator and the same SQLite file.
     $needle = $root.TrimEnd('\') + '\'
     @(Get-CimInstance Win32_Process -Filter "Name='javaw.exe'" |
-        Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) })
+        Where-Object { $_.CommandLine -and
+            $_.CommandLine.IndexOf($needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 })
 }
 
 $procs = Get-BearguardProcesses $Root

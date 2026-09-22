@@ -1,9 +1,25 @@
 [ {
+  "className" : "bg_calendar",
+  "sourcePath" : "C:\\Bearguard\\examples\\custom-tasks\\bg_calendar.java",
+  "enabled" : true,
+  "offsetMinutes" : 0,
+  "priority" : 50,
+  "firstExecutionUtc" : null,
+  "followUpDelayHours" : 24
+}, {
   "className" : "bg_telemetry",
   "sourcePath" : "C:\\Bearguard\\examples\\custom-tasks\\bg_telemetry.java",
   "enabled" : true,
   "offsetMinutes" : 0,
   "priority" : 50,
+  "firstExecutionUtc" : "2026-09-16 20:01",
+  "followUpDelayHours" : 1
+}, {
+  "className" : "bg_deals_telemetry",
+  "sourcePath" : "C:\\Bearguard\\examples\\custom-tasks\\bg_deals_telemetry.java",
+  "enabled" : true,
+  "offsetMinutes" : 0,
+  "priority" : -1,
   "firstExecutionUtc" : null,
-  "followUpDelayHours" : 2
+  "followUpDelayHours" : 8
 } ]

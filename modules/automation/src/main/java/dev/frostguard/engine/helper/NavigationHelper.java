@@ -67,8 +67,21 @@ public class NavigationHelper {
 
     // ── alliance menu ────────────────────────────────────────────────
 
+    /** How long the alliance panel takes to animate in before its buttons can be matched. */
+    private static final int ALLIANCE_MENU_SETTLE_MS = 1500;
+
     public boolean navigateToAllianceMenu(AllianceMenu menu) {
+        // The bottom menu only exists on City or World, so a caller that is still inside a panel
+        // taps empty space and then fails to find the menu button -- indistinguishable from having
+        // no alliance. Every other navigate* method here already states this precondition; this one
+        // only worked because its callers happened to run it as their first navigation.
+        ensureCorrectScreenLocation(LaunchPoint.ANY);
         taps.tapInside(ButtonConstants.BOTTOM_MENU_ALLIANCE_BUTTON);
+        // The panel animates in, and the search below was starting before it arrived: a live trace
+        // showed the tap at 18:23:04 and "not found" at 18:23:05, while the very same template
+        // scores 100 against a frame where the panel is actually open. The retries in the search
+        // config all expire inside that one second, so the wait has to be here.
+        interruptibleWait(ALLIANCE_MENU_SETTLE_MS);
 
         TemplatesEnum tpl;
         if (menu == AllianceMenu.WAR) tpl = TemplatesEnum.ALLIANCE_WAR_BUTTON;
@@ -77,6 +90,7 @@ public class NavigationHelper {
         else if (menu == AllianceMenu.SHOP) tpl = TemplatesEnum.ALLIANCE_SHOP_BUTTON;
         else if (menu == AllianceMenu.TECH) tpl = TemplatesEnum.ALLIANCE_TECH_BUTTON;
         else if (menu == AllianceMenu.HELP) tpl = TemplatesEnum.ALLIANCE_HELP_BUTTON;
+        else if (menu == AllianceMenu.BATTLE) tpl = TemplatesEnum.ALLIANCE_BATTLE_BUTTON;
         else tpl = TemplatesEnum.ALLIANCE_TRIUMPH_BUTTON;
 
         ImageSearchResultData hit = searcher.locatePattern(tpl,
@@ -198,6 +212,7 @@ public class NavigationHelper {
             case ALLIANCE_CHAMPIONSHIP -> TemplatesEnum.ALLIANCE_CHAMPIONSHIP_TAB;
             case ALLIANCE_MOBILIZATION -> TemplatesEnum.ALLIANCE_MOBILIZATION_TAB;
             case TUNDRA_TRUCK -> TemplatesEnum.TUNDRA_TRUCK_TAB;
+            case ENDLESS_TRIAL -> TemplatesEnum.ENDLESS_TRIAL_TAB;
         };
 
         // The horizontal event strip continues moving after the swipe gesture returns. Searching during
@@ -354,6 +369,6 @@ public class NavigationHelper {
     }
 
     private enum ScreenState { HOME, WORLD, RECONNECT, UNKNOWN }
-    public enum AllianceMenu { WAR, CHESTS, TERRITORY, SHOP, TECH, HELP, TRIUMPH }
-    public enum EventMenu { HERO_MISSION, MERCENARY, ALLIANCE_CHAMPIONSHIP, ALLIANCE_MOBILIZATION, TUNDRA_TRUCK }
+    public enum AllianceMenu { WAR, CHESTS, TERRITORY, SHOP, TECH, HELP, TRIUMPH, BATTLE }
+    public enum EventMenu { HERO_MISSION, MERCENARY, ALLIANCE_CHAMPIONSHIP, ALLIANCE_MOBILIZATION, TUNDRA_TRUCK, ENDLESS_TRIAL }
 }
