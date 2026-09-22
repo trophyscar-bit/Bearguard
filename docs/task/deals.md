@@ -23,10 +23,13 @@ Measured on 720 x 1280 frames on 2026-09-13.
   A panel counts as open only when its tab strip is visible. The scan waits up to ~7 s for it,
   taps the shortcut a second time, and then skips the surface, saving the rejected frame
   (2026-09-15 Deals was skipped once with no frame kept; cause unknown).
-- Right-hand shortcut column on the city view: icons come and go with live events, so they
-  are found by the label or countdown printed 28-42 px below each icon, not by icon pictures.
-  Events and Deals are skipped; everything else is opened and read, as a tabbed panel when its
-  strip shows at least two labels, otherwise as a pop-up.
+- City event icons: up to two columns on the right of the map, at x 557 and 665, rows about 95 px
+  apart from y 160. Tapped by position, because neither picture nor label identifies them: the icons
+  change with live events, and the labels are cream on snow, which the white-text mask cannot isolate
+  (OCR returned nothing at all on the 2026-09-21 city frame, so no icon was ever opened; the
+  Lunar Radiance $4.99 pack never reached a scan). A slot whose tap changes nothing is skipped;
+  whatever opens is named by its panel header and read as a tabbed panel when its strip shows at
+  least two whole tabs, otherwise as a pop-up. Events and Deals are skipped by header.
 
 ## Layout variants
 
