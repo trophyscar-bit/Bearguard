@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
@@ -37,13 +38,17 @@ import dev.frostguard.vision.convert.ImageConverter;
  *
  * <p>Go travels to the boss on the world map; Attack opens the formation screen, whose Deploy
  * button matches the Bear Hunt deploy template (98.3% vs a 41% noise floor). A result popup only
- * appears when the attack sets a new damage record, so it is optional. No troop recall is needed:
- * the formation is filled from troops at home even with five gathering marches out.
+ * appears when the attack sets a new damage record, so it is optional. Troops do not need recalling
+ * for their strength: the formation filled a full march with five gathering marches out. A slot is
+ * a different matter -- with all six busy the attack cannot be sent at all, so one gathering march
+ * is recalled and the run resumes when it lands.
  */
 public class EndlessTrialRoutine extends DelayedTask {
 
     private static final int DAILY_ATTACKS = 3;
     private static final Duration RUN_AFTER_RESET = Duration.ofHours(1);
+    /** Landing is followed by the game releasing the slot, so the retry waits slightly past zero. */
+    private static final Duration RECALL_RETURN_PAD = Duration.ofSeconds(30);
 
     private static final PointData TITLE_TL = new PointData(30, 205);
     private static final PointData TITLE_BR = new PointData(340, 260);
@@ -96,7 +101,9 @@ public class EndlessTrialRoutine extends DelayedTask {
         while (attacksDone < DAILY_ATTACKS) {
             tapNear(REWARDS_CLOSE);
             sleepTask(ACTION_SETTLE_MS);
-            attackOnce(attacksDone + 1);
+            if (!attackOnce(attacksDone + 1)) {
+                return;
+            }
             openEndlessTrial();
             rows = readRewardRows();
             int after = attacksReached(rows);
@@ -199,7 +206,13 @@ public class EndlessTrialRoutine extends DelayedTask {
         return (int) rows.stream().filter(state -> state != RowState.NOT_REACHED).count();
     }
 
-    private void attackOnce(int attackNumber) {
+    /**
+     * Sends one attack.
+     *
+     * @return true when the attack went out, false when the run stopped early and rescheduled
+     *         itself because a march slot had to be freed first
+     */
+    private boolean attackOnce(int attackNumber) {
         tapNear(GO_BUTTON);
         sleepTask(PANEL_SETTLE_MS);
         ImageSearchResultData attack = templateSearchHelper.locatePattern(
@@ -214,14 +227,14 @@ public class EndlessTrialRoutine extends DelayedTask {
                 TemplatesEnum.BEAR_DEPLOY_BUTTON, inArea(DEPLOY_BUTTON_AREA, 3));
         if (!deploy.isFound()) {
             pressBack();
-            throw new IllegalStateException("Endless Trial formation screen (Deploy) did not open after Attack.");
+            return freeMarchSlotOrFail("the formation screen did not open after Attack");
         }
         Duration travel = readTravelTime();
         tapNear(deploy.getPoint());
         sleepTask(ACTION_SETTLE_MS);
         if (templateSearchHelper.locatePattern(TemplatesEnum.BEAR_DEPLOY_BUTTON, inArea(DEPLOY_BUTTON_AREA, 1)).isFound()) {
             pressBack();
-            throw new IllegalStateException("Endless Trial Deploy did not send a march (no free march slot?).");
+            return freeMarchSlotOrFail("Deploy did not send a march");
         }
         logInfo(logLine("Attack " + attackNumber + " deployed; travel " + travel.toSeconds()
                 + "s each way, waiting for the round trip."));
@@ -236,6 +249,31 @@ public class EndlessTrialRoutine extends DelayedTask {
             tapNear(confirm.getPoint());
             sleepTask(ACTION_SETTLE_MS);
         }
+        return true;
+    }
+
+    /**
+     * The attack could not be sent. When every march slot is busy this recalls one gathering march
+     * and comes back when it lands, rather than skipping the day's attacks; anything else is a real
+     * failure and is raised.
+     */
+    private boolean freeMarchSlotOrFail(String symptom) {
+        if (marchHelper.checkMarchesAvailable()) {
+            throw new IllegalStateException("Endless Trial: " + symptom
+                    + ", and a march slot was free, so the screen was not what the routine expected.");
+        }
+
+        Optional<Duration> home = marchHelper.recallGatherMarchToFreeSlot();
+        if (home.isEmpty()) {
+            throw new IllegalStateException("Endless Trial: " + symptom
+                    + ", every march slot is busy, and none of them is a gathering march that can be recalled.");
+        }
+
+        LocalDateTime next = LocalDateTime.now().plus(home.get()).plus(RECALL_RETURN_PAD);
+        logInfo(logLine("Every march slot was busy. Recalled a gathering march; resuming when it is home at "
+                + next.format(DATETIME_FORMATTER) + "."));
+        reschedule(next);
+        return false;
     }
 
     private Duration readTravelTime() {
