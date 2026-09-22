@@ -304,90 +304,76 @@
     -fx-font-size: 10px;
 }
 
-/* Seven day agenda, down the page. Each day is a band; each event is a row carrying the game's own
- * icon, its name, what it is doing on that day, and its state. Flat surfaces and one accent stripe
- * per row: the earlier version tinted whole bars, and a page of saturated blocks is harder to read
- * than a page of text, not easier. */
-.upcoming-events-agenda-day {
-    -fx-padding: 2 0 8 0;
+/* The week, drawn the way the game draws it: seven day columns, one bar per event across the days
+ * it runs, today's column washed. The name rides inside the bar; a one-day bar has room for its
+ * icon only and leaves the rest to the tooltip, because an ellipsis says nothing. */
+.upcoming-events-chart {
+    -fx-hgap: 4;
+    -fx-vgap: 6;
+    -fx-padding: 0 0 6 0;
 }
 
-.upcoming-events-agenda-day-past {
-    -fx-opacity: 0.55;
-}
-
-.upcoming-events-agenda-dayheader {
-    -fx-padding: 6 6 6 2;
+.upcoming-events-chart-dayhead {
+    -fx-padding: 4 0 8 0;
     -fx-border-color: -color-border-muted;
     -fx-border-width: 0 0 1 0;
 }
 
-.upcoming-events-agenda-dayheader-today {
+.upcoming-events-chart-dayhead-today {
     -fx-border-color: -color-accent-emphasis;
     -fx-border-width: 0 0 2 0;
 }
 
-.upcoming-events-agenda-dow {
+.upcoming-events-chart-dow {
     -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 11px;
+    -fx-font-size: 10px;
     -fx-font-weight: bold;
 }
 
-.upcoming-events-agenda-daynum {
+.upcoming-events-chart-daynum {
     -fx-text-fill: -color-fg-default;
-    -fx-font-size: 18px;
+    -fx-font-size: 14px;
     -fx-font-weight: bold;
 }
 
-.upcoming-events-agenda-month {
-    -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 11px;
-}
-
-.upcoming-events-agenda-dayheader-today .upcoming-events-agenda-daynum {
+.upcoming-events-chart-dayhead-today .upcoming-events-chart-daynum {
     -fx-text-fill: -color-accent-fg;
 }
 
-.upcoming-events-agenda-todaypill {
-    -fx-background-color: -color-accent-emphasis;
-    -fx-text-fill: -color-fg-emphasis;
-    -fx-background-radius: 999;
-    -fx-padding: 1 8;
-    -fx-font-size: 9px;
-    -fx-font-weight: bold;
+.upcoming-events-chart-today-wash {
+    -fx-background-color: -color-accent-subtle;
+    -fx-opacity: 0.30;
+    -fx-background-radius: 6;
 }
 
-.upcoming-events-agenda-count {
-    -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 10px;
-}
-
-.upcoming-events-agenda-quiet {
-    -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 11px;
-    -fx-padding: 6 0 2 52;
-}
-
-/* The stripe on the left edge says state or alliance; the row itself stays neutral so the icons
- * carry the colour. */
-.upcoming-events-agenda-row {
+.upcoming-events-chart-bar {
     -fx-background-color: -color-bg-subtle;
-    -fx-background-radius: 8;
-    -fx-padding: 6 10 6 8;
-    -fx-border-width: 0 0 0 3;
-    -fx-border-radius: 8 0 0 8;
+    -fx-background-radius: 999;
+    -fx-padding: 3 12 3 3;
+    -fx-min-height: 40px;
+    -fx-border-width: 0 0 0 4;
+    -fx-border-radius: 999;
+    -fx-opacity: 0.78;
 }
 
-.upcoming-events-agenda-row-state {
+.upcoming-events-chart-bar-state {
     -fx-border-color: -color-accent-emphasis;
 }
 
-.upcoming-events-agenda-row-alliance {
+.upcoming-events-chart-bar-alliance {
     -fx-border-color: -color-success-fg;
 }
 
-.upcoming-events-agenda-row-live {
+/* What is running now is full strength; what has not started yet sits back. */
+.upcoming-events-chart-bar-live {
+    -fx-opacity: 1;
     -fx-background-color: -color-accent-subtle;
+}
+
+.upcoming-events-chart-name {
+    -fx-text-fill: -color-fg-default;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
 }
 
 .upcoming-events-agenda-icon {
@@ -401,39 +387,8 @@
     -fx-font-size: 18px;
 }
 
-.upcoming-events-agenda-name {
-    -fx-text-fill: -color-fg-default;
-    -fx-font-size: 13px;
-    -fx-font-weight: bold;
-}
-
-.upcoming-events-agenda-when {
-    -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 11px;
-}
-
-.upcoming-events-agenda-badge {
-    -fx-background-radius: 999;
-    -fx-padding: 2 9;
+.upcoming-events-badge-small {
     -fx-font-size: 10px;
-    -fx-font-weight: bold;
-}
-
-.upcoming-events-week-title {
-    -fx-text-fill: -color-fg-emphasis;
-    -fx-font-size: 15px;
-    -fx-font-weight: bold;
-    -fx-padding: 0 0 0 6;
-}
-
-.upcoming-events-week-nav {
-    -fx-background-color: -color-bg-subtle;
-    -fx-text-fill: -color-fg-default;
-    -fx-border-color: -color-border-default;
-    -fx-border-radius: 6;
-    -fx-background-radius: 6;
-    -fx-padding: 2 10;
-    -fx-font-size: 11px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -2347,4 +2302,15 @@
 .setting-field-warning {
     -fx-border-color: -fg-yellow;
     -fx-border-width: 2px;
+}
+
+/* Footnote strip: the events that only carry on through a later day, named on hover. */
+.upcoming-events-agenda-continuing {
+    -fx-padding: 2 0 2 6;
+}
+
+.upcoming-events-agenda-continuing-label {
+    -fx-text-fill: -color-fg-subtle;
+    -fx-font-size: 10px;
+    -fx-padding: 0 4 0 0;
 }

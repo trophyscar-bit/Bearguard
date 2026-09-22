@@ -17,10 +17,11 @@ import java.util.Map;
  * event's bar in the in-game chart, so the set grows by itself as new events are seen and no
  * artwork has to be checked into the repository.</p>
  *
- * <p>They are shown whole, on the game's own coloured badge, and the rows round the corners off
- * them. Lifting the art onto transparency was tried first and is not worth it: the badge is part of
- * the icon rather than a background behind it, so a flood fill either left a band of colour behind
- * or ate into the art, and the results were uneven across the set in a way no threshold fixed.</p>
+ * <p>Preference goes to the cleaned copies under {@code calendar-icons/clean}, where the art has
+ * been lifted off the bar fill by {@code tools/clean-calendar-icons.py}. Colour keying was tried
+ * first and abandoned: each crop carries two flat colours (the bar and the chart behind it), some
+ * bars are graded, and the art itself reuses the bar's yellow, so no threshold cut the whole set.
+ * The script segments the foreground instead, which does.</p>
  */
 final class EventIconLibrary {
 
@@ -52,8 +53,13 @@ final class EventIconLibrary {
     }
 
     private static Image load(String fileName) {
-        Path file = WorkspacePaths.current().root()
-                .resolve("data").resolve("calendar-icons").resolve(fileName + ".png");
+        Path icons = WorkspacePaths.current().root().resolve("data").resolve("calendar-icons");
+        // The cleaned copy first: tools/clean-calendar-icons.py lifts the art off the bar fill, and
+        // an event that has not been through it yet still shows, just on its bar colour.
+        Path file = icons.resolve("clean").resolve(fileName + ".png");
+        if (!Files.isRegularFile(file)) {
+            file = icons.resolve(fileName + ".png");
+        }
         if (!Files.isRegularFile(file)) {
             return null;
         }
