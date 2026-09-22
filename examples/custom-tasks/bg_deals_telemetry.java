@@ -349,7 +349,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                         logInfo("bg_deals_telemetry | " + slot + " opened " + name + ", not a deal surface; skipping.");
                         continue;
                     }
-                    if (!surveyed.add(tabKey(name))) {
+                    // Pack pop-ups carry their name in the artwork, not a header, so an unreadable header
+                    // is deduplicated by its slot: tabKey drops the digits and would fold every one of them
+                    // into a single "cityicon" entry, skipping every icon after the first.
+                    if (!surveyed.add(header.isBlank() ? "slot " + slot : tabKey(header))) {
                         logInfo("bg_deals_telemetry | " + slot + " opened " + name + " again; skipping.");
                         continue;
                     }
