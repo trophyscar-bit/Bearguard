@@ -70,8 +70,10 @@ public class UpcomingEventsLayoutController {
     /** The name column. Fixed, so the seven day columns stay equal and a long event name cannot
      *  squeeze the grid it belongs to. */
     /** Tile and art sizes for an event's icon: the art is the game's own, cut from its bar. */
-    private static final int ICON_TILE_SIZE = 42;
-    private static final int ICON_TILE_ART = 34;
+    /** The tile has to sit inside the bar, not over it: a tile taller than the bar's inner height
+     *  overhung the pill top and bottom and covered its coloured edge. */
+    private static final int ICON_TILE_SIZE = 30;
+    private static final int ICON_TILE_ART = 26;
     /** The strip of events that only carry on through a later day, so they read as a footnote. */
     private static final int ICON_TILE_SMALL = 26;
 
@@ -632,7 +634,7 @@ public class UpcomingEventsLayoutController {
             art = iconNodeFor(entry.getEventLabel(), "upcoming-events-agenda-glyph");
         }
         StackPane tile = new StackPane(art);
-        tile.getStyleClass().add("upcoming-events-agenda-icon");
+        tile.getStyleClass().add("upcoming-events-chart-icon");
         tile.setMinSize(tileSize, tileSize);
         tile.setPrefSize(tileSize, tileSize);
         tile.setMaxSize(tileSize, tileSize);

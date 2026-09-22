@@ -349,7 +349,7 @@
 .upcoming-events-chart-bar {
     -fx-background-color: -color-bg-subtle;
     -fx-background-radius: 999;
-    -fx-padding: 3 12 3 3;
+    -fx-padding: 4 12 4 8;
     -fx-min-height: 40px;
     -fx-border-width: 0 0 0 4;
     -fx-border-radius: 999;
@@ -376,11 +376,10 @@
     -fx-font-weight: bold;
 }
 
-.upcoming-events-agenda-icon {
-    -fx-background-color: -color-bg-default;
-    -fx-background-radius: 10;
-    -fx-border-color: -color-border-muted;
-    -fx-border-radius: 10;
+/* The art alone, no tile behind it: a filled tile inside a bar reads as a second shape and, at any
+ * size close to the bar's height, sits over its edge. */
+.upcoming-events-chart-icon {
+    -fx-background-color: transparent;
 }
 
 .upcoming-events-agenda-glyph {
