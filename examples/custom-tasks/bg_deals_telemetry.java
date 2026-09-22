@@ -53,6 +53,7 @@ import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.CustomTaskService;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.WhiteTextIsolator;
+import dev.frostguard.vision.deals.PriceButtonLocator;
 import dev.frostguard.vision.deals.TabStripCells;
 import dev.frostguard.vision.ocr.OcrEngine;
 import dev.frostguard.vision.ocr.OcrException;
@@ -141,6 +142,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      * run. A slot that opens nothing is skipped, and whatever does open is named by its own header. The paw,
      * scales and mail buttons below y 760 are not deal surfaces.
      */
+    private static final int MIN_HEADER_LETTERS = 3;
     private static final int[] ICON_COLUMN_X = {557, 665};
     private static final int[] ICON_ROW_Y = {160, 260, 355, 455, 550};
     /** Surfaces this task already reads through their own templates, or that hold no offers. */
@@ -344,7 +346,21 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     }
                     opened++;
                     String header = panelHeader(frame);
+                    // Panels with no header of their own give back their countdown or stray glyphs
+                    // ("03:0232/32ee", "~"); those are not names.
+                    if (header.chars().filter(Character::isLetter).count() < MIN_HEADER_LETTERS) {
+                        header = "";
+                    }
                     String name = header.isBlank() ? "City icon " + slot : header;
+                    BufferedImage image = ImageConverter.toBufferedImage(frame);
+                    boolean tabbed = TabStripCells.locate(image).size() >= MIN_TABS_FOR_STRIP;
+                    // A city building opens a panel too: the infirmary's Heal Injured page was read as a
+                    // surface and its "Finish - 94" button kept as an offer. A shop has tabs or a price button.
+                    if (!tabbed && PriceButtonLocator.locate(image).isEmpty()) {
+                        logInfo("bg_deals_telemetry | " + slot + " opened " + name
+                                + " with no tabs or price buttons; not a deal surface.");
+                        continue;
+                    }
                     if (NOT_A_DEAL_SHORTCUT.matcher(header).find()) {
                         logInfo("bg_deals_telemetry | " + slot + " opened " + name + ", not a deal surface; skipping.");
                         continue;
@@ -356,7 +372,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                         logInfo("bg_deals_telemetry | " + slot + " opened " + name + " again; skipping.");
                         continue;
                     }
-                    if (TabStripCells.locate(ImageConverter.toBufferedImage(frame)).size() >= MIN_TABS_FOR_STRIP) {
+                    if (tabbed) {
                         surveyTabbedPanel(name);
                     } else {
                         surveyPage(name, name, MAX_POPUP_SCROLLS, false);
