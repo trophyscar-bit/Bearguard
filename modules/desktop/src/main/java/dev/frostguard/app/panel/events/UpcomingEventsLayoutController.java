@@ -20,6 +20,8 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.GridPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
@@ -70,6 +72,8 @@ public class UpcomingEventsLayoutController {
     /** Tile and art sizes for an event's icon: the art is the game's own, cut from its bar. */
     private static final int ICON_TILE_SIZE = 42;
     private static final int ICON_TILE_ART = 34;
+    /** The strip of events that only carry on through a later day, so they read as a footnote. */
+    private static final int ICON_TILE_SMALL = 26;
 
     /** Alliance Events: Bear Trap, every Fortress/Stronghold entry, and the Task List reads. */
     private static boolean isAllianceEvent(String eventKey) {
@@ -99,7 +103,6 @@ public class UpcomingEventsLayoutController {
 
     private Timeline refreshTimer;
     private List<EventScheduleEntry> latestEntries = List.of();
-    private LocalDate weekStart = startOfWeek(LocalDate.now(EventScheduleClock.zone()));
 
     @FXML
     private void initialize() {
@@ -511,225 +514,165 @@ public class UpcomingEventsLayoutController {
      * first thing in view instead of a bar to be traced back to a name.</p>
      */
     private void rebuildMonthView() {
-        LocalDate from = this.weekStart;
+        LocalDate from = LocalDate.now(EventScheduleClock.zone());
         LocalDate to = from.plusDays(WEEK_DAYS - 1);
-        LocalDate today = LocalDate.now(EventScheduleClock.zone());
         LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
 
-        VBox days = new VBox(4);
-        days.setMaxWidth(Double.MAX_VALUE);
-        int shown = 0;
-        for (int offset = 0; offset < WEEK_DAYS; offset++) {
-            LocalDate date = from.plusDays(offset);
-            List<EventScheduleEntry> onDay = new ArrayList<>();
-            for (EventScheduleEntry entry : latestEntries) {
-                if (runsOn(entry, date)) {
-                    onDay.add(entry);
-                }
+        List<Run> runs = new ArrayList<>();
+        for (EventScheduleEntry entry : latestEntries) {
+            Run run = toRun(entry, from, to);
+            if (run != null) {
+                runs.add(run);
             }
-            onDay.sort(java.util.Comparator
-                    .comparing((EventScheduleEntry e) -> !e.isCurrentlyActive())
-                    .thenComparing(e -> e.getEventLabel() == null ? "" : e.getEventLabel()));
-            shown += onDay.size();
-            days.getChildren().add(buildDaySection(date, today, onDay, nowUtc));
+        }
+        // Longest first, then by start: the same shape the game draws, and it keeps the week-long
+        // bars together at the top instead of interleaving them with one-day events.
+        runs.sort(java.util.Comparator
+                .comparingInt((Run r) -> -(r.span))
+                .thenComparingInt(r -> r.firstColumn)
+                .thenComparing(r -> r.entry.getEventLabel() == null ? "" : r.entry.getEventLabel()));
+
+        GridPane chart = new GridPane();
+        chart.getStyleClass().add("upcoming-events-chart");
+        chart.setMaxWidth(Double.MAX_VALUE);
+        for (int day = 0; day < WEEK_DAYS; day++) {
+            ColumnConstraints column = new ColumnConstraints();
+            // Equal prefs plus ALWAYS rather than percentages: a percentage is taken of the whole
+            // grid, so seven of 100/7 each claimed the full width and pushed the last days off.
+            column.setPrefWidth(1);
+            column.setHgrow(Priority.ALWAYS);
+            column.setFillWidth(true);
+            chart.getColumnConstraints().add(column);
         }
 
-        VBox body = new VBox(12, buildWeekNav(from, to));
-        if (shown == 0) {
-            Label empty = new Label("Nothing scheduled in these seven days.");
+        // Today's column is washed from the header to the last row, the way the game marks it.
+        Region wash = new Region();
+        wash.getStyleClass().add("upcoming-events-chart-today-wash");
+        wash.setMouseTransparent(true);
+        chart.add(wash, 0, 0, 1, Math.max(runs.size() + 1, 2));
+
+        for (int day = 0; day < WEEK_DAYS; day++) {
+            LocalDate date = from.plusDays(day);
+            Label weekday = new Label(date.getDayOfWeek()
+                    .getDisplayName(TextStyle.SHORT, Locale.getDefault()).toUpperCase(Locale.getDefault()));
+            weekday.getStyleClass().add("upcoming-events-chart-dow");
+            Label number = new Label(String.format("%02d/%02d", date.getMonthValue(), date.getDayOfMonth()));
+            number.getStyleClass().add("upcoming-events-chart-daynum");
+            VBox head = new VBox(weekday, number);
+            head.setAlignment(javafx.geometry.Pos.CENTER);
+            head.getStyleClass().add("upcoming-events-chart-dayhead");
+            if (day == 0) {
+                head.getStyleClass().add("upcoming-events-chart-dayhead-today");
+            }
+            chart.add(head, day, 0);
+        }
+
+        int row = 1;
+        for (Run run : runs) {
+            HBox bar = buildChartBar(run, nowUtc);
+            chart.add(bar, run.firstColumn, row, run.span, 1);
+            row++;
+        }
+
+        VBox body = new VBox(10);
+        body.setMaxWidth(Double.MAX_VALUE);
+        if (runs.isEmpty()) {
+            Label empty = new Label("Nothing scheduled in the next seven days.");
             empty.getStyleClass().add("upcoming-events-nothing-live");
             body.getChildren().add(empty);
         } else {
-            body.getChildren().add(days);
+            body.getChildren().add(chart);
         }
         monthCalendarHost.getChildren().setAll(body);
     }
 
-    /** True when the event's run, in the viewer's own dates, covers that day. */
-    private boolean runsOn(EventScheduleEntry entry, LocalDate date) {
-        boolean allDay = isAllDay(entry);
-        LocalDate start = toViewerDate(entry.getActiveSince(), allDay);
-        LocalDate end = toViewerDate(entry.getInactiveSince(), allDay);
-        if (start == null && end == null) {
-            return false;
+    /**
+     * One event's bar: its icon, its name, and an arrow when the run carries on past the week.
+     *
+     * <p>The name rides inside the bar, as the game draws it. A bar one day wide cannot hold a name,
+     * so a short event keeps its icon and lets the tooltip carry the rest rather than showing an
+     * ellipsis that says nothing.</p>
+     */
+    private HBox buildChartBar(Run run, LocalDateTime nowUtc) {
+        EventScheduleEntry entry = run.entry;
+        HBox bar = new HBox(6, buildIconTile(entry, ICON_TILE_SIZE, ICON_TILE_ART));
+        if (run.span > 1) {
+            Label name = new Label((run.clippedStart ? "◀ " : "") + entry.getEventLabel()
+                    + (run.clippedEnd ? " ▶" : ""));
+            name.getStyleClass().add("upcoming-events-chart-name");
+            HBox.setHgrow(name, Priority.ALWAYS);
+            bar.getChildren().add(name);
         }
-        LocalDate first = start != null ? start : end;
-        // An end the game never showed is not drawn as a run to the horizon: the event occupies the
-        // day it starts and nothing more, because nothing more was ever read.
-        LocalDate last = (end != null && !end.isBefore(first)) ? end : first;
-        return !date.isBefore(first) && !date.isAfter(last);
-    }
-
-    private VBox buildDaySection(LocalDate date, LocalDate today,
-                                 List<EventScheduleEntry> entries, LocalDateTime nowUtc) {
-        Label weekday = new Label(date.getDayOfWeek().getDisplayName(TextStyle.SHORT, Locale.getDefault())
-                .toUpperCase(Locale.getDefault()));
-        weekday.getStyleClass().add("upcoming-events-agenda-dow");
-        Label number = new Label(String.valueOf(date.getDayOfMonth()));
-        number.getStyleClass().add("upcoming-events-agenda-daynum");
-        Label month = new Label(date.getMonth().getDisplayName(TextStyle.SHORT, Locale.getDefault()));
-        month.getStyleClass().add("upcoming-events-agenda-month");
-
-        HBox stamp = new HBox(6, weekday, number, month);
-        stamp.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-
-        HBox header = new HBox(8, stamp);
-        header.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-        header.getStyleClass().add("upcoming-events-agenda-dayheader");
-        if (date.equals(today)) {
-            header.getStyleClass().add("upcoming-events-agenda-dayheader-today");
-            Label pill = new Label("TODAY");
-            pill.getStyleClass().add("upcoming-events-agenda-todaypill");
-            header.getChildren().add(pill);
-        }
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        Label count = new Label(entries.isEmpty() ? "" : entries.size() + (entries.size() == 1 ? " event" : " events"));
-        count.getStyleClass().add("upcoming-events-agenda-count");
-        header.getChildren().addAll(spacer, count);
-
-        VBox section = new VBox(4, header);
-        section.setMaxWidth(Double.MAX_VALUE);
-        section.getStyleClass().add("upcoming-events-agenda-day");
-        if (date.isBefore(today)) {
-            section.getStyleClass().add("upcoming-events-agenda-day-past");
-        }
-        if (entries.isEmpty()) {
-            Label quiet = new Label("Nothing scheduled");
-            quiet.getStyleClass().add("upcoming-events-agenda-quiet");
-            section.getChildren().add(quiet);
-        }
-        for (EventScheduleEntry entry : entries) {
-            section.getChildren().add(buildAgendaRow(entry, date, today, nowUtc));
-        }
-        return section;
-    }
-
-    private HBox buildAgendaRow(EventScheduleEntry entry, LocalDate date, LocalDate today,
-                                LocalDateTime nowUtc) {
-        Label name = new Label(entry.getEventLabel());
-        name.getStyleClass().add("upcoming-events-agenda-name");
-        Label when = new Label(describeOnDay(entry, date, today));
-        when.getStyleClass().add("upcoming-events-agenda-when");
-        VBox text = new VBox(1, name, when);
-        text.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-        HBox.setHgrow(text, Priority.ALWAYS);
-
-        Label badge = new Label(badgeText(entry, nowUtc));
-        badge.getStyleClass().addAll("upcoming-events-agenda-badge", badgeStyleClass(entry, nowUtc));
-
-        HBox row = new HBox(10, buildIconTile(entry), text, badge);
-        row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-        row.setMaxWidth(Double.MAX_VALUE);
-        row.getStyleClass().addAll("upcoming-events-agenda-row",
+        bar.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        bar.setMaxWidth(Double.MAX_VALUE);
+        bar.getStyleClass().addAll("upcoming-events-chart-bar",
                 isAllianceEvent(entry.getEventKey())
-                        ? "upcoming-events-agenda-row-alliance"
-                        : "upcoming-events-agenda-row-state");
-        if (entry.isCurrentlyActive() && date.equals(today)) {
-            row.getStyleClass().add("upcoming-events-agenda-row-live");
+                        ? "upcoming-events-chart-bar-alliance"
+                        : "upcoming-events-chart-bar-state");
+        if (entry.isCurrentlyActive()) {
+            bar.getStyleClass().add("upcoming-events-chart-bar-live");
         }
-        Tooltip.install(row, new Tooltip(entry.getEventLabel() + "\n" + describeWindow(entry)));
-        return row;
+        Tooltip.install(bar, new Tooltip(entry.getEventLabel() + "\n" + describeWindow(entry)
+                + "\n" + badgeText(entry, nowUtc)));
+        return bar;
     }
 
     /** The game's own icon for this event, or the family glyph while none has been learned yet. */
-    private StackPane buildIconTile(EventScheduleEntry entry) {
+    private StackPane buildIconTile(EventScheduleEntry entry, int tileSize, int artSize) {
         Node art;
         Image icon = EventIconLibrary.iconFor(entry.getEventLabel());
         if (icon != null) {
             ImageView view = new ImageView(icon);
-            view.setFitWidth(ICON_TILE_ART);
-            view.setFitHeight(ICON_TILE_ART);
+            view.setFitWidth(artSize);
+            view.setFitHeight(artSize);
             view.setPreserveRatio(true);
             view.setSmooth(true);
-            // Shown whole, on the game's own badge, with the corners rounded off: the badge is part
-            // of the icon, not a background behind it.
-            Rectangle rounded = new Rectangle(ICON_TILE_ART, ICON_TILE_ART);
-            rounded.setArcWidth(12);
-            rounded.setArcHeight(12);
-            view.setClip(rounded);
             art = view;
         } else {
             art = iconNodeFor(entry.getEventLabel(), "upcoming-events-agenda-glyph");
         }
         StackPane tile = new StackPane(art);
         tile.getStyleClass().add("upcoming-events-agenda-icon");
-        tile.setMinSize(ICON_TILE_SIZE, ICON_TILE_SIZE);
-        tile.setPrefSize(ICON_TILE_SIZE, ICON_TILE_SIZE);
-        tile.setMaxSize(ICON_TILE_SIZE, ICON_TILE_SIZE);
+        tile.setMinSize(tileSize, tileSize);
+        tile.setPrefSize(tileSize, tileSize);
+        tile.setMaxSize(tileSize, tileSize);
         return tile;
     }
 
-    /**
-     * What this event is doing on this particular day: which day of its run, and the hours when it
-     * is not a whole-day event. A multi-day event says the same thing on each of its days otherwise,
-     * which reads as a repeat rather than a run.
-     */
-    private String describeOnDay(EventScheduleEntry entry, LocalDate date, LocalDate today) {
+    /** Clips one entry to the seven days on screen, or returns null when it does not touch them. */
+    private Run toRun(EventScheduleEntry entry, LocalDate from, LocalDate to) {
         boolean allDay = isAllDay(entry);
         LocalDate start = toViewerDate(entry.getActiveSince(), allDay);
         LocalDate end = toViewerDate(entry.getInactiveSince(), allDay);
+        if (start == null && end == null) {
+            return null;
+        }
         LocalDate first = start != null ? start : end;
-        LocalDate last = (end != null && first != null && !end.isBefore(first)) ? end : first;
+        // An end the game never showed is one day on its start, never a bar to the edge: drawing an
+        // unknown end as a long run would state something that was never read.
+        LocalDate last = (end != null && !end.isBefore(first)) ? end : first;
+        if (last.isBefore(from) || first.isAfter(to)) {
+            return null;
+        }
+        LocalDate clippedFirst = first.isBefore(from) ? from : first;
+        LocalDate clippedLast = last.isAfter(to) ? to : last;
 
-        StringBuilder text = new StringBuilder();
-        if (!allDay) {
-            text.append(describeWindow(entry));
-        } else if (first != null && last != null && last.isAfter(first)) {
-            long dayNumber = java.time.temporal.ChronoUnit.DAYS.between(first, date) + 1;
-            long total = java.time.temporal.ChronoUnit.DAYS.between(first, last) + 1;
-            text.append("All day - day ").append(dayNumber).append(" of ").append(total);
-        } else {
-            text.append("All day");
-        }
-        // "starts today" was wrong on every row but one: the row belongs to its own day, not to the
-        // real today, so a Friday row announced a Friday start as if it were happening now.
-        if (first != null && date.equals(first) && !date.equals(last)) {
-            text.append("  |  begins");
-        } else if (last != null && date.equals(last) && !date.equals(first)) {
-            text.append("  |  final day");
-        }
-        return text.toString();
+        Run run = new Run();
+        run.entry = entry;
+        run.firstColumn = (int) java.time.temporal.ChronoUnit.DAYS.between(from, clippedFirst);
+        run.span = (int) java.time.temporal.ChronoUnit.DAYS.between(clippedFirst, clippedLast) + 1;
+        run.clippedStart = first.isBefore(from);
+        run.clippedEnd = last.isAfter(to);
+        return run;
     }
 
-    private HBox buildWeekNav(LocalDate weekStart, LocalDate weekEnd) {
-        Button previous = new Button("◀");
-        previous.getStyleClass().add("upcoming-events-week-nav");
-        previous.setOnAction(event -> {
-            this.weekStart = this.weekStart.minusDays(WEEK_DAYS);
-            rebuildMonthView();
-        });
-
-        Button next = new Button("▶");
-        next.getStyleClass().add("upcoming-events-week-nav");
-        next.setOnAction(event -> {
-            this.weekStart = this.weekStart.plusDays(WEEK_DAYS);
-            rebuildMonthView();
-        });
-
-        Button thisWeek = new Button("Today");
-        thisWeek.getStyleClass().add("upcoming-events-week-nav");
-        thisWeek.setOnAction(event -> {
-            this.weekStart = startOfWeek(LocalDate.now(EventScheduleClock.zone()));
-            rebuildMonthView();
-        });
-
-        Label title = new Label(weekStart.format(DATE_ONLY_FORMAT) + "  –  "
-                + weekEnd.format(DATE_ONLY_FORMAT) + ", " + weekEnd.getYear());
-        title.getStyleClass().add("upcoming-events-week-title");
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        HBox nav = new HBox(8, previous, next, title, spacer, thisWeek);
-        nav.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-        return nav;
-    }
-
-    /** Today first, then the six days after it. The chart only ever shows seven days out, so those
-     *  are the seven there is anything to say about; yesterday is not one of them. */
-    private static LocalDate startOfWeek(LocalDate date) {
-        return date;
+    /** One event laid out against the seven columns on screen. */
+    private static final class Run {
+        private EventScheduleEntry entry;
+        private int firstColumn;
+        private int span;
+        private boolean clippedStart;
+        private boolean clippedEnd;
     }
 
     /** Every stored value is a UTC instant, whole-day ones included, so all of them convert. The
