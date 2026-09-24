@@ -139,6 +139,71 @@ class ChatTranscriptStoreTest {
     }
 
     @Test
+    void messagesEitherSideOfMidnightGoToTheirOwnDaysNotTheFirstOnesDay() throws IOException {
+        // One pass used to file everything under the day of its first message, so a reconcile whose
+        // estimated times span days -- or an ordinary pass straddling midnight -- put the later
+        // messages into the wrong day's file and out of that day's digest.
+        Instant late = Instant.parse("2026-08-21T23:59:00Z");
+        Instant early = Instant.parse("2026-08-22T00:01:00Z");
+        ChatTranscriptStore s = store();
+
+        assertEquals(2, s.append(List.of(msg(late, "Nightjar", "rally in five"),
+                msg(early, "Marisol", "bear trap tonight at nine"))));
+
+        assertTrue(Files.readString(s.fileFor(late)).contains("rally in five"));
+        assertFalse(Files.readString(s.fileFor(late)).contains("bear trap"));
+        assertTrue(Files.readString(s.fileFor(early)).contains("bear trap tonight at nine"));
+    }
+
+    @Test
+    void saysWhatTimeAStoredMessageWasFiledUnderIncludingAfterARestart() throws IOException {
+        Instant at = Instant.parse("2026-08-21T22:15:00Z");
+        ChatTranscriptStore s = store();
+        s.append(List.of(msg(at, "Nightjar", "rally in five")));
+
+        // Read the way the walk reads it: a different spelling of the same message still finds it.
+        assertEquals(java.util.Optional.of(at),
+                s.storedAt(msg(at.plusSeconds(600), "Nightjar", "rally in five")));
+        assertEquals(java.util.Optional.empty(),
+                s.storedAt(msg(at, "Marisol", "who has spare speedups")));
+
+        ChatTranscriptStore restarted = store();
+        restarted.primeFromDisk();
+        assertEquals(java.util.Optional.of(at),
+                restarted.storedAt(msg(at, "Nightjar", "rally in five")));
+    }
+
+    @Test
+    void anEstimatedMessageIsMarkedInItsLineAndAnOrdinaryOneIsNot() throws IOException {
+        Instant at = Instant.parse("2026-08-21T22:15:00Z");
+        ChatTranscriptStore s = store();
+
+        s.append(List.of(msg(at, "Nightjar", "rally in five")), true);
+        s.append(List.of(msg(at, "Marisol", "bear trap tonight at nine")), false);
+
+        List<String> lines = Files.readAllLines(s.fileFor(at));
+        assertTrue(lines.get(0).contains("\"est\":true"));
+        assertFalse(lines.get(1).contains("\"est\""));
+    }
+
+    @Test
+    void aWiderWindowKeepsMessagesFromLookingNewOnceTheyAreOlderThanTheOrdinaryOne() throws IOException {
+        Instant at = Instant.parse("2026-08-21T22:15:00Z");
+        ChatTranscriptStore narrow = new ChatTranscriptStore(dir.resolve("narrow"), ZoneOffset.UTC, 2);
+        ChatTranscriptStore wide = new ChatTranscriptStore(dir.resolve("wide"), ZoneOffset.UTC, 2);
+        wide.widenWindow(10);
+        List<ChatMessage> three = List.of(msg(at, "A", "rally in five"),
+                msg(at, "B", "bear trap tonight at nine"),
+                msg(at, "C", "who has spare speedups"));
+        narrow.append(three);
+        wide.append(three);
+
+        // Two slots hold the last two; the first has fallen out and reads as new again.
+        assertEquals(1, narrow.append(List.of(msg(at, "A", "rally in five"))));
+        assertEquals(0, wide.append(List.of(msg(at, "A", "rally in five"))));
+    }
+
+    @Test
     void reportsItsOwnSizeForTheStartupFigure() throws IOException {
         ChatTranscriptStore s = store();
         s.append(List.of(msg(Instant.parse("2026-08-21T22:15:00Z"), "Nightjar", "rally in five")));
