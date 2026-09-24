@@ -570,6 +570,18 @@ public enum ConfigurationKeyEnum {
     // the bot can be away before chat scrolls past what it can still reach.
     CHAT_CAPTURE_SCROLL_BACK_INT        ("30",              Integer.class,  ConfigCategory.SYSTEM),
 
+    // Nightly reconcile: the first pass at or after this local time each day photographs for a
+    // longer budget and reads every screen instead of stopping at the first message it already
+    // has, so a stretch the ordinary passes missed (bot paused, app closed) is filed back where it
+    // belongs. Messages carry no time of their own, so recovered ones get an estimate placed
+    // between the stored messages either side of them. Whatever the pass could not reach is logged
+    // rather than passed off as covered.
+    CHAT_RECONCILE_ENABLED_BOOL         ("true",            Boolean.class,  ConfigCategory.SYSTEM),
+    CHAT_RECONCILE_TIME_STRING          ("01:00",           String.class,   ConfigCategory.SYSTEM),
+    // Minutes of scrolling per channel. An ordinary pass gets two and a half; about seventy-five
+    // screens each, so five reaches back roughly a day of Alliance chat.
+    CHAT_RECONCILE_MINUTES_INT          ("5",               Integer.class,  ConfigCategory.SYSTEM),
+
     // Renders non-English messages into English over the network. Nothing is downloaded and no
     // account is needed; a failed lookup leaves the original text in place.
     CHAT_TRANSLATE_TO_ENGLISH_BOOL      ("true",            Boolean.class,  ConfigCategory.SYSTEM),

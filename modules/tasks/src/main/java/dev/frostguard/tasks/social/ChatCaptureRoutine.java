@@ -5,12 +5,17 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 
 import javax.imageio.ImageIO;
 
@@ -25,6 +30,8 @@ import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.engine.chat.ChatPassLog;
+import dev.frostguard.engine.chat.ChatTimeEstimator;
 import dev.frostguard.engine.chat.ChatTranscriptStore;
 import dev.frostguard.engine.chat.ChatTranslator;
 import dev.frostguard.engine.schedule.DelayedTask;
@@ -197,6 +204,30 @@ public class ChatCaptureRoutine extends DelayedTask {
      */
     private static final long CHANNEL_TIME_BUDGET_MS = 150_000L;
 
+    private static final String DEFAULT_RECONCILE_TIME = "01:00";
+    private static final int DEFAULT_RECONCILE_MINUTES = 5;
+    private static final int MAX_RECONCILE_MINUTES = 30;
+
+    /** How far past the reconcile slot the pass may start; never the exact second. */
+    private static final int RECONCILE_PAD_SECONDS = 90;
+
+    /**
+     * De-duplication memory for a reconcile, in messages, and how many day files to fill it from.
+     *
+     * <p>The ordinary window holds a few thousand messages across both channels, which is what a
+     * half-hourly pass can reach. A reconcile walks back a day or more on each, and a message older
+     * than the window looks new and would be stored a second time -- a day late, under an estimated
+     * time. Four days is well past anything five minutes of scrolling can reach, and thirty thousand
+     * signatures is a few megabytes.
+     */
+    private static final int RECONCILE_DEDUPE_WINDOW = 30_000;
+    private static final int RECONCILE_PRIME_DAYS = 4;
+
+    private boolean reconcileEnabled = true;
+    private LocalTime reconcileTime = LocalTime.parse(DEFAULT_RECONCILE_TIME);
+    private long reconcileBudgetMs = DEFAULT_RECONCILE_MINUTES * 60_000L;
+    private ChatPassLog passLog;
+
     /**
      * As far back as a walk is ever allowed to go, whatever the clock says.
      *
@@ -348,6 +379,23 @@ public class ChatCaptureRoutine extends DelayedTask {
         Integer keep = profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSCRIPT_RETENTION_DAYS_INT, Integer.class);
         retentionDays = keep != null && keep > 0 ? keep : DEFAULT_RETENTION_DAYS;
 
+        reconcileEnabled = !Boolean.FALSE.equals(
+                profile.getConfig(ConfigurationKeyEnum.CHAT_RECONCILE_ENABLED_BOOL, Boolean.class));
+        String slot = profile.getConfig(ConfigurationKeyEnum.CHAT_RECONCILE_TIME_STRING, String.class);
+        try {
+            reconcileTime = LocalTime.parse(slot == null || slot.isBlank() ? DEFAULT_RECONCILE_TIME
+                    : slot.trim());
+        } catch (DateTimeParseException malformed) {
+            // Fall back and say so: a slot nobody can read must not turn the reconcile off without
+            // a word, nor make it run at an hour nobody chose.
+            logWarning("ChatCaptureRoutine | Reconcile time '" + slot + "' is not HH:mm; using "
+                    + DEFAULT_RECONCILE_TIME + ".");
+            reconcileTime = LocalTime.parse(DEFAULT_RECONCILE_TIME);
+        }
+        Integer minutes = profile.getConfig(ConfigurationKeyEnum.CHAT_RECONCILE_MINUTES_INT, Integer.class);
+        reconcileBudgetMs = Math.min(MAX_RECONCILE_MINUTES,
+                minutes != null && minutes > 0 ? minutes : DEFAULT_RECONCILE_MINUTES) * 60_000L;
+
         boolean translate = Boolean.TRUE.equals(
                 profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSLATE_TO_ENGLISH_BOOL, Boolean.class));
         translator = new ChatTranslator(translate, TRANSLATION_CACHE_SIZE);
@@ -356,6 +404,7 @@ public class ChatCaptureRoutine extends DelayedTask {
         // Separate transcripts, because the point of having two readers is to compare them and a
         // shared file would merge their answers into one indistinguishable feed.
         store = new ChatTranscriptStore(transcriptDir(readerChoice), ZoneId.systemDefault());
+        passLog = new ChatPassLog(transcriptDir(readerChoice));
         Integer cacheMb = profile.getConfig(ConfigurationKeyEnum.CHAT_FRAME_CACHE_MB_INT,
                 Integer.class);
         frameCache = new ChatFrameCache(baseDir(), cacheMb == null ? 0 : cacheMb);
@@ -376,10 +425,19 @@ public class ChatCaptureRoutine extends DelayedTask {
             return;
         }
 
+        boolean reconcileWorld = includeWorld && reconcileOwed("world", began);
+        boolean reconcileAlliance = includeAlliance && reconcileOwed("alliance", began);
+        boolean reconcile = reconcileWorld || reconcileAlliance;
+
         // Learn what previous runs already wrote before the first overlapping screen arrives,
         // otherwise a restart re-appends the whole scroll-back it is about to re-read.
         try {
-            store.primeFromDisk();
+            if (reconcile) {
+                store.widenWindow(RECONCILE_DEDUPE_WINDOW);
+                store.primeFromDisk(RECONCILE_PRIME_DAYS);
+            } else {
+                store.primeFromDisk();
+            }
             int purged = store.purgeOlderThan(retentionDays);
             if (purged > 0) {
                 logInfo("ChatCaptureRoutine | Dropped " + purged + " transcript day(s) past the "
@@ -389,20 +447,23 @@ public class ChatCaptureRoutine extends DelayedTask {
             logWarning("ChatCaptureRoutine | Could not read the existing transcript: " + e.getMessage());
         }
 
-        logInfo("ChatCaptureRoutine | Opening chat (" + mode + ", " + scrollBack + " screens back).");
+        logInfo("ChatCaptureRoutine | Opening chat (" + mode + ", " + scrollBack + " screens back)."
+                + (reconcile ? " Nightly reconcile is owed (slot " + reconcileTime + "): "
+                + (reconcileBudgetMs / 60_000L) + " min per channel, and every screen is read."
+                : ""));
         tapNear(CHAT_OPEN);
         sleepTask(1200L);
 
         int totalNew = 0;
         try {
             if (includeWorld) {
-                totalNew += captureChannel("world", TAB_WORLD);
+                totalNew += captureChannel("world", TAB_WORLD, reconcileWorld);
             }
             if (includeAlliance) {
-                totalNew += captureChannel("alliance", TAB_ALLIANCE);
+                totalNew += captureChannel("alliance", TAB_ALLIANCE, reconcileAlliance);
             }
             if (includePersonal) {
-                totalNew += captureChannel("personal", TAB_PERSONAL);
+                totalNew += captureChannel("personal", TAB_PERSONAL, false);
             }
         } catch (RuntimeException failure) {
             // The queue retries a throwing task immediately and does not print the cause, so a
@@ -465,8 +526,37 @@ public class ChatCaptureRoutine extends DelayedTask {
         if (!due.isAfter(now)) {
             due = now;
         }
+        // The reconcile is not a second timer. It is whichever pass is first at or after the slot,
+        // so all this does is stop an ordinary pass landing up to an interval after the slot when
+        // it could land on it. See ChatReconcileSchedule for why there is no separate schedule.
+        if (reconcileEnabled) {
+            due = ChatReconcileSchedule.pullToSlot(due, now, reconcileTime,
+                    Duration.ofSeconds(ThreadLocalRandom.current().nextInt(RECONCILE_PAD_SECONDS + 1)));
+        }
         dueAt = due;
         return due;
+    }
+
+    /**
+     * Whether this channel's nightly reconcile is owed: its slot has passed and none has started
+     * since. Unknown history counts as owed -- see {@link ChatReconcileSchedule#due}.
+     */
+    private boolean reconcileOwed(String channel, LocalDateTime now) {
+        if (!reconcileEnabled) {
+            return false;
+        }
+        Optional<LocalDateTime> last = passLog.lastReconcileStart(channel)
+                .map(at -> LocalDateTime.ofInstant(at, ZoneId.systemDefault()));
+        return ChatReconcileSchedule.due(now, reconcileTime, last);
+    }
+
+    /** A lost log line must not cost a pass; it is worth a warning and nothing more. */
+    private void recordPass(Runnable write) {
+        try {
+            write.run();
+        } catch (RuntimeException e) {
+            logWarning("ChatCaptureRoutine | Could not write the pass log: " + e.getMessage());
+        }
     }
 
     /** When this pass was due, so the next can be timed from the beat rather than from the work. */
@@ -493,14 +583,23 @@ public class ChatCaptureRoutine extends DelayedTask {
      * reader stops early instead. Frames past the point where the reader caught up are deleted
      * unread.
      */
-    private int captureChannel(String channel, PointData tab) {
-        List<Path> shots = "personal".equals(channel)
+    private int captureChannel(String channel, PointData tab, boolean reconcile) {
+        boolean conversations = "personal".equals(channel);
+        List<Path> shots = conversations
                 ? photographConversations(tab)
-                : photograph(channel, tab);
+                : photograph(channel, tab, reconcile ? reconcileBudgetMs : CHANNEL_TIME_BUDGET_MS);
         if (shots.isEmpty()) {
             return 0;
         }
-        handOffForReading(channel, shots);
+        // Written when the reader has taken the frames, and not when the text is stored: reading
+        // runs later on its own thread, and a reconcile the app was closed in the middle of is
+        // still one that used the night's device time -- it must not be repeated on the strength of
+        // an unfinished read. Not written when the hand-off was refused: those frames were dropped
+        // unread, and calling that reconcile done would skip the night without saying so.
+        ChatPassLog log = passLog;
+        if (handOffForReading(channel, shots, reconcile)) {
+            recordPass(() -> log.photographed(channel, reconcile, shots.size()));
+        }
         return 0;
     }
 
@@ -693,19 +792,28 @@ public class ChatCaptureRoutine extends DelayedTask {
      * the bot gets on with the next task. Only one read runs at a time -- they share a transcript
      * file and a translator, and two at once would be racing over both -- so a pass whose reading
      * is still going when the next one photographs will queue behind it.
+     *
+     * @return whether the reader took the frames; false means they were dropped unread
      */
-    private void handOffForReading(String channel, List<Path> shots) {
+    private boolean handOffForReading(String channel, List<Path> shots, boolean reconcile) {
         if (PENDING_READS.get() >= MAX_QUEUED_READS) {
             logWarning("ChatCaptureRoutine | " + channel + ": the reader is still working through"
                     + " earlier screens, so these " + shots.size() + " are being dropped rather"
-                    + " than piled on. Reading is not keeping up with capturing.");
+                    + " than piled on. Reading is not keeping up with capturing."
+                    + (reconcile ? " This was a reconcile, so it is still owed and will run on the"
+                    + " next pass." : ""));
             clear(shots.get(0).getParent());
-            return;
+            return false;
         }
         PENDING_READS.incrementAndGet();
+        // Taken now, not looked up when the read runs: the next pass replaces these fields, and a
+        // reconcile widens its store's window -- reading into a fresh one would store everything
+        // older than the ordinary window a second time.
+        ChatTranscriptStore readInto = store;
+        ChatPassLog log = passLog;
         READER.submit(() -> {
             try {
-                int stored = read(channel, shots);
+                int stored = read(channel, shots, reconcile, readInto, log);
                 logInfo("ChatCaptureRoutine | " + channel + ": reading finished, " + stored
                         + " new message(s) stored.");
             } catch (RuntimeException e) {
@@ -714,6 +822,7 @@ public class ChatCaptureRoutine extends DelayedTask {
                 PENDING_READS.decrementAndGet();
             }
         });
+        return true;
     }
 
     /**
@@ -751,7 +860,7 @@ public class ChatCaptureRoutine extends DelayedTask {
      * which is a comparison of two pictures and costs nothing -- and without it a screen that
      * refuses to scroll produces a hundred identical photographs.
      */
-    private List<Path> photograph(String channel, PointData tab) {
+    private List<Path> photograph(String channel, PointData tab, long budgetMs) {
         tapNear(tab);
         sleepTask(1000L);
         if (!onChannel(channel)) {
@@ -779,7 +888,7 @@ public class ChatCaptureRoutine extends DelayedTask {
             return shots;
         }
 
-        long deadline = System.currentTimeMillis() + CHANNEL_TIME_BUDGET_MS;
+        long deadline = System.currentTimeMillis() + budgetMs;
         BufferedImage previous = null;
         int stalled = 0;
 
@@ -834,7 +943,7 @@ public class ChatCaptureRoutine extends DelayedTask {
         }
 
         logInfo("ChatCaptureRoutine | " + channel + ": photographed " + shots.size()
-                + " screen(s) in " + (CHANNEL_TIME_BUDGET_MS / 1000) + "s; reading them now.");
+                + " screen(s) in " + (budgetMs / 1000) + "s; reading them now.");
         return shots;
     }
 
@@ -899,7 +1008,8 @@ public class ChatCaptureRoutine extends DelayedTask {
      * never reaches are deleted along with the rest: they are older than the point the transcript
      * already covers, and keeping them would only mean reading them again next pass.
      */
-    private int read(String channel, List<Path> shots) {
+    private int read(String channel, List<Path> shots, boolean reconcile,
+                      ChatTranscriptStore transcript, ChatPassLog log) {
         dev.frostguard.vision.ocr.ChatTextReader engine = reader();
         boolean engineUp = engine != null && engine.isUp();
         logInfo("ChatCaptureRoutine | Reader: " + (engineUp ? engine.name() : "built-in"));
@@ -908,7 +1018,7 @@ public class ChatCaptureRoutine extends DelayedTask {
         // is how a change measured at 90% clean scored 72% in production.
         ChatPass pass = new ChatPass(channel, body -> translator.toEnglish(body),
                 CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
-        pass.useKnownHistory(store::alreadyStored);
+        pass.useKnownHistory(transcript::alreadyStored);
 
         // Personal is a stack of separate conversations rather than one feed. See the note on the
         // known-history stop below.
@@ -975,7 +1085,13 @@ public class ChatCaptureRoutine extends DelayedTask {
                 // five, and the routine that just went to the trouble of opening them would have
                 // photographed them for nothing. There are at most a couple of dozen frames, so
                 // they are simply all read.
-                if (!conversations && pass.reachedKnownHistory()) {
+                //
+                // A reconcile is the exception, and the reason it exists: it reads every screen it
+                // photographed. Stopping at the first message it already has is right for keeping
+                // up and wrong for filling in, because the newest history it reaches is the part
+                // that is already stored -- a hole further back, behind a stretch of known
+                // messages, is exactly what it was sent to find.
+                if (!conversations && !reconcile && pass.reachedKnownHistory()) {
                     logInfo("ChatCaptureRoutine | " + channel + ": reached already-captured"
                             + " history after " + screensRead + " of " + shots.size()
                             + " screen(s).");
@@ -988,12 +1104,36 @@ public class ChatCaptureRoutine extends DelayedTask {
             // not reach the end of what was said. It used to do that silently, which is why half a
             // day of passes lost messages without anybody noticing. Not a warning for Personal,
             // where reading every frame is the plan rather than a shortfall.
-            if (!finished && !conversations) {
+            //
+            // For a reconcile the same question is asked the other way round: it read everything on
+            // purpose, so what matters is whether it ENDED on messages it already had. If it did,
+            // nothing older is unaccounted for; if it did not, the gap reaches past what five
+            // minutes of scrolling covers, and that has to be said rather than left looking like
+            // a clean night.
+            boolean bridged = conversations || pass.reachedKnownHistory();
+            if (reconcile && !conversations) {
+                if (bridged) {
+                    logInfo("ChatCaptureRoutine | " + channel + ": reconcile reached messages it"
+                            + " already had after " + screensRead + " screen(s); nothing older is"
+                            + " unaccounted for.");
+                } else {
+                    logWarning("ChatCaptureRoutine | " + channel + ": GAP NOT BRIDGED -- the"
+                            + " reconcile read all " + screensRead + " screen(s) and was still"
+                            + " finding messages it did not have, so anything older than the"
+                            + " oldest screen was not looked at. Raise the reconcile minutes to"
+                            + " reach further.");
+                }
+            } else if (!finished && !conversations) {
                 logWarning("ChatCaptureRoutine | " + channel + ": read all " + shots.size()
                         + " photographed screen(s) and was still finding new messages. Anything"
                         + " older than that was not read this pass.");
             }
-            return store.append(pass.messages());
+            int stored = reconcile && !conversations
+                    ? appendReconciled(channel, pass, transcript)
+                    : transcript.append(pass.messages());
+            int screens = screensRead;
+            recordPass(() -> log.read(channel, reconcile, screens, stored, bridged));
+            return stored;
         } catch (IOException e) {
             logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
                     + ": " + e.getMessage());
@@ -1001,6 +1141,29 @@ public class ChatCaptureRoutine extends DelayedTask {
         } finally {
             clear(shots.get(0).getParent());
         }
+    }
+
+    /**
+     * Files what a reconcile found under times worked out from what the transcript already holds.
+     *
+     * <p>Every message read is put in the order it was said and looked up in the transcript. The
+     * ones it has are anchors; the ones it does not are placed between the anchors either side of
+     * them, so a night the bot was not listening lands in that night's file and not in today's. See
+     * {@link ChatTimeEstimator} for how far the estimate can be trusted.
+     */
+    private int appendReconciled(String channel, ChatPass pass, ChatTranscriptStore transcript)
+            throws IOException {
+        List<ChatTimeEstimator.Candidate> read = new ArrayList<>();
+        for (ChatMessage m : pass.chronological()) {
+            read.add(new ChatTimeEstimator.Candidate(m, transcript.storedAt(m).orElse(null)));
+        }
+        List<ChatMessage> placed = ChatTimeEstimator.place(read, Instant.now());
+        int stored = transcript.append(placed, true);
+        logInfo("ChatCaptureRoutine | " + channel + ": reconcile read " + read.size()
+                + " message(s); " + (read.size() - placed.size()) + " were already stored, "
+                + placed.size() + " were not and were filed under estimated times (" + stored
+                + " new after de-duplication).");
+        return stored;
     }
 
     /** Drops the photographs once they have been read; they are worth nothing twice. */
