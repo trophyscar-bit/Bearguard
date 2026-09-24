@@ -27,8 +27,20 @@ public final class ChatTranscriptCodec {
     }
 
     public static String toJson(ChatMessage m) {
+        return toJson(m, false);
+    }
+
+    /**
+     * @param estimated true when {@code at} was worked out rather than read: a message recovered
+     *                  after the fact has no time of its own, so it is written as {@code "est":true}
+     *                  and anything that cares about the exact time can leave it out
+     */
+    public static String toJson(ChatMessage m, boolean estimated) {
         ObjectNode n = MAPPER.createObjectNode();
         n.put("at", m.capturedAt().toString());
+        if (estimated) {
+            n.put("est", true);
+        }
         n.put("channel", m.channel());
         n.put("author", m.author());
         if (!m.allianceTag().isEmpty()) {
