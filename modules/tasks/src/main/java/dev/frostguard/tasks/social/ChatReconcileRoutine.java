@@ -10,8 +10,8 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 
 /**
- * A one-off catch-up of World then Alliance chat after the bot was away, run once and then left
- * inert.
+ * A one-off catch-up of chat after the bot was away, run once and then left inert. The first run
+ * covered World then Alliance; this one is Alliance alone (see {@link #includesChannel}).
  *
  * <p>It is Chat Capture with three things changed: it reconciles both channels whatever the nightly
  * schedule says, it scrolls for thirty minutes each, and it does not come back. Everything that reads,
@@ -33,7 +33,7 @@ public class ChatReconcileRoutine extends ChatCaptureRoutine {
     static final long BUDGET_MS = 30 * 60_000L;
 
     /** Names the outage this was written for, so a later one can be given its own run. */
-    static final String MARKER_NAME = "reconcile-once-2026-09-28.done";
+    static final String MARKER_NAME = "reconcile-once-2026-09-28-alliance.done";
 
     public ChatReconcileRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
@@ -47,6 +47,16 @@ public class ChatReconcileRoutine extends ChatCaptureRoutine {
     @Override
     boolean forcedReconcile() {
         return true;
+    }
+
+    /**
+     * Alliance only this time. The first run walked World for the full thirty minutes, and Alliance
+     * stopped after 108 screens when the game closed the chat panel under it, so only Alliance is
+     * owed.
+     */
+    @Override
+    boolean includesChannel(String channel) {
+        return "alliance".equals(channel);
     }
 
     @Override
@@ -73,7 +83,7 @@ public class ChatReconcileRoutine extends ChatCaptureRoutine {
             return;
         }
         logInfo("ChatReconcileRoutine | One-off catch-up starting: " + (BUDGET_MS / 60_000L)
-                + " minutes on each channel.");
+                + " minutes on Alliance.");
         try {
             super.execute();
         } finally {
