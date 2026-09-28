@@ -174,6 +174,40 @@ class ChatTranscriptStoreTest {
     }
 
     @Test
+    void namesTheNewestStoredTimeBeforeALimitForOneChannelOnly() throws IOException {
+        Instant thursday = Instant.parse("2026-09-24T17:32:00Z");
+        Instant sunday = Instant.parse("2026-09-28T03:56:00Z");
+        ChatTranscriptStore s = store();
+        s.append(List.of(msg(thursday, "Nightjar", "rally in five"),
+                msg(sunday, "Marisol", "bear trap tonight at nine"),
+                new ChatMessage(thursday.plusSeconds(60), "alliance", "Other", "INF", 0,
+                        "who has spare speedups", "", List.of(), ChatMessage.Kind.TEXT, "")));
+
+        // The store's helper messages are "world"; the alliance one must not answer for world.
+        assertEquals(java.util.Optional.of(thursday), s.newestStoredBefore("world", sunday));
+        assertEquals(java.util.Optional.of(thursday.plusSeconds(60)),
+                s.newestStoredBefore("alliance", sunday));
+        assertEquals(java.util.Optional.empty(), s.newestStoredBefore("world", thursday));
+    }
+
+    @Test
+    void aMessageTheReaderSpeltDifferentlyThisTimeIsStillTheSameStoredMessage() throws IOException {
+        // The signature joined channel and key with a NUL while the code that splits it looked for a
+        // space, so the key always came back empty and only exact matches ever de-duplicated. A
+        // clipped or misread copy of a message already stored was stored again, and a walk that
+        // met one never recognised it as history.
+        Instant at = Instant.parse("2026-08-21T22:15:00Z");
+        ChatTranscriptStore s = store();
+        s.append(List.of(msg(at, "Nightjar", "En 1:45 hora batalla de la fundicion de la legion 2")));
+
+        ChatMessage reread = msg(at.plusSeconds(600), "Nightjar",
+                "En 1:45 hora batalla de la fundicion q a de la legion 2");
+        assertTrue(s.alreadyStored(reread));
+        assertEquals(java.util.Optional.of(at), s.storedAt(reread));
+        assertEquals(0, s.append(List.of(reread)));
+    }
+
+    @Test
     void anEstimatedMessageIsMarkedInItsLineAndAnOrdinaryOneIsNot() throws IOException {
         Instant at = Instant.parse("2026-08-21T22:15:00Z");
         ChatTranscriptStore s = store();
