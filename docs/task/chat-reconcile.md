@@ -30,8 +30,10 @@ The reconcile is the same pass with three differences, run once a day.
 
 It is sized for a night's gap, not an outage of days. The 82 h hole of
 2026-09-24 to 09-27 is about 3,400 Alliance messages, roughly 2,100 screens or
-70 minutes of scrolling, and about 40 minutes for World. `SAFETY_SCREEN_LIMIT`
-(500 screens, about 17 minutes) also caps any one walk.
+70 minutes of scrolling, and about 40 minutes for World. The minutes setting
+accepts up to 180, and the runaway guard on screens scales with it (one screen a
+second of budget, never fewer than 500); a fixed 500 would cut a long walk off at
+about 17 minutes whatever the setting said.
 
 The walk also has to scroll through everything already stored that is newer than
 the hole before it reaches it, at the same 1.6 messages a screen. Eight hours of

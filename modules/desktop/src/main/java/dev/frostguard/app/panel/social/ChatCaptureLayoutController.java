@@ -64,7 +64,10 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
         registerTimeTextField(textFieldChatReconcileTime, labelChatReconcileTimeError,
                 ConfigurationKeyEnum.CHAT_RECONCILE_TIME_STRING,
                 SettingValidators.localTime("Catch-up time"));
-        comboBoxChatReconcileMinutes.getItems().addAll(3, 5, 8, 10, 15);
+        // The long ones are for recovering an outage of days, not for every night: 60 minutes is
+        // about 2,900 Alliance messages, nearly three days of chat, and the bot does nothing else
+        // while it scrolls.
+        comboBoxChatReconcileMinutes.getItems().addAll(3, 5, 8, 10, 15, 30, 60, 90, 120);
         comboBoxChatReconcileMinutes.setCellFactory(lv -> minutesCell());
         comboBoxChatReconcileMinutes.setButtonCell(minutesCell());
         comboBoxMappings.put(comboBoxChatReconcileMinutes,
