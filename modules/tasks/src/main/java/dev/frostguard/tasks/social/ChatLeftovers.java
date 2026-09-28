@@ -33,10 +33,14 @@ final class ChatLeftovers {
     /**
      * @param pending  the folder frame folders are made in
      * @param before   the start of this session; anything modified since belongs to it
+     * @param since    the oldest a folder may be. Reading frames from days ago is worse than not
+     *                 reading them: a message carries the time it was read, so six-day-old chat
+     *                 would be filed as new today, and it is outside the window that would
+     *                 recognise it as already stored.
      * @param inFlight folders already handed to the reader
      * @return the leftovers, oldest first, so the transcript fills in the order it was said
      */
-    static List<Leftover> find(Path pending, Instant before, Set<Path> inFlight) {
+    static List<Leftover> find(Path pending, Instant since, Instant before, Set<Path> inFlight) {
         List<Leftover> found = new ArrayList<>();
         if (!Files.isDirectory(pending)) {
             return found;
@@ -47,7 +51,7 @@ final class ChatLeftovers {
                             .thenComparing(dir -> dir.getFileName().toString()))
                     .forEach(dir -> {
                 String channel = channelOf(dir.getFileName().toString());
-                if (channel == null || inFlight.contains(dir) || !olderThan(dir, before)
+                if (channel == null || inFlight.contains(dir) || !modifiedBetween(dir, since, before)
                         || !hasFrames(dir)) {
                     return;
                 }
@@ -81,9 +85,10 @@ final class ChatLeftovers {
         return null;
     }
 
-    private static boolean olderThan(Path dir, Instant before) {
+    private static boolean modifiedBetween(Path dir, Instant since, Instant before) {
         try {
-            return Files.getLastModifiedTime(dir).toInstant().isBefore(before);
+            Instant at = Files.getLastModifiedTime(dir).toInstant();
+            return at.isBefore(before) && !at.isBefore(since);
         } catch (IOException e) {
             return false;
         }
