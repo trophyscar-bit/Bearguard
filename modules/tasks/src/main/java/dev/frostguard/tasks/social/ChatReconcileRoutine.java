@@ -60,6 +60,11 @@ public class ChatReconcileRoutine extends ChatCaptureRoutine {
     }
 
     @Override
+    boolean readsLeftoverFrames() {
+        return true;
+    }
+
+    @Override
     void applySettingOverrides() {
         reconcileBudgetMs = BUDGET_MS;
     }
