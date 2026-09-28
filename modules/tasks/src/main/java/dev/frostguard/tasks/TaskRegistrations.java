@@ -143,6 +143,7 @@ public class TaskRegistrations {
             // Bearguard
             case EVENT_CRYPTID_HOST -> new CryptidHostingRoutine(profile, type);
             case CHAT_CAPTURE -> new ChatCaptureRoutine(profile, type);
+            case CHAT_RECONCILE -> new ChatReconcileRoutine(profile, type);
             case RESOURCE_STOCKPILE_SCAN -> new ResourceStockpileRoutine(profile, type);
             case TIMER_SWEEP -> new TimerSweepRoutine(profile, type);
 
