@@ -879,6 +879,9 @@ public class ChatCaptureRoutine extends DelayedTask {
     /** Folders the reader holds, so leftovers are not confused with them. */
     private static final java.util.Set<Path> IN_FLIGHT = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    /** How old a leftover folder may be and still be read. Older is ignored, and left on disk. */
+    private static final java.time.Duration LEFTOVER_MAX_AGE = java.time.Duration.ofHours(12);
+
     /** When this session began; a frame folder modified since belongs to it, not to a past one. */
     private static final Instant SESSION_START = Instant.now();
 
@@ -893,7 +896,7 @@ public class ChatCaptureRoutine extends DelayedTask {
      */
     private void readLeftoverFrames() {
         for (ChatLeftovers.Leftover left : ChatLeftovers.find(baseDir().resolve("pending"),
-                SESSION_START, IN_FLIGHT)) {
+                SESSION_START.minus(LEFTOVER_MAX_AGE), SESSION_START, IN_FLIGHT)) {
             List<Path> shots;
             try (var files = Files.list(left.dir())) {
                 shots = files.filter(p -> p.getFileName().toString().endsWith(".png")).sorted().toList();
