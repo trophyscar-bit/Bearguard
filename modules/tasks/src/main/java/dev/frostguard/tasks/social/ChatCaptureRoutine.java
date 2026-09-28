@@ -1172,7 +1172,20 @@ public class ChatCaptureRoutine extends DelayedTask {
         for (ChatMessage m : pass.chronological()) {
             read.add(new ChatTimeEstimator.Candidate(m, transcript.storedAt(m).orElse(null)));
         }
-        List<ChatMessage> placed = ChatTimeEstimator.place(read, Instant.now());
+        // The oldest stored message this walk reached, and the newest thing the transcript holds
+        // from before it. A walk that stops short of the far end of a hole reaches neither the
+        // last message stored before the hole nor anything older, so without that bound its
+        // messages could only be counted back from the newest anchor at the channel's pace.
+        Instant oldestReached = null;
+        for (ChatTimeEstimator.Candidate c : read) {
+            if (c.storedAt() != null && (oldestReached == null || c.storedAt().isBefore(oldestReached))) {
+                oldestReached = c.storedAt();
+            }
+        }
+        Instant lowerBound = oldestReached == null ? null
+                : transcript.newestStoredBefore(channel, oldestReached).orElse(null);
+        List<ChatMessage> placed = ChatTimeEstimator.place(read, Instant.now(),
+                ChatTimeEstimator.spacingFor(channel), lowerBound);
         int stored = transcript.append(placed, true);
         logInfo("ChatCaptureRoutine | " + channel + ": reconcile read " + read.size()
                 + " message(s); " + (read.size() - placed.size()) + " were already stored, "
