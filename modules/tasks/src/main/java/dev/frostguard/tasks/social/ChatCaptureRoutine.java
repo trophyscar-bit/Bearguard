@@ -464,6 +464,10 @@ public class ChatCaptureRoutine extends DelayedTask {
             logWarning("ChatCaptureRoutine | Could not read the existing transcript: " + e.getMessage());
         }
 
+        if (readsLeftoverFrames()) {
+            readLeftoverFrames();
+        }
+
         logInfo("ChatCaptureRoutine | Opening chat (" + mode + ", " + scrollBack + " screens back)."
                 + (reconcile ? " Nightly reconcile is owed (slot " + reconcileTime + "): "
                 + (reconcileBudgetMs / 60_000L) + " min per channel, and every screen is read."
@@ -839,6 +843,19 @@ public class ChatCaptureRoutine extends DelayedTask {
             clear(shots.get(0).getParent());
             return false;
         }
+        submitRead(channel, shots, reconcile);
+        return true;
+    }
+
+    /**
+     * Queues a read unconditionally.
+     *
+     * <p>Split from the decision to accept it because dropping is right for a fresh pass, which the
+     * next one will re-cover, and wrong for a leftover folder, whose frames exist nowhere else.
+     */
+    private void submitRead(String channel, List<Path> shots, boolean reconcile) {
+        Path folder = shots.get(0).getParent();
+        IN_FLIGHT.add(folder);
         PENDING_READS.incrementAndGet();
         // Taken now, not looked up when the read runs: the next pass replaces these fields, and a
         // reconcile widens its store's window -- reading into a fresh one would store everything
@@ -854,9 +871,41 @@ public class ChatCaptureRoutine extends DelayedTask {
                 logError("ChatCaptureRoutine | " + channel + ": reading failed: " + e, e);
             } finally {
                 PENDING_READS.decrementAndGet();
+                IN_FLIGHT.remove(folder);
             }
         });
-        return true;
+    }
+
+    /** Folders the reader holds, so leftovers are not confused with them. */
+    private static final java.util.Set<Path> IN_FLIGHT = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** When this session began; a frame folder modified since belongs to it, not to a past one. */
+    private static final Instant SESSION_START = Instant.now();
+
+    /** Whether this pass first reads frames a previous session left unread. Only a catch-up does. */
+    boolean readsLeftoverFrames() {
+        return false;
+    }
+
+    /**
+     * Hands the reader every frame folder a previous session photographed and never read, oldest
+     * first. Each is read as an ordinary pass: that is what it was.
+     */
+    private void readLeftoverFrames() {
+        for (ChatLeftovers.Leftover left : ChatLeftovers.find(baseDir().resolve("pending"),
+                SESSION_START, IN_FLIGHT)) {
+            List<Path> shots;
+            try (var files = Files.list(left.dir())) {
+                shots = files.filter(p -> p.getFileName().toString().endsWith(".png")).sorted().toList();
+            } catch (IOException e) {
+                logWarning("ChatCaptureRoutine | Could not list " + left.dir() + ": " + e.getMessage());
+                continue;
+            }
+            logInfo("ChatCaptureRoutine | " + left.channel() + ": reading " + shots.size()
+                    + " leftover frame(s) from " + left.dir().getFileName()
+                    + ", which a previous session photographed and never read.");
+            submitRead(left.channel(), shots, false);
+        }
     }
 
     /**
