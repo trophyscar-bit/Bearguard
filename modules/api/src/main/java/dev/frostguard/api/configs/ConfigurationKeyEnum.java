@@ -578,8 +578,10 @@ public enum ConfigurationKeyEnum {
     // rather than passed off as covered.
     CHAT_RECONCILE_ENABLED_BOOL         ("true",            Boolean.class,  ConfigCategory.SYSTEM),
     CHAT_RECONCILE_TIME_STRING          ("01:00",           String.class,   ConfigCategory.SYSTEM),
-    // Minutes of scrolling per channel. An ordinary pass gets two and a half; about seventy-five
-    // screens each, so five reaches back roughly a day of Alliance chat.
+    // Minutes of scrolling per channel. An ordinary pass gets two and a half. Measured 2026-09-28
+    // from the account log: 0.5 screens a second and about 1.6 new messages a screen, so five
+    // minutes reaches about 240 Alliance messages (roughly six hours at 990 a day) and about 220
+    // World messages (roughly nine hours at 556 a day). A multi-day outage needs far longer.
     CHAT_RECONCILE_MINUTES_INT          ("5",               Integer.class,  ConfigCategory.SYSTEM),
 
     // Renders non-English messages into English over the network. Nothing is downloaded and no
