@@ -225,7 +225,7 @@ public class ChatCaptureRoutine extends DelayedTask {
 
     private boolean reconcileEnabled = true;
     private LocalTime reconcileTime = LocalTime.parse(DEFAULT_RECONCILE_TIME);
-    private long reconcileBudgetMs = DEFAULT_RECONCILE_MINUTES * 60_000L;
+    long reconcileBudgetMs = DEFAULT_RECONCILE_MINUTES * 60_000L;
     private ChatPassLog passLog;
 
     /**
@@ -409,6 +409,7 @@ public class ChatCaptureRoutine extends DelayedTask {
         Integer minutes = profile.getConfig(ConfigurationKeyEnum.CHAT_RECONCILE_MINUTES_INT, Integer.class);
         reconcileBudgetMs = Math.min(MAX_RECONCILE_MINUTES,
                 minutes != null && minutes > 0 ? minutes : DEFAULT_RECONCILE_MINUTES) * 60_000L;
+        applySettingOverrides();
 
         boolean translate = Boolean.TRUE.equals(
                 profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSLATE_TO_ENGLISH_BOOL, Boolean.class));
@@ -439,8 +440,9 @@ public class ChatCaptureRoutine extends DelayedTask {
             return;
         }
 
-        boolean reconcileWorld = includeWorld && reconcileOwed("world", began);
-        boolean reconcileAlliance = includeAlliance && reconcileOwed("alliance", began);
+        boolean reconcileWorld = includeWorld && (forcedReconcile() || reconcileOwed("world", began));
+        boolean reconcileAlliance = includeAlliance
+                && (forcedReconcile() || reconcileOwed("alliance", began));
         boolean reconcile = reconcileWorld || reconcileAlliance;
 
         // Learn what previous runs already wrote before the first overlapping screen arrives,
@@ -549,6 +551,18 @@ public class ChatCaptureRoutine extends DelayedTask {
         }
         dueAt = due;
         return due;
+    }
+
+    /**
+     * Whether every channel is reconciled this pass whatever the nightly schedule says. False for
+     * the ordinary task; a one-off catch-up task overrides it.
+     */
+    boolean forcedReconcile() {
+        return false;
+    }
+
+    /** Lets a catch-up task set its own budget once the profile's settings have been read. */
+    void applySettingOverrides() {
     }
 
     /**
