@@ -440,8 +440,9 @@ public class ChatCaptureRoutine extends DelayedTask {
             return;
         }
 
-        boolean reconcileWorld = includeWorld && (forcedReconcile() || reconcileOwed("world", began));
-        boolean reconcileAlliance = includeAlliance
+        boolean reconcileWorld = includeWorld && includesChannel("world")
+                && (forcedReconcile() || reconcileOwed("world", began));
+        boolean reconcileAlliance = includeAlliance && includesChannel("alliance")
                 && (forcedReconcile() || reconcileOwed("alliance", began));
         boolean reconcile = reconcileWorld || reconcileAlliance;
 
@@ -472,10 +473,10 @@ public class ChatCaptureRoutine extends DelayedTask {
 
         int totalNew = 0;
         try {
-            if (includeWorld) {
+            if (includeWorld && includesChannel("world")) {
                 totalNew += captureChannel("world", TAB_WORLD, reconcileWorld);
             }
-            if (includeAlliance) {
+            if (includeAlliance && includesChannel("alliance")) {
                 totalNew += captureChannel("alliance", TAB_ALLIANCE, reconcileAlliance);
             }
             if (includePersonal) {
@@ -559,6 +560,11 @@ public class ChatCaptureRoutine extends DelayedTask {
      */
     boolean forcedReconcile() {
         return false;
+    }
+
+    /** Whether this pass covers a channel at all. Only a catch-up task narrows it. */
+    boolean includesChannel(String channel) {
+        return true;
     }
 
     /** Lets a catch-up task set its own budget once the profile's settings have been read. */
@@ -916,7 +922,8 @@ public class ChatCaptureRoutine extends DelayedTask {
             return shots;
         }
 
-        long deadline = System.currentTimeMillis() + budgetMs;
+        long startedAt = System.currentTimeMillis();
+        long deadline = startedAt + budgetMs;
         BufferedImage previous = null;
         int stalled = 0;
 
@@ -972,7 +979,8 @@ public class ChatCaptureRoutine extends DelayedTask {
         }
 
         logInfo("ChatCaptureRoutine | " + channel + ": photographed " + shots.size()
-                + " screen(s) in " + (budgetMs / 1000) + "s; reading them now.");
+                + " screen(s) in " + ((System.currentTimeMillis() - startedAt) / 1000) + "s of a "
+                + (budgetMs / 1000) + "s budget; reading them now.");
         return shots;
     }
 
