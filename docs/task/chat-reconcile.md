@@ -9,8 +9,11 @@ finish, and nothing recorded that it happened.
 The reconcile is the same pass with three differences, run once a day.
 
 - **Longer.** `CHAT_RECONCILE_MINUTES_INT` per channel (default 5) instead of
-  150 s. Measured 2026-09-23: 75 screens per 150 s, so five minutes is about 150
-  screens.
+  150 s. Measured 2026-09-28 from the account log: 75 screens per 150 s, and
+  1.6 new messages per screen scrolled (Alliance; World 1.5) over 349 and 190
+  passes. Alliance runs about 990 messages a day and World about 556, so five
+  minutes is about 150 screens, 240 Alliance messages, roughly six hours of
+  Alliance chat and nine of World.
 - **Reads everything.** It does not stop at the first known message. The newest
   history it reaches is the part already stored, and a hole behind a run of
   known messages is what it was sent to find. Cost: reading 150 screens runs
@@ -22,6 +25,19 @@ The reconcile is the same pass with three differences, run once a day.
   oldest run is counted back 30 s per message, never past 48 h). Estimated lines
   carry `"est":true`. A stored time is when a pass read the message, so an
   estimate can run late by up to one pass interval.
+
+## What it is not for
+
+It is sized for a night's gap, not an outage of days. The 82 h hole of
+2026-09-24 to 09-27 is about 3,400 Alliance messages, roughly 2,100 screens or
+70 minutes of scrolling, and about 40 minutes for World. `SAFETY_SCREEN_LIMIT`
+(500 screens, about 17 minutes) also caps any one walk.
+
+The walk also has to scroll through everything already stored that is newer than
+the hole before it reaches it, at the same 1.6 messages a screen. Eight hours of
+stored Alliance chat is about eight minutes of scrolling, so a reconcile run
+hours after the bot resumed can spend its whole budget on messages it already
+has and recover nothing. Run soon after the bot comes back.
 
 ## When it runs
 
