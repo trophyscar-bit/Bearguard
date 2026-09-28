@@ -53,7 +53,7 @@
                         <ComboBox fx:id="comboBoxChatReconcileMinutes" prefWidth="150.0" />
                     </HBox>
                     <Label styleClass="task-card-note" wrapText="true"
-                           text="Per channel. An ordinary check scrolls two and a half minutes, about seventy-five screens. Five minutes reaches back roughly a day of Alliance chat; World is busier, so it reaches less far. The catch-up holds the emulator for twice this (World, then Alliance) and reading afterwards takes longer still, so pick an hour you are not using it." />
+                           text="Per channel. An ordinary check scrolls two and a half minutes, about seventy-five screens. Measured, that is about 1.6 messages a screen, so five minutes reaches back roughly six hours of Alliance chat and nine of World; a gap of days needs far longer. The catch-up holds the emulator for twice this (World, then Alliance) and reading afterwards takes longer still, so pick an hour you are not using it." />
 
                     <Separator style="-fx-opacity: 0.25;" />
 
