@@ -206,7 +206,7 @@ public class ChatCaptureRoutine extends DelayedTask {
 
     private static final String DEFAULT_RECONCILE_TIME = "01:00";
     private static final int DEFAULT_RECONCILE_MINUTES = 5;
-    private static final int MAX_RECONCILE_MINUTES = 30;
+    private static final int MAX_RECONCILE_MINUTES = 180;
 
     /** How far past the reconcile slot the pass may start; never the exact second. */
     private static final int RECONCILE_PAD_SECONDS = 90;
@@ -235,6 +235,20 @@ public class ChatCaptureRoutine extends DelayedTask {
      * failed and the walk would never stop on its own.
      */
     private static final int SAFETY_SCREEN_LIMIT = 500;
+
+    /**
+     * The guard for a walk of this length: never fewer than the fixed limit, and otherwise one
+     * screen a second of budget.
+     *
+     * <p>The fixed limit is about seventeen minutes at the measured half a screen a second, which
+     * silently cut a longer reconcile short while its budget said otherwise. One a second is twice
+     * the measured rate, so a walk that is scrolling normally is stopped by the clock, and only one
+     * that is somehow running away is stopped by this.
+     */
+    private static int screenLimit(long budgetMs) {
+        return Math.max(SAFETY_SCREEN_LIMIT, (int) (budgetMs / 1000L));
+    }
+
     private int retentionDays = DEFAULT_RETENTION_DAYS;
 
     private ChatTranscriptStore store;
@@ -892,7 +906,8 @@ public class ChatCaptureRoutine extends DelayedTask {
         BufferedImage previous = null;
         int stalled = 0;
 
-        for (int i = 0; i < SAFETY_SCREEN_LIMIT && System.currentTimeMillis() < deadline; i++) {
+        int limit = screenLimit(budgetMs);
+        for (int i = 0; i < limit && System.currentTimeMillis() < deadline; i++) {
             RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
             if (frame == null || !frame.isValid()) {
                 logWarning("ChatCaptureRoutine | Could not capture a frame for " + channel
