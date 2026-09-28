@@ -19,6 +19,7 @@ import org.junit.jupiter.api.io.TempDir;
 class ChatLeftoversTest {
 
     private static final Instant SESSION = Instant.parse("2026-09-28T14:14:00Z");
+    private static final Instant SINCE = SESSION.minusSeconds(12 * 3600);
 
     @TempDir
     Path pending;
@@ -37,7 +38,7 @@ class ChatLeftoversTest {
         Path later = folder("alliance-20260928-100923", SESSION.minusSeconds(200), true);
         Path earlier = folder("world-20260928-100649", SESSION.minusSeconds(400), true);
 
-        List<ChatLeftovers.Leftover> found = ChatLeftovers.find(pending, SESSION, Set.of());
+        List<ChatLeftovers.Leftover> found = ChatLeftovers.find(pending, SINCE, SESSION, Set.of());
 
         assertEquals(List.of(new ChatLeftovers.Leftover("world", earlier),
                 new ChatLeftovers.Leftover("alliance", later)), found);
@@ -48,7 +49,18 @@ class ChatLeftoversTest {
         folder("world-20260928-101611", SESSION.plusSeconds(60), true);
         Path queued = folder("alliance-20260928-100923", SESSION.minusSeconds(200), true);
 
-        assertEquals(List.of(), ChatLeftovers.find(pending, SESSION, Set.of(queued)));
+        assertEquals(List.of(), ChatLeftovers.find(pending, SINCE, SESSION, Set.of(queued)));
+    }
+
+    @Test
+    void ignoresFoldersTooOldToBeReadSafely() throws IOException {
+        // Six days old: read now it would be filed as new today, outside the window that would
+        // recognise it as already stored.
+        folder("alliance-20260922-115104", SESSION.minusSeconds(6 * 86400), true);
+        Path recent = folder("alliance-20260928-100923", SESSION.minusSeconds(200), true);
+
+        assertEquals(List.of(new ChatLeftovers.Leftover("alliance", recent)),
+                ChatLeftovers.find(pending, SINCE, SESSION, Set.of()));
     }
 
     @Test
@@ -57,11 +69,11 @@ class ChatLeftoversTest {
         folder("personal-20260928-100000", SESSION.minusSeconds(300), true);
         folder("notes", SESSION.minusSeconds(300), true);
 
-        assertEquals(List.of(), ChatLeftovers.find(pending, SESSION, Set.of()));
+        assertEquals(List.of(), ChatLeftovers.find(pending, SINCE, SESSION, Set.of()));
     }
 
     @Test
     void aMissingPendingFolderIsNotAnError() {
-        assertEquals(List.of(), ChatLeftovers.find(pending.resolve("nope"), SESSION, Set.of()));
+        assertEquals(List.of(), ChatLeftovers.find(pending.resolve("nope"), SINCE, SESSION, Set.of()));
     }
 }
