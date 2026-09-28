@@ -34,8 +34,30 @@ public final class ChatTimeEstimator {
      */
     static final Duration FALLBACK_SPACING = Duration.ofSeconds(30);
 
-    /** Estimates never reach further back than this from the anchor they were counted from. */
-    static final Duration MAX_REACH = Duration.ofHours(48);
+    /**
+     * Estimates never reach further back than this from the anchor they were counted from.
+     *
+     * <p>Seven days rather than two: two capped a long reconcile of a multi-day outage at the last
+     * forty-eight hours, which put every message it recovered on the newest two days.
+     */
+    static final Duration MAX_REACH = Duration.ofDays(7);
+
+    /**
+     * Typical gap between messages, measured 2026-09-28 from stored days: about 990 Alliance and
+     * 556 World messages a day.
+     *
+     * <p>A fixed thirty seconds treated every message as a burst. A run of two thousand recovered
+     * messages counted back at that rate spans seventeen hours, so a three-day walk landed entirely
+     * on the newest afternoon. These are the channel's real average pace, quiet nights included.
+     */
+    public static final Duration ALLIANCE_SPACING = Duration.ofSeconds(87);
+    public static final Duration WORLD_SPACING = Duration.ofSeconds(155);
+
+    /** The spacing for a channel, or the fallback when it is not one of these. */
+    public static Duration spacingFor(String channel) {
+        return "alliance".equals(channel) ? ALLIANCE_SPACING
+                : "world".equals(channel) ? WORLD_SPACING : FALLBACK_SPACING;
+    }
 
     private ChatTimeEstimator() {
     }
@@ -58,6 +80,21 @@ public final class ChatTimeEstimator {
      * @return only the unknown messages, oldest first, each filed under an estimated time
      */
     public static List<ChatMessage> place(List<Candidate> chronological, Instant now) {
+        return place(chronological, now, FALLBACK_SPACING, null);
+    }
+
+    /**
+     * Places the messages the transcript does not hold.
+     *
+     * @param spacing    how far apart this channel's messages typically fall, used to count a run
+     *                   back from the oldest stored message it reached
+     * @param lowerBound the newest time the transcript holds that is older than everything this
+     *                   walk reached, or null when it holds nothing that old. Nothing recovered can
+     *                   be older than it, and a run that would not fit between it and the oldest
+     *                   anchor is spread across that whole gap instead.
+     */
+    public static List<ChatMessage> place(List<Candidate> chronological, Instant now,
+                                          Duration spacing, Instant lowerBound) {
         int size = chronological.size();
         Instant[] anchor = new Instant[size];
         Instant running = null;
@@ -88,16 +125,20 @@ public final class ChatTimeEstimator {
             int run = end - i + 1;
             Instant before = i > 0 ? anchor[i - 1] : null;
             Instant after = end + 1 < size ? anchor[end + 1] : null;
+            // Only a run at the very old end has nothing before it in this walk. The transcript
+            // may still hold something older that the walk never reached, and that is a bound.
+            Instant floor = before != null ? null : lowerBound;
             for (int k = 0; k < run; k++) {
                 placed.add(chronological.get(i + k).message()
-                        .withCapturedAt(timeFor(k, run, before, after, now)));
+                        .withCapturedAt(timeFor(k, run, before, after, now, spacing, floor)));
             }
             i = end + 1;
         }
         return placed;
     }
 
-    private static Instant timeFor(int index, int run, Instant before, Instant after, Instant now) {
+    private static Instant timeFor(int index, int run, Instant before, Instant after, Instant now,
+                                   Duration spacing, Instant floor) {
         if (before != null) {
             // Nothing stored after this run means it is the newest thing said, bounded by now.
             Instant upper = after != null ? after : now;
@@ -110,7 +151,14 @@ public final class ChatTimeEstimator {
         // Nothing stored before this run: it reaches back past everything the transcript holds,
         // so it is counted backwards from what is known -- the first stored message, or now.
         Instant top = after != null ? after : now;
-        Duration back = FALLBACK_SPACING.multipliedBy(run - index);
+        if (floor != null && floor.isBefore(top)
+                && spacing.multipliedBy(run).compareTo(Duration.between(floor, top)) >= 0) {
+            // At the channel's usual rate this run would reach back past the newest thing the
+            // transcript holds from before it, so it cannot all lie after that. It is the whole
+            // hole, and is spread across it.
+            return floor.plus(Duration.between(floor, top).multipliedBy(index + 1).dividedBy(run + 1));
+        }
+        Duration back = spacing.multipliedBy(run - index);
         if (back.compareTo(MAX_REACH) > 0) {
             back = MAX_REACH;
         }

@@ -89,7 +89,8 @@ class ChatTimeEstimatorTest {
     @Test
     void aVeryLongOldRunIsNotSpreadBeyondTheReachLimit() {
         List<Candidate> run = new ArrayList<>();
-        for (int i = 0; i < 20_000; i++) {
+        // Thirty seconds each at this count is more than the seven-day cap.
+        for (int i = 0; i < 30_000; i++) {
             run.add(unknown("m" + i));
         }
         run.add(known("anchor", T0));
@@ -108,6 +109,66 @@ class ChatTimeEstimatorTest {
 
         assertEquals(1, placed.size());
         assertFalse(placed.get(0).capturedAt().isBefore(T0.plus(Duration.ofMinutes(50))));
+    }
+
+    @Test
+    void aThreeDayWalkIsSpreadOverThreeDaysNotCrammedIntoTheNewestAfternoon() {
+        // The failure this exists for: two thousand Alliance messages recovered from a hole that
+        // starts days back, with the walk stopping short of the old end. Counted back at a fixed
+        // thirty seconds they span seventeen hours, all on the last day.
+        Instant sunday = Instant.parse("2026-09-28T03:56:00Z");
+        Instant thursday = Instant.parse("2026-09-24T17:32:00Z");
+        List<Candidate> walk = new ArrayList<>();
+        for (int i = 0; i < 2_000; i++) {
+            walk.add(unknown("m" + i));
+        }
+        walk.add(known("first stored after the hole", sunday));
+
+        List<ChatMessage> placed = ChatTimeEstimator.place(walk, NOW,
+                ChatTimeEstimator.ALLIANCE_SPACING, thursday);
+
+        Duration span = Duration.between(placed.get(0).capturedAt(),
+                placed.get(placed.size() - 1).capturedAt());
+        // 2,000 messages at 87 s is about 48 hours: two days, not seventeen hours.
+        assertTrue(span.toHours() >= 47 && span.toHours() <= 49, "span was " + span);
+        assertTrue(placed.get(0).capturedAt().isAfter(thursday));
+        assertTrue(placed.get(placed.size() - 1).capturedAt().isBefore(sunday));
+    }
+
+    @Test
+    void aWalkThatReachesTheWholeHoleIsSpreadAcrossExactlyThatHole() {
+        Instant sunday = Instant.parse("2026-09-28T03:56:00Z");
+        Instant thursday = Instant.parse("2026-09-24T17:32:00Z");
+        List<Candidate> walk = new ArrayList<>();
+        // More than the hole can hold at the channel's pace: it must be compressed into it.
+        for (int i = 0; i < 6_000; i++) {
+            walk.add(unknown("m" + i));
+        }
+        walk.add(known("first stored after the hole", sunday));
+
+        List<ChatMessage> placed = ChatTimeEstimator.place(walk, NOW,
+                ChatTimeEstimator.ALLIANCE_SPACING, thursday);
+
+        assertTrue(placed.get(0).capturedAt().isAfter(thursday));
+        assertTrue(placed.get(placed.size() - 1).capturedAt().isBefore(sunday));
+        Duration first = Duration.between(thursday, placed.get(0).capturedAt());
+        assertTrue(first.toMinutes() < 60, "first message should sit just after the hole opens: " + first);
+    }
+
+    @Test
+    void theFloorIsIgnoredWhenTheWalkHasAStoredMessageBeforeTheRun() {
+        List<ChatMessage> placed = ChatTimeEstimator.place(List.of(
+                known("before", T0), unknown("a"), known("after", T0.plus(Duration.ofMinutes(60)))),
+                NOW, ChatTimeEstimator.ALLIANCE_SPACING, T0.minus(Duration.ofDays(3)));
+
+        assertEquals(T0.plus(Duration.ofMinutes(30)), placed.get(0).capturedAt());
+    }
+
+    @Test
+    void eachChannelHasItsOwnMeasuredPace() {
+        assertEquals(ChatTimeEstimator.ALLIANCE_SPACING, ChatTimeEstimator.spacingFor("alliance"));
+        assertEquals(ChatTimeEstimator.WORLD_SPACING, ChatTimeEstimator.spacingFor("world"));
+        assertEquals(ChatTimeEstimator.FALLBACK_SPACING, ChatTimeEstimator.spacingFor("personal"));
     }
 
     @Test
