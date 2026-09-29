@@ -131,11 +131,7 @@ public enum TpDailyTaskEnum {
     EVENT_CRYPTID_HOST     (900, "Host Cryptid Rally",           ConfigurationKeyEnum.CRYPTID_HOST_ENABLED_BOOL,              RoutineCategory.EVENT),
     // No category here is a clean fit - closest existing bucket is ALLIANCE,
     // since Alliance chat is one of the three captured channels.
-    CHAT_CAPTURE           (901, "Chat Capture",                 ConfigurationKeyEnum.CHAT_CAPTURE_ENABLED_BOOL,              RoutineCategory.ALLIANCE),
-    // One-shot catch-up of World then Alliance chat after an outage. Gated on the SAME bool as Chat
-    // Capture on purpose: it queues itself whenever capture is on, with no setting to find or set.
-    CHAT_RECONCILE         (930, "Chat Reconcile",               ConfigurationKeyEnum.CHAT_CAPTURE_ENABLED_BOOL,              RoutineCategory.ALLIANCE),
-    // Deliberately gated on the SAME bool as Smart Gathering
+    CHAT_CAPTURE           (901, "Chat Capture",                 ConfigurationKeyEnum.CHAT_CAPTURE_ENABLED_BOOL,              RoutineCategory.ALLIANCE),    // Deliberately gated on the SAME bool as Smart Gathering
     // (GATHER_SMART_PRIORITY_BOOL), not a separate flag - the operator shouldn't need to find and
     // check a second, unrelated-looking checkbox just to make the one he actually checked
     // do anything. Enabling Smart Gathering is enabling this scan; there is no standalone toggle.
