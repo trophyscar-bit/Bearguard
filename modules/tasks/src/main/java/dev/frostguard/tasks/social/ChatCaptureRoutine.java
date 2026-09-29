@@ -225,7 +225,7 @@ public class ChatCaptureRoutine extends DelayedTask {
 
     private boolean reconcileEnabled = true;
     private LocalTime reconcileTime = LocalTime.parse(DEFAULT_RECONCILE_TIME);
-    long reconcileBudgetMs = DEFAULT_RECONCILE_MINUTES * 60_000L;
+    private long reconcileBudgetMs = DEFAULT_RECONCILE_MINUTES * 60_000L;
     private ChatPassLog passLog;
 
     /**
@@ -409,7 +409,6 @@ public class ChatCaptureRoutine extends DelayedTask {
         Integer minutes = profile.getConfig(ConfigurationKeyEnum.CHAT_RECONCILE_MINUTES_INT, Integer.class);
         reconcileBudgetMs = Math.min(MAX_RECONCILE_MINUTES,
                 minutes != null && minutes > 0 ? minutes : DEFAULT_RECONCILE_MINUTES) * 60_000L;
-        applySettingOverrides();
 
         boolean translate = Boolean.TRUE.equals(
                 profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSLATE_TO_ENGLISH_BOOL, Boolean.class));
@@ -440,10 +439,8 @@ public class ChatCaptureRoutine extends DelayedTask {
             return;
         }
 
-        boolean reconcileWorld = includeWorld && includesChannel("world")
-                && (forcedReconcile() || reconcileOwed("world", began));
-        boolean reconcileAlliance = includeAlliance && includesChannel("alliance")
-                && (forcedReconcile() || reconcileOwed("alliance", began));
+        boolean reconcileWorld = includeWorld && reconcileOwed("world", began);
+        boolean reconcileAlliance = includeAlliance && reconcileOwed("alliance", began);
         boolean reconcile = reconcileWorld || reconcileAlliance;
 
         // Learn what previous runs already wrote before the first overlapping screen arrives,
@@ -464,10 +461,6 @@ public class ChatCaptureRoutine extends DelayedTask {
             logWarning("ChatCaptureRoutine | Could not read the existing transcript: " + e.getMessage());
         }
 
-        if (readsLeftoverFrames()) {
-            readLeftoverFrames();
-        }
-
         logInfo("ChatCaptureRoutine | Opening chat (" + mode + ", " + scrollBack + " screens back)."
                 + (reconcile ? " Nightly reconcile is owed (slot " + reconcileTime + "): "
                 + (reconcileBudgetMs / 60_000L) + " min per channel, and every screen is read."
@@ -477,10 +470,10 @@ public class ChatCaptureRoutine extends DelayedTask {
 
         int totalNew = 0;
         try {
-            if (includeWorld && includesChannel("world")) {
+            if (includeWorld) {
                 totalNew += captureChannel("world", TAB_WORLD, reconcileWorld);
             }
-            if (includeAlliance && includesChannel("alliance")) {
+            if (includeAlliance) {
                 totalNew += captureChannel("alliance", TAB_ALLIANCE, reconcileAlliance);
             }
             if (includePersonal) {
@@ -556,23 +549,6 @@ public class ChatCaptureRoutine extends DelayedTask {
         }
         dueAt = due;
         return due;
-    }
-
-    /**
-     * Whether every channel is reconciled this pass whatever the nightly schedule says. False for
-     * the ordinary task; a one-off catch-up task overrides it.
-     */
-    boolean forcedReconcile() {
-        return false;
-    }
-
-    /** Whether this pass covers a channel at all. Only a catch-up task narrows it. */
-    boolean includesChannel(String channel) {
-        return true;
-    }
-
-    /** Lets a catch-up task set its own budget once the profile's settings have been read. */
-    void applySettingOverrides() {
     }
 
     /**
@@ -843,19 +819,6 @@ public class ChatCaptureRoutine extends DelayedTask {
             clear(shots.get(0).getParent());
             return false;
         }
-        submitRead(channel, shots, reconcile);
-        return true;
-    }
-
-    /**
-     * Queues a read unconditionally.
-     *
-     * <p>Split from the decision to accept it because dropping is right for a fresh pass, which the
-     * next one will re-cover, and wrong for a leftover folder, whose frames exist nowhere else.
-     */
-    private void submitRead(String channel, List<Path> shots, boolean reconcile) {
-        Path folder = shots.get(0).getParent();
-        IN_FLIGHT.add(folder);
         PENDING_READS.incrementAndGet();
         // Taken now, not looked up when the read runs: the next pass replaces these fields, and a
         // reconcile widens its store's window -- reading into a fresh one would store everything
@@ -871,44 +834,9 @@ public class ChatCaptureRoutine extends DelayedTask {
                 logError("ChatCaptureRoutine | " + channel + ": reading failed: " + e, e);
             } finally {
                 PENDING_READS.decrementAndGet();
-                IN_FLIGHT.remove(folder);
             }
         });
-    }
-
-    /** Folders the reader holds, so leftovers are not confused with them. */
-    private static final java.util.Set<Path> IN_FLIGHT = java.util.concurrent.ConcurrentHashMap.newKeySet();
-
-    /** How old a leftover folder may be and still be read. Older is ignored, and left on disk. */
-    private static final java.time.Duration LEFTOVER_MAX_AGE = java.time.Duration.ofHours(12);
-
-    /** When this session began; a frame folder modified since belongs to it, not to a past one. */
-    private static final Instant SESSION_START = Instant.now();
-
-    /** Whether this pass first reads frames a previous session left unread. Only a catch-up does. */
-    boolean readsLeftoverFrames() {
-        return false;
-    }
-
-    /**
-     * Hands the reader every frame folder a previous session photographed and never read, oldest
-     * first. Each is read as an ordinary pass: that is what it was.
-     */
-    private void readLeftoverFrames() {
-        for (ChatLeftovers.Leftover left : ChatLeftovers.find(baseDir().resolve("pending"),
-                SESSION_START.minus(LEFTOVER_MAX_AGE), SESSION_START, IN_FLIGHT)) {
-            List<Path> shots;
-            try (var files = Files.list(left.dir())) {
-                shots = files.filter(p -> p.getFileName().toString().endsWith(".png")).sorted().toList();
-            } catch (IOException e) {
-                logWarning("ChatCaptureRoutine | Could not list " + left.dir() + ": " + e.getMessage());
-                continue;
-            }
-            logInfo("ChatCaptureRoutine | " + left.channel() + ": reading " + shots.size()
-                    + " leftover frame(s) from " + left.dir().getFileName()
-                    + ", which a previous session photographed and never read.");
-            submitRead(left.channel(), shots, false);
-        }
+        return true;
     }
 
     /**
