@@ -32,6 +32,11 @@ public final class GameColors {
         return green(rgb) > 110 && green(rgb) > red(rgb) + 30 && green(rgb) > blue(rgb) + 30;
     }
 
+    /** Saturated blue on an enabled action button, e.g. Assemble; the disabled state is grey. */
+    public static boolean isActionBlue(int rgb) {
+        return blue(rgb) > 200 && blue(rgb) > red(rgb) + 100 && green(rgb) > 120;
+    }
+
     /** Blue circular march-queue activity icons such as stationed, attack, and rally rows. */
     public static boolean isMarchQueueIconBlue(int rgb) {
         return blue(rgb) > 150 && green(rgb) > 90 && red(rgb) < 120;

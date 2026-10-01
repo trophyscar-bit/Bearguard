@@ -15,7 +15,8 @@ public class EventsLayoutController extends AbstractProfileController {
 
     @FXML
     private CheckBox checkBoxTundraEvent, checkBoxTundraUseGems, checkBoxTundraSSR, checkBoxHeroMission,
-        checkBoxMercenaryEvent, checkBoxJourneyofLight, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour;
+        checkBoxMercenaryEvent, checkBoxJourneyofLight, checkBoxJourneyofLightAssembleCommon,
+        checkBoxJourneyofLightAssemblePremium, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour;
 
     @FXML
     private TextField textfieldTundraActivationHour;
@@ -48,6 +49,8 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxHeroMission, ConfigurationKeyEnum.HERO_MISSION_EVENT_BOOL);
         checkBoxMappings.put(checkBoxMercenaryEvent, ConfigurationKeyEnum.MERCENARY_EVENT_BOOL);
         checkBoxMappings.put(checkBoxJourneyofLight, ConfigurationKeyEnum.JOURNEY_OF_LIGHT_BOOL);
+        checkBoxMappings.put(checkBoxJourneyofLightAssembleCommon, ConfigurationKeyEnum.JOURNEY_OF_LIGHT_ASSEMBLE_COMMON_BOOL);
+        checkBoxMappings.put(checkBoxJourneyofLightAssemblePremium, ConfigurationKeyEnum.JOURNEY_OF_LIGHT_ASSEMBLE_PREMIUM_BOOL);
         checkBoxMappings.put(checkBoxMyriadBazaar, ConfigurationKeyEnum.MYRIAD_BAZAAR_EVENT_BOOL);
 
         comboBoxMappings.put(comboBoxMercenaryFlag, ConfigurationKeyEnum.MERCENARY_FLAG_INT);
@@ -58,6 +61,8 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxTundraUseGems.disableProperty().bind(checkBoxTundraEvent.selectedProperty().not());
         checkBoxTundraSSR.disableProperty().bind(checkBoxTundraEvent.selectedProperty().not());
         checkBoxTundraEventActivationHour.disableProperty().bind(checkBoxTundraEvent.selectedProperty().not());
+        checkBoxJourneyofLightAssembleCommon.disableProperty().bind(checkBoxJourneyofLight.selectedProperty().not());
+        checkBoxJourneyofLightAssemblePremium.disableProperty().bind(checkBoxJourneyofLight.selectedProperty().not());
         textfieldTundraActivationHour.disableProperty().bind(
             checkBoxTundraEvent.selectedProperty().not().or(checkBoxTundraEventActivationHour.selectedProperty().not())
         );
