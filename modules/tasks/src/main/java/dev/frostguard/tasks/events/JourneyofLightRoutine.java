@@ -161,10 +161,10 @@ public class JourneyofLightRoutine extends DelayedTask {
                 + (soonestReturn.isPresent() ? " (first team lands " + soonestReturn.get().format(DATETIME_FORMATTER) + ")" : ""));
         reschedule(next);
 
-        for (int i = 0; i < 3; i++) {
-            sleepTask(500);
-            pressBack();
-        }
+        // One Back leaves Deals for the city. The three this used to send overshot into the
+        // "Quit game?" dialog on every run, which only the navigation guard kept from mattering.
+        sleepTask(500);
+        pressBack();
     }
 
     /**
