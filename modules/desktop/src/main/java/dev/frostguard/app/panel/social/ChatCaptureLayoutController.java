@@ -1,6 +1,7 @@
 package dev.frostguard.app.panel.social;
 
 import dev.frostguard.app.shared.AbstractProfileController;
+import dev.frostguard.app.shared.SettingValidators;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 
 import javafx.fxml.FXML;
@@ -8,7 +9,9 @@ import javafx.scene.control.CheckBox;
 import java.util.Objects;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
+import javafx.scene.control.TextField;
 
 /**
  * Rally has its own dedicated panel because Polar Terror and rally-joining are
@@ -27,6 +30,14 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
     private CheckBox checkBoxChatFilterNoise;
     @FXML
     private ComboBox<Integer> comboBoxChatFrequency;
+    @FXML
+    private CheckBox checkBoxChatReconcile;
+    @FXML
+    private TextField textFieldChatReconcileTime;
+    @FXML
+    private Label labelChatReconcileTimeError;
+    @FXML
+    private ComboBox<Integer> comboBoxChatReconcileMinutes;
     @FXML
     private ComboBox<Integer> comboBoxChatFrameCache;
     @FXML
@@ -48,6 +59,23 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
         comboBoxChatFrequency.setCellFactory(lv -> minutesCell());
         comboBoxChatFrequency.setButtonCell(minutesCell());
         comboBoxMappings.put(comboBoxChatFrequency, ConfigurationKeyEnum.CHAT_CAPTURE_FREQUENCY_MINUTES_INT);
+
+        checkBoxMappings.put(checkBoxChatReconcile, ConfigurationKeyEnum.CHAT_RECONCILE_ENABLED_BOOL);
+        registerTimeTextField(textFieldChatReconcileTime, labelChatReconcileTimeError,
+                ConfigurationKeyEnum.CHAT_RECONCILE_TIME_STRING,
+                SettingValidators.localTime("Catch-up time"));
+        // The long ones are for recovering an outage of days, not for every night: 60 minutes is
+        // about 2,900 Alliance messages, nearly three days of chat, and the bot does nothing else
+        // while it scrolls.
+        comboBoxChatReconcileMinutes.getItems().addAll(3, 5, 8, 10, 15, 30, 60, 90, 120);
+        comboBoxChatReconcileMinutes.setCellFactory(lv -> minutesCell());
+        comboBoxChatReconcileMinutes.setButtonCell(minutesCell());
+        comboBoxMappings.put(comboBoxChatReconcileMinutes,
+                ConfigurationKeyEnum.CHAT_RECONCILE_MINUTES_INT);
+        // Nothing to set when the catch-up is off, so the two fields say so rather than looking
+        // editable and doing nothing.
+        textFieldChatReconcileTime.disableProperty().bind(checkBoxChatReconcile.selectedProperty().not());
+        comboBoxChatReconcileMinutes.disableProperty().bind(checkBoxChatReconcile.selectedProperty().not());
 
         // Off first, and off by default. This writes pictures of the profile's chat to disk, which
         // is a thing somebody should choose rather than find out about.

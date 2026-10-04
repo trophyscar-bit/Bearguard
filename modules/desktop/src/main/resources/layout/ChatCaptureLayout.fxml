@@ -37,6 +37,26 @@
 
                     <Separator style="-fx-opacity: 0.25;" />
 
+                    <HBox alignment="CENTER_LEFT" maxWidth="Infinity">
+                        <CheckBox fx:id="checkBoxChatReconcile" mnemonicParsing="false"
+                                  style="-fx-font-weight: bold;" text="Nightly catch-up" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="Once a day, the first check at or after the time below scrolls for longer and reads every screen instead of stopping at the first message it already has, then files whatever was missed - a stretch when the bot was paused, for instance. The game gives messages no time, so recovered ones are placed between the messages stored either side of them and marked as estimates. If the scroll ends before it reaches messages it already had, the log says the gap was not bridged. The bot has to be running: if it was paused at that time, the first check after it resumes does the catch-up instead." />
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Run at" minWidth="140" />
+                        <TextField fx:id="textFieldChatReconcileTime" prefWidth="90.0" />
+                    </HBox>
+                    <Label fx:id="labelChatReconcileTimeError" maxWidth="Infinity" wrapText="true" />
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Scroll for" minWidth="140" />
+                        <ComboBox fx:id="comboBoxChatReconcileMinutes" prefWidth="150.0" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="Per channel. An ordinary check scrolls two and a half minutes, about seventy-five screens. Measured, that is about 1.6 messages a screen, so five minutes reaches back roughly six hours of Alliance chat and nine of World; a gap of days needs far longer. The catch-up holds the emulator for twice this (World, then Alliance) and reading afterwards takes longer still, so pick an hour you are not using it." />
+
+                    <Separator style="-fx-opacity: 0.25;" />
+
                     <Label styleClass="task-field-label" text="Channels" minWidth="140" />
                     <HBox alignment="CENTER_LEFT" spacing="14">
                         <CheckBox fx:id="checkBoxChatIncludeWorld" mnemonicParsing="false" text="World" />

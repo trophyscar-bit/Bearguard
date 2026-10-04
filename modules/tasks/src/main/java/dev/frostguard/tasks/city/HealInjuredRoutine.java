@@ -3,6 +3,7 @@ package dev.frostguard.tasks.city;
 import java.awt.Color;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -90,8 +91,15 @@ public class HealInjuredRoutine extends DelayedTask {
     // ========== Constants ==========
     /** Fallback idle cadence when the configured value is missing or nonsensical. */
     private static final int DEFAULT_IDLE_RECHECK_MINUTES = 5;
-    private static final int MIN_IDLE_RECHECK_MINUTES = 1;
+    /** Must stay above the three-minute spread, or a check could land at zero. Matches the
+     *  smallest option the Healing tab offers, and also catches a small value left in the
+     *  database from when the setting was a free-typed field. */
+    private static final int MIN_IDLE_RECHECK_MINUTES = 5;
     private static final int MAX_IDLE_RECHECK_MINUTES = 24 * 60;
+    /** Idle rechecks land anywhere within this many seconds either side of the configured
+     *  cadence, so a 10-minute setting fires somewhere between 7 and 13 minutes. */
+    private static final int IDLE_RECHECK_SPREAD_SECONDS = 3 * 60;
+    private static final int MIN_IDLE_RECHECK_SECONDS = 60;
     private static final int PANEL_SETTLE_MS = 1500;
     private static final int ACTION_SETTLE_MS = 1000;
     private static final int MAX_TIMER_HOURS_SANITY = 12;
@@ -144,6 +152,26 @@ public class HealInjuredRoutine extends DelayedTask {
         return Math.min(MAX_IDLE_RECHECK_MINUTES, Math.max(MIN_IDLE_RECHECK_MINUTES, configured));
     }
 
+    /**
+     * Schedules the next idle check at the configured cadence plus or minus up to three
+     * minutes, chosen uniformly. A fixed interval makes the heal check fire on a metronome,
+     * which is exactly the tell a human never produces.
+     *
+     * <p>Uses rescheduleExact on purpose: the shared reschedule() adds its own delay-only
+     * nudge on top, which would skew this window late instead of centring it on the
+     * setting.</p>
+     */
+    private void scheduleIdleRecheck(int minutes) {
+        long baseSeconds = minutes * 60L;
+        long offset = ThreadLocalRandom.current()
+                .nextLong(-IDLE_RECHECK_SPREAD_SECONDS, IDLE_RECHECK_SPREAD_SECONDS + 1L);
+        long delaySeconds = Math.max(MIN_IDLE_RECHECK_SECONDS, baseSeconds + offset);
+        LocalDateTime next = LocalDateTime.now().plusSeconds(delaySeconds);
+        logInfo("Next heal check at " + next.format(DATETIME_FORMATTER) + " ("
+                + minutes + " min setting, " + (offset >= 0 ? "+" : "") + offset + "s spread).");
+        rescheduleExact(next);
+    }
+
     @Override
     protected void execute() {
         final int idleRecheckMinutes = idleRecheckMinutes();
@@ -152,7 +180,7 @@ public class HealInjuredRoutine extends DelayedTask {
             logWarning("Could not reach the Research Center anchor frame, so the Infirmary's "
                     + "position is unknown. Rechecking in " + idleRecheckMinutes + " minutes "
                     + "rather than tapping blind.");
-            reschedule(LocalDateTime.now().plusMinutes(idleRecheckMinutes));
+            scheduleIdleRecheck(idleRecheckMinutes);
             return;
         }
         sleepTask(ANCHOR_SETTLE_MS);
@@ -164,7 +192,7 @@ public class HealInjuredRoutine extends DelayedTask {
             logInfo("Heal Injured panel didn't open -- no injured-troops bubble over the "
                     + "Infirmary, so nothing is currently injured. Rechecking in "
                     + idleRecheckMinutes + " minutes.");
-            reschedule(LocalDateTime.now().plusMinutes(idleRecheckMinutes));
+            scheduleIdleRecheck(idleRecheckMinutes);
             return;
         }
 
@@ -173,14 +201,14 @@ public class HealInjuredRoutine extends DelayedTask {
             logWarning("Could not OCR the Severely Injured count. Closing panel and "
                     + "rechecking in " + idleRecheckMinutes + " minutes rather than guessing.");
             closePanel();
-            reschedule(LocalDateTime.now().plusMinutes(idleRecheckMinutes));
+            scheduleIdleRecheck(idleRecheckMinutes);
             return;
         }
 
         if (injuredCount == 0) {
             logInfo("Zero injured troops. Rechecking in " + idleRecheckMinutes + " minutes.");
             closePanel();
-            reschedule(LocalDateTime.now().plusMinutes(idleRecheckMinutes));
+            scheduleIdleRecheck(idleRecheckMinutes);
             return;
         }
 
@@ -209,14 +237,14 @@ public class HealInjuredRoutine extends DelayedTask {
         } else {
             logInfo("Panel closed straight after healing -- the queue finished immediately, "
                     + "so there was no running timer to request Help on.");
-            reschedule(LocalDateTime.now().plusMinutes(idleRecheckMinutes));
+            scheduleIdleRecheck(idleRecheckMinutes);
             return;
         }
 
         if (remaining == null) {
             logWarning("Could not OCR the healing countdown after starting. Falling back "
                     + "to the " + idleRecheckMinutes + "-minute idle recheck.");
-            reschedule(LocalDateTime.now().plusMinutes(idleRecheckMinutes));
+            scheduleIdleRecheck(idleRecheckMinutes);
             return;
         }
 

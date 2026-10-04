@@ -1,6 +1,7 @@
 package dev.frostguard.tasks.economy;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -50,13 +51,15 @@ class ResourceStockpilePanelReadTest {
     private static final int TOTAL_RESOURCES_COLUMN_X = 460;
     private static final int SPEEDUP_VALUE_COLUMN_X = 400;
 
-    private static PanelRowIndex read(String fixture, PointData tl, PointData br) throws Exception {
-        BufferedImage img;
+    private static BufferedImage load(String fixture) throws Exception {
         try (InputStream in = ResourceStockpilePanelReadTest.class
                 .getResourceAsStream("/panels/" + fixture)) {
             assertNotNull(in, "missing fixture /panels/" + fixture);
-            img = ImageIO.read(in);
+            return ImageIO.read(in);
         }
+    }
+
+    private static RawImageData capture(BufferedImage img) {
         int w = img.getWidth(), h = img.getHeight();
         byte[] data = new byte[w * h * 4];
         for (int y = 0; y < h; y++) {
@@ -69,9 +72,16 @@ class ResourceStockpilePanelReadTest {
                 data[off + 3] = (byte) 0xFF;
             }
         }
-        List<TextLine> words = OcrEngine.recognizeWords(
-                RawImageData.capture(data, w, h, 4), tl, br, PANEL);
+        return RawImageData.capture(data, w, h, 4);
+    }
+
+    private static PanelRowIndex rows(BufferedImage img, PointData tl, PointData br) throws Exception {
+        List<TextLine> words = OcrEngine.recognizeWords(capture(img), tl, br, PANEL);
         return PanelRowIndex.of(words);
+    }
+
+    private static PanelRowIndex read(String fixture, PointData tl, PointData br) throws Exception {
+        return rows(load(fixture), tl, br);
     }
 
     private static final List<String> SUMMARY_ROWS =
@@ -124,13 +134,24 @@ class ResourceStockpilePanelReadTest {
                 .orElse(null);
     }
 
-    /** The owned figures, top to bottom, exactly as the routine picks them out. */
+    /** The owned figures, top to bottom, picked out by the routine's own selector. */
+    private static List<Long> ownedValues(BufferedImage img, PointData tl, PointData br) throws Exception {
+        return ResourceStockpileRoutine.ownedValues(rows(img, tl, br), img);
+    }
+
     private static List<Long> ownedValues(String fixture, PointData tl, PointData br) throws Exception {
+        return ownedValues(load(fixture), tl, br);
+    }
+
+    /**
+     * The rule this replaced: the topmost word in each row that parses. Kept here only so the
+     * hazard test can show what it would have done.
+     */
+    private static List<Long> topmostParseable(BufferedImage img, PointData tl, PointData br) throws Exception {
         List<Long> owned = new ArrayList<>();
-        for (PanelRowIndex.Row row : read(fixture, tl, br).rows()) {
-            Optional<TextLine> top = row.topmostFrom(OWNED_COLUMN_X,
-                    t -> ResourceStockpileRoutine.parseScaled(t) != null);
-            top.ifPresent(t -> owned.add(ResourceStockpileRoutine.parseScaled(t.text().trim())));
+        for (PanelRowIndex.Row row : rows(img, tl, br).rows()) {
+            row.topmostFrom(OWNED_COLUMN_X, t -> ResourceStockpileRoutine.parseScaled(t) != null)
+               .ifPresent(t -> owned.add(ResourceStockpileRoutine.parseScaled(t.text().trim())));
         }
         return owned;
     }
@@ -165,6 +186,92 @@ class ResourceStockpilePanelReadTest {
         assertTrue(ownedValues(fixture, new PointData(60, 420), new PointData(700, 900)).size() < 4,
                 "the whole-panel region this replaced reads this frame short -- if that ever stops"
                         + " being true, this fixture no longer pins the fault it was saved for");
+    }
+
+    /**
+     * Owned figures are navy and the shielded amounts teal. Boxes are where the reader placed each
+     * figure on the 19:57 frame.
+     */
+    @Test
+    void ownedAndShieldedFiguresAreToldApartByColour() throws Exception {
+        BufferedImage img = load("overview-owned-world-layout-fail.png");
+        int[][] owned = { {458, 501, 95, 20}, {458, 614, 95, 20}, {466, 726, 80, 20}, {470, 839, 72, 20} };
+        int[][] shield = { {469, 535, 94, 20}, {472, 648, 88, 19}, {476, 760, 79, 20}, {487, 873, 58, 19} };
+        for (int[] b : owned) {
+            assertFalse(ResourceStockpileRoutine.isShieldColoured(img, new TextLine("x", b[0], b[1], b[2], b[3], 90f)),
+                    "owned figure at y=" + b[1] + " must read as navy");
+        }
+        for (int[] b : shield) {
+            assertTrue(ResourceStockpileRoutine.isShieldColoured(img, new TextLine("x", b[0], b[1], b[2], b[3], 90f)),
+                    "shielded figure at y=" + b[1] + " must read as teal");
+        }
+    }
+
+    /**
+     * The 23:40 failure, reproduced on a real frame: meat's owned figure does not come through, and
+     * the shielded amount under it is the next number in the row.
+     */
+    @Test
+    void aMissingOwnedFigureIsNeverReplacedByTheShieldedOne() throws Exception {
+        BufferedImage img = load("overview-owned-world-layout-fail.png");
+        // Paint meat's owned figure (325.4M) out with the cell's own background.
+        java.awt.Graphics2D g = img.createGraphics();
+        g.setColor(new java.awt.Color(img.getRGB(430, 505)));
+        g.fillRect(455, 497, 106, 28);
+        g.dispose();
+
+        assertEquals(207_600_000L, topmostParseable(img, OVERVIEW_TL, OVERVIEW_BR).get(0),
+                "the old rule takes meat's shielded 207.6M as its stockpile -- the hazard is real here");
+
+        assertEquals(List.of(353_900_000L, 64_700_000L, 17_900_000L),
+                ownedValues(img, OVERVIEW_TL, OVERVIEW_BR),
+                "meat resolves nothing; the panel comes back short instead of carrying a shield figure");
+    }
+
+    /**
+     * A row the whole-column pass cannot read is read again from its own cell, with digits only.
+     *
+     * <p>The frame is a real failure from 9/12. The column pass has to use an open alphabet, and
+     * Tesseract answered "A411.6M" for wood's 411.6M -- a hallucinated leading letter. It does not
+     * parse, so the row resolved nothing and the panel was refused, every cycle for six hours,
+     * because wood happened to be the value in the 400-millions.</p>
+     */
+    @Test
+    void aRowTheColumnPassCannotReadIsReadAgainWithDigitsOnly() throws Exception {
+        BufferedImage img = load("overview-owned-letter-hallucination.png");
+        PanelRowIndex panel = rows(img, OVERVIEW_TL, OVERVIEW_BR);
+
+        assertEquals(List.of(360_200_000L, 73_300_000L, 21_400_000L),
+                ResourceStockpileRoutine.ownedValues(panel, img),
+                "the column pass alone loses wood entirely");
+
+        assertEquals(List.of(360_200_000L, 411_600_000L, 73_300_000L, 21_400_000L),
+                ResourceStockpileRoutine.ownedValues(panel, img, capture(img)),
+                "read again from its own cell, wood resolves -- and in its own row's place");
+    }
+
+    /**
+     * The other shape of the same fault: the figure is read, but not as a number.
+     *
+     * <p>A real failure from 9/12 at 23:29, hours after the re-read above shipped. Here wood's
+     * 411.4M came back as "A11.4M" -- present in the row, just unparseable. The first re-read
+     * anchored on the row's topmost word on the assumption that it was the shielded amount, which
+     * only holds when the owned figure produced no word at all; with a word present the box aimed a
+     * row-gap too high, at blank panel, and wood was dropped anyway. The anchor has to be the
+     * figure's own position when there is one.</p>
+     */
+    @Test
+    void aRowReadAsLettersIsReadAgainFromItsOwnPosition() throws Exception {
+        BufferedImage img = load("overview-owned-letter-prefix-present.png");
+        PanelRowIndex panel = rows(img, OVERVIEW_TL, OVERVIEW_BR);
+
+        assertEquals(List.of(358_900_000L, 73_300_000L, 21_900_000L),
+                ResourceStockpileRoutine.ownedValues(panel, img),
+                "the column pass reads wood as 'A11.4M' and cannot use it");
+
+        assertEquals(List.of(358_900_000L, 411_400_000L, 73_300_000L, 21_900_000L),
+                ResourceStockpileRoutine.ownedValues(panel, img, capture(img)),
+                "re-read from where the unreadable word actually sits, wood resolves as 411.4M");
     }
 
     /** A label matching more than one row is declined rather than guessed. */

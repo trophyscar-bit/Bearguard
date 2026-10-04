@@ -1,4 +1,4 @@
-# Bearguard dev rig.
+﻿# Bearguard dev rig.
 #
 # The problem this solves: testing a routine meant waiting for its schedule. Intel runs every
 # 15-60 minutes, so one attempt at a fix cost an hour of waiting, and the only place to try it was
@@ -39,7 +39,8 @@ function Get-BearguardProcesses([string]$root) {
     # against a running process. Requiring the trailing separator keeps the two roots apart.
     $needle = $root.TrimEnd('\') + '\'
     @(Get-CimInstance Win32_Process -Filter "Name='javaw.exe'" |
-        Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) })
+        Where-Object { $_.CommandLine -and
+            $_.CommandLine.IndexOf($needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 })
 }
 
 
