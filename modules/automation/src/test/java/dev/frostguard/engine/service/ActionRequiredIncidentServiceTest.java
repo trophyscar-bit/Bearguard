@@ -70,11 +70,27 @@ class ActionRequiredIncidentServiceTest {
         assertFalse(diagnostics.contains("998877"));
         assertFalse(diagnostics.contains("Profile ID"));
         assertFalse(diagnostics.contains(first.id()));
+        assertEquals("", repeated.evidencePath());
 
         assertTrue(service.acknowledge(first.id()));
         assertFalse(service.findAll().getFirst().isUnread());
         assertEquals(1, service.recoverTask(7L, "INITIALIZE"));
         assertEquals(ActionRequiredIncidentState.RECOVERED, service.findAll().getFirst().state());
+
+        String evidence = "logs/snapshot/20260921T143012.483Z-initialize-initialize-blocked.png";
+        ActionRequiredIncidentData withFrame = service.report(new ActionRequiredIncidentReport(
+                8L, "Dave", "INITIALIZE", "Initialize", "startup.home-unavailable-after-game-back",
+                "Startup remains blocked after automatic recovery",
+                "home/world remained unavailable after bounded in-game recovery",
+                "home/world", "unsupported startup screen", "bounded Android Back",
+                "Stop the game and retry", "gameStopped=true",
+                LocalDateTime.now().plusMinutes(15), evidence));
+        String framedDiagnostics = ActionRequiredIncidentService.formatDiagnostics(withFrame);
+        assertTrue(framedDiagnostics.contains("Evidence: " + evidence));
+        assertEquals("", ActionRequiredIncidentService.safeEvidencePath(
+                "logs/snapshot/../../profile-Default.png"));
+        String grouped = "logs/snapshot/nomadicmerchant/20260929T001439.393Z-vip-purchase.png";
+        assertEquals(grouped, ActionRequiredIncidentService.safeEvidencePath(grouped));
     }
 
     private static ActionRequiredIncidentReport report() {
@@ -91,6 +107,7 @@ class ActionRequiredIncidentServiceTest {
                 "Tapped the detected Update button, captured a fresh frame, and verified Google Play foreground",
                 "Pause for one hour and retry",
                 "gameStopped=true; slotReleased=true",
-                LocalDateTime.now().plusHours(1));
+                LocalDateTime.now().plusHours(1),
+                "");
     }
 }
