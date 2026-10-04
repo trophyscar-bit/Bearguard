@@ -42,6 +42,31 @@ class AutomationStepTest {
         assertEquals("Shop: Alliance Championship Shop", step.describeBriefly());
     }
 
+    @Test
+    void summarizesSidebarSelectionsForTheEditor() {
+        AutomationStep step = new AutomationStep(1, FlowStepKind.SIDEBAR_NAVIGATION);
+        step.setParam(AutomationStep.PARAM_SIDEBAR_MODE, "SECTION");
+        step.setParam(AutomationStep.PARAM_SIDEBAR_TARGET, "WILDERNESS");
+        assertEquals("Sidebar section: Wilderness", step.describeBriefly());
+
+        step.setParam(AutomationStep.PARAM_SIDEBAR_MODE, "DESTINATION");
+        step.setParam(AutomationStep.PARAM_SIDEBAR_TARGET, "LIGHTHOUSE_INTEL");
+        assertEquals("Sidebar destination: Lighthouse Intel", step.describeBriefly());
+    }
+
+    @Test
+    void summarizesAllianceAndEventSelectionsForTheEditor() {
+        AutomationStep alliance = new AutomationStep(1, FlowStepKind.ALLIANCE_NAVIGATION);
+        alliance.setParam(AutomationStep.PARAM_ALLIANCE_MENU, "TERRITORY");
+        AutomationStep event = new AutomationStep(2, FlowStepKind.EVENT_NAVIGATION);
+        event.setParam(AutomationStep.PARAM_EVENT_MENU, "ALLIANCE_CHAMPIONSHIP");
+
+        assertEquals("Alliance: Territory", alliance.describeBriefly());
+        assertEquals("Event: Alliance Championship", event.describeBriefly());
+        assertEquals("Alliance: invalid selection",
+                new AutomationStep(3, FlowStepKind.ALLIANCE_NAVIGATION).describeBriefly());
+    }
+
     /** Every kind must produce a summary; none may throw. */
     @Test
     void summarizesEveryStepKind() {

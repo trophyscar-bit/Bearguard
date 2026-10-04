@@ -9,9 +9,12 @@ import java.io.*;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.zip.GZIPOutputStream;
 
 /**
@@ -23,6 +26,36 @@ public final class ProfileContextLogger {
 
     private static final Logger rootLog = LoggerFactory.getLogger(ProfileContextLogger.class);
     private static final Map<Long, PrintWriter> writerRegistry = new ConcurrentHashMap<>();
+    private static final ThreadLocal<Capture> currentCapture = new ThreadLocal<>();
+    private static volatile List<String> sessionBuildLines = List.of("Bot Version: unknown");
+
+    /** Supplies build identity before the first profile log is opened. */
+    public static void configureSessionBuildLines(List<String> lines) {
+        sessionBuildLines = lines == null || lines.isEmpty()
+                ? List.of("Bot Version: unknown")
+                : List.copyOf(lines);
+    }
+
+    private record Capture(long profileId, Consumer<String> listener) {}
+
+    public interface CaptureScope extends AutoCloseable {
+        @Override
+        void close();
+    }
+
+    /** Captures profile log lines produced on the calling execution thread. */
+    public static CaptureScope captureCurrentThread(long profileId, Consumer<String> listener) {
+        Objects.requireNonNull(listener);
+        Capture previous = currentCapture.get();
+        currentCapture.set(new Capture(profileId, listener));
+        return () -> {
+            if (previous == null) {
+                currentCapture.remove();
+            } else {
+                currentCapture.set(previous);
+            }
+        };
+    }
     
     // "make everything EST in logs" -- these previously used SimpleDateFormat's
     // implicit JVM-default timezone with no zone label at all in the output, so a timestamp like
@@ -44,6 +77,7 @@ public final class ProfileContextLogger {
     private final Logger targetLog;
     private final AccountDescriptor profile;
     private final String sourceName;
+    private final boolean persistToFile;
 
     /**
      * Constructs a new logger bound to a specific profile context.
@@ -52,9 +86,17 @@ public final class ProfileContextLogger {
      * @param profile The profile context, or null for general logging
      */
     public ProfileContextLogger(Class<?> origin, AccountDescriptor profile) {
+        this(origin, profile, true);
+    }
+
+    /** Creates a profile logger that can be captured without opening its account log file. */
+    public ProfileContextLogger(Class<?> origin, AccountDescriptor profile, boolean persistToFile) {
         this.targetLog = LoggerFactory.getLogger(origin);
         this.profile = profile;
         this.sourceName = origin.getSimpleName();
+        this.persistToFile = persistToFile;
+
+        if (!persistToFile) return;
         
         ensureLogDirectory();
 
@@ -98,6 +140,7 @@ public final class ProfileContextLogger {
         pw.println("Session Started: " + logTimestamp.format(new Date()));
         pw.println("Target Profile: " + acc.getName() + " [#" + acc.getId() + "]");
         pw.println("Device Slot: " + acc.getEmulatorNumber());
+        sessionBuildLines.forEach(pw::println);
         pw.println("----------------------------------------------------------");
     }
 
@@ -170,22 +213,35 @@ public final class ProfileContextLogger {
 
     public void error(String msg, Throwable cause) {
         targetLog.error(msg, cause);
-        if (profile != null) {
+        dispatch("ERROR", msg);
+        if (profile != null && cause != null && persistToFile) {
             PrintWriter pw = writerRegistry.get(profile.getId());
-            if (pw != null) {
-                enforceSizeLimit();
-                pw.println(decorate("ERROR", msg));
-                cause.printStackTrace(pw);
-            }
+            if (pw != null) cause.printStackTrace(pw);
+            notifyCapture(cause.toString());
         }
     }
 
     private void dispatch(String level, String msg) {
         if (profile != null) {
-            PrintWriter pw = writerRegistry.get(profile.getId());
-            if (pw != null) {
+            String line = decorate(level, msg);
+            if (persistToFile) {
                 enforceSizeLimit();
-                pw.println(decorate(level, msg));
+                PrintWriter pw = writerRegistry.get(profile.getId());
+                if (pw != null) {
+                    pw.println(line);
+                }
+            }
+            notifyCapture(line);
+        }
+    }
+
+    private void notifyCapture(String line) {
+        Capture capture = currentCapture.get();
+        if (capture != null && profile != null && capture.profileId() == profile.getId()) {
+            try {
+                capture.listener().accept(line);
+            } catch (RuntimeException failure) {
+                rootLog.warn("Profile log observer failed", failure);
             }
         }
     }
@@ -212,5 +268,6 @@ public final class ProfileContextLogger {
     public static void shutdown() {
         writerRegistry.values().forEach(PrintWriter::close);
         writerRegistry.clear();
+        sessionBuildLines = List.of("Bot Version: unknown");
     }
 }

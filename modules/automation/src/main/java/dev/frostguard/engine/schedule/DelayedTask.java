@@ -34,7 +34,6 @@ import dev.frostguard.engine.schedule.inject.InjectionRule;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -518,8 +517,9 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
      * wastes a navigation cycle and can read as a retry loop.</p>
      */
     public void reschedule(LocalDateTime rescheduledTime) {
+        Objects.requireNonNull(rescheduledTime);
         long gapMs = Duration.between(LocalDateTime.now(), rescheduledTime).toMillis();
-        scheduledTime = LocalDateTime.now().plus(Duration.ofMillis(gapMs + resolveJitterMs(gapMs)));
+        scheduledTime = rescheduledTime.plus(Duration.ofMillis(resolveJitterMs(gapMs)));
     }
 
     /**
@@ -529,8 +529,7 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
      * arriving late costs something real.</p>
      */
     public void rescheduleExact(LocalDateTime rescheduledTime) {
-        long gapMs = Duration.between(LocalDateTime.now(), rescheduledTime).toMillis();
-        scheduledTime = LocalDateTime.now().plus(Duration.ofMillis(gapMs));
+        scheduledTime = Objects.requireNonNull(rescheduledTime);
     }
 
     private long resolveJitterMs(long gapMs) {
@@ -599,9 +598,12 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
         if (scheduledTime == null) {
             return Long.MAX_VALUE;
         }
-        long diffSec = scheduledTime.toEpochSecond(ZoneOffset.UTC)
-                - LocalDateTime.now().toEpochSecond(ZoneOffset.UTC);
-        return unit.convert(diffSec, TimeUnit.SECONDS);
+        return delayInUnits(Duration.between(LocalDateTime.now(), scheduledTime), unit);
+    }
+
+    static long delayInUnits(Duration remaining, TimeUnit unit) {
+        long delay = unit.convert(remaining);
+        return delay == 0 && !remaining.isNegative() && !remaining.isZero() ? 1 : delay;
     }
 
     @Override
