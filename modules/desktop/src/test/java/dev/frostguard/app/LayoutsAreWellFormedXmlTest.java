@@ -29,6 +29,10 @@ import org.junit.jupiter.api.Test;
  * <p>This reads each layout with the JDK's StAX parser -- the same parser JavaFX's FXMLLoader uses,
  * and the one that threw at startup -- so it fails on exactly what the application would fail
  * on, before a build ships instead of after.</p>
+ *
+ * <p>Covers logback.xml too. The same "--" in its comment does not stop the application: logback
+ * falls back to its default console setup, so the file log simply goes quiet, and the watchdog
+ * reads that silence as a stalled queue.</p>
  */
 class LayoutsAreWellFormedXmlTest {
 
@@ -37,7 +41,8 @@ class LayoutsAreWellFormedXmlTest {
         Path resources = Path.of("src", "main", "resources");
         List<Path> layouts;
         try (Stream<Path> walk = Files.walk(resources)) {
-            layouts = walk.filter(p -> p.toString().endsWith(".fxml")).sorted().toList();
+            layouts = walk.filter(p -> p.toString().endsWith(".fxml") || p.toString().endsWith(".xml"))
+                    .sorted().toList();
         }
         assertFalse(layouts.isEmpty(), "no FXML layouts found under " + resources.toAbsolutePath());
 

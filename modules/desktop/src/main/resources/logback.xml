@@ -4,7 +4,7 @@
 
     <property name="LOG_DIR" value="${frostguard.log.dir:-log}"/>
     <property name="LOG_FILE" value="${LOG_DIR}/frostguard.log"/>
-    <!-- "make everything EST in logs" -- pinned to America/New_York so it reads EST/EDT correctly
+    <!-- "make everything EST in logs": pinned to America/New_York so it reads EST/EDT correctly
          across the DST boundary, with the abbreviation spelled out (zzz) instead of a bare numeric
          offset that is correct but not obviously a timezone at a glance. -->
     <property name="FILE_PATTERN" value="%d{yyyy-MM-dd'T'HH:mm:ss.SSS zzz, America/New_York} %-5level [%thread] %logger{48} - %msg%n"/>
