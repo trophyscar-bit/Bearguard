@@ -14,7 +14,8 @@ public class ShopLayoutController extends AbstractProfileController {
 
 	@FXML
 	private CheckBox checkBoxNomadicMerchant, checkBoxNomadicMerchantVip,
-			checkBoxMysteryShop, checkBoxMysteryShop50DiscountGear;
+			checkBoxMysteryShop, checkBoxMysteryShop50DiscountGear,
+			checkBoxMysteryShopShards;
 
 	@FXML
 	private void initialize() {
@@ -27,7 +28,8 @@ public class ShopLayoutController extends AbstractProfileController {
 			new ShopSwitch(checkBoxNomadicMerchant, ConfigurationKeyEnum.BOOL_NOMADIC_MERCHANT),
 			new ShopSwitch(checkBoxNomadicMerchantVip, ConfigurationKeyEnum.BOOL_NOMADIC_MERCHANT_VIP_POINTS),
 			new ShopSwitch(checkBoxMysteryShop, ConfigurationKeyEnum.BOOL_MYSTERY_SHOP),
-			new ShopSwitch(checkBoxMysteryShop50DiscountGear, ConfigurationKeyEnum.BOOL_MYSTERY_SHOP_250_HERO_WIDGET)
+			new ShopSwitch(checkBoxMysteryShop50DiscountGear, ConfigurationKeyEnum.BOOL_MYSTERY_SHOP_250_HERO_WIDGET),
+			new ShopSwitch(checkBoxMysteryShopShards, ConfigurationKeyEnum.BOOL_MYSTERY_SHOP_250_SHARD)
 		);
 	}
 

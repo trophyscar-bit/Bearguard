@@ -317,11 +317,11 @@ public enum ConfigurationKeyEnum {
 
     GATHER_ACTIVE_MARCH_QUEUE_INT   ("6",                   Integer.class,  ConfigCategory.GATHERING),
     GATHER_COAL_BOOL                ("false",               Boolean.class,  ConfigCategory.GATHERING),
-    GATHER_COAL_LEVEL_INT           ("8",                   Integer.class,  ConfigCategory.GATHERING),
+    GATHER_COAL_LEVEL_INT           ("9",                   Integer.class,  ConfigCategory.GATHERING),
     GATHER_IRON_BOOL                ("false",               Boolean.class,  ConfigCategory.GATHERING),
-    GATHER_IRON_LEVEL_INT           ("8",                   Integer.class,  ConfigCategory.GATHERING),
+    GATHER_IRON_LEVEL_INT           ("9",                   Integer.class,  ConfigCategory.GATHERING),
     GATHER_MEAT_BOOL                ("false",               Boolean.class,  ConfigCategory.GATHERING),
-    GATHER_MEAT_LEVEL_INT           ("8",                   Integer.class,  ConfigCategory.GATHERING),
+    GATHER_MEAT_LEVEL_INT           ("9",                   Integer.class,  ConfigCategory.GATHERING),
     GATHER_ONLY_FULL_RESOURCES_BOOL ("false",               Boolean.class,  ConfigCategory.GATHERING),
     GATHER_DOWNGRADE_LEVEL_BOOL     ("true",                Boolean.class,  ConfigCategory.GATHERING),
     GATHER_REMOVE_HEROS_BOOL        ("true",                Boolean.class,  ConfigCategory.GATHERING),
@@ -358,7 +358,7 @@ public enum ConfigurationKeyEnum {
     RESOURCE_STOCKPILE_LAST_READ_STRING ("",   String.class,  ConfigCategory.GATHERING),
     GATHER_TASK_BOOL                ("false",               Boolean.class,  ConfigCategory.GATHERING),
     GATHER_WOOD_BOOL                ("false",               Boolean.class,  ConfigCategory.GATHERING),
-    GATHER_WOOD_LEVEL_INT           ("8",                   Integer.class,  ConfigCategory.GATHERING),
+    GATHER_WOOD_LEVEL_INT           ("9",                   Integer.class,  ConfigCategory.GATHERING),
 
     /* ─────────── pets ─────────── */
 
@@ -367,6 +367,7 @@ public enum ConfigurationKeyEnum {
     LIFE_ESSENCE_CONSECUTIVE_FAILURES_INT   ("0",       Integer.class,  ConfigCategory.PETS),
     LIFE_ESSENCE_NEXT_SCROLL_TIME_STRING    ("",        String.class,   ConfigCategory.PETS),
     LIFE_ESSENCE_OFFSET_INT                 ("360",     Integer.class,  ConfigCategory.PETS),
+    PET_ADVENTURE_OBSERVE_ONLY_BOOL         ("false",   Boolean.class,  ConfigCategory.PETS),
     PET_PERSONAL_TREASURE_BOOL              ("false",   Boolean.class,  ConfigCategory.PETS),
     PET_SKILL_FOOD_BOOL                     ("false",   Boolean.class,  ConfigCategory.PETS),
     PET_SKILL_GATHERING_BOOL                ("false",   Boolean.class,  ConfigCategory.PETS),
@@ -388,6 +389,7 @@ public enum ConfigurationKeyEnum {
     BOOL_HERO_RECRUITMENT                   ("false",   Boolean.class,  ConfigCategory.SHOPS),
     BOOL_MYSTERY_SHOP                       ("false",   Boolean.class,  ConfigCategory.SHOPS),
     BOOL_MYSTERY_SHOP_250_HERO_WIDGET       ("false",   Boolean.class,  ConfigCategory.SHOPS),
+    BOOL_MYSTERY_SHOP_250_SHARD             ("false",   Boolean.class,  ConfigCategory.SHOPS),
     BOOL_NOMADIC_MERCHANT                   ("false",   Boolean.class,  ConfigCategory.SHOPS),
     BOOL_NOMADIC_MERCHANT_VIP_POINTS        ("false",   Boolean.class,  ConfigCategory.SHOPS),
     BOOL_VIP_POINTS                         ("false",   Boolean.class,  ConfigCategory.SHOPS),
@@ -440,6 +442,8 @@ public enum ConfigurationKeyEnum {
      *  sweep is.</p> */
     STARTUP_FULL_RESCAN_BOOL            ("false",       Boolean.class,  ConfigCategory.SYSTEM),
     CURRENT_EMULATOR_STRING             ("",            String.class,   ConfigCategory.SYSTEM),
+    DESKTOP_SNAPSHOT_ENABLED_BOOL       ("false",       Boolean.class,  ConfigCategory.SYSTEM),
+    MISSING_TEMPLATE_SNAPSHOT_ENABLED_BOOL ("false",   Boolean.class,  ConfigCategory.SYSTEM),
     DISCORD_TOKEN_STRING                ("",            String.class,   ConfigCategory.SYSTEM),
     GAME_VERSION_STRING                 ("GLOBAL",      String.class,   ConfigCategory.SYSTEM),
     IDLE_BEHAVIOR_STRING                ("CLOSE_EMULATOR", String.class, ConfigCategory.SYSTEM),

@@ -2,8 +2,11 @@ package dev.frostguard.app.panel.taskbuilder;
 
 import dev.frostguard.vision.ocr.OcrEngine;
 import dev.frostguard.api.configs.FlowStepKind;
+import dev.frostguard.api.configs.SidebarNavigationMode;
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.engine.emulator.EmulatorController;
+import dev.frostguard.engine.helper.NavigationHelper.AllianceMenu;
+import dev.frostguard.engine.helper.NavigationHelper.EventMenu;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.domain.AutomationBlueprint;
@@ -14,6 +17,8 @@ import dev.frostguard.engine.service.TaskBuilderService;
 import dev.frostguard.engine.service.TaskCodeGenerator;
 import dev.frostguard.engine.service.TemplatePathResolver;
 import dev.frostguard.engine.nav.ShopTab;
+import dev.frostguard.engine.nav.SidebarSection;
+import dev.frostguard.vision.logging.ProfileContextLogger;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.event.ActionEvent;
@@ -70,6 +75,7 @@ public class TaskBuilderLayoutController {
     @FXML private Button btnCapture;
     @FXML private TextField taskNameField;
     @FXML private ToggleButton btnTogglePreview;
+    @FXML private ToggleButton btnToggleRunLog;
     @FXML private Button btnFullscreen;
 
     // ===== Canvas =====
@@ -79,6 +85,8 @@ public class TaskBuilderLayoutController {
 
     // ===== Properties Drawer (bottom of canvas) =====
     @FXML private VBox propsDrawer;
+    @FXML private VBox runLogPanel;
+    @FXML private TextArea runLogTextArea;
     @FXML private Label propNodeIcon;
     @FXML private Label propNodeTitle;
     @FXML private Label propStatusLabel;
@@ -92,6 +100,15 @@ public class TaskBuilderLayoutController {
     @FXML private VBox backPropsBox;
     @FXML private VBox shopNavigationPropsBox;
     @FXML private ComboBox<ShopTab> shopTabCombo;
+    @FXML private VBox sidebarNavigationPropsBox;
+    @FXML private ComboBox<SidebarNavigationMode> sidebarModeCombo;
+    @FXML private ComboBox<String> sidebarTargetCombo;
+    @FXML private VBox allianceNavigationPropsBox;
+    @FXML private ComboBox<AllianceMenu> allianceMenuCombo;
+    @FXML private Label allianceMenuInvalidLabel;
+    @FXML private VBox eventNavigationPropsBox;
+    @FXML private ComboBox<EventMenu> eventMenuCombo;
+    @FXML private Label eventMenuInvalidLabel;
     @FXML private VBox ocrPropsBox;
     @FXML private TextField ocrTlXField, ocrTlYField, ocrBrXField, ocrBrYField;
     @FXML private ComboBox<String> ocrConditionCombo;
@@ -138,8 +155,20 @@ public class TaskBuilderLayoutController {
     private final List<javafx.scene.Node> wireOverlays = new ArrayList<>(); // wire label bg+text
 
     private AutomationStep selectedNode = null;
+    private int runningNodeId = -1;
+    private static final int MAX_PENDING_RUN_LOGS = 500;
+    private static final double MIN_RUN_LOG_HEIGHT = 66;
+    private static final double MIN_CANVAS_HEIGHT = 120;
+    private final TaskBuilderRunLog runLog = new TaskBuilderRunLog();
+    private record PendingRunLog(long generation, String entry) {}
+    private final Deque<PendingRunLog> pendingRunLogs = new ArrayDeque<>();
+    private boolean runLogDrainScheduled;
+    private double runLogResizeStartY;
+    private double runLogResizeStartHeight;
     private double ocrDragStartX = 0, ocrDragStartY = 0;
     private boolean hasPreviewImage = false;
+    private boolean previewRegionDismissed = false;
+    private boolean previewRegionWasShownOnPress = false;
     private boolean isBinding = false;
 
     // Start location toggle
@@ -173,7 +202,7 @@ public class TaskBuilderLayoutController {
     private static final double NODE_START_X = 180;
     private static final double NODE_START_Y = 150;
     private static final double NODE_SPACING_X = 260;
-    private static final double START_X = 40;
+    private static final double START_X = 10;
     private static final double START_Y = 170;
 
     // Emulator aspect ratio (720x1280 = 9:16)
@@ -185,6 +214,7 @@ public class TaskBuilderLayoutController {
         setupCanvasClipping();
         setupCanvasInteractions();
         setupPreviewPanelSizing();
+        previewImageView.boundsInLocalProperty().addListener((obs, oldBounds, newBounds) -> refreshConfiguredPreviewRegion());
         setupNodeNameField();
         drawCanvasGrid();
         drawStartNode();
@@ -243,8 +273,81 @@ public class TaskBuilderLayoutController {
             });
             shopTabCombo.setValue(ShopTab.MYSTERY_SHOP);
         }
+        if (sidebarModeCombo != null && sidebarTargetCombo != null) {
+            sidebarModeCombo.setItems(FXCollections.observableArrayList(SidebarNavigationMode.values()));
+            sidebarModeCombo.setConverter(new javafx.util.StringConverter<>() {
+                @Override
+                public String toString(SidebarNavigationMode mode) {
+                    return mode == null ? "" : mode.displayName();
+                }
+
+                @Override
+                public SidebarNavigationMode fromString(String displayName) {
+                    return Arrays.stream(SidebarNavigationMode.values())
+                            .filter(mode -> mode.displayName().equals(displayName))
+                            .findFirst().orElse(null);
+                }
+            });
+            sidebarTargetCombo.setConverter(new javafx.util.StringConverter<>() {
+                @Override
+                public String toString(String target) {
+                    return SidebarNavigationOptions.displayTarget(target);
+                }
+
+                @Override
+                public String fromString(String displayName) {
+                    return sidebarTargetCombo.getItems().stream()
+                            .filter(target -> toString(target).equals(displayName))
+                            .findFirst().orElse(null);
+                }
+            });
+            sidebarModeCombo.setValue(SidebarNavigationMode.SECTION);
+            setSidebarTargets(SidebarNavigationMode.SECTION, SidebarSection.CITY.name());
+        }
+        if (allianceMenuCombo != null) {
+            allianceMenuCombo.setItems(FXCollections.observableArrayList(AllianceMenu.values()));
+            allianceMenuCombo.setConverter(menuConverter(AllianceMenu.class));
+            allianceMenuCombo.setValue(AllianceMenu.WAR);
+        }
+        if (eventMenuCombo != null) {
+            eventMenuCombo.setItems(FXCollections.observableArrayList(EventMenu.values()));
+            eventMenuCombo.setConverter(menuConverter(EventMenu.class));
+            eventMenuCombo.setValue(EventMenu.HERO_MISSION);
+        }
         addAutoApplyListeners();
         setStatus("Ready — add nodes from the toolbox");
+    }
+
+    private static <T extends Enum<T>> javafx.util.StringConverter<T> menuConverter(Class<T> type) {
+        return new javafx.util.StringConverter<>() {
+            @Override
+            public String toString(T value) {
+                return value == null ? "" : SidebarNavigationOptions.displayTarget(value.name());
+            }
+
+            @Override
+            public T fromString(String displayName) {
+                return Arrays.stream(type.getEnumConstants())
+                        .filter(value -> toString(value).equals(displayName))
+                        .findFirst().orElse(null);
+            }
+        };
+    }
+
+    private static <T extends Enum<T>> T menuSelection(String storedValue, Class<T> type) {
+        try {
+            return Enum.valueOf(type, storedValue);
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            return null;
+        }
+    }
+
+    private static void showInvalidMenuSelection(Label label, String storedValue, Enum<?> selection) {
+        boolean invalid = selection == null;
+        label.setText(invalid ? "Invalid saved target: "
+                + (storedValue == null || storedValue.isBlank() ? "(missing)" : storedValue) : "");
+        label.setVisible(invalid);
+        label.setManaged(invalid);
     }
 
     private void setupNodeNameField() {
@@ -294,6 +397,31 @@ public class TaskBuilderLayoutController {
         if (shopTabCombo != null) {
             shopTabCombo.valueProperty().addListener((obs, oldV, newV) -> {
                 if (!isBinding) handleApplyShopNavigationProps(null);
+            });
+        }
+        if (allianceMenuCombo != null) {
+            allianceMenuCombo.valueProperty().addListener((obs, oldV, newV) -> {
+                if (!isBinding) handleApplyAllianceNavigationProps(null);
+            });
+        }
+        if (eventMenuCombo != null) {
+            eventMenuCombo.valueProperty().addListener((obs, oldV, newV) -> {
+                if (!isBinding) handleApplyEventNavigationProps(null);
+            });
+        }
+        if (sidebarModeCombo != null && sidebarTargetCombo != null) {
+            sidebarModeCombo.valueProperty().addListener((obs, oldV, newV) -> {
+                if (isBinding) return;
+                isBinding = true;
+                try {
+                    setSidebarTargets(newV, "");
+                } finally {
+                    isBinding = false;
+                }
+                handleApplySidebarNavigationProps(null);
+            });
+            sidebarTargetCombo.valueProperty().addListener((obs, oldV, newV) -> {
+                if (!isBinding) handleApplySidebarNavigationProps(null);
             });
         }
 
@@ -474,7 +602,14 @@ public class TaskBuilderLayoutController {
             if (raw != null) {
                 BufferedImage bi = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(raw);
                 Image fx = toFxImage(bi);
-                Platform.runLater(() -> { previewImageView.setImage(fx); previewHint.setVisible(false); hasPreviewImage=true; setStatus("📷 Preview updated"); });
+                Platform.runLater(() -> {
+                    previewImageView.setImage(fx);
+                    previewHint.setVisible(false);
+                    hasPreviewImage = true;
+                    previewRegionDismissed = false;
+                    refreshConfiguredPreviewRegion();
+                    setStatus("📷 Preview updated");
+                });
             } else { Platform.runLater(() -> setStatus("❌ Capture failed")); }
         } catch (Exception e) { Platform.runLater(() -> setStatus("❌ " + e.getMessage())); }
     }
@@ -608,6 +743,7 @@ public class TaskBuilderLayoutController {
     }
 
     private void clearFlowNodesFromCanvas() {
+        showRunningNode(-1);
         for (int id : new ArrayList<>(nodeCards.keySet())) {
             flowCanvas.getChildren().removeAll(nodeCards.get(id), inputPorts.get(id), outputPorts.get(id));
             Circle falsePort = outputPortsFalse.get(id);
@@ -929,6 +1065,9 @@ public class TaskBuilderLayoutController {
     @FXML private void handleAddOcrNode(ActionEvent e) { addNodeToCanvas(FlowStepKind.OCR_READ); }
     @FXML private void handleAddTemplateNode(ActionEvent e) { addNodeToCanvas(FlowStepKind.TEMPLATE_SEARCH); }
     @FXML private void handleAddShopNavigationNode(ActionEvent e) { addNodeToCanvas(FlowStepKind.SHOP_NAVIGATION); }
+    @FXML private void handleAddSidebarNavigationNode(ActionEvent e) { addNodeToCanvas(FlowStepKind.SIDEBAR_NAVIGATION); }
+    @FXML private void handleAddAllianceNavigationNode(ActionEvent e) { addNodeToCanvas(FlowStepKind.ALLIANCE_NAVIGATION); }
+    @FXML private void handleAddEventNavigationNode(ActionEvent e) { addNodeToCanvas(FlowStepKind.EVENT_NAVIGATION); }
 
     private void addNodeToCanvas(FlowStepKind type) {
         ensureSession();
@@ -941,6 +1080,14 @@ public class TaskBuilderLayoutController {
                            node.setParam("endX","0"); node.setParam("endY","0"); }
             case SHOP_NAVIGATION -> node.setParam(
                     AutomationStep.PARAM_SHOP_TAB, ShopTab.MYSTERY_SHOP.name());
+            case SIDEBAR_NAVIGATION -> {
+                node.setParam(AutomationStep.PARAM_SIDEBAR_MODE, SidebarNavigationMode.SECTION.name());
+                node.setParam(AutomationStep.PARAM_SIDEBAR_TARGET, SidebarSection.CITY.name());
+            }
+            case ALLIANCE_NAVIGATION -> node.setParam(
+                    AutomationStep.PARAM_ALLIANCE_MENU, AllianceMenu.WAR.name());
+            case EVENT_NAVIGATION -> node.setParam(
+                    AutomationStep.PARAM_EVENT_MENU, EventMenu.HERO_MISSION.name());
             default -> {}
         }
 
@@ -1279,7 +1426,10 @@ public class TaskBuilderLayoutController {
 
     private void completeConnection(int targetId) {
         if (dragWireSourceId < 0 || targetId == dragWireSourceId) { cancelDrag(); return; }
-        if (dragWireSourceId > 0) {
+        if (dragWireSourceId == 0) {
+            AutomationBlueprint def = builderService.getCurrentDefinition();
+            if (def == null || !def.moveStepToFront(targetId)) { cancelDrag(); return; }
+        } else {
             AutomationStep s = findNode(dragWireSourceId);
             if (s != null) {
                 if (dragWireIsFalseBranch) {
@@ -1559,6 +1709,7 @@ public class TaskBuilderLayoutController {
         isBinding = true;
         deselectNode();
         selectedNode = node;
+        previewRegionDismissed = false;
         VBox card = nodeCards.get(node.getId());
         if (card != null) {
             card.getStyleClass().add("flow-node-selected");
@@ -1588,6 +1739,18 @@ public class TaskBuilderLayoutController {
         if (shopNavigationPropsBox != null) {
             shopNavigationPropsBox.setVisible(false);
             shopNavigationPropsBox.setManaged(false);
+        }
+        if (sidebarNavigationPropsBox != null) {
+            sidebarNavigationPropsBox.setVisible(false);
+            sidebarNavigationPropsBox.setManaged(false);
+        }
+        if (allianceNavigationPropsBox != null) {
+            allianceNavigationPropsBox.setVisible(false);
+            allianceNavigationPropsBox.setManaged(false);
+        }
+        if (eventNavigationPropsBox != null) {
+            eventNavigationPropsBox.setVisible(false);
+            eventNavigationPropsBox.setManaged(false);
         }
         ocrPropsBox.setVisible(false); ocrPropsBox.setManaged(false);
         if (templatePropsBox != null) { templatePropsBox.setVisible(false); templatePropsBox.setManaged(false); }
@@ -1633,6 +1796,36 @@ public class TaskBuilderLayoutController {
                     }
                 }
             }
+            case SIDEBAR_NAVIGATION -> {
+                sidebarNavigationPropsBox.setVisible(true);
+                sidebarNavigationPropsBox.setManaged(true);
+                SidebarNavigationMode mode;
+                try {
+                    mode = SidebarNavigationMode.valueOf(
+                            node.getParam(AutomationStep.PARAM_SIDEBAR_MODE));
+                } catch (IllegalArgumentException | NullPointerException exception) {
+                    mode = null;
+                }
+                sidebarModeCombo.setValue(mode);
+                setSidebarTargets(mode, node.getParam(AutomationStep.PARAM_SIDEBAR_TARGET) == null
+                        ? "" : node.getParam(AutomationStep.PARAM_SIDEBAR_TARGET));
+            }
+            case ALLIANCE_NAVIGATION -> {
+                allianceNavigationPropsBox.setVisible(true);
+                allianceNavigationPropsBox.setManaged(true);
+                String storedTarget = node.getParam(AutomationStep.PARAM_ALLIANCE_MENU);
+                AllianceMenu selection = menuSelection(storedTarget, AllianceMenu.class);
+                allianceMenuCombo.setValue(selection);
+                showInvalidMenuSelection(allianceMenuInvalidLabel, storedTarget, selection);
+            }
+            case EVENT_NAVIGATION -> {
+                eventNavigationPropsBox.setVisible(true);
+                eventNavigationPropsBox.setManaged(true);
+                String storedTarget = node.getParam(AutomationStep.PARAM_EVENT_MENU);
+                EventMenu selection = menuSelection(storedTarget, EventMenu.class);
+                eventMenuCombo.setValue(selection);
+                showInvalidMenuSelection(eventMenuInvalidLabel, storedTarget, selection);
+            }
             case OCR_READ -> {
                 ocrPropsBox.setVisible(true); ocrPropsBox.setManaged(true);
                 ocrTlXField.setText(node.getParam("tlX") != null ? node.getParam("tlX") : "0");
@@ -1646,10 +1839,7 @@ public class TaskBuilderLayoutController {
                 if (ocrExpectedField != null) {
                     ocrExpectedField.setText(node.getParam("expectedValue") != null ? node.getParam("expectedValue") : "");
                 }
-                if (hasPreviewImage) {
-                    selectionBox.setVisible(true);
-                    setStatus("Drag on the preview to draw bounds. Has 2 outputs: Yes / No.");
-                }
+                if (hasPreviewImage) setStatus("Drag on the preview to draw bounds. Has 2 outputs: Yes / No.");
             }
             case TEMPLATE_SEARCH -> {
                 if (templatePropsBox != null) {
@@ -1706,6 +1896,7 @@ public class TaskBuilderLayoutController {
             default -> {}
         }
         isBinding = false;
+        refreshConfiguredPreviewRegion();
     }
 
     private void deselectNode() {
@@ -1714,6 +1905,8 @@ public class TaskBuilderLayoutController {
             if (c != null) c.getStyleClass().remove("flow-node-selected");
         }
         selectedNode = null;
+        if (selectionBox != null) selectionBox.setVisible(false);
+        if (previewCrosshairPane != null) previewCrosshairPane.setVisible(false);
         // Hide the properties drawer
         propsDrawer.setVisible(false); propsDrawer.setManaged(false);
     }
@@ -1729,6 +1922,8 @@ public class TaskBuilderLayoutController {
         selectedNode.setParam("brX", tapBrXField.getText());
         selectedNode.setParam("brY", tapBrYField.getText());
         refreshCard(selectedNode);
+        previewRegionDismissed = false;
+        refreshConfiguredPreviewRegion();
     }
 
     @FXML private void handleApplySwipeProps(ActionEvent e) {
@@ -1752,6 +1947,36 @@ public class TaskBuilderLayoutController {
         refreshCard(selectedNode);
     }
 
+    @FXML private void handleApplyAllianceNavigationProps(ActionEvent e) {
+        if (selectedNode == null || allianceMenuCombo.getValue() == null) return;
+        selectedNode.setParam(AutomationStep.PARAM_ALLIANCE_MENU, allianceMenuCombo.getValue().name());
+        showInvalidMenuSelection(allianceMenuInvalidLabel, allianceMenuCombo.getValue().name(),
+                allianceMenuCombo.getValue());
+        refreshCard(selectedNode);
+    }
+
+    @FXML private void handleApplyEventNavigationProps(ActionEvent e) {
+        if (selectedNode == null || eventMenuCombo.getValue() == null) return;
+        selectedNode.setParam(AutomationStep.PARAM_EVENT_MENU, eventMenuCombo.getValue().name());
+        showInvalidMenuSelection(eventMenuInvalidLabel, eventMenuCombo.getValue().name(),
+                eventMenuCombo.getValue());
+        refreshCard(selectedNode);
+    }
+
+    private void setSidebarTargets(SidebarNavigationMode mode, String selectedTarget) {
+        sidebarTargetCombo.getItems().setAll(SidebarNavigationOptions.targetsFor(mode));
+        sidebarTargetCombo.setValue(SidebarNavigationOptions.chooseTarget(mode, selectedTarget));
+    }
+
+    @FXML private void handleApplySidebarNavigationProps(ActionEvent e) {
+        if (selectedNode == null) return;
+        SidebarNavigationMode mode = sidebarModeCombo.getValue();
+        String target = sidebarTargetCombo.getValue();
+        selectedNode.setParam(AutomationStep.PARAM_SIDEBAR_MODE, mode == null ? "" : mode.name());
+        selectedNode.setParam(AutomationStep.PARAM_SIDEBAR_TARGET, target == null ? "" : target);
+        refreshCard(selectedNode);
+    }
+
     @FXML private void handleApplyOcrProps(ActionEvent e) {
         if (selectedNode == null) return;
         selectedNode.setParam("tlX", ocrTlXField.getText());
@@ -1763,6 +1988,8 @@ public class TaskBuilderLayoutController {
         if (ocrExpectedField != null)
             selectedNode.setParam("expectedValue", ocrExpectedField.getText());
         refreshCard(selectedNode);
+        previewRegionDismissed = false;
+        refreshConfiguredPreviewRegion();
     }
 
     @FXML
@@ -1822,8 +2049,33 @@ public class TaskBuilderLayoutController {
 
     @FXML private void handlePreviewClicked(MouseEvent e) { } // Migrated logic to Released
 
+    private void refreshConfiguredPreviewRegion() {
+        if (selectionBox == null || previewCrosshairPane == null) return;
+        if (previewRegionDismissed || !hasPreviewImage || previewImageView.getImage() == null) {
+            selectionBox.setVisible(false);
+            return;
+        }
+
+        var image = previewImageView.getImage();
+        var viewBounds = previewImageView.getBoundsInLocal();
+        var region = ConfiguredPreviewRegion.forNode(selectedNode,
+                image.getWidth(), image.getHeight(), viewBounds.getWidth(), viewBounds.getHeight());
+        if (region.isEmpty()) {
+            selectionBox.setVisible(false);
+            return;
+        }
+
+        ConfiguredPreviewRegion bounds = region.get();
+        selectionBox.setX(bounds.x());
+        selectionBox.setY(bounds.y());
+        selectionBox.setWidth(bounds.width());
+        selectionBox.setHeight(bounds.height());
+        selectionBox.setVisible(true);
+        previewCrosshairPane.setVisible(true);
+    }
+
     @FXML private void handlePreviewMousePressed(MouseEvent e) {
-        if (selectedNode == null) return;
+        if (selectedNode == null || previewImageView.getImage() == null) return;
         if (selectedNode.getType() != FlowStepKind.OCR_READ && 
             selectedNode.getType() != FlowStepKind.TAP_POINT && 
             selectedNode.getType() != FlowStepKind.SWIPE &&
@@ -1835,6 +2087,10 @@ public class TaskBuilderLayoutController {
         double relY = e.getY() - 2.0;
         if (relX < 0 || relX > previewImageView.getBoundsInLocal().getWidth() || relY < 0 || relY > previewImageView.getBoundsInLocal().getHeight()) return;
 
+        previewRegionWasShownOnPress = selectionBox.isVisible()
+                && (selectedNode.getType() == FlowStepKind.TAP_POINT
+                        || selectedNode.getType() == FlowStepKind.OCR_READ);
+        previewRegionDismissed = true;
         ocrDragStartX = e.getX();
         ocrDragStartY = e.getY();
         
@@ -1885,6 +2141,13 @@ public class TaskBuilderLayoutController {
         double currentY = Math.max(2, Math.min(e.getY(), previewImageView.getBoundsInLocal().getHeight() + 2));
 
         if (selectedNode.getType() == FlowStepKind.TAP_POINT || selectedNode.getType() == FlowStepKind.OCR_READ) {
+            if (previewRegionWasShownOnPress
+                    && selectionBox.getWidth() <= 1 && selectionBox.getHeight() <= 1) {
+                selectionBox.setVisible(false);
+                previewRegionWasShownOnPress = false;
+                return;
+            }
+            previewRegionWasShownOnPress = false;
             int tlX, tlY, brX, brY;
             if (selectionBox.getWidth() <= 1 && selectionBox.getHeight() <= 1) {
                 // it was a simple click
@@ -1942,7 +2205,10 @@ public class TaskBuilderLayoutController {
     }
 
     @FXML private void handlePreviewMouseExited(MouseEvent e) {
-        if (previewCrosshairPane != null) previewCrosshairPane.setVisible(false);
+        if (previewCrossX != null) previewCrossX.setVisible(false);
+        if (previewCrossY != null) previewCrossY.setVisible(false);
+        if (previewCoordsLabel != null) previewCoordsLabel.setVisible(false);
+        if (previewCrosshairPane != null) previewCrosshairPane.setVisible(selectionBox.isVisible());
     }
 
     @FXML private void handlePreviewMouseMoved(MouseEvent e) {
@@ -1952,7 +2218,10 @@ public class TaskBuilderLayoutController {
         double relY = e.getY() - 2.0;
         
         if (relX < 0 || relX > previewImageView.getBoundsInLocal().getWidth() || relY < 0 || relY > previewImageView.getBoundsInLocal().getHeight()) {
-            previewCrosshairPane.setVisible(false);
+            previewCrossX.setVisible(false);
+            previewCrossY.setVisible(false);
+            previewCoordsLabel.setVisible(false);
+            previewCrosshairPane.setVisible(selectionBox.isVisible());
             return;
         }
 
@@ -1965,10 +2234,10 @@ public class TaskBuilderLayoutController {
 
         if (!previewCrosshairPane.isVisible()) {
             previewCrosshairPane.setVisible(true);
-            previewCrossX.setVisible(true);
-            previewCrossY.setVisible(true);
-            previewCoordsLabel.setVisible(true);
         }
+        previewCrossX.setVisible(true);
+        previewCrossY.setVisible(true);
+        previewCoordsLabel.setVisible(true);
 
         previewCrossX.setStartY(2.0); previewCrossX.setEndY(previewImageView.getBoundsInLocal().getHeight() + 2.0);
         previewCrossX.setStartX(e.getX()); previewCrossX.setEndX(e.getX());
@@ -1997,8 +2266,89 @@ public class TaskBuilderLayoutController {
         );
     }
 
+    private void showRunningNode(int nodeId) {
+        VBox previous = nodeCards.get(runningNodeId);
+        if (previous != null) previous.getStyleClass().remove("flow-node-running");
+        runningNodeId = nodeId;
+        VBox current = nodeCards.get(nodeId);
+        if (current != null && !current.getStyleClass().contains("flow-node-running")) {
+            current.getStyleClass().add("flow-node-running");
+        }
+    }
+
+    private void clearRunningNode(int nodeId) {
+        if (runningNodeId == nodeId) showRunningNode(-1);
+    }
+
 
     // ==================== EXECUTION ====================
+
+    @FXML private void handleToggleRunLog(ActionEvent e) {
+        boolean visible = btnToggleRunLog.isSelected();
+        runLogPanel.setVisible(visible);
+        runLogPanel.setManaged(visible);
+        btnToggleRunLog.getTooltip().setText(visible ? "Hide execution logs" : "Show execution logs");
+        if (visible) runLogTextArea.setScrollTop(0);
+    }
+
+    @FXML private void handleRunLogResizePressed(MouseEvent event) {
+        runLogResizeStartY = event.getScreenY();
+        runLogResizeStartHeight = runLogTextArea.getHeight();
+        event.consume();
+    }
+
+    @FXML private void handleRunLogResizeDragged(MouseEvent event) {
+        double availableHeight = rootPane.getHeight() - MIN_CANVAS_HEIGHT
+                - (propsDrawer.isManaged() ? propsDrawer.getHeight() : 0)
+                - rootPane.getTop().getLayoutBounds().getHeight()
+                - rootPane.getBottom().getLayoutBounds().getHeight();
+        double maximumHeight = Math.max(MIN_RUN_LOG_HEIGHT, availableHeight);
+        double requestedHeight = runLogResizeStartHeight + runLogResizeStartY - event.getScreenY();
+        runLogTextArea.setPrefHeight(Math.max(MIN_RUN_LOG_HEIGHT,
+                Math.min(requestedHeight, maximumHeight)));
+        event.consume();
+    }
+
+    private long beginExecution(AccountDescriptor profile) {
+        long generation = runLog.begin(profile.getId());
+        if (generation < 0) {
+            setStatus("⚠ Task Builder execution already running");
+            return -1;
+        }
+        runLogTextArea.clear();
+        return generation;
+    }
+
+    private void appendExecutionLog(long generation, String entry) {
+        synchronized (pendingRunLogs) {
+            pendingRunLogs.addLast(new PendingRunLog(generation, entry));
+            while (pendingRunLogs.size() > MAX_PENDING_RUN_LOGS) pendingRunLogs.removeFirst();
+            if (runLogDrainScheduled) return;
+            runLogDrainScheduled = true;
+        }
+        Platform.runLater(this::drainExecutionLogs);
+    }
+
+    private void drainExecutionLogs() {
+        List<PendingRunLog> batch;
+        synchronized (pendingRunLogs) {
+            batch = new ArrayList<>(pendingRunLogs);
+            pendingRunLogs.clear();
+            runLogDrainScheduled = false;
+        }
+        boolean changed = false;
+        for (PendingRunLog pending : batch) {
+            changed |= runLog.append(pending.generation(), pending.entry());
+        }
+        if (changed) {
+            runLogTextArea.setText(runLog.text());
+            runLogTextArea.setScrollTop(0);
+        }
+    }
+
+    private void finishExecution() {
+        Platform.runLater(runLog::finish);
+    }
 
     @FXML private void handleExecuteSelected(ActionEvent e) {
         if (selectedNode == null) return;
@@ -2018,76 +2368,117 @@ public class TaskBuilderLayoutController {
         // Determine the first node (connected from Start, or first in list)
         int firstId = def.getNodes().get(0).getId();
 
-        setStatus("▶ Executing DAG...");
+        long generation = beginExecution(profile);
+        if (generation < 0) return;
         builderService.setActiveProfile(profile);
+        setStatus("▶ Executing DAG...");
         Thread t = new Thread(() -> {
-            try {
-                String startLocStr = def.getStartLocation();
-                if (profile != null && startLocStr != null && !startLocStr.equalsIgnoreCase("ANY")) {
-                    Platform.runLater(() -> setStatus("▶ Navigating to " + startLocStr + "..."));
-                    dev.frostguard.engine.schedule.LaunchPoint loc = 
-                        dev.frostguard.engine.schedule.LaunchPoint.valueOf(startLocStr.toUpperCase());
-                    dev.frostguard.engine.helper.NavigationHelper navHelper = 
-                        new dev.frostguard.engine.helper.NavigationHelper(
-                                dev.frostguard.engine.emulator.EmulatorController.getInstance(), 
-                                profile.getEmulatorNumber(), 
-                                profile
-                        );
-                    navHelper.ensureCorrectScreenLocation(loc);
-                }
+            try (ProfileContextLogger.CaptureScope capture = ProfileContextLogger.captureCurrentThread(
+                    profile.getId(), line -> appendExecutionLog(generation, line))) {
+                executeGraph(def, profile, nodeMap, firstId);
             } catch (Exception ex) {
-                Platform.runLater(() -> setStatus("❌ Start Navigation failed: " + ex.getMessage()));
-                return;
+                new ProfileContextLogger(TaskBuilderLayoutController.class, profile)
+                        .error("Task Builder execution stopped unexpectedly", ex);
+                Platform.runLater(() -> setStatus("❌ Execution stopped: " + ex.getMessage()));
+            } finally {
+                finishExecution();
             }
-
-            int currentId = firstId;
-            int failedNodeId = -1;
-            while (currentId > 0) {
-                AutomationStep current = nodeMap.get(currentId);
-                if (current == null) break;
-
-                boolean ok = builderService.executeNode(current);
-                final AutomationStep nodeRef = current;
-                Platform.runLater(() -> {
-                    refreshCard(nodeRef);
-                    if (selectedNode != null && selectedNode.getId() == nodeRef.getId())
-                        propStatusLabel.setText(nodeRef.isExecuted() ? "✅" : "❌");
-                });
-
-                if (!ok) {
-                    failedNodeId = nodeRef.getId();
-                    Platform.runLater(() -> setStatus("❌ Failed at node #" + nodeRef.getId()));
-                    break;
-                }
-
-                // Determine next node based on branching (unified via BranchEvaluator)
-                currentId = BranchEvaluator.resolveNextNode(current);
-
-                try { Thread.sleep(400); } catch (InterruptedException ignored) { return; }
-            }
-            final int failure = failedNodeId;
-            capturePreview();
-            Platform.runLater(() -> setStatus(failure < 0
-                    ? "✅ DAG execution complete"
-                    : "❌ Failed at node #" + failure));
         });
         t.setDaemon(true); t.start();
+    }
+
+    private void executeGraph(AutomationBlueprint def, AccountDescriptor profile,
+                              Map<Integer, AutomationStep> nodeMap, int firstId) {
+        try {
+            String startLocStr = def.getStartLocation();
+            if (startLocStr != null && !startLocStr.equalsIgnoreCase("ANY")) {
+                Platform.runLater(() -> setStatus("▶ Navigating to " + startLocStr + "..."));
+                dev.frostguard.engine.schedule.LaunchPoint loc =
+                        dev.frostguard.engine.schedule.LaunchPoint.valueOf(startLocStr.toUpperCase());
+                dev.frostguard.engine.helper.NavigationHelper navHelper =
+                        new dev.frostguard.engine.helper.NavigationHelper(
+                                dev.frostguard.engine.emulator.EmulatorController.getInstance(),
+                                profile.getEmulatorNumber(), profile);
+                navHelper.ensureCorrectScreenLocation(loc);
+            }
+        } catch (Exception ex) {
+            new ProfileContextLogger(TaskBuilderLayoutController.class, profile)
+                    .error("Task Builder start navigation failed", ex);
+            Platform.runLater(() -> setStatus("❌ Start Navigation failed: " + ex.getMessage()));
+            return;
+        }
+
+        int currentId = firstId;
+        int failedNodeId = -1;
+        while (currentId > 0) {
+            AutomationStep current = nodeMap.get(currentId);
+            if (current == null) break;
+
+            int executingId = current.getId();
+            Platform.runLater(() -> showRunningNode(executingId));
+            boolean ok;
+            try {
+                ok = builderService.executeNode(current);
+            } finally {
+                Platform.runLater(() -> clearRunningNode(executingId));
+            }
+            Platform.runLater(() -> {
+                refreshCard(current);
+                if (selectedNode != null && selectedNode.getId() == current.getId())
+                    propStatusLabel.setText(current.isExecuted() ? "✅" : "❌");
+            });
+
+            if (!ok) {
+                failedNodeId = current.getId();
+                Platform.runLater(() -> setStatus("❌ Failed at node #" + current.getId()));
+                break;
+            }
+
+            currentId = BranchEvaluator.resolveNextNode(current);
+            try { Thread.sleep(400); } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        final int failure = failedNodeId;
+        capturePreview();
+        Platform.runLater(() -> setStatus(failure < 0
+                ? "✅ DAG execution complete"
+                : "❌ Failed at node #" + failure));
     }
 
 
     private void execNode(AutomationStep node) {
         AccountDescriptor profile = profileComboBox.getValue();
         if (profile == null) { setStatus("⚠ Select a profile"); return; }
+        long generation = beginExecution(profile);
+        if (generation < 0) return;
         builderService.setActiveProfile(profile);
         setStatus("▶ " + node.getSummary() + "...");
+        showRunningNode(node.getId());
         Thread t = new Thread(() -> {
-            boolean ok = builderService.executeNode(node);
-            Platform.runLater(() -> {
-                refreshCard(node);
-                propStatusLabel.setText(node.isExecuted() ? "✅ Executed" : "❌ Failed");
-                setStatus(ok ? "✅ Done" : "❌ Failed");
-            });
-            if (ok) { try { Thread.sleep(800); } catch (InterruptedException ignored) {} capturePreview(); }
+            try (ProfileContextLogger.CaptureScope capture = ProfileContextLogger.captureCurrentThread(
+                    profile.getId(), line -> appendExecutionLog(generation, line))) {
+                boolean ok = builderService.executeNode(node);
+                Platform.runLater(() -> {
+                    refreshCard(node);
+                    propStatusLabel.setText(node.isExecuted() ? "✅ Executed" : "❌ Failed");
+                    setStatus(ok ? "✅ Done" : "❌ Failed");
+                });
+                if (ok) {
+                    try { Thread.sleep(800); } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    capturePreview();
+                }
+            } catch (Exception ex) {
+                new ProfileContextLogger(TaskBuilderLayoutController.class, profile)
+                        .error("Task Builder node execution stopped unexpectedly", ex);
+                Platform.runLater(() -> setStatus("❌ Execution stopped: " + ex.getMessage()));
+            } finally {
+                finishExecution();
+                Platform.runLater(() -> clearRunningNode(node.getId()));
+            }
         });
         t.setDaemon(true); t.start();
     }
@@ -2103,6 +2494,7 @@ public class TaskBuilderLayoutController {
     @FXML private void handleClearAll(ActionEvent e) {
         AutomationBlueprint def = builderService.getCurrentDefinition();
         if (def == null) return;
+        showRunningNode(-1);
         // Remove all node cards and their ports (in, out, outFalse)
         for (int id : new ArrayList<>(nodeCards.keySet())) {
             flowCanvas.getChildren().removeAll(nodeCards.get(id), inputPorts.get(id), outputPorts.get(id));
@@ -2123,6 +2515,7 @@ public class TaskBuilderLayoutController {
     }
 
     private void removeNode(AutomationStep node) {
+        if (runningNodeId == node.getId()) showRunningNode(-1);
         Circle falsePort = outputPortsFalse.remove(node.getId());
         if (falsePort != null) flowCanvas.getChildren().remove(falsePort);
         HBox hm = hoverMenus.remove(node.getId());
@@ -2144,6 +2537,14 @@ public class TaskBuilderLayoutController {
 
     private void setupProfiles() {
         if (profileComboBox == null) return;
+        profileComboBox.valueProperty().addListener((obs, oldProfile, newProfile) -> {
+            Long oldId = oldProfile == null ? null : oldProfile.getId();
+            Long newId = newProfile == null ? null : newProfile.getId();
+            if (!Objects.equals(oldId, newId)) {
+                runLog.selectProfile(newId);
+                runLogTextArea.clear();
+            }
+        });
         profileComboBox.setOnShowing(e -> {
             try {
                 List<AccountDescriptor> profiles = ProfileService.obtain().fetchAllAccounts();

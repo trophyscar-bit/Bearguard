@@ -1,11 +1,9 @@
 package dev.frostguard.tasks.lifecycle;
 
-import java.awt.image.BufferedImage;
-import java.io.File;
-import javax.imageio.ImageIO;
-import java.time.format.DateTimeFormatter;
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
+import dev.frostguard.api.domain.AreaData;
+import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.engine.emulator.EmulatorController;
 import dev.frostguard.engine.error.ActionRequiredContext;
 import dev.frostguard.engine.error.ProfileCooldownException;
@@ -20,9 +18,12 @@ import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.helper.CharacterSwitchHelper;
 import dev.frostguard.vision.convert.ImageConverter;
+import dev.frostguard.vision.detection.CloseCrossDetector;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.function.BooleanSupplier;
 
 /**
  * Initialize task that starts the bot and prepares the game for automation.
@@ -80,11 +81,7 @@ public class InitializeRoutine extends DelayedTask {
 	private static final PointData UPDATE_TITLE_AREA_BOTTOM_RIGHT = new PointData(470, 350);
 	private static final PointData UPDATE_BUTTON_AREA_TOP_LEFT = new PointData(200, 850);
 	private static final PointData UPDATE_BUTTON_AREA_BOTTOM_RIGHT = new PointData(520, 1050);
-	private static final PointData CLOSEABLE_OVERLAY_AREA_TOP_LEFT = new PointData(540, 65);
-	// Extended from (680,200). The blue close button sits at roughly y 150-205, so a 55px template
-	// centred on it could not be placed inside the old band at all -- it scored 55 against the very
-	// frame it was cut from, which reads like a bad template and is really a clipped search area.
-	private static final PointData CLOSEABLE_OVERLAY_AREA_BOTTOM_RIGHT = new PointData(690, 220);
+	private static final AreaData CLOSEABLE_OVERLAY_SEARCH_AREA = AreaData.of(540, 65, 680, 240);
 	private static final int UPDATE_PATTERN_THRESHOLD = 90;
 	private static final int UPDATE_POSTCONDITION_TIMEOUT_MINUTES = 10;
 	private static final int UPDATE_POSTCONDITION_POLL_DELAY_MS = 5000;
@@ -94,12 +91,6 @@ public class InitializeRoutine extends DelayedTask {
 	private static final String GOOGLE_PLAY_PACKAGE = "com.android.vending";
 	private static final int MAX_WELCOME_BACK_DISMISSALS = 1;
 	private static final int MAX_CLOSEABLE_OVERLAY_DISMISSALS = 3;
-
-	/** Close-button styles seen on startup offer overlays. Extend as new ones appear. */
-	private static final TemplatesEnum[] CLOSEABLE_OVERLAY_CLOSE_VARIANTS = {
-			TemplatesEnum.GAME_START_CLOSEABLE_OVERLAY_CLOSE,
-			TemplatesEnum.GAME_START_CLOSEABLE_OVERLAY_CLOSE_BLUE,
-	};
 	private static final int UNKNOWN_BLOCKER_BACK_SETTLE_MS = 2000;
 	private static final int MAX_UNKNOWN_BLOCKER_POSTCONDITION_ATTEMPTS = 3;
 	private static final int STARTUP_PATTERN_THRESHOLD = 90;
@@ -114,6 +105,8 @@ public class InitializeRoutine extends DelayedTask {
 	private int welcomeBackDismissals = 0;
 	private int closeableOverlayDismissals = 0;
 	private String lastVerifiedStartupState = "initialization started";
+	private RawImageData lastStartupFrame;
+	private final DiagnosticSnapshotStore startupSnapshots = DiagnosticSnapshotStore.forCurrentWorkspace();
 
 	/**
 	 * Helper for character switching operations.
@@ -159,6 +152,7 @@ public class InitializeRoutine extends DelayedTask {
 	 */
 	@Override
 	protected void execute() {
+		lastStartupFrame = null;
 		setRecurring(false);
 
 		ensureEmulatorRunning();
@@ -195,17 +189,36 @@ public class InitializeRoutine extends DelayedTask {
 	private void ensureEmulatorRunning() {
 		logInfo("Checking emulator status...");
 
-		while (!isStarted) {
-			if (emuManager.isRunning(EMULATOR_NUMBER)) {
-				isStarted = true;
-				lastVerifiedStartupState = "emulator running";
-				logInfo("Emulator is running.");
-			} else {
-				logInfo("Emulator not found. Attempting to start it...");
-				emuManager.launchEmulator(EMULATOR_NUMBER);
-				logInfo("Waiting 10 seconds before checking again.");
-				sleepTask(10000); // Wait for emulator to start
+		if (!isStarted) {
+			awaitEmulatorRunning(
+					() -> emuManager.isRunning(EMULATOR_NUMBER),
+					() -> {
+						logInfo("Emulator not found. Attempting to start it...");
+						emuManager.launchEmulator(EMULATOR_NUMBER);
+					},
+					() -> {
+						logInfo("Waiting 10 seconds before checking again.");
+						sleepTask(10000); // Wait for emulator to start
+					},
+					this::checkPreemption);
+			isStarted = true;
+			lastVerifiedStartupState = "emulator running";
+			logInfo("Emulator is running.");
+		}
+	}
+
+	static void awaitEmulatorRunning(BooleanSupplier isRunning, Runnable launch,
+			Runnable retryDelay, Runnable checkPreemption) {
+		while (true) {
+			checkPreemption.run();
+			boolean running = isRunning.getAsBoolean();
+			checkPreemption.run();
+			if (running) {
+				return;
 			}
+			launch.run();
+			checkPreemption.run();
+			retryDelay.run();
 		}
 	}
 
@@ -252,12 +265,14 @@ public class InitializeRoutine extends DelayedTask {
 		} catch (RuntimeException failure) {
 			serial = "unavailable (" + failure.getClass().getSimpleName() + ")";
 		}
-		return StartupCaptureRetry.capture(
+		RawImageData frame = StartupCaptureRetry.capture(
 				new StartupCaptureRetry.CaptureContext(
 						EMULATOR_NUMBER, serial, inspection, lastVerifiedStartupState),
 				() -> emuManager.captureScreen(EMULATOR_NUMBER),
 				this::logWarning,
 				this::sleepTask);
+		lastStartupFrame = frame;
+		return frame;
 	}
 
 	/**
@@ -339,6 +354,7 @@ public class InitializeRoutine extends DelayedTask {
 				continue;
 			}
 
+			// Passive checks and later recoveries do not retain a screenshot.
 			logWarning("Home screen not found on an unsupported startup screen. "
 					+ "Waiting 5 seconds for a passive state change before retrying...");
 			sleepTask(5000);
@@ -512,33 +528,34 @@ public class InitializeRoutine extends DelayedTask {
 		if (capture == null) {
 			return false;
 		}
-		// The same white X is drawn on different coloured buttons depending on which offer is
-		// showing, and template matching is not colour blind: the gold variant scores 44.7 against
-		// a blue one, so no threshold separates it from noise. A Charm Master Pack offer with a blue
-		// close button blocked startup seven times before this was tracked down -- the bot sent its
-		// one bounded Android Back, which a Unity-drawn modal ignores, and gave up. Try each known
-		// variant; add to the list when a new colour turns up rather than lowering the threshold.
-		ImageSearchResultData close = null;
-		for (TemplatesEnum variant : CLOSEABLE_OVERLAY_CLOSE_VARIANTS) {
-			ImageSearchResultData hit = OpenCvPatternLocator.locatePattern(
-					capture,
-					variant.getTemplate(),
-					CLOSEABLE_OVERLAY_AREA_TOP_LEFT,
-					CLOSEABLE_OVERLAY_AREA_BOTTOM_RIGHT,
+		CloseCrossDetector.Detection detectedClose = CloseCrossDetector.locate(
+				capture, CLOSEABLE_OVERLAY_SEARCH_AREA)
+				.stream()
+				.findFirst()
+				.orElse(null);
+		ImageSearchResultData close;
+		if (detectedClose != null) {
+			close = ImageSearchResultData.hit(
+					detectedClose.center().getX(), detectedClose.center().getY(), detectedClose.score(),
+					detectedClose.width(), detectedClose.height());
+		} else {
+			// The grayscale cross finder does not see the white X on the blue close button -- it
+			// finds nothing anywhere on that frame -- and a Charm Master Pack offer with that
+			// button blocked startup seven times before it was tracked down. The colour template
+			// still matches it, so it is the fallback when the shared detector comes back empty.
+			close = OpenCvPatternLocator.locatePattern(capture,
+					TemplatesEnum.GAME_START_CLOSEABLE_OVERLAY_CLOSE_BLUE.getTemplate(),
+					CLOSEABLE_OVERLAY_SEARCH_AREA.topLeft(), CLOSEABLE_OVERLAY_SEARCH_AREA.bottomRight(),
 					STARTUP_PATTERN_THRESHOLD);
-			if (hit.isFound()) {
-				close = hit;
-				break;
+			if (!close.isFound()) {
+				return false;
 			}
-		}
-		if (close == null) {
-			return false;
 		}
 
 		closeableOverlayDismissals++;
 		lastVerifiedStartupState = "closeable startup overlay and concrete close control";
 		logInfo("Closeable startup overlay verified from a fresh frame"
-				+ "; closePattern="
+				+ "; closeCrossScore="
 				+ String.format(java.util.Locale.ROOT, "%.1f", close.getMatchScore())
 				+ "%"
 				+ "; dismissal=" + closeableOverlayDismissals
@@ -577,6 +594,8 @@ public class InitializeRoutine extends DelayedTask {
 			StoreRedirectEvidence storeRedirect) {
 		LocalDateTime retryAt = LocalDateTime.now().plus(StartupRecoveryPolicy.PLAY_STORE_REDIRECT_COOLDOWN);
 		ProfileCooldownException cooldown = playStoreRedirectCooldown(retryAt);
+		StartupBlockerSnapshots.Retention snapshot = retainTerminalSnapshot(
+				StartupBlockerSnapshots.TYPE_PLAY_STORE_REDIRECT);
 		logError("Initialization requires operator action for profile=" + profile.getName()
 				+ ", expected=update completed outside Frostguard or home/world"
 				+ ", observed=Google Play foreground package"
@@ -585,8 +604,10 @@ public class InitializeRoutine extends DelayedTask {
 				+ ". Technical evidence: " + updateEvidence.technicalSummary()
 				+ "; foreground package " + GOOGLE_PLAY_PACKAGE + ": "
 				+ storeRedirect.playStoreForeground()
-				+ "; fresh post-click frame captured: " + storeRedirect.freshFrameCaptured() + ".");
-		throw cooldown;
+				+ "; fresh post-click frame captured: " + storeRedirect.freshFrameCaptured()
+				+ "; snapshot=" + snapshot.logToken()
+				+ "; snapshotBasis=" + snapshot.basis() + ".");
+		throw cooldown.withEvidencePath(snapshot.saved() ? snapshot.relativePath() : "");
 	}
 
 	static ProfileCooldownException playStoreRedirectCooldown(LocalDateTime retryAt) {
@@ -602,12 +623,17 @@ public class InitializeRoutine extends DelayedTask {
 
 	private void deferUnverifiedUpdatePostcondition(String reason, String technicalEvidence) {
 		LocalDateTime retryAt = LocalDateTime.now().plus(StartupRecoveryPolicy.UPDATE_FOLLOW_UP_COOLDOWN);
+		StartupBlockerSnapshots.Retention snapshot = retainTerminalSnapshot(
+				StartupBlockerSnapshots.TYPE_UPDATE_FOLLOW_UP);
 		logError("Initialization paused for profile=" + profile.getName()
 				+ ", expected=automatic update, resource download, Play Store redirect, or home/world"
 				+ ", observed=unsupported update follow-up, lastAction=tapped verified Update button"
 				+ ", fallback=stop-game-and-release-slot, retryAt=" + retryAt
-				+ ", reason=" + reason + " Technical evidence: " + technicalEvidence + ".");
-		throw new ProfileCooldownException(reason, retryAt);
+				+ ", reason=" + reason + " Technical evidence: " + technicalEvidence
+				+ "; snapshot=" + snapshot.logToken()
+				+ "; snapshotBasis=" + snapshot.basis() + ".");
+		throw new ProfileCooldownException(reason, retryAt)
+				.withEvidencePath(snapshot.saved() ? snapshot.relativePath() : "");
 	}
 
 	private enum MandatoryUpdateResult {
@@ -684,18 +710,23 @@ public class InitializeRoutine extends DelayedTask {
 	private void deferResourceDownloadTimeout() {
 		LocalDateTime retryAt = LocalDateTime.now().plus(StartupRecoveryPolicy.UNKNOWN_BLOCKER_COOLDOWN);
 		String reason = "required resources did not finish before the startup timeout";
+		StartupBlockerSnapshots.Retention snapshot = retainTerminalSnapshot(
+				StartupBlockerSnapshots.TYPE_RESOURCE_DOWNLOAD_TIMEOUT);
 		logError("Initialization blocked for profile=" + profile.getName()
 				+ ", expected=resource download completed and home/world"
 				+ ", observed=resource-download-timeout, lastAction=tapped verified Download Now button"
 				+ ", fallback=stop-game-and-release-slot, retryAt=" + retryAt
-				+ ", reason=" + reason + ".");
+				+ ", reason=" + reason
+				+ ", snapshot=" + snapshot.logToken()
+				+ ", snapshotBasis=" + snapshot.basis() + ".");
 		throw new ProfileCooldownException(reason, retryAt, new ActionRequiredContext(
 				"startup.resource-download-timeout",
 				"Required game resources did not finish downloading",
 				"Resource download completed and home/world available",
 				"Resource download remained incomplete for ten minutes",
 				"Tapped the verified Download Now button, then waited without further input",
-				"Stop the game, release the slot, and retry initialization after fifteen minutes"));
+				"Stop the game, release the slot, and retry initialization after fifteen minutes"))
+				.withEvidencePath(snapshot.saved() ? snapshot.relativePath() : "");
 	}
 
 	/**
@@ -772,45 +803,11 @@ public class InitializeRoutine extends DelayedTask {
 		return emuManager.isPackageRunning(EMULATOR_NUMBER, EmulatorController.GAME.getPackageName());
 	}
 
-	/**
-	 * Writes the screen that blocked startup to ocr-debug, returning its filename for the log.
-	 *
-	 * <p>Best effort by design: this runs on the way into a cooldown, and a capture that fails
-	 * here must not replace the real reason for that cooldown with an IO error.
-	 *
-	 * @return the saved filename, or a short marker when nothing could be written
-	 */
-	private String saveUnknownBlockerFrame() {
-		try {
-			RawImageData frame = captureStartupFrame("unknown startup blocker evidence");
-			if (frame == null) {
-				return "none-capture-empty";
-			}
-			BufferedImage image = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
-			File dir = new File(System.getProperty("user.dir"), "ocr-debug");
-			dir.mkdirs();
-			String name = "startup-unknown-blocker-"
-				+ LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss"))
-				+ ".png";
-			File out = new File(dir, name);
-			ImageIO.write(image, "png", out);
-			logInfo("Saved the blocking startup screen for diagnosis: ocr-debug/" + name);
-			return name;
-		} catch (Exception ex) {
-			logWarning("Could not save the blocking startup screen: " + ex.getMessage());
-			return "none-" + ex.getClass().getSimpleName();
-		}
-	}
-
 	private void deferUnknownStartupBlocker(boolean gameForeground) {
 		LocalDateTime retryAt = LocalDateTime.now().plus(StartupRecoveryPolicy.UNKNOWN_BLOCKER_COOLDOWN);
 		String reason = "home/world remained unavailable after bounded in-game recovery";
-		// Keep the screen that beat us. This path fired eleven times over sixteen days without
-		// anyone seeing what was on it: by the time a human looks the fallback has already
-		// stopped the game, so the screen they photograph is the relaunched one, and every
-		// diagnosis so far has been of the wrong frame. The alert names a blocker it cannot
-		// show; this makes the next occurrence answerable rather than guessable.
-		String evidence = saveUnknownBlockerFrame();
+		StartupBlockerSnapshots.Retention snapshot = retainTerminalSnapshot(
+				StartupBlockerSnapshots.TYPE_INITIALIZE_BLOCKED);
 		logError("Initialization blocked for profile=" + profile.getName()
 				+ ", expected=home/world, observed=unknown-startup-blocker"
 				+ ", gameForeground=" + gameForeground
@@ -818,8 +815,9 @@ public class InitializeRoutine extends DelayedTask {
 				+ ", recoveryAttempts=" + unknownBlockerBackAttempts
 				+ "/" + StartupRecoveryPolicy.MAX_UNKNOWN_BLOCKER_BACK_ATTEMPTS
 				+ ", fallback=stop-game-and-release-slot, retryAt=" + retryAt
-				+ ", frame=" + evidence
-				+ ", reason=" + reason + ".");
+				+ ", reason=" + reason
+				+ ", snapshot=" + snapshot.logToken()
+				+ ", snapshotBasis=" + snapshot.basis() + ".");
 		throw new ProfileCooldownException(reason, retryAt, new ActionRequiredContext(
 				"startup.home-unavailable-after-game-back",
 				"Startup remains blocked after automatic recovery",
@@ -828,7 +826,26 @@ public class InitializeRoutine extends DelayedTask {
 				gameForeground
 						? "One bounded Android Back sent only while Whiteout Survival owned the foreground window"
 						: "No input sent because Whiteout Survival did not own the foreground window",
-				"Stop the game, release the slot, and retry initialization after fifteen minutes"));
+				"Stop the game, release the slot, and retry initialization after fifteen minutes"))
+				.withEvidencePath(snapshot.saved() ? snapshot.relativePath() : "");
+	}
+
+	/**
+	 * Saves the last decision frame before the queue stops the game.
+	 * A missing frame gets one fresh capture, marked best-effort. Failure
+	 * does not replace the cooldown.
+	 */
+	private StartupBlockerSnapshots.Retention retainTerminalSnapshot(String type) {
+		StartupBlockerSnapshots.Retention retention = StartupBlockerSnapshots.retain(
+				startupSnapshots,
+				lastStartupFrame,
+				() -> captureStartupFrame("terminal startup snapshot"),
+				type,
+				Instant.now());
+		if (!retention.saved()) {
+			logWarning("Startup snapshot was not saved; cooldown continues without screen evidence.");
+		}
+		return retention;
 	}
 
 	/**

@@ -91,4 +91,73 @@ class TaskCodeGeneratorTest {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new TaskCodeGenerator().generate(blueprint, "invalid_shop", "Invalid Shop"));
     }
+
+    @Test
+    void generatesBothSidebarOperationsWithSafeFailureHandling() {
+        AutomationBlueprint blueprint = new AutomationBlueprint("Sidebar probe");
+        AutomationStep section = new AutomationStep(1, FlowStepKind.SIDEBAR_NAVIGATION);
+        section.setParam(AutomationStep.PARAM_SIDEBAR_MODE, "SECTION");
+        section.setParam(AutomationStep.PARAM_SIDEBAR_TARGET, "DAILY");
+        blueprint.addNode(section);
+        AutomationStep destination = new AutomationStep(2, FlowStepKind.SIDEBAR_NAVIGATION);
+        destination.setParam(AutomationStep.PARAM_SIDEBAR_MODE, "DESTINATION");
+        destination.setParam(AutomationStep.PARAM_SIDEBAR_TARGET, "LIGHTHOUSE_INTEL");
+        blueprint.addNode(destination);
+
+        String source = new TaskCodeGenerator().generate(blueprint, "sidebar_probe", "Sidebar probe");
+
+        assertTrue(source.contains("navigationHelper.openSidebarSection(SidebarSection.DAILY)"));
+        assertTrue(source.contains(
+                "navigationHelper.navigateToSidebarDestination(SidebarDestination.LIGHTHOUSE_INTEL)"));
+        assertTrue(source.contains("logWarning(\"Sidebar navigation failed: SECTION DAILY\")"));
+        assertTrue(source.contains(
+                "logWarning(\"Sidebar navigation failed: DESTINATION LIGHTHOUSE_INTEL\")"));
+        assertTrue(source.contains("__state = -1;"));
+    }
+
+    @Test
+    void rejectsSidebarNavigationWithMismatchedModeAndTarget() {
+        AutomationBlueprint blueprint = new AutomationBlueprint("Invalid Sidebar");
+        AutomationStep step = new AutomationStep(7, FlowStepKind.SIDEBAR_NAVIGATION);
+        step.setParam(AutomationStep.PARAM_SIDEBAR_MODE, "SECTION");
+        step.setParam(AutomationStep.PARAM_SIDEBAR_TARGET, "ARENA");
+        blueprint.addNode(step);
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new TaskCodeGenerator().generate(blueprint, "invalid_sidebar", "Invalid Sidebar"));
+    }
+
+    @Test
+    void generatesAllianceAndEventNavigationWithSafeFailureHandling() {
+        AutomationBlueprint blueprint = new AutomationBlueprint("Menu probe");
+        AutomationStep alliance = new AutomationStep(1, FlowStepKind.ALLIANCE_NAVIGATION);
+        alliance.setParam(AutomationStep.PARAM_ALLIANCE_MENU, "TERRITORY");
+        blueprint.addNode(alliance);
+        AutomationStep event = new AutomationStep(2, FlowStepKind.EVENT_NAVIGATION);
+        event.setParam(AutomationStep.PARAM_EVENT_MENU, "ALLIANCE_CHAMPIONSHIP");
+        blueprint.addNode(event);
+
+        String source = new TaskCodeGenerator().generate(blueprint, "menu_probe", "Menu probe");
+
+        assertTrue(source.contains("navigationHelper.navigateToAllianceMenu(AllianceMenu.TERRITORY)"));
+        assertTrue(source.contains("navigationHelper.navigateToEventMenu(EventMenu.ALLIANCE_CHAMPIONSHIP)"));
+        assertTrue(source.contains("logWarning(\"Alliance navigation failed: TERRITORY\")"));
+        assertTrue(source.contains("logWarning(\"Event navigation failed: ALLIANCE_CHAMPIONSHIP\")"));
+        assertTrue(source.contains("__state = -1;"));
+    }
+
+    @Test
+    void rejectsInvalidAllianceAndEventTargets() {
+        for (FlowStepKind kind : new FlowStepKind[] {
+                FlowStepKind.ALLIANCE_NAVIGATION, FlowStepKind.EVENT_NAVIGATION }) {
+            AutomationBlueprint blueprint = new AutomationBlueprint("Invalid menu");
+            AutomationStep step = new AutomationStep(7, kind);
+            step.setParam(kind == FlowStepKind.ALLIANCE_NAVIGATION
+                    ? AutomationStep.PARAM_ALLIANCE_MENU : AutomationStep.PARAM_EVENT_MENU, "UNKNOWN");
+            blueprint.addNode(step);
+
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> new TaskCodeGenerator().generate(blueprint, "invalid_menu", "Invalid menu"));
+        }
+    }
 }
