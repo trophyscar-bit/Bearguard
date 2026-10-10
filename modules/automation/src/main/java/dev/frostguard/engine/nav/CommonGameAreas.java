@@ -246,7 +246,11 @@ public final class CommonGameAreas {
     // falls out of the shape rules - an earlier y=340 edge cut it to 40x40 and it passed by luck.
     // Since a taller tree on another account puts that badge higher still, the window starts as
     // high as the counter allows rather than just above the one tree that has been measured.
-    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 100, 720, 1100);
+    // The window runs to the top of the screen because a badge can sit there: a crafting station
+    // placed at the back of the island carries its badge at y=29..85, overlapping the rows the HUD
+    // occupies. The essence counter is excluded by its own region in IslandClaimBadges rather than by
+    // a horizontal cut, because no horizontal line separates the two.
+    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 0, 720, 1100);
 
     // The Life Essence counter in the top bar. Being the same crystal artwork as the badges makes it
     // a free proof that the island screen is really open, since no other screen the routine can land
