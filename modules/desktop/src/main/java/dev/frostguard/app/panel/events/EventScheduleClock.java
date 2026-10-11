@@ -10,7 +10,7 @@ import javafx.beans.property.ReadOnlyObjectWrapper;
  *
  * <p>Recorded event windows are stored as {@code LocalDateTime} in UTC (see
  * {@code EventScheduleScanRoutine}); this only controls what zone they are displayed in. Kept
- * as its own holder -- rather than reusing {@link dev.frostguard.app.panel.social.ChatClock} --
+ * as its own holder -- rather than sharing a clock with another panel --
  * since the two panels are configured independently and there is no reason a chat viewer's zone
  * must match a calendar viewer's zone on a shared account.
  */
@@ -37,7 +37,7 @@ public final class EventScheduleClock {
 
     /**
      * Points the clock at a stored setting. Blank or unrecognised falls back to the machine's
-     * own zone, same convention as {@code ChatClock}.
+     * own zone, falling back the same way for every panel.
      */
     public static void useSetting(String stored) {
         ZONE.set(parse(stored));
