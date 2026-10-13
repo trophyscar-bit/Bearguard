@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import dev.frostguard.data.metrics.MetricStore;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -281,6 +283,64 @@ class TelemetryReportWindowTest {
         Optional<TelemetryReport.Delta> found = deltas.stream()
                 .filter(d -> "power".equals(d.metric())).findFirst();
         return found.orElse(null);
+    }
+
+    // ---- the current-values snapshot ----------------------------------------
+
+    /**
+     * Every metric has a current value, even though they are not all read at the same instant.
+     *
+     * <p>Two tasks write these. bg_telemetry records power, gems and coal when it runs;
+     * ResourceStockpileRoutine records the stockpiles a few seconds later and the speedups a few
+     * seconds after that. Three writes, three different instants, three different sets of metrics.</p>
+     *
+     * <p>latest() used to return the newest SAMPLE, which is one instant -- so it returned only the
+     * group written last. The Statistics tab skips any metric latest() does not carry, so on 9/13
+     * it drew steel and the five speedups and silently dropped power, gems, meat, wood, coal and
+     * iron. The old JSONL put every field in one row, so the fault could not exist until readings
+     * were stored one metric at a time.</p>
+     */
+    @Test
+    void latestCarriesEveryMetricEvenWhenTheyWereReadAtDifferentInstants(@TempDir Path root) {
+        MetricStore store = new MetricStore(root.resolve("data").resolve("telemetry").resolve("metrics.db"));
+        Instant hudRead = Instant.parse("2026-09-13T13:35:57Z");
+        Instant stockpileRead = hudRead.plusSeconds(11);
+        Instant speedupRead = hudRead.plusSeconds(20);
+
+        store.record(PROFILE, "power", hudRead, 42_960_787L);
+        store.record(PROFILE, "gems", hudRead, 54_996L);
+        store.record(PROFILE, "coal", hudRead, 77_500_000L);
+        store.record(PROFILE, "meat", stockpileRead, 375_700_000L);
+        store.record(PROFILE, "wood", stockpileRead, 432_800_000L);
+        store.record(PROFILE, "iron", stockpileRead, 23_100_000L);
+        store.record(PROFILE, "steel", speedupRead, 2_460_000L);
+        store.record(PROFILE, "sp_general", speedupRead, 21_642L);
+
+        TelemetryReport.Sample latest = TelemetryReport.load(root, PROFILE).latest();
+
+        assertNotNull(latest);
+        assertEquals(42_960_787L, latest.get("power"), "written first, still the current power");
+        assertEquals(54_996L, latest.get("gems"));
+        assertEquals(77_500_000L, latest.get("coal"));
+        assertEquals(375_700_000L, latest.get("meat"));
+        assertEquals(432_800_000L, latest.get("wood"));
+        assertEquals(23_100_000L, latest.get("iron"));
+        assertEquals(2_460_000L, latest.get("steel"));
+        assertEquals(21_642L, latest.get("sp_general"));
+    }
+
+    /** A newer reading of a metric replaces an older one, rather than both being "current". */
+    @Test
+    void latestTakesTheNewestReadingOfEachMetric(@TempDir Path root) {
+        MetricStore store = new MetricStore(root.resolve("data").resolve("telemetry").resolve("metrics.db"));
+        store.record(PROFILE, "wood", Instant.parse("2026-09-13T11:00:00Z"), 410_000_000L);
+        store.record(PROFILE, "wood", Instant.parse("2026-09-13T13:00:00Z"), 432_800_000L);
+        store.record(PROFILE, "power", Instant.parse("2026-09-13T12:00:00Z"), 42_960_787L);
+
+        TelemetryReport.Sample latest = TelemetryReport.load(root, PROFILE).latest();
+
+        assertEquals(432_800_000L, latest.get("wood"));
+        assertEquals(42_960_787L, latest.get("power"), "an older instant is still the current power");
     }
 
     private static String sample(Instant at, long power) {

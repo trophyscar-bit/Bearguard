@@ -157,6 +157,9 @@ public final class CommonGameAreas {
     public static final AreaData[] MARCH_QUEUE_TITLE  = marchQueueRows(70, -29, 340, -1);
     // padded past the 46x46 icon so template matching has room to slide
     public static final AreaData[] MARCH_QUEUE_ICON   = marchQueueRows(18, -27, 72, 27);
+    // Everything right of the activity icon, where a row's recall button sits. Deliberately wide:
+    // the button is found by its own template rather than by a measured offset.
+    public static final AreaData[] MARCH_QUEUE_ACTION = marchQueueRows(70, -28, 470, 28);
 
     private static AreaData[] marchQueueRows(int x1, int offsetY1, int x2, int offsetY2) {
         AreaData[] rows = new AreaData[MARCH_QUEUE_ROW_Y.length];
@@ -243,7 +246,11 @@ public final class CommonGameAreas {
     // falls out of the shape rules - an earlier y=340 edge cut it to 40x40 and it passed by luck.
     // Since a taller tree on another account puts that badge higher still, the window starts as
     // high as the counter allows rather than just above the one tree that has been measured.
-    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 100, 720, 1100);
+    // The window runs to the top of the screen because a badge can sit there: a crafting station
+    // placed at the back of the island carries its badge at y=29..85, overlapping the rows the HUD
+    // occupies. The essence counter is excluded by its own region in IslandClaimBadges rather than by
+    // a horizontal cut, because no horizontal line separates the two.
+    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 0, 720, 1100);
 
     // The Life Essence counter in the top bar. Being the same crystal artwork as the badges makes it
     // a free proof that the island screen is really open, since no other screen the routine can land
