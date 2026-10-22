@@ -1,28 +1,56 @@
 package dev.frostguard.tasks.dailies;
 
+import java.awt.image.BufferedImage;
 import java.time.LocalDateTime;
 
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
+import dev.frostguard.vision.color.GameColors;
+import dev.frostguard.vision.color.PixelStats;
 import dev.frostguard.vision.convert.GameTimeUtils;
+import dev.frostguard.vision.convert.ImageConverter;
 
 public class ChiefOrderRoutine extends DelayedTask {
 
-public enum ChiefOrderType {
+	/**
+	 * Every order the shelf has shown. Entering the Fire Crystal Age retires Urgent Mobilization,
+	 * Productivity Day and Festivities and shelves Crunch Time, Advanced Training and Dawn Alliance
+	 * Commendation in their place; Rush Job, Comprehensive Care and Double Time carry over. Which
+	 * six an account sees depends on its state, so both generations stay here and a missing one is
+	 * read off the shelf rather than assumed. The cooldowns are only a fallback -- the shelf banner
+	 * states the real remaining time and is read on every pass.
+	 */
+	public enum ChiefOrderType {
 
-		RUSH_JOB("Rush Job", TemplatesEnum.CHIEF_ORDER_RUSH_JOB, 24),
-
+		RUSH_JOB("Rush Job", TemplatesEnum.CHIEF_ORDER_RUSH_JOB, 23),
 
 		URGENT_MOBILIZATION("Urgent Mobilization", TemplatesEnum.CHIEF_ORDER_URGENT_MOBILISATION, 8),
 
+		PRODUCTIVITY_DAY("Productivity Day", TemplatesEnum.CHIEF_ORDER_PRODUCTIVITY_DAY, 12),
 
-		PRODUCTIVITY_DAY("Productivity Day", TemplatesEnum.CHIEF_ORDER_PRODUCTIVITY_DAY, 12);
+		/** +100% resource output for 24h. */
+		CRUNCH_TIME("Crunch Time", null, 12),
+
+		/** Heals every sick survivor; its Enact button is greyed out while none are sick. */
+		COMPREHENSIVE_CARE("Comprehensive Care", null, 4),
+
+		/** +20% on city builds started within the next 5 minutes. */
+		DOUBLE_TIME("Double Time", null, 23),
+
+		/** +20% troop training speed for 2h. */
+		ADVANCED_TRAINING("Advanced Training", null, 47),
+
+		/** A random reward from the Dawn Alliance vault. */
+		DAWN_ALLIANCE_COMMENDATION("Dawn Alliance Commendation", null, 47);
 
 		private final String description;
 		private final TemplatesEnum template;
@@ -45,9 +73,50 @@ public enum ChiefOrderType {
 		public int getCooldownHours() {
 			return cooldownHours;
 		}
+
+		/**
+		 * Words of the shelf label that belong to this order alone (four letters or more, used by no
+		 * other order). Any one of them identifies the slot, so one misread letter does not lose it:
+		 * "Dawn Alliance Commendation" wraps onto two lines and reads as "vawn alliancecommendation".
+		 */
+		java.util.List<String> labelNeedles() {
+			java.util.List<String> needles = new java.util.ArrayList<>();
+			for (String word : description.toLowerCase().split(" ")) {
+				if (word.length() < 4) {
+					continue;
+				}
+				boolean shared = false;
+				for (ChiefOrderType other : values()) {
+					if (other != this && java.util.Arrays.asList(other.description.toLowerCase().split(" ")).contains(word)) {
+						shared = true;
+					}
+				}
+				if (!shared) {
+					needles.add(word);
+				}
+			}
+			return needles;
+		}
+
+		boolean labelMatches(String label) {
+			String text = label.toLowerCase();
+			return labelNeedles().stream().anyMatch(text::contains);
+		}
 	}
 
 private static final int ERROR_RETRY_MINUTES_VALUE = 10;
+
+/** How soon to look again at an order whose Enact button is greyed out (e.g. no sick survivors). */
+private static final int DISABLED_RETRY_MINUTES = 60;
+
+/** Labels that must read before a missing order counts as absent rather than the shelf being shut. */
+static final int SHELF_CONFIRMED_LABELS = 3;
+
+/** An enabled Enact button is mostly blue behind its white label; a greyed one has none. */
+static final double ENACT_BLUE_SHARE_MIN = 0.10;
+
+/** Finds the Enact label on the blue button and on the greyed one (which scores ~88). */
+private static final int ENACT_SEARCH_THRESHOLD = 80;
 
 /** Pulls the remaining time out of an "On cooldown hh:mm:ss" banner. */
 private static final java.util.regex.Pattern COOLDOWN_REMAINING =
@@ -91,12 +160,16 @@ public ChiefOrderRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask, Chie
 			default -> { /* AVAILABLE — the order is open, carry on and enact it. */ }
 		}
 
-		if (!enactOrderFlow()) {
-			manageTaskFailure("Failed to enact order");
-			return;
+		switch (enactOrderFlow()) {
+			case NOT_FOUND -> manageTaskFailure("Failed to enact order");
+			case DISABLED -> {
+				LocalDateTime recheck = LocalDateTime.now().plusMinutes(DISABLED_RETRY_MINUTES);
+				reschedule(recheck);
+				logInfo(routineLogChiefOrderLine(chiefOrderType.getDescription()
+						+ " cannot be enacted right now; looking again at " + recheck + "."));
+			}
+			case ENACTED -> queueNextRun();
 		}
-
-		queueNextRun();
 	}
 
 private String routineLogChiefOrderLine(String note) {
@@ -157,13 +230,30 @@ private void manageTaskFailure(String reason) {
 		UNAVAILABLE
 	}
 
+	/** What the order's own page allowed. */
+	private enum EnactOutcome { ENACTED, NOT_FOUND, DISABLED }
+
 	private ShelfVerdict chooseOrderType() {
 		sleepTask(1500);
 
 		logInfo(routineLogChiefOrderLine("Scanning for Chief Order type: " + chiefOrderType.getDescription()));
 
-		OrderSlot slot = locateSlotByLabel();
+		ShelfRead read = readShelf();
+		OrderSlot slot = read.slot();
 		if (slot == null) {
+			if (read.labelsRead() >= SHELF_CONFIRMED_LABELS) {
+				// The shelf is open and legible; this order simply is not on it. Fire Crystal Age
+				// accounts lost Urgent Mobilization and Productivity Day, and those tasks retried
+				// every ten minutes for weeks looking for books that no longer exist. Look again
+				// after reset in case the shelf changes back, and say plainly why.
+				LocalDateTime recheck = GameTimeUtils.dailyResetTime();
+				reschedule(recheck);
+				logWarning(routineLogChiefOrderLine(chiefOrderType.getDescription()
+						+ " is not on this account's shelf (" + read.labelsRead()
+						+ " other orders read) -- likely retired by the Fire Crystal Age. Checking again at "
+						+ recheck + "; untick it to stop."));
+				return ShelfVerdict.SCHEDULED_FROM_SCREEN;
+			}
 			logWarning(routineLogChiefOrderLine(chiefOrderType.getDescription()
 					+ " label not found on the shelf — the menu may not have opened."));
 			return ShelfVerdict.UNAVAILABLE;
@@ -230,15 +320,20 @@ private void manageTaskFailure(String reason) {
 	}
 
 	/** One position on the 2x3 Chief Order shelf. */
-	private record OrderSlot(PointData coverTopLeft, PointData coverBottomRight,
+	record OrderSlot(PointData coverTopLeft, PointData coverBottomRight,
 			PointData labelTopLeft, PointData labelBottomRight, PointData openPoint) {
+	}
+
+	/** The slot holding this order, if any, and how many labels on the shelf read at all. */
+	private record ShelfRead(OrderSlot slot, int labelsRead) {
 	}
 
 	/**
 	 * The six shelf positions, calibrated from a live 720x1280 capture. Left-column books span
-	 * x 120-320, right column x 395-600; rows sit ~320px apart.
+	 * x 120-320, right column x 395-600; rows sit ~320px apart. Unchanged by the Fire Crystal Age,
+	 * which swapped the books but kept the shelf.
 	 */
-	private static final java.util.List<OrderSlot> SHELF_SLOTS = java.util.List.of(
+	static final java.util.List<OrderSlot> SHELF_SLOTS = java.util.List.of(
 			new OrderSlot(new PointData(120, 290), new PointData(320, 370),
 					new PointData(110, 452), new PointData(335, 494), new PointData(220, 330)),
 			new OrderSlot(new PointData(395, 290), new PointData(600, 370),
@@ -252,18 +347,21 @@ private void manageTaskFailure(String reason) {
 			new OrderSlot(new PointData(395, 930), new PointData(600, 1010),
 					new PointData(385, 1098), new PointData(610, 1140), new PointData(497, 970)));
 
-	private OrderSlot locateSlotByLabel() {
-		// Match the first distinctive word so a partial OCR still resolves the slot — "Urgent",
-		// "Rush" and "Productivity" are each unique across the six shelf entries.
-		String needle = chiefOrderType.getDescription().split(" ")[0].toLowerCase();
-
+	private ShelfRead readShelf() {
+		int labelsRead = 0;
 		for (OrderSlot slot : SHELF_SLOTS) {
-			String label = readSlotText(slot.labelTopLeft(), slot.labelBottomRight());
-			if (label != null && label.toLowerCase().contains(needle)) {
-				return slot;
+			// Block mode, as for the covers: "Dawn Alliance Commendation" wraps onto two lines and
+			// single-line OCR reads it as noise, so that order would never be found.
+			String label = readCoverText(slot.labelTopLeft(), slot.labelBottomRight());
+			if (label == null || label.isBlank()) {
+				continue;
+			}
+			labelsRead++;
+			if (chiefOrderType.labelMatches(label)) {
+				return new ShelfRead(slot, labelsRead);
 			}
 		}
-		return null;
+		return new ShelfRead(null, labelsRead);
 	}
 
 	/**
@@ -293,7 +391,19 @@ private void manageTaskFailure(String reason) {
 		}
 	}
 
-private boolean enactOrderFlow() {
+	/**
+	 * True when the Enact button found in {@code area} is the live blue one rather than the greyed
+	 * one. The label template matches both (100 and about 88), so the colour decides: the enabled
+	 * button is about a quarter blue behind its white text, the greyed one not at all.
+	 */
+	static boolean enactEnabled(BufferedImage frame, AreaData area) {
+		int width = area.bottomRight().getX() - area.topLeft().getX() + 1;
+		int height = area.bottomRight().getY() - area.topLeft().getY() + 1;
+		int blue = PixelStats.count(frame, area, GameColors::isActionBlue);
+		return blue >= ENACT_BLUE_SHARE_MIN * width * height;
+	}
+
+private EnactOutcome enactOrderFlow() {
 		sleepTask(1500);
 
 
@@ -301,11 +411,28 @@ private boolean enactOrderFlow() {
 
 		ImageSearchResultData enactButton = templateSearchHelper.locatePattern(
 				TemplatesEnum.CHIEF_ORDER_ENACT_BUTTON,
-				SearchConfigConstants.DEFAULT_SINGLE);
+				SearchConfig.builder().withMaxAttempts(1).withDelay(300L)
+						.withThreshold(ENACT_SEARCH_THRESHOLD).build());
 
 		if (!enactButton.isFound()) {
 			logError(routineLogChiefOrderLine("Chief Order Enact button not detected"));
-			return false;
+			return EnactOutcome.NOT_FOUND;
+		}
+
+		AreaData buttonArea = enactButton.getMatchedArea();
+		BufferedImage frame = captureFrame();
+		if (frame != null && buttonArea != null && !enactEnabled(frame, buttonArea)) {
+			// Greyed out: the game refuses this order right now -- Comprehensive Care with nobody
+			// sick, or not enough Contentment. Tapping it achieves nothing and would be logged as a
+			// success that books the full cooldown. The page prints the reason in red above it.
+			String reason = readSlotText(
+					new PointData(80, Math.max(0, buttonArea.topLeft().getY() - 75)),
+					new PointData(640, Math.max(1, buttonArea.topLeft().getY() - 20)));
+			logInfo(routineLogChiefOrderLine(chiefOrderType.getDescription() + " Enact button is greyed out"
+					+ (reason != null && !reason.isBlank() ? " (" + reason + ")" : "") + "."));
+			pressBack();
+			sleepTask(1000);
+			return EnactOutcome.DISABLED;
 		}
 
 		logInfo(routineLogChiefOrderLine("Enact button detected. Pressing to enact order"));
@@ -318,7 +445,17 @@ private boolean enactOrderFlow() {
 
 
 		logInfo(routineLogChiefOrderLine(chiefOrderType.getDescription() + " activated finished cleanly"));
-		return true;
+		return EnactOutcome.ENACTED;
+	}
+
+	private BufferedImage captureFrame() {
+		try {
+			RawImageData raw = emuManager.captureScreen(EMULATOR_NUMBER);
+			return raw == null ? null : ImageConverter.toBufferedImage(raw);
+		} catch (Exception ex) {
+			logWarning(routineLogChiefOrderLine("Screen capture failed: " + ex.getMessage()));
+			return null;
+		}
 	}
 
 private void queueNextRun() {
