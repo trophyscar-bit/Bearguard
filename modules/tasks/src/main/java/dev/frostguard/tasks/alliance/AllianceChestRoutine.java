@@ -184,19 +184,22 @@ private int gatherAllianceGifts() {
 		return giftsCollected;
 	}
 
-/** Gift list area under the tab row and above the Claim All bar. Not yet calibrated on a saved frame. */
-private static final int LIST_LEFT = 0;
-private static final int LIST_TOP = 430;
-private static final int LIST_RIGHT = 720;
-private static final int LIST_BOTTOM = 1160;
-
 private static final double OCR_MIN_CONFIDENCE = 0.60;
 
 private static final int KEEP_PASS_PHOTOS_DAYS = 7;
 
+/** A short, slow drag so the list does not coast: consecutive screens share about two cards. */
+private static final int SWIPE_FROM_Y = 1000;
+private static final int SWIPE_TO_Y = 700;
+private static final int SWIPE_MS = 1200;
+
+/** Below this the list did not move, i.e. the bottom has been reached. */
+private static final int END_OF_LIST_SHIFT_PX = 8;
+
 /**
- * Photographs and reads the whole Alliance Gifts list before anything is claimed, and logs each
- * gift once. Never stops the claim: any failure here is logged and the pass carries on.
+ * Photographs and reads the whole Alliance Gifts list before anything is claimed, and logs the
+ * purchases that arrived since the last pass. Never stops the claim: any failure here is logged
+ * and the pass carries on.
  */
 private void logGiftList() {
 		boolean anonymise = Boolean.TRUE.equals(
@@ -207,6 +210,7 @@ private void logGiftList() {
 		AllianceGiftLedger ledger = AllianceGiftLedger.forWorkspace(Paths.get(System.getProperty("user.dir")));
 		Path passDir = ledger.passDir(started);
 		ChatTextReader reader = null;
+		int screens = 0;
 		try {
 			reader = openReader();
 			if (reader == null) {
@@ -216,47 +220,64 @@ private void logGiftList() {
 			Map<String, List<TextLine>> linesByFrame = new LinkedHashMap<>();
 			List<GiftRow> rows = new ArrayList<>();
 			BufferedImage previous = null;
+			int scrolledBy = 0;
 			boolean reachedEnd = false;
-			int screens = 0;
+			boolean lostTrack = false;
 			for (int i = 0; i <= maxScrolls; i++) {
 				BufferedImage image = screenNow();
 				if (image == null) {
 					logWarning(routineLogAllianceChestLine("Alliance Spend | screen capture failed at screen " + i + "."));
+					lostTrack = true;
 					break;
 				}
-				if (previous != null && !listMoved(previous, image)) {
-					reachedEnd = true;
-					break;
+				if (previous != null) {
+					int shift = AllianceGiftLedger.scrollShift(previous, image);
+					if (shift < 0) {
+						logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i
+								+ " does not line up with the one before; this pass will not be logged."));
+						ImageIO.write(image, "png", passDir.resolve(String.format("%03d-unaligned.png", i)).toFile());
+						lostTrack = true;
+						break;
+					}
+					if (shift <= END_OF_LIST_SHIFT_PX) {
+						reachedEnd = true;
+						break;
+					}
+					scrolledBy += shift;
 				}
 				String name = String.format("%03d.png", i);
 				ImageIO.write(image, "png", passDir.resolve(name).toFile());
 				screens++;
 				if (reader != null) {
-					LocalDateTime at = LocalDateTime.now();
-					List<TextLine> lines = reader.read(image, LIST_LEFT, LIST_TOP, LIST_RIGHT, LIST_BOTTOM, "en",
-							OCR_MIN_CONFIDENCE);
+					List<TextLine> lines = reader.read(image, AllianceGiftLedger.TEXT_LEFT, AllianceGiftLedger.LIST_TOP,
+							AllianceGiftLedger.TEXT_RIGHT, AllianceGiftLedger.LIST_BOTTOM, "en", OCR_MIN_CONFIDENCE);
 					linesByFrame.put(name, lines);
-					rows.addAll(AllianceGiftLedger.parseFrame(lines, at, name));
+					rows.addAll(AllianceGiftLedger.parseFrame(lines, LocalDateTime.now(), name, scrolledBy));
 				}
 				previous = image;
-				swipe(new PointData(360, LIST_BOTTOM - 120), new PointData(360, LIST_TOP + 120), 600);
-				sleepTask(800);
+				swipe(new PointData(360, SWIPE_FROM_Y), new PointData(360, SWIPE_TO_Y), SWIPE_MS);
+				sleepTask(700);
 			}
-			if (!reachedEnd) {
-				logWarning(routineLogAllianceChestLine("Alliance Spend | stopped after " + screens
-						+ " screens without reaching the bottom; raise Max scrolls if the list is longer."));
+			List<GiftRow> list = AllianceGiftLedger.stitch(rows);
+			ledger.writePassEvidence(passDir, linesByFrame, list);
+			if (reader == null || lostTrack) {
+				logWarning(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens saved, nothing logged. Frames: "
+						+ passDir));
+			} else {
+				if (!reachedEnd) {
+					logWarning(routineLogAllianceChestLine("Alliance Spend | stopped after " + screens
+							+ " screens without reaching the bottom; raise Max scrolls if the list is longer."));
+				}
+				AllianceGiftLedger.PassResult result = ledger.recordPass(list, anonymise);
+				if (!result.aligned()) {
+					logWarning(routineLogAllianceChestLine("Alliance Spend | the last pass's newest rows are not in this list;"
+							+ " nothing logged this pass, list kept as the new reference. Frames: " + passDir));
+				}
+				logInfo(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens, " + result.listed()
+						+ " purchases in the list, " + result.fresh() + " new" + (result.firstPass() ? " (first pass: backlog)" : "")
+						+ ". Frames: " + passDir));
 			}
-			ledger.writePassLines(passDir, linesByFrame);
-			long unnamed = rows.stream().filter(r -> r.gift() == null).count();
-			List<GiftRow> fresh = ledger.recordNew(rows, anonymise, LocalDateTime.now());
-			logInfo(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens, " + rows.size()
-					+ " rows read (" + unnamed + " without a gift name), " + fresh.size() + " new gifts logged. Frames: "
-					+ passDir));
 			ledger.prunePasses(LocalDateTime.now(), KEEP_PASS_PHOTOS_DAYS);
-			for (int i = 0; i < Math.min(screens, 15); i++) {
-				swipe(new PointData(360, LIST_TOP + 120), new PointData(360, LIST_BOTTOM - 120), 250);
-			}
-			sleepTask(SHORT_WAIT_TIME_MS);
 		} catch (RuntimeException | java.io.IOException e) {
 			logWarning(routineLogAllianceChestLine("Alliance Spend | gift logging failed: " + e + ". Claiming anyway."));
 		} finally {
@@ -264,6 +285,10 @@ private void logGiftList() {
 				onnx.close();
 			}
 		}
+		for (int i = 0; i < screens / 2 + 2; i++) {
+			swipe(new PointData(360, 600), new PointData(360, 1080), 250);
+		}
+		sleepTask(SHORT_WAIT_TIME_MS);
 	}
 
 private ChatTextReader openReader() {
@@ -291,25 +316,6 @@ private BufferedImage screenNow() {
 			return null;
 		}
 		return ImageConverter.toBufferedImage(frame);
-	}
-
-/** True when at least 3% of the list area changed, i.e. the swipe scrolled it. */
-private static boolean listMoved(BufferedImage before, BufferedImage after) {
-		int changed = 0;
-		int looked = 0;
-		for (int y = LIST_TOP; y < LIST_BOTTOM && y < after.getHeight(); y += 4) {
-			for (int x = LIST_LEFT; x < LIST_RIGHT && x < after.getWidth(); x += 4) {
-				looked++;
-				int a = before.getRGB(x, y);
-				int b = after.getRGB(x, y);
-				if (Math.abs(((a >> 16) & 0xFF) - ((b >> 16) & 0xFF)) > 12
-						|| Math.abs(((a >> 8) & 0xFF) - ((b >> 8) & 0xFF)) > 12
-						|| Math.abs((a & 0xFF) - (b & 0xFF)) > 12) {
-					changed++;
-				}
-			}
-		}
-		return looked > 0 && changed / (double) looked >= 0.03;
 	}
 
 private void restoreHomeScreen() {
