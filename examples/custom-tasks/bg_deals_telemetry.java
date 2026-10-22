@@ -94,7 +94,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final double FC_GOOD_RATIO = 1.15;
     private static final double FC_OK_RATIO = 1.60;
     /** Cards grant their items on every day they stay valid, which no page states as a total. */
-    private static final Pattern DAILY_REWARD_CARD = Pattern.compile("(?i)\bcard\b");
+    private static final Pattern DAILY_REWARD_CARD = Pattern.compile("(?i)\\bcard\\b");
     private static final com.fasterxml.jackson.databind.ObjectMapper REPORT_MAPPER =
             new com.fasterxml.jackson.databind.ObjectMapper();
     private static final DateTimeFormatter UTC_INPUT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
