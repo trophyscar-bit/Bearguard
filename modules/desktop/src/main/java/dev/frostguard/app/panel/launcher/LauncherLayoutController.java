@@ -19,6 +19,7 @@ import dev.frostguard.app.panel.alliance.AllianceLayoutController;
 import dev.frostguard.app.panel.analytics.GameAnalyticsLayoutController;
 import dev.frostguard.app.shared.AbstractProfileController;
 import dev.frostguard.app.panel.alliance.AllianceChampionshipLayoutController;
+import dev.frostguard.app.panel.alliance.AllianceSpendLayoutController;
 import dev.frostguard.app.panel.combat.BearTrapLayoutController;
 import dev.frostguard.app.panel.combat.BeastHuntingLayoutController;
 import dev.frostguard.app.panel.dailies.ChiefOrderLayoutController;
@@ -802,6 +803,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 new ModuleDefinition("AllianceLayout",           "Alliance",             MaterialDesignA.ACCOUNT_GROUP_OUTLINE,      AllianceLayoutController::new),
                 new ModuleDefinition("AllianceChampionshipLayout","Alliance Championship",MaterialDesignT.TROPHY_OUTLINE,            AllianceChampionshipLayoutController::new),
                 new ModuleDefinition("AllianceShop",             "Alliance Shop",        MaterialDesignS.SHOPPING_OUTLINE,           AllianceShopController::new),
+                new ModuleDefinition("AllianceSpendLayout",      "Alliance Spend",       MaterialDesignC.CASH_MULTIPLE,              AllianceSpendLayoutController::new),
                 new ModuleDefinition("AllianceMobilizationLayout","Alliance Mobilization",MaterialDesignA.ALARM_LIGHT_OUTLINE,       MobilizationLayoutController::new),
                 new ModuleDefinition("BearTrapLayout",           "Bear Trap",            MaterialDesignT.TOOLS,                      BearTrapLayoutController::new),
                 new ModuleDefinition("BeastHuntingLayout",       "Beast Hunting",        MaterialDesignP.PAW_OUTLINE,                BeastHuntingLayoutController::new),
@@ -842,7 +844,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         java.util.List<String> cityOrder = java.util.List.of(
                 "City Upgrades", "City Events", "Extra City Events", "Research");
         java.util.List<String> allianceOrder = java.util.List.of(
-                "Alliance", "Alliance Championship", "Alliance Mobilization", "Alliance Shop");
+                "Alliance", "Alliance Championship", "Alliance Mobilization", "Alliance Shop", "Alliance Spend");
         java.util.List<String> economyOrder = java.util.List.of(
                 "Gem Shop", "General Shop", "Deals", "Get Giftcodes");
         java.util.List<String> troopsOrder = java.util.List.of(

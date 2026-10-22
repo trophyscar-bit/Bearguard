@@ -647,7 +647,15 @@ public enum ConfigurationKeyEnum {
     // Last America/New_York calendar date bg_telemetry actually scanned Events -> Calendar on --
     // gates that scan to once a day (the first hourly bg_telemetry run at/after 8:05 PM EST)
     // instead of every run.
-    BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING ("",  String.class,   ConfigCategory.SYSTEM);
+    BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING ("",  String.class,   ConfigCategory.SYSTEM),
+
+    // Alliance Spend: the chest routine photographs and reads the whole Alliance Gifts list before
+    // it claims, so purchases can be priced against the deals scan later. Off by default because
+    // it adds scrolling and reading to every chest pass. Anonymise stores a stable hash in place of
+    // each sender name, so who-bought-what can still be counted without keeping the names.
+    ALLIANCE_SPEND_ENABLED_BOOL         ("false",           Boolean.class,  ConfigCategory.ALLIANCE),
+    ALLIANCE_SPEND_ANONYMIZE_BOOL       ("false",           Boolean.class,  ConfigCategory.ALLIANCE),
+    ALLIANCE_SPEND_MAX_SCROLLS_INT      ("40",              Integer.class,  ConfigCategory.ALLIANCE);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.

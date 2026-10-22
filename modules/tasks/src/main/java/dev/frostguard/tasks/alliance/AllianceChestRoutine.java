@@ -10,8 +10,24 @@ import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.engine.alliance.AllianceGiftLedger;
+import dev.frostguard.engine.alliance.AllianceGiftLedger.GiftRow;
+import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.vision.convert.GameTimeUtils;
+import dev.frostguard.vision.convert.ImageConverter;
+import dev.frostguard.vision.ocr.ChatTextReader;
+import dev.frostguard.vision.ocr.OnnxOcrReader;
+import dev.frostguard.vision.ocr.PaddleOcrClient;
+import dev.frostguard.vision.ocr.TextLine;
+import java.awt.image.BufferedImage;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import javax.imageio.ImageIO;
 
 public class AllianceChestRoutine extends DelayedTask {
 
@@ -141,6 +157,9 @@ private int gatherAllianceGifts() {
 		tapInside(new PointData(410, 375), new PointData(626, 420));
 		sleepTask(TAB_CHANGE_WAIT_TIME_MS);
 
+		if (Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ENABLED_BOOL, Boolean.class))) {
+			logGiftList();
+		}
 
 		ImageSearchResultData claimAllButton = templateSearchHelper.locatePattern(
 				TemplatesEnum.ALLIANCE_CHEST_CLAIM_ALL_BUTTON,
@@ -163,6 +182,134 @@ private int gatherAllianceGifts() {
 		}
 		sleepTask(SHORT_WAIT_TIME_MS);
 		return giftsCollected;
+	}
+
+/** Gift list area under the tab row and above the Claim All bar. Not yet calibrated on a saved frame. */
+private static final int LIST_LEFT = 0;
+private static final int LIST_TOP = 430;
+private static final int LIST_RIGHT = 720;
+private static final int LIST_BOTTOM = 1160;
+
+private static final double OCR_MIN_CONFIDENCE = 0.60;
+
+private static final int KEEP_PASS_PHOTOS_DAYS = 7;
+
+/**
+ * Photographs and reads the whole Alliance Gifts list before anything is claimed, and logs each
+ * gift once. Never stops the claim: any failure here is logged and the pass carries on.
+ */
+private void logGiftList() {
+		boolean anonymise = Boolean.TRUE.equals(
+				profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ANONYMIZE_BOOL, Boolean.class));
+		Integer configuredScrolls = profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_MAX_SCROLLS_INT, Integer.class);
+		int maxScrolls = configuredScrolls == null || configuredScrolls < 1 ? 40 : configuredScrolls;
+		LocalDateTime started = LocalDateTime.now();
+		AllianceGiftLedger ledger = AllianceGiftLedger.forWorkspace(Paths.get(System.getProperty("user.dir")));
+		Path passDir = ledger.passDir(started);
+		ChatTextReader reader = null;
+		try {
+			reader = openReader();
+			if (reader == null) {
+				logWarning(routineLogAllianceChestLine("Alliance Spend | no OCR reader is up; saving photographs only."));
+			}
+			java.nio.file.Files.createDirectories(passDir);
+			Map<String, List<TextLine>> linesByFrame = new LinkedHashMap<>();
+			List<GiftRow> rows = new ArrayList<>();
+			BufferedImage previous = null;
+			boolean reachedEnd = false;
+			int screens = 0;
+			for (int i = 0; i <= maxScrolls; i++) {
+				BufferedImage image = screenNow();
+				if (image == null) {
+					logWarning(routineLogAllianceChestLine("Alliance Spend | screen capture failed at screen " + i + "."));
+					break;
+				}
+				if (previous != null && !listMoved(previous, image)) {
+					reachedEnd = true;
+					break;
+				}
+				String name = String.format("%03d.png", i);
+				ImageIO.write(image, "png", passDir.resolve(name).toFile());
+				screens++;
+				if (reader != null) {
+					LocalDateTime at = LocalDateTime.now();
+					List<TextLine> lines = reader.read(image, LIST_LEFT, LIST_TOP, LIST_RIGHT, LIST_BOTTOM, "en",
+							OCR_MIN_CONFIDENCE);
+					linesByFrame.put(name, lines);
+					rows.addAll(AllianceGiftLedger.parseFrame(lines, at, name));
+				}
+				previous = image;
+				swipe(new PointData(360, LIST_BOTTOM - 120), new PointData(360, LIST_TOP + 120), 600);
+				sleepTask(800);
+			}
+			if (!reachedEnd) {
+				logWarning(routineLogAllianceChestLine("Alliance Spend | stopped after " + screens
+						+ " screens without reaching the bottom; raise Max scrolls if the list is longer."));
+			}
+			ledger.writePassLines(passDir, linesByFrame);
+			long unnamed = rows.stream().filter(r -> r.gift() == null).count();
+			List<GiftRow> fresh = ledger.recordNew(rows, anonymise, LocalDateTime.now());
+			logInfo(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens, " + rows.size()
+					+ " rows read (" + unnamed + " without a gift name), " + fresh.size() + " new gifts logged. Frames: "
+					+ passDir));
+			ledger.prunePasses(LocalDateTime.now(), KEEP_PASS_PHOTOS_DAYS);
+			for (int i = 0; i < Math.min(screens, 15); i++) {
+				swipe(new PointData(360, LIST_TOP + 120), new PointData(360, LIST_BOTTOM - 120), 250);
+			}
+			sleepTask(SHORT_WAIT_TIME_MS);
+		} catch (RuntimeException | java.io.IOException e) {
+			logWarning(routineLogAllianceChestLine("Alliance Spend | gift logging failed: " + e + ". Claiming anyway."));
+		} finally {
+			if (reader instanceof OnnxOcrReader onnx) {
+				onnx.close();
+			}
+		}
+	}
+
+private ChatTextReader openReader() {
+		Path here = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
+		for (Path up = here; up != null; up = up.getParent()) {
+			for (Path candidate : new Path[] {up.resolve("lib").resolve("ocr-models"),
+					up.resolve("tools").resolve("ocr").resolve("onnx")}) {
+				if (OnnxOcrReader.isAvailable(candidate)) {
+					try {
+						return new OnnxOcrReader(candidate);
+					} catch (Exception e) {
+						logWarning(routineLogAllianceChestLine("Alliance Spend | could not open the in-process reader: "
+								+ e.getMessage()));
+					}
+				}
+			}
+		}
+		PaddleOcrClient paddle = new PaddleOcrClient("127.0.0.1", 6975);
+		return paddle.isUp() ? paddle : null;
+	}
+
+private BufferedImage screenNow() {
+		RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+		if (frame == null || !frame.isValid()) {
+			return null;
+		}
+		return ImageConverter.toBufferedImage(frame);
+	}
+
+/** True when at least 3% of the list area changed, i.e. the swipe scrolled it. */
+private static boolean listMoved(BufferedImage before, BufferedImage after) {
+		int changed = 0;
+		int looked = 0;
+		for (int y = LIST_TOP; y < LIST_BOTTOM && y < after.getHeight(); y += 4) {
+			for (int x = LIST_LEFT; x < LIST_RIGHT && x < after.getWidth(); x += 4) {
+				looked++;
+				int a = before.getRGB(x, y);
+				int b = after.getRGB(x, y);
+				if (Math.abs(((a >> 16) & 0xFF) - ((b >> 16) & 0xFF)) > 12
+						|| Math.abs(((a >> 8) & 0xFF) - ((b >> 8) & 0xFF)) > 12
+						|| Math.abs((a & 0xFF) - (b & 0xFF)) > 12) {
+					changed++;
+				}
+			}
+		}
+		return looked > 0 && changed / (double) looked >= 0.03;
 	}
 
 private void restoreHomeScreen() {
