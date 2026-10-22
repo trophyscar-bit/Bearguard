@@ -41,10 +41,9 @@
                     <Separator style="-fx-opacity: 0.25;" />
                     <HBox alignment="CENTER_LEFT" spacing="14">
                         <Label styleClass="task-field-label" text="Idle Recheck" minWidth="120" />
-                        <TextField fx:id="textFieldHealIdleRecheck" prefWidth="140" />
-                        <Label styleClass="label-muted" text="minutes" />
+                        <ComboBox fx:id="comboBoxHealIdleRecheck" prefWidth="140" />
+                        <Label styleClass="label-muted" text="minutes, +/- 3 at random" />
                     </HBox>
-                    <Label fx:id="labelHealIdleRecheckError" styleClass="task-card-note" wrapText="true" />
                     <Label styleClass="task-card-note"
                            text="A check that finds nothing costs one panel open and closes again in seconds, so a short cadence is cheap. The cost of a long one is injured troops sitting out of marches."
                            wrapText="true" />

@@ -20,6 +20,7 @@ import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.schedule.TaskQueue;
 import dev.frostguard.engine.schedule.TroopSlotPolicy;
+import dev.frostguard.engine.service.ConfigService;
 import dev.frostguard.engine.service.StaminaService;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.engine.service.TaskManagementService;
@@ -73,10 +74,10 @@ private static final long JOURNEY_INITIAL_RESULT_WAIT_MILLIS = 4_000L;
 private static final long JOURNEY_RESULT_POLL_MILLIS = 1_000L;
 
 // The deploy screen's red "You are not likely to prevail" line is the game quoting odds, not a
-// verdict -- the march can still win. So a warned Fire Beast is deployed anyway; only the count is
-// capped. Three warned deployments in a run and Intel stops rather than grinding stamina into odds
-// that keep coming back the same. A warned march that goes out is a try spent, and the routine
-// carries straight on to the next Fire Beast.
+// verdict -- the march can still win. So a warned Fire Beast gets exactly one attempt per Intel
+// cycle: the march goes out once, and Fire Beasts are then left alone until the next refresh rather
+// than spending more stamina and troops on odds that come back the same every time. A win resets it
+// (a claimed reward means that beast is dead), so the next Fire Beast gets its own single attempt.
 //
 // Nothing on the screen is touched on the way past. maxAllTroopSliders() is deliberately not called:
 // tested live 2026-08-30 against a real warned Fire Beast screen, the march was already at capacity
@@ -84,7 +85,7 @@ private static final long JOURNEY_RESULT_POLL_MILLIS = 1_000L;
 // from 36,003 infantry down to 36,001 and costing 1,016 power.
 //
 // Fire Beast deployments only -- ordinary beast markers are not counted or capped.
-private static final int PREVAIL_WARNING_MAX_ATTEMPTS = 3;
+private static final int PREVAIL_WARNING_MAX_ATTEMPTS = 1;
 
 // A marker that will not open after this many taps is left alone for this pass.
 private static final int BEAST_OPEN_MAX_TAPS = 3;
@@ -176,6 +177,9 @@ private int prevailWarningAttempts;
 // everything else on the Intel map carries on as normal.
 private boolean fireBeastAttemptsExhausted;
 
+// The Intel cycle this run belongs to, named by the refresh that ends it (epoch millis).
+private long fireBeastCycle;
+
 private final List<LocalDateTime> intelBeastReturnTimes = new ArrayList<>();
 
 private TaskStateData autoJoinTask;
@@ -203,8 +207,7 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 
 		processingTask = true;
 		beastMarchSent = false;
-		prevailWarningAttempts = 0;
-		fireBeastAttemptsExhausted = false;
+		resumeFireBeastLedgerFlow();
 		// Changed by pernerch | Date: 2026-07-04 | Why: reset per-run Intel march-capacity override before processing cycle starts.
 		intelMarchCapacityOverride = null;
 		shouldRequeueGatherAfterIntel = false;
@@ -285,6 +288,15 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 			logInfo(routineLogIntelligenceLine("Active Intel cycle entry confirmed from Wilderness."));
 		}
 
+		// Settle stamina before touching anything that has to be put back. This check used to run only
+		// inside the mission loop, after auto-join had been switched off and every gather march
+		// recalled -- so a pass that could not afford a single mission still cost a full recall, and
+		// with stamina unreadable it cost one every minute.
+		if (!hasEnoughStaminaFlow()) {
+			processingTask = false;
+			return;
+		}
+
 		autoJoinTask = TaskManagementService.shared().lookupTaskState(profile.getId(),
 				TpDailyTaskEnum.ALLIANCE_AUTOJOIN.getId());
 		isAutoJoinTaskEnabled = autoJoinTask != null;
@@ -322,7 +334,7 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 			marchQueueLimitReached = !marchesAvailable.available() || intelMarchesRemaining <= 0;
 
 
-			// A claimed reward is a fight that was won. The three warned tries are per beast, not per
+			// A claimed reward is a fight that was won. The warned attempt is per beast, not per
 			// run: beating one earns a fresh three against the next, which is the difference between
 			// working through the map and stopping after the third warning of the day.
 			if (redeemCompletedMissions() > 0 && prevailWarningAttempts > 0) {
@@ -330,7 +342,8 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 						+ "dead. Resetting the warned-try count (was " + prevailWarningAttempts + "/"
 						+ PREVAIL_WARNING_MAX_ATTEMPTS + ") for the next one."));
 				prevailWarningAttempts = 0;
-				fireBeastAttemptsExhausted = false;
+				persistFireBeastTriesFlow();
+				clearFireBeastGiveUpFlow();
 			}
 
 
@@ -1071,7 +1084,7 @@ boolean hasEnoughStaminaFlow() {
 					". Required: " + MIN_STAMINA_REQUIRED_FLOOR + "."));
 
 			if (useStaminaItems) {
-				StaminaTopUpResult result = staminaHelper.topUpFromProfile(MIN_STAMINA_REQUIRED_FLOOR, staminaItemReserve);
+				StaminaTopUpResult result = staminaHelper.topUpFromHud(MIN_STAMINA_REQUIRED_FLOOR, staminaItemReserve);
 				if (result.successful()) {
 					// The gate has already parked the task for regeneration; the backpack made that wait unnecessary.
 					clearStaminaDeferral();
@@ -1518,24 +1531,25 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 				// without sending it, and leave Fire Beasts alone for the rest of the run rather than
 				// walking back onto the same marker.
 				logWarning(routineLogIntelligenceLine("Deploy screen says this march is almost certain to "
-						+ "fail. No march was sent; leaving Fire Beasts alone for the rest of this run."));
-				fireBeastAttemptsExhausted = true;
+						+ "fail. No march was sent; leaving Fire Beasts alone until the next Intel refresh."));
+				giveUpOnFireBeastsFlow();
 				leaveToIntelScreenFlow();
 				return;
 			}
 			if (odds == DeploymentHelper.OddsWarning.UNLIKELY) {
 				if (prevailWarningAttempts >= PREVAIL_WARNING_MAX_ATTEMPTS) {
 					logWarning(routineLogIntelligenceLine("Fire Beast odds warning again, with all "
-							+ PREVAIL_WARNING_MAX_ATTEMPTS + " warned tries spent this run. No march was sent; "
-							+ "leaving Fire Beasts alone and continuing with the rest of the Intel map."));
-					fireBeastAttemptsExhausted = true;
+							+ PREVAIL_WARNING_MAX_ATTEMPTS + " warned tries spent this Intel cycle. No march was sent; "
+							+ "leaving Fire Beasts alone until the next refresh and continuing with the rest of the map."));
+					giveUpOnFireBeastsFlow();
 					leaveToIntelScreenFlow();
 					return;
 				}
 				prevailWarningAttempts++;
+				persistFireBeastTriesFlow();
 				logWarning(routineLogIntelligenceLine("Deploy screen reads \"You are not likely to prevail\"; "
 						+ "the odds are against it, not the outcome. Deploying anyway -- warned try "
-						+ prevailWarningAttempts + "/" + PREVAIL_WARNING_MAX_ATTEMPTS + " this run."));
+						+ prevailWarningAttempts + "/" + PREVAIL_WARNING_MAX_ATTEMPTS + " this Intel cycle."));
 			}
 		}
 
@@ -1650,15 +1664,18 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 			}
 		}
 		if (fireBeast) {
-			// Stop at the third march, not at the fourth deploy screen. Waiting for the next sighting to
-			// notice the tries are spent costs a whole pointless open-read-back trip per remaining
-			// marker, which is the 4th and 5th "attempt" that shows up on screen after the 3rd fight.
+			// Give up the moment the allowed march is away, not at the next deploy screen: waiting for the
+			// next sighting to notice costs a pointless open-read-back trip per remaining marker.
 			if (prevailWarningAttempts >= PREVAIL_WARNING_MAX_ATTEMPTS) {
-				fireBeastAttemptsExhausted = true;
-				logInfo(routineLogIntelligenceLine("Third warned Fire Beast march is away; that is the last "
-						+ "one this run. Leaving Fire Beasts alone and continuing with the rest of the map."));
+				giveUpOnFireBeastsFlow();
+				logInfo(routineLogIntelligenceLine("Warned Fire Beast march is away; that is the only attempt "
+						+ "this Intel cycle. Leaving Fire Beasts alone until the next refresh."));
 			}
-			waitForBeastMarchReturnFlow(travelTimeSeconds);
+			// The wait only exists so a further Fire Beast attempt goes out with the whole army home. With
+			// Fire Beasts given up there is no further attempt, so carry straight on with the rest of the map.
+			if (!fireBeastAttemptsExhausted) {
+				waitForBeastMarchReturnFlow(travelTimeSeconds);
+			}
 		}
 		intelScreenHelper.returnToIntelFromWilderness();
 	}
@@ -1712,6 +1729,57 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 			logWarning(routineLogIntelligenceLine("Intel diagnostic screenshot saved: " + output));
 		} catch (Exception e) {
 			logWarning(routineLogIntelligenceLine("Could not save Intel diagnostic: " + e.getMessage()));
+		}
+	}
+
+	/**
+	 * Picks up this Intel cycle's Fire Beast tries, and any give-up, from before this run started.
+	 * Every scheduled run is a fresh instance and the app gets relaunched, so resetting here was
+	 * handing the same unbeatable beast three new tries on every run.
+	 */
+	private void resumeFireBeastLedgerFlow() {
+		fireBeastCycle = FireBeastAttemptLedger.cycleOf(LocalDateTime.now(), ZoneId.systemDefault());
+		Integer storedTries = profile.getConfig(ConfigurationKeyEnum.INTEL_FIRE_BEAST_TRIES_INT, Integer.class);
+		Long storedCycle = profile.getConfig(ConfigurationKeyEnum.INTEL_FIRE_BEAST_TRIES_CYCLE_LONG, Long.class);
+		Long skipUntil = profile.getConfig(ConfigurationKeyEnum.INTEL_BEAST_SKIP_UNTIL_LONG, Long.class);
+		prevailWarningAttempts = FireBeastAttemptLedger.triesThisCycle(
+				storedTries == null ? 0 : storedTries, storedCycle == null ? 0L : storedCycle, fireBeastCycle);
+		fireBeastAttemptsExhausted = FireBeastAttemptLedger.leftAlone(
+				skipUntil == null ? 0L : skipUntil, System.currentTimeMillis());
+		if (fireBeastAttemptsExhausted) {
+			logInfo(routineLogIntelligenceLine("Fire Beasts were already given up on this Intel cycle; "
+					+ "leaving them alone until the next refresh."));
+		} else if (prevailWarningAttempts > 0) {
+			logInfo(routineLogIntelligenceLine("Resuming this Intel cycle's Fire Beast attempts at "
+					+ prevailWarningAttempts + "/" + PREVAIL_WARNING_MAX_ATTEMPTS
+					+ " -- an earlier run or a restart already spent them."));
+		}
+	}
+
+	private void persistFireBeastTriesFlow() {
+		writeIntelStateFlow(ConfigurationKeyEnum.INTEL_FIRE_BEAST_TRIES_INT, String.valueOf(prevailWarningAttempts));
+		writeIntelStateFlow(ConfigurationKeyEnum.INTEL_FIRE_BEAST_TRIES_CYCLE_LONG, String.valueOf(fireBeastCycle));
+	}
+
+	private void giveUpOnFireBeastsFlow() {
+		fireBeastAttemptsExhausted = true;
+		writeIntelStateFlow(ConfigurationKeyEnum.INTEL_BEAST_SKIP_UNTIL_LONG, String.valueOf(fireBeastCycle));
+	}
+
+	private void clearFireBeastGiveUpFlow() {
+		fireBeastAttemptsExhausted = false;
+		writeIntelStateFlow(ConfigurationKeyEnum.INTEL_BEAST_SKIP_UNTIL_LONG, "0");
+	}
+
+	/**
+	 * Written straight through rather than at task end. Settings changed in a run are only committed
+	 * once execute() returns, and the app gets closed mid-wait -- at 12:16 on 11 September that threw
+	 * away two spent tries and the relaunched run started the same beast again at 1/3.
+	 */
+	private void writeIntelStateFlow(ConfigurationKeyEnum key, String value) {
+		if (!ConfigService.obtain().writeAccountSetting(profile, key, value)) {
+			logWarning(routineLogIntelligenceLine("Could not persist " + key.name() + "=" + value
+					+ "; Fire Beast attempts may reset if Intel restarts."));
 		}
 	}
 

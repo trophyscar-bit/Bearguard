@@ -38,6 +38,11 @@ public enum TpDailyTaskEnum {
     CHIEF_ORDER_PRODUCTIVITY_DAY   (302, "Chief Order: Productivity Day",    ConfigurationKeyEnum.BOOL_CHIEF_ORDER_PRODUCTIVITY_DAY,    RoutineCategory.CHIEF_ORDER),
     CHIEF_ORDER_RUSH_JOB           (300, "Chief Order: Rush Job",           ConfigurationKeyEnum.BOOL_CHIEF_ORDER_RUSH_JOB,            RoutineCategory.CHIEF_ORDER),
     CHIEF_ORDER_URGENT_MOBILIZATION(301, "Chief Order: Urgent Mobilization", ConfigurationKeyEnum.BOOL_CHIEF_ORDER_URGENT_MOBILISATION, RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_CRUNCH_TIME        (303, "Chief Order: Crunch Time",        ConfigurationKeyEnum.BOOL_CHIEF_ORDER_CRUNCH_TIME,         RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_COMPREHENSIVE_CARE (304, "Chief Order: Comprehensive Care", ConfigurationKeyEnum.BOOL_CHIEF_ORDER_COMPREHENSIVE_CARE,  RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_DOUBLE_TIME        (305, "Chief Order: Double Time",        ConfigurationKeyEnum.BOOL_CHIEF_ORDER_DOUBLE_TIME,         RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_ADVANCED_TRAINING  (306, "Chief Order: Advanced Training",  ConfigurationKeyEnum.BOOL_CHIEF_ORDER_ADVANCED_TRAINING,   RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_DAWN_COMMENDATION  (307, "Chief Order: Dawn Alliance Commendation", ConfigurationKeyEnum.BOOL_CHIEF_ORDER_DAWN_COMMENDATION, RoutineCategory.CHIEF_ORDER),
 
     /* ── city ── */
 
@@ -131,8 +136,7 @@ public enum TpDailyTaskEnum {
     EVENT_CRYPTID_HOST     (900, "Host Cryptid Rally",           ConfigurationKeyEnum.CRYPTID_HOST_ENABLED_BOOL,              RoutineCategory.EVENT),
     // No category here is a clean fit - closest existing bucket is ALLIANCE,
     // since Alliance chat is one of the three captured channels.
-    CHAT_CAPTURE           (901, "Chat Capture",                 ConfigurationKeyEnum.CHAT_CAPTURE_ENABLED_BOOL,              RoutineCategory.ALLIANCE),
-    // Deliberately gated on the SAME bool as Smart Gathering
+    CHAT_CAPTURE           (901, "Chat Capture",                 ConfigurationKeyEnum.CHAT_CAPTURE_ENABLED_BOOL,              RoutineCategory.ALLIANCE),    // Deliberately gated on the SAME bool as Smart Gathering
     // (GATHER_SMART_PRIORITY_BOOL), not a separate flag - the operator shouldn't need to find and
     // check a second, unrelated-looking checkbox just to make the one he actually checked
     // do anything. Enabling Smart Gathering is enabling this scan; there is no standalone toggle.
@@ -169,6 +173,7 @@ public enum TpDailyTaskEnum {
     // Live-verified by hand -- tab icon cropped fresh from a live account, real
     // ranking (15th, 1,004,289 points) with 4 tiers already green/ready to claim.
     EVENT_BROTHERS_IN_ARMS (915, "Event: Brothers in Arms",       ConfigurationKeyEnum.EVENT_BROTHERS_IN_ARMS_CLAIM_BOOL,      RoutineCategory.MILITARY),
+    EVENT_ENDLESS_TRIAL    (917, "Event: Endless Trial",          ConfigurationKeyEnum.EVENT_ENDLESS_TRIAL_BOOL,               RoutineCategory.MILITARY),
 
     // Top-right cart-icon Shop panel, built tab by tab. Custom
     // Armament Chest's free Claimable badge is periodic -- once-a-day recheck.

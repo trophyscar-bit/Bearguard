@@ -67,9 +67,7 @@ import dev.frostguard.app.panel.training.TrainingLayoutController;
 import dev.frostguard.app.panel.training.ResearchLayoutController;
 import dev.frostguard.app.panel.misc.CharacterLayoutController;
 import dev.frostguard.app.panel.misc.StatisticsLayoutController;
-import dev.frostguard.app.panel.social.ChatCaptureLayoutController;
-import dev.frostguard.app.panel.social.ChatDigestLayoutController;
-import dev.frostguard.app.panel.social.ChatTranscriptLayoutController;
+import dev.frostguard.app.panel.deals.DealTrackerLayoutController;
 import dev.frostguard.app.panel.taskbuilder.TaskBuilderLayoutController;
 import dev.frostguard.app.panel.custom.CustomTasksLayoutController;
 import javafx.application.Platform;
@@ -91,6 +89,8 @@ import javafx.stage.Stage;
 import javafx.animation.*;
 import javafx.util.Duration;
 import dev.frostguard.app.panel.alliance.AllianceShopController;
+import dev.frostguard.app.panel.events.EventScheduleSettingsLayoutController;
+import dev.frostguard.app.panel.events.UpcomingEventsLayoutController;
 import dev.frostguard.app.panel.misc.TelegramLayoutController;
 import dev.frostguard.app.bootstrap.ApplicationLifecycle;
 import dev.frostguard.app.bootstrap.WindowsWindowManager;
@@ -656,57 +656,36 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         UpdateLayoutController updateCtrl = new UpdateLayoutController();
         Parent updatePane = loadNode("UpdateLayout", updateCtrl);
 
+        EventScheduleSettingsLayoutController eventScheduleSettingsCtrl = new EventScheduleSettingsLayoutController();
+        Parent eventScheduleSettingsPane = loadNode("EventScheduleSettingsLayout", eventScheduleSettingsCtrl);
+
         TabPane configTabs = new TabPane();
         configTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         configTabs.getTabs().addAll(
                 makeTab("Emulators", configPane),
                 makeTab("Telegram", telegramPane),
-                makeTab("Updates", updatePane)
+                makeTab("Updates", updatePane),
+                makeTab("Calendar", eventScheduleSettingsPane)
         );
         configTabs.setMaxWidth(Double.MAX_VALUE);
         configTabs.setMaxHeight(Double.MAX_VALUE);
 
-        // Chat, pinned beneath Config. Two tabs rather than one panel: reading the transcript and
-        // configuring the capture are different jobs, and the transcript is the one worth opening
-        // on, so it leads.
-        ChatTranscriptLayoutController transcriptCtrl = new ChatTranscriptLayoutController();
-        Parent transcriptPane = loadNode("ChatTranscriptLayout", transcriptCtrl);
-        // The transcript reads the profile too, now that it can queue a capture and takes its
-        // message limit from the same settings the Configure tab writes.
-        if (transcriptCtrl instanceof IProfileLoadListener) {
-            profileManagerLayoutController.addProfileLoadListener((IProfileLoadListener) transcriptCtrl);
-        }
-
-        ChatCaptureLayoutController chatConfigCtrl = new ChatCaptureLayoutController();
-        if (chatConfigCtrl instanceof IProfileObserverInjectable) {
-            ((IProfileObserverInjectable) chatConfigCtrl).attachProfileListener(profileManagerLayoutController);
-        }
-        Parent chatConfigPane = loadNode("ChatCaptureLayout", chatConfigCtrl);
-        moduleControllers.put("Chat", chatConfigCtrl);
-        if (chatConfigCtrl instanceof IProfileLoadListener) {
-            profileManagerLayoutController.addProfileLoadListener((IProfileLoadListener) chatConfigCtrl);
-        }
-
-        ChatDigestLayoutController digestCtrl = new ChatDigestLayoutController();
-        Parent digestPane = loadNode("ChatDigestLayout", digestCtrl);
-
-        TabPane chatTabs = new TabPane();
-        chatTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        chatTabs.getTabs().addAll(
-                makeTab("Live Transcript", transcriptPane),
-                makeTab("Digest", digestPane),
-                makeTab("Configure", chatConfigPane)
-        );
-        chatTabs.setMaxWidth(Double.MAX_VALUE);
-        chatTabs.setMaxHeight(Double.MAX_VALUE);
-
         addPinnedButton("Config", MaterialDesignC.COG_OUTLINE, configTabs);
-        addPinnedButton("Chat", MaterialDesignC.CHAT_OUTLINE, chatTabs);
+
+        UpcomingEventsLayoutController upcomingEventsCtrl = new UpcomingEventsLayoutController();
+        Parent upcomingEventsPane = loadNode("UpcomingEventsLayout", upcomingEventsCtrl);
+        Button calendarButton = addPinnedButton("Calendar", MaterialDesignC.CALENDAR_OUTLINE, upcomingEventsPane);
+
+        // Named "Deal Tracker", not "Deals": the Deals config module already owns that name in the nav.
+        DealTrackerLayoutController dealTrackerCtrl = new DealTrackerLayoutController();
+        Parent dealTrackerPane = loadNode("DealTrackerLayout", dealTrackerCtrl);
+        addPinnedButton("Deal Tracker", MaterialDesignT.TAG_OUTLINE, dealTrackerPane);
 
         // Open Bearguard on the Tasks view instead of the raw log. Select the first
         // Control tab (Tasks) and fire the Control button so startup lands there with it highlighted.
         controlTabs.getSelectionModel().selectFirst();
         controlButton.fire();
+        calendarButton.fire(); // TEMPORARY: land on Calendar while its redesign is being checked
     }
 
     private Tab makeTab(String title, Parent content) { /* internal */
@@ -842,8 +821,6 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 new ModuleDefinition("CharacterLayout",          "Character",            MaterialDesignA.ACCOUNT_OUTLINE,            CharacterLayoutController::new),
                 // Statistics is pinned at the sidebar bottom (with Control/Config), not in this list — see buildPinnedButtons.
                 new ModuleDefinition("GameAnalyticsLayout",      "Game Data",            MaterialDesignV.VIEW_LIST_OUTLINE,          GameAnalyticsLayoutController::new)
-                // Chat is pinned at the sidebar bottom with Statistics/Control/Config rather than
-                // sitting in this list -- see initializePinnedModules().
         );
         //@formatter:on
 

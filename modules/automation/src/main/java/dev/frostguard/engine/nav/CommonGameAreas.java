@@ -24,7 +24,16 @@ public final class CommonGameAreas {
     // ── account / energy panel ───────────────────────────────────────
 
     public static final AreaData PROFILE_AVATAR        = region(24, 24, 61, 61);
-    public static final AreaData STAMINA_BUTTON        = region(223, 1101, 244, 1123);
+    // Chief Stamina now lives on the main HUD, in a green bar under the avatar, on both the City and
+    // the World map. The October 2026 Chief Profile redesign removed the stamina button this used to
+    // reach from the profile -- that slot became the Gift Showcase bar, so the old tap opened Gifting
+    // Overview and the stamina read came back empty every time. Measured live on 22 October: the bar
+    // spans (24,99)-(84,114), the digits sat at (35,102)-(60,111) for "320"; the read box takes the
+    // whole bar so a four-digit value still fits.
+    public static final AreaData HUD_STAMINA_OCR_AREA  = region(26, 97, 86, 117);
+    // Tapping that bar opens the same Obtain-more dialog the profile button used to, so the dialog
+    // reads and the Use button below are unchanged.
+    public static final AreaData HUD_STAMINA_BAR       = region(30, 100, 80, 113);
     public static final AreaData STAMINA_OCR_AREA      = region(324, 255, 477, 289);
     public static final AreaData SPENT_STAMINA_OCR_AREA = region(540, 1215, 590, 1245);
 
@@ -157,6 +166,9 @@ public final class CommonGameAreas {
     public static final AreaData[] MARCH_QUEUE_TITLE  = marchQueueRows(70, -29, 340, -1);
     // padded past the 46x46 icon so template matching has room to slide
     public static final AreaData[] MARCH_QUEUE_ICON   = marchQueueRows(18, -27, 72, 27);
+    // Everything right of the activity icon, where a row's recall button sits. Deliberately wide:
+    // the button is found by its own template rather than by a measured offset.
+    public static final AreaData[] MARCH_QUEUE_ACTION = marchQueueRows(70, -28, 470, 28);
 
     private static AreaData[] marchQueueRows(int x1, int offsetY1, int x2, int offsetY2) {
         AreaData[] rows = new AreaData[MARCH_QUEUE_ROW_Y.length];
@@ -243,7 +255,11 @@ public final class CommonGameAreas {
     // falls out of the shape rules - an earlier y=340 edge cut it to 40x40 and it passed by luck.
     // Since a taller tree on another account puts that badge higher still, the window starts as
     // high as the counter allows rather than just above the one tree that has been measured.
-    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 100, 720, 1100);
+    // The window runs to the top of the screen because a badge can sit there: a crafting station
+    // placed at the back of the island carries its badge at y=29..85, overlapping the rows the HUD
+    // occupies. The essence counter is excluded by its own region in IslandClaimBadges rather than by
+    // a horizontal cut, because no horizontal line separates the two.
+    public static final AreaData ISLAND_CLAIM_BADGE_AREA = region(0, 0, 720, 1100);
 
     // The Life Essence counter in the top bar. Being the same crystal artwork as the badges makes it
     // a free proof that the island screen is really open, since no other screen the routine can land

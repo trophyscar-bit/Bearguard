@@ -229,11 +229,18 @@ public enum ConfigurationKeyEnum {
     STAMINA_RESERVE_INT                         ("130",     Integer.class,       ConfigCategory.EVENTS),
     BOOL_CHIEF_ORDER_PRODUCTIVITY_DAY           ("false",   Boolean.class,       ConfigCategory.EVENTS),
     BOOL_CHIEF_ORDER_RUSH_JOB                   ("false",   Boolean.class,       ConfigCategory.EVENTS),
+    BOOL_CHIEF_ORDER_CRUNCH_TIME                ("false",   Boolean.class,       ConfigCategory.EVENTS),
+    BOOL_CHIEF_ORDER_COMPREHENSIVE_CARE         ("false",   Boolean.class,       ConfigCategory.EVENTS),
+    BOOL_CHIEF_ORDER_DOUBLE_TIME                ("false",   Boolean.class,       ConfigCategory.EVENTS),
+    BOOL_CHIEF_ORDER_ADVANCED_TRAINING          ("false",   Boolean.class,       ConfigCategory.EVENTS),
+    BOOL_CHIEF_ORDER_DAWN_COMMENDATION          ("false",   Boolean.class,       ConfigCategory.EVENTS),
     BOOL_CHIEF_ORDER_URGENT_MOBILISATION        ("false",   Boolean.class,       ConfigCategory.EVENTS),
     FISHING_MINIGAME_ENABLED_BOOL               ("false",   Boolean.class,       ConfigCategory.EVENTS),
     HERO_MISSION_EVENT_BOOL                     ("false",   Boolean.class,       ConfigCategory.EVENTS),
     HERO_MISSION_FLAG_INT                       ("0",       Integer.class,       ConfigCategory.EVENTS),
     JOURNEY_OF_LIGHT_BOOL                       ("false",   Boolean.class,       ConfigCategory.EVENTS),
+    JOURNEY_OF_LIGHT_ASSEMBLE_COMMON_BOOL       ("false",   Boolean.class,       ConfigCategory.EVENTS),
+    JOURNEY_OF_LIGHT_ASSEMBLE_PREMIUM_BOOL      ("false",   Boolean.class,       ConfigCategory.EVENTS),
     MERCENARY_EVENT_BOOL                        ("false",   Boolean.class,       ConfigCategory.EVENTS),
     MERCENARY_FLAG_INT                          ("0",       Integer.class,       ConfigCategory.EVENTS),
     MYRIAD_BAZAAR_EVENT_BOOL                    ("false",   Boolean.class,       ConfigCategory.EVENTS),
@@ -302,7 +309,15 @@ public enum ConfigurationKeyEnum {
     // persists that "give up on beast-hunting for a while" state across runs (Survivor
     // Camps/Explorations are unaffected -- only beast/fire-beast attempts are skipped while it's
     // in the future).
+    // Revived 2026-09-11 for Fire Beasts: IntelligenceRoutine writes the next Intel refresh here when
+    // it gives up on Fire Beasts (three warned tries spent, or "almost certain to fail"), and every
+    // run -- including one after an app restart -- leaves them alone until then.
     INTEL_BEAST_SKIP_UNTIL_LONG                 ("0",       Long.class,     ConfigCategory.INTEL),
+    // Warned Fire Beast tries spent, and the Intel cycle (next refresh, epoch millis) they were spent
+    // in. Stored so a new run or a restart resumes the count instead of handing the same beast three
+    // fresh tries; a count from an older cycle is ignored.
+    INTEL_FIRE_BEAST_TRIES_INT                  ("0",       Integer.class,  ConfigCategory.INTEL),
+    INTEL_FIRE_BEAST_TRIES_CYCLE_LONG           ("0",       Long.class,     ConfigCategory.INTEL),
 
     /* ─────────── experts ─────────── */
 
@@ -519,6 +534,7 @@ public enum ConfigurationKeyEnum {
     EVENT_HERO_RALLY_CLAIM_BOOL          ("false",   Boolean.class,  ConfigCategory.EVENTS),
     EVENT_LUCKY_CHIP_SUPPLY_CLAIM_BOOL   ("false",   Boolean.class,  ConfigCategory.EVENTS),
     EVENT_BROTHERS_IN_ARMS_CLAIM_BOOL    ("false",   Boolean.class,  ConfigCategory.EVENTS),
+    EVENT_ENDLESS_TRIAL_BOOL             ("false",   Boolean.class,  ConfigCategory.EVENTS),
 
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
@@ -573,6 +589,20 @@ public enum ConfigurationKeyEnum {
     // the bot can be away before chat scrolls past what it can still reach.
     CHAT_CAPTURE_SCROLL_BACK_INT        ("30",              Integer.class,  ConfigCategory.SYSTEM),
 
+    // Nightly reconcile: the first pass at or after this local time each day photographs for a
+    // longer budget and reads every screen instead of stopping at the first message it already
+    // has, so a stretch the ordinary passes missed (bot paused, app closed) is filed back where it
+    // belongs. Messages carry no time of their own, so recovered ones get an estimate placed
+    // between the stored messages either side of them. Whatever the pass could not reach is logged
+    // rather than passed off as covered.
+    CHAT_RECONCILE_ENABLED_BOOL         ("true",            Boolean.class,  ConfigCategory.SYSTEM),
+    CHAT_RECONCILE_TIME_STRING          ("01:00",           String.class,   ConfigCategory.SYSTEM),
+    // Minutes of scrolling per channel. An ordinary pass gets two and a half. Measured 2026-09-28
+    // from the account log: 0.5 screens a second and about 1.6 new messages a screen, so five
+    // minutes reaches about 240 Alliance messages (roughly six hours at 990 a day) and about 220
+    // World messages (roughly nine hours at 556 a day). A multi-day outage needs far longer.
+    CHAT_RECONCILE_MINUTES_INT          ("5",               Integer.class,  ConfigCategory.SYSTEM),
+
     // Renders non-English messages into English over the network. Nothing is downloaded and no
     // account is needed; a failed lookup leaves the original text in place.
     CHAT_TRANSLATE_TO_ENGLISH_BOOL      ("true",            Boolean.class,  ConfigCategory.SYSTEM),
@@ -605,7 +635,19 @@ public enum ConfigurationKeyEnum {
     // Which clock chat times are drawn against. Empty means this machine's own zone. Messages are
     // stored as instants -- an alliance spans a dozen countries and the moment is not negotiable --
     // so this changes only what is displayed, never what was recorded.
-    CHAT_DISPLAY_TIMEZONE_STRING        ("",                String.class,   ConfigCategory.SYSTEM);
+    CHAT_DISPLAY_TIMEZONE_STRING        ("",                String.class,   ConfigCategory.SYSTEM),
+
+    // Which clock the "Upcoming Events" calendar draws its start/end times against.
+    // Empty means this machine's own zone, same convention as CHAT_DISPLAY_TIMEZONE_STRING
+    // above -- kept separate rather than shared since the two panels are configured
+    // independently and there is no reason a chat viewer's zone must match a calendar
+    // viewer's zone on a shared account.
+    EVENTS_LOCAL_TIMEZONE_STRING        ("",                String.class,   ConfigCategory.SYSTEM),
+
+    // Last America/New_York calendar date bg_telemetry actually scanned Events -> Calendar on --
+    // gates that scan to once a day (the first hourly bg_telemetry run at/after 8:05 PM EST)
+    // instead of every run.
+    BG_TELEMETRY_LAST_STATE_CALENDAR_SCAN_DATE_STRING ("",  String.class,   ConfigCategory.SYSTEM);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.

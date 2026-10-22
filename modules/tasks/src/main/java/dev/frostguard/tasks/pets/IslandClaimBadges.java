@@ -3,6 +3,7 @@ package dev.frostguard.tasks.pets;
 import java.awt.image.BufferedImage;
 import java.util.List;
 
+import dev.frostguard.api.domain.PointData;
 import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.vision.color.ColorBlobFinder;
 import dev.frostguard.vision.color.GameColors;
@@ -37,7 +38,7 @@ import dev.frostguard.vision.color.GameColors;
  */
 final class IslandClaimBadges {
 
-    private static final int MIN_CRYSTAL_PIXELS = 600;
+    private static final int MIN_CRYSTAL_PIXELS = 750;
     private static final int CRYSTAL_MIN_WIDTH = 28;
     private static final int CRYSTAL_MAX_WIDTH = 46;
     private static final int CRYSTAL_MIN_HEIGHT = 30;
@@ -54,7 +55,25 @@ final class IslandClaimBadges {
      */
     static List<ColorBlobFinder.Blob> candidates(BufferedImage frame) {
         return ColorBlobFinder.find(frame, CommonGameAreas.ISLAND_CLAIM_BADGE_AREA,
-                GameColors::isVividGreen, MIN_CRYSTAL_PIXELS);
+                        GameColors::isVividGreen, MIN_CRYSTAL_PIXELS)
+                .stream()
+                .filter(blob -> !isEssenceCounter(blob.centre()))
+                .toList();
+    }
+
+    /**
+     * Whether a blob is the HUD essence counter rather than a badge.
+     *
+     * <p>The counter is the same crystal artwork and passes every shape rule, and it cannot be cut
+     * off by lowering the top of the search window: a badge over a station at the back of the island
+     * sits at y=29..85 while the counter occupies y=13..52, so they share rows. They never share
+     * columns, the counter being pinned to the top right, so it is excluded by its own region. This
+     * deliberately does not live in {@link #isClaimBadge}, which must still recognise the counter for
+     * {@link #onIslandScreen} to work.
+     */
+    private static boolean isEssenceCounter(PointData centre) {
+        return centre.isWithin(CommonGameAreas.ISLAND_ESSENCE_COUNTER.topLeft(),
+                CommonGameAreas.ISLAND_ESSENCE_COUNTER.bottomRight());
     }
 
     /** Whether a candidate blob has the crystal's dimensions and density. */
