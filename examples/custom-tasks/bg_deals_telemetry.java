@@ -281,6 +281,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 previous.offers().forEach(o -> before.put(o.packKey() + "|" + o.priceText(), o));
             }
 
+            List<Map<String, Object>> scoredRows = new ArrayList<>();
             List<Map<String, Object>> best = new ArrayList<>();
             List<Map<String, Object>> skip = new ArrayList<>();
             List<Map<String, Object>> changed = new ArrayList<>();
@@ -293,6 +294,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     continue;
                 }
                 Map<String, Object> row = entry(scored, why(scored));
+                // Every readable offer, so a reader showing one pack's verdict does not have to guess
+                // from which list it is missing: an unchanged "Fair" pack is in none of the others.
+                scoredRows.add(row);
                 if (GOOD_VERDICTS.stream().anyMatch(v -> scored.verdict().contains(v))) {
                     best.add(row);
                 } else if (scored.verdict().contains("Bad")) {
@@ -315,6 +319,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             report.put("day", day.toString());
             report.put("writtenAt", LocalDateTime.now().toString());
             report.put("offers", today.size());
+            report.put("scored", scoredRows);
             report.put("best", best);
             report.put("skip", skip);
             report.put("changed", changed);
@@ -327,7 +332,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             Path temporary = dir.resolve(day + ".json.tmp");
             REPORT_MAPPER.writerWithDefaultPrettyPrinter().writeValue(temporary.toFile(), report);
             Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            logInfo("bg_deals_telemetry | Report " + file.getFileName() + ": " + best.size() + " best, "
+            logInfo("bg_deals_telemetry | Report " + file.getFileName() + ": " + scoredRows.size() + " scored, "
+                    + best.size() + " best, "
                     + skip.size() + " to skip, " + changed.size() + " changed, " + unreadable.size() + " unreadable.");
         } catch (IOException | RuntimeException reportFailed) {
             problems.add("Report for " + day + " not written: " + reportFailed.getMessage());
