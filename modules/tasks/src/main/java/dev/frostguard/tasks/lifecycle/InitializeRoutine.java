@@ -931,7 +931,7 @@ public class InitializeRoutine extends DelayedTask {
 	 */
 	private void handleInitializationSuccess() {
 		logInfo("Initialization successful. Reading initial stamina value.");
-		staminaHelper.updateStaminaFromProfile();
+		staminaHelper.updateStaminaFromHud();
 		logInfo("Initialization task completed successfully.");
 	}
 

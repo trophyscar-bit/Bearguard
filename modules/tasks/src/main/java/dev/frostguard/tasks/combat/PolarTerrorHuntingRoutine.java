@@ -603,7 +603,7 @@ private boolean ensureStaminaForRally() {
                 current, required, minStaminaLevel, MAX_POLAR_RALLY_STAMINA_COST, useStaminaItems)));
 
         if (useStaminaItems) {
-            StaminaTopUpResult result = staminaHelper.topUpFromProfile(required, staminaItemReserve);
+            StaminaTopUpResult result = staminaHelper.topUpFromHud(required, staminaItemReserve);
             switch (PolarStaminaTopUpPolicy.decide(result)) {
                 case CONTINUE:
                     return true;

@@ -9,7 +9,10 @@ import dev.frostguard.engine.service.StaminaService;
 
 final class IntelStaminaGate {
 
-    private static final Duration UNKNOWN_RETRY_DELAY = Duration.ofMinutes(1);
+    // An unreadable stamina is not a reason to come straight back. At one minute, a stamina read that
+    // stayed broken -- the October 2026 profile redesign did exactly that -- made Intel the only task
+    // that ever ran: 38 runs in under two hours, each recalling every gather march on the way in.
+    private static final Duration UNKNOWN_RETRY_DELAY = Duration.ofMinutes(15);
 
     private IntelStaminaGate() {
     }
