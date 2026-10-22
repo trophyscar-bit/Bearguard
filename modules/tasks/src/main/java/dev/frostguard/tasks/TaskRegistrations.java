@@ -86,6 +86,16 @@ public class TaskRegistrations {
                     ChiefOrderRoutine.ChiefOrderType.URGENT_MOBILIZATION);
             case CHIEF_ORDER_PRODUCTIVITY_DAY -> new ChiefOrderRoutine(profile, type,
                     ChiefOrderRoutine.ChiefOrderType.PRODUCTIVITY_DAY);
+            case CHIEF_ORDER_CRUNCH_TIME -> new ChiefOrderRoutine(profile, type,
+                    ChiefOrderRoutine.ChiefOrderType.CRUNCH_TIME);
+            case CHIEF_ORDER_COMPREHENSIVE_CARE -> new ChiefOrderRoutine(profile, type,
+                    ChiefOrderRoutine.ChiefOrderType.COMPREHENSIVE_CARE);
+            case CHIEF_ORDER_DOUBLE_TIME -> new ChiefOrderRoutine(profile, type,
+                    ChiefOrderRoutine.ChiefOrderType.DOUBLE_TIME);
+            case CHIEF_ORDER_ADVANCED_TRAINING -> new ChiefOrderRoutine(profile, type,
+                    ChiefOrderRoutine.ChiefOrderType.ADVANCED_TRAINING);
+            case CHIEF_ORDER_DAWN_COMMENDATION -> new ChiefOrderRoutine(profile, type,
+                    ChiefOrderRoutine.ChiefOrderType.DAWN_ALLIANCE_COMMENDATION);
 
             // Exploration
             case EXPLORATION_CHEST -> new ExplorationRoutine(profile, type);

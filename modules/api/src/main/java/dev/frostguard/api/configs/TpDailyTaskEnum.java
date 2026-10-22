@@ -38,6 +38,11 @@ public enum TpDailyTaskEnum {
     CHIEF_ORDER_PRODUCTIVITY_DAY   (302, "Chief Order: Productivity Day",    ConfigurationKeyEnum.BOOL_CHIEF_ORDER_PRODUCTIVITY_DAY,    RoutineCategory.CHIEF_ORDER),
     CHIEF_ORDER_RUSH_JOB           (300, "Chief Order: Rush Job",           ConfigurationKeyEnum.BOOL_CHIEF_ORDER_RUSH_JOB,            RoutineCategory.CHIEF_ORDER),
     CHIEF_ORDER_URGENT_MOBILIZATION(301, "Chief Order: Urgent Mobilization", ConfigurationKeyEnum.BOOL_CHIEF_ORDER_URGENT_MOBILISATION, RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_CRUNCH_TIME        (303, "Chief Order: Crunch Time",        ConfigurationKeyEnum.BOOL_CHIEF_ORDER_CRUNCH_TIME,         RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_COMPREHENSIVE_CARE (304, "Chief Order: Comprehensive Care", ConfigurationKeyEnum.BOOL_CHIEF_ORDER_COMPREHENSIVE_CARE,  RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_DOUBLE_TIME        (305, "Chief Order: Double Time",        ConfigurationKeyEnum.BOOL_CHIEF_ORDER_DOUBLE_TIME,         RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_ADVANCED_TRAINING  (306, "Chief Order: Advanced Training",  ConfigurationKeyEnum.BOOL_CHIEF_ORDER_ADVANCED_TRAINING,   RoutineCategory.CHIEF_ORDER),
+    CHIEF_ORDER_DAWN_COMMENDATION  (307, "Chief Order: Dawn Alliance Commendation", ConfigurationKeyEnum.BOOL_CHIEF_ORDER_DAWN_COMMENDATION, RoutineCategory.CHIEF_ORDER),
 
     /* ── city ── */
 
