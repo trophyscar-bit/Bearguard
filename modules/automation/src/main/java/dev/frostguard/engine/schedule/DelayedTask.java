@@ -182,12 +182,12 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
             if (switchedProfileOnEmulator) {
                 // Refresh stamina immediately on
                 // profile handover so downstream task logic always starts from current account data.
-                logInfo("Profile switch detected on emulator " + EMULATOR_NUMBER + ". Refreshing stamina from profile screen.");
-                staminaHelper.updateStaminaFromProfile();
+                logInfo("Profile switch detected on emulator " + EMULATOR_NUMBER + ". Refreshing stamina from the HUD.");
+                staminaHelper.updateStaminaFromHud();
             }
 
             if (consumesStamina() && StaminaService.getServices().requiresUpdate(profile.getId())) {
-                staminaHelper.updateStaminaFromProfile();
+                staminaHelper.updateStaminaFromHud();
             }
 
             execute();
