@@ -168,6 +168,17 @@ class DealFrameReaderTest {
         assertFalse(DealFrameReader.isListedItemName("oF"));
     }
 
+    @Test
+    void readsAPriceWhoseDecimalPointTheStrictGlyphSetDrops() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-value-pack-dotless-price.png", "Fire Crystal Value Pack");
+
+        DealOffer offer = page.offers().stream()
+                .filter(o -> o.priceUsd() != null)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no priced offer: " + page.offers()));
+        assertEquals(4.99, offer.priceUsd(), 1e-9);
+    }
+
     private static DealFrameReader.Page read(String name, String tab) throws Exception {
         BufferedImage image = ImageIO.read(Objects.requireNonNull(
                 DealFrameReaderTest.class.getResourceAsStream("/deals/" + name), name));
