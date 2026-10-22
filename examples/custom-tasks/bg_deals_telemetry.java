@@ -93,6 +93,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** Bands for dollars per crystal, against the cheapest crystal of the same day. */
     private static final double FC_GOOD_RATIO = 1.15;
     private static final double FC_OK_RATIO = 1.60;
+    /** Cards grant their items on every day they stay valid, which no page states as a total. */
+    private static final Pattern DAILY_REWARD_CARD = Pattern.compile("(?i)\bcard\b");
     private static final com.fasterxml.jackson.databind.ObjectMapper REPORT_MAPPER =
             new com.fasterxml.jackson.databind.ObjectMapper();
     private static final DateTimeFormatter UTC_INPUT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
@@ -384,24 +386,44 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             row.put("usdPerCrystalNet", round(net / crystals));
             row.put("otherItemsValuedUsd", round(others));
             row.put("otherItemsPriced", valued + " of " + priceable);
+            row.put("dailyRewardsNotTotalled", DAILY_REWARD_CARD.matcher(offer.title() + " " + offer.tab()).find());
             row.put("remaining", offer.remaining());
             row.put("limitPeriod", offer.limitPeriod());
             row.put("purchasesPerMonth", offer.purchasesPerMonth());
             row.put("frame", offer.frame());
             rows.add(row);
         }
-        rows.sort(Comparator.comparingDouble(r -> ((Number) r.get("usdPerCrystalNet")).doubleValue()));
-        double best = rows.isEmpty() ? 0 : ((Number) rows.get(0).get("usdPerCrystalNet")).doubleValue();
+        // Ranked on the whole-pack price, not the net one. The fitted values routinely account for the
+        // entire asking price (a $49.99 pack valued at $49.99 of gems, speedups and resources), which
+        // leaves the crystals at $0.000 and makes every row look equally good. Net stays as a lower bound.
+        rows.sort(Comparator.comparingDouble(r -> ((Number) r.get("usdPerCrystalWholePack")).doubleValue()));
+        double best = rows.stream()
+                .filter(r -> !(boolean) r.get("dailyRewardsNotTotalled"))
+                .mapToDouble(r -> ((Number) r.get("usdPerCrystalWholePack")).doubleValue())
+                .min()
+                .orElse(0);
+        boolean first = true;
         for (Map<String, Object> row : rows) {
-            double net = ((Number) row.get("usdPerCrystalNet")).doubleValue();
             double whole = ((Number) row.get("usdPerCrystalWholePack")).doubleValue();
-            String verdict = best <= 0 || net <= best * FC_GOOD_RATIO ? "good"
-                    : net <= best * FC_OK_RATIO ? "ok" : "skip";
-            row.put("verdict", verdict);
+            double net = ((Number) row.get("usdPerCrystalNet")).doubleValue();
+            if ((boolean) row.get("dailyRewardsNotTotalled")) {
+                // A card grants crystals every day it is valid, and the page states neither the total nor
+                // the up-front grant in a form this reader adds up. Its figure is one day's worth, so it
+                // reads far too expensive: calling it "skip" would bury the cheapest crystals in the shop.
+                row.put("verdict", "unknown");
+                row.put("why", String.format(Locale.ROOT,
+                        "card: $%.3f counts one day's %d crystals only, not the whole validity period",
+                        whole, ((Number) row.get("fireCrystals")).longValue()));
+                continue;
+            }
+            row.put("verdict", whole <= best * FC_GOOD_RATIO ? "good"
+                    : whole <= best * FC_OK_RATIO ? "ok" : "skip");
             row.put("why", String.format(Locale.ROOT,
-                    "$%.3f per crystal once the rest of the pack is valued at $%.2f, $%.3f for the whole pack%s",
-                    net, ((Number) row.get("otherItemsValuedUsd")).doubleValue(), whole,
-                    rows.indexOf(row) == 0 ? "; cheapest crystals today" : ""));
+                    "$%.3f per crystal for the whole pack (at least $%.3f once its other items are valued"
+                            + " at $%.2f)%s",
+                    whole, net, ((Number) row.get("otherItemsValuedUsd")).doubleValue(),
+                    first ? "; cheapest crystals today" : ""));
+            first = false;
         }
         return rows;
     }
