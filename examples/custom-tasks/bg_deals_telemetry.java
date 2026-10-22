@@ -37,6 +37,7 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.deals.DealItem;
 import dev.frostguard.api.deals.DealOffer;
 import dev.frostguard.api.deals.DealScan;
+import dev.frostguard.api.deals.DealPriceTracker;
 import dev.frostguard.api.deals.DealScoring;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ImageSearchResultData;
@@ -87,6 +88,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** History the nightly report scores against; the verdict bands compare a week. */
     private static final int REPORT_HISTORY_DAYS = 30;
     private static final List<String> GOOD_VERDICTS = List.of("Best this week", "Great");
+    /** The item library's name for Fire Crystals; a pack's crystals are counted under this key. */
+    private static final String FIRE_CRYSTAL = "Fire Crystal";
+    /** Bands for dollars per crystal, against the cheapest crystal of the same day. */
+    private static final double FC_GOOD_RATIO = 1.15;
+    private static final double FC_OK_RATIO = 1.60;
     private static final com.fasterxml.jackson.databind.ObjectMapper REPORT_MAPPER =
             new com.fasterxml.jackson.databind.ObjectMapper();
     private static final DateTimeFormatter UTC_INPUT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
@@ -313,6 +319,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             report.put("skip", skip);
             report.put("changed", changed);
             report.put("unreadable", unreadable);
+            report.put("fireCrystals", fireCrystals(today, DealPriceTracker.unitValues(loaded.scans(), manual)));
             report.put("problems", problems);
             Path dir = store.root().resolve("reports");
             Files.createDirectories(dir);
@@ -326,6 +333,75 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             problems.add("Report for " + day + " not written: " + reportFailed.getMessage());
             logWarning("bg_deals_telemetry | Could not write the report for " + day + ": " + reportFailed.getMessage());
         }
+    }
+
+    /**
+     * Every priced offer holding Fire Crystals, cheapest crystal first. Two prices are given: the whole
+     * pack's price over its crystals, and the price left after the rest of the pack is valued at the
+     * fitted item prices, which is what the crystals themselves cost. A pack whose other items are worth
+     * more than the asking price leaves nothing to charge the crystals, so its net price is zero.
+     */
+    private static List<Map<String, Object>> fireCrystals(List<DealScoring.ScoredOffer> today,
+            Map<String, Double> unitValues) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (DealScoring.ScoredOffer scored : today) {
+            DealOffer offer = scored.offer();
+            long crystals = offer.items().stream()
+                    .filter(i -> FIRE_CRYSTAL.equals(i.key()))
+                    .mapToLong(DealItem::quantity)
+                    .sum();
+            if (crystals <= 0 || offer.priceUsd() == null) {
+                continue;
+            }
+            double others = 0;
+            int valued = 0;
+            int priceable = 0;
+            for (DealItem item : offer.items()) {
+                if (FIRE_CRYSTAL.equals(item.key())) {
+                    continue;
+                }
+                priceable++;
+                Double unit = unitValues.get(item.key());
+                if (unit != null) {
+                    others += unit * item.quantity();
+                    valued++;
+                }
+            }
+            double net = Math.max(0, offer.priceUsd() - others);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("title", offer.title());
+            row.put("surface", offer.surface());
+            row.put("tab", offer.tab());
+            row.put("priceUsd", offer.priceUsd());
+            row.put("fireCrystals", crystals);
+            row.put("usdPerCrystalWholePack", round(offer.priceUsd() / crystals));
+            row.put("usdPerCrystalNet", round(net / crystals));
+            row.put("otherItemsValuedUsd", round(others));
+            row.put("otherItemsPriced", valued + " of " + priceable);
+            row.put("remaining", offer.remaining());
+            row.put("limitPeriod", offer.limitPeriod());
+            row.put("purchasesPerMonth", offer.purchasesPerMonth());
+            row.put("frame", offer.frame());
+            rows.add(row);
+        }
+        rows.sort(Comparator.comparingDouble(r -> ((Number) r.get("usdPerCrystalNet")).doubleValue()));
+        double best = rows.isEmpty() ? 0 : ((Number) rows.get(0).get("usdPerCrystalNet")).doubleValue();
+        for (Map<String, Object> row : rows) {
+            double net = ((Number) row.get("usdPerCrystalNet")).doubleValue();
+            double whole = ((Number) row.get("usdPerCrystalWholePack")).doubleValue();
+            String verdict = best <= 0 || net <= best * FC_GOOD_RATIO ? "good"
+                    : net <= best * FC_OK_RATIO ? "ok" : "skip";
+            row.put("verdict", verdict);
+            row.put("why", String.format(Locale.ROOT,
+                    "$%.3f per crystal once the rest of the pack is valued at $%.2f, $%.3f for the whole pack%s",
+                    net, ((Number) row.get("otherItemsValuedUsd")).doubleValue(), whole,
+                    rows.indexOf(row) == 0 ? "; cheapest crystals today" : ""));
+        }
+        return rows;
+    }
+
+    private static double round(double value) {
+        return Math.round(value * 1000.0) / 1000.0;
     }
 
     private static Map<String, Object> entry(DealScoring.ScoredOffer scored, String why) {
