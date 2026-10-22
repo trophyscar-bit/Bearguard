@@ -19,7 +19,7 @@ class IntelStaminaGateTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 10, 10, 0);
 
     @Test
-    void unknownStaminaRetriesSoonWithoutCreatingARegenerationDeferral() {
+    void unknownStaminaBacksOffWithoutCreatingARegenerationDeferral() {
         RecordingScheduler scheduler = new RecordingScheduler();
 
         IntelStaminaGate.Outcome outcome = IntelStaminaGate.evaluate(
@@ -27,7 +27,7 @@ class IntelStaminaGateTest {
 
         assertEquals(IntelStaminaGate.Status.UNKNOWN, outcome.status());
         assertFalse(outcome.allowed());
-        assertEquals(NOW.plusMinutes(1), outcome.retryAt());
+        assertEquals(NOW.plusMinutes(15), outcome.retryAt());
         assertEquals(outcome.retryAt(), scheduler.rescheduledAt);
         assertFalse(scheduler.staminaDeferred);
     }
@@ -76,15 +76,19 @@ class IntelStaminaGateTest {
     }
 
     @Test
-    void intelligenceRoutineCallerRetriesUnknownWithoutAStaminaDeferral() {
+    void intelligenceRoutineCallerBacksOffUnknownWithoutAStaminaDeferral() {
         IntelligenceRoutine routine = routine(9210L);
         LocalDateTime before = LocalDateTime.now();
 
         assertFalse(routine.hasEnoughStaminaFlow());
 
         assertNull(routine.getStaminaDeferral());
-        assertTrue(routine.getScheduled().isAfter(before.plusSeconds(50)));
-        assertTrue(routine.getScheduled().isBefore(LocalDateTime.now().plusMinutes(2)));
+        assertTrue(routine.getScheduled().isAfter(before.plusMinutes(14)),
+                () -> "scheduled=" + routine.getScheduled() + " before=" + before);
+        // reschedule() adds schedule jitter on top of the 15 minutes -- a share of the gap, capped by
+        // the global jitter settings -- so the upper bound is a runaway guard, not the exact delay.
+        assertTrue(routine.getScheduled().isBefore(LocalDateTime.now().plusMinutes(25)),
+                () -> "scheduled=" + routine.getScheduled() + " now=" + LocalDateTime.now());
     }
 
     @Test

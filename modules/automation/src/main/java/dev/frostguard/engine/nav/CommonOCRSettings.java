@@ -22,6 +22,11 @@ public final class CommonOCRSettings {
                     .build();
 
     // stamina fraction: "123/500" style
+    // White digits on the HUD's green stamina bar. Isolating white matters: unisolated, a frame with no
+    // HUD read a stray "5" out of the background where the isolated read correctly returned nothing.
+    public static final OcrSettingsData HUD_STAMINA_SETTINGS =
+            buildConfig("0123456789,", true, 254, 254, 254, TextLayout.SINGLE_LINE);
+
     public static final OcrSettingsData STAMINA_FRACTION_SETTINGS =
             buildConfig("0123456789/", true, 255, 255, 255, TextLayout.SINGLE_LINE);
 
