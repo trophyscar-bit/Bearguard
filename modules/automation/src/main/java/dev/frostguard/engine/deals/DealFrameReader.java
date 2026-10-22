@@ -24,6 +24,7 @@ import java.util.stream.Stream;
 import dev.frostguard.api.deals.DealItem;
 import dev.frostguard.api.deals.DealOffer;
 import dev.frostguard.api.domain.ImageSearchResultData;
+import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.nav.CommonOCRSettings;
@@ -440,12 +441,27 @@ public final class DealFrameReader {
         int width = (int) (button.width() * PRICE_TEXT_WIDTH_SHARE);
         RawImageData crop = WhiteTextIsolator.isolateScaled(image, button.x(), button.y(), width, button.height(),
                 PRICE_CROP_HEIGHT);
+        String strict = cropRead(crop, CommonOCRSettings.DEAL_PRICE_SETTINGS);
+        if (PRICE.matcher(strict).find()) {
+            return strict;
+        }
+        // The digits-and-dot glyph set drops the decimal point on some buttons: eight offers of the
+        // 2026-10-22 scan read "$499" for a plainly printed $4.99. Reading the same crop without the
+        // restriction recovered "$4.99" on every button measured, at the cost of stray marks around it,
+        // which the price pattern ignores. The strict read stays first because it comes back clean.
+        String loose = cropRead(crop, CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
+        if (PRICE.matcher(loose.replace(" ", "")).find()) {
+            return loose;
+        }
+        return strict.isEmpty() ? inside : strict;
+    }
+
+    private static String cropRead(RawImageData crop, OcrSettingsData settings) {
         try {
-            String read = OcrEngine.recognizeText(crop, new PointData(0, 0),
-                    new PointData(crop.getWidth(), crop.getHeight()), CommonOCRSettings.DEAL_PRICE_SETTINGS).trim();
-            return read.isEmpty() ? inside : read;
-        } catch (OcrException ocrFailed) {
-            return inside;
+            return OcrEngine.recognizeText(crop, new PointData(0, 0),
+                    new PointData(crop.getWidth(), crop.getHeight()), settings).trim();
+        } catch (OcrException unreadable) {
+            return "";
         }
     }
 
