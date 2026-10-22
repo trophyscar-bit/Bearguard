@@ -109,8 +109,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private static final int MAX_TABS_PER_PANEL = 40;
     private static final int MAX_STRIP_SWIPES = 20;
-    private static final int MAX_PAGE_SCROLLS = 8;
-    private static final int MAX_POPUP_SCROLLS = 3;
+    /** Safety ceiling only: a page now ends when swiping stops finding offers, not at a fixed count. */
+    private static final int MAX_PAGE_SCROLLS = 25;
+    private static final int MAX_POPUP_SCROLLS = 10;
+    /** Two swipes that add no offer nobody has seen means the list has ended. */
+    private static final int BARREN_SWIPES_FOR_END = 2;
     private static final int MAX_ROW_SWIPES = 3;
     /** Dawn Market has 5 tiers and 4 options; a carousel past these limits is reported, not looped. */
     private static final int MAX_CAROUSEL_TIERS = 10;
@@ -177,6 +180,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private final Map<String, DealOffer> offers = new LinkedHashMap<>();
     private final List<String> problems = new ArrayList<>();
+    private final List<Map<String, Object>> coverage = new ArrayList<>();
     /** Tabs found to hold choose-your-own packs; nothing from them is kept. */
     private final Set<String> chooseYourOwnTabs = new HashSet<>();
     private DealsStore store;
@@ -218,6 +222,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     protected void execute() {
         offers.clear();
         problems.clear();
+        coverage.clear();
         chooseYourOwnTabs.clear();
         frameNumber = 0;
         LocalDate day = LocalDate.now();
@@ -327,6 +332,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             report.put("changed", changed);
             report.put("unreadable", unreadable);
             report.put("fireCrystals", fireCrystals(today, DealPriceTracker.unitValues(loaded.scans(), manual)));
+            report.put("coverage", coverageRows());
             report.put("problems", problems);
             Path dir = store.root().resolve("reports");
             Files.createDirectories(dir);
@@ -432,6 +438,29 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         return Math.round(value * 1000.0) / 1000.0;
     }
 
+    /**
+     * The surfaces this run knew about, each with what it found there. A surface that was skipped, or that
+     * stopped scrolling with more below, says so here rather than simply contributing fewer offers.
+     */
+    private List<Map<String, Object>> coverageRows() {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> recorded : coverage) {
+            String surface = (String) recorded.get("surface");
+            List<DealOffer> mine = offers.values().stream()
+                    .filter(o -> surface.equals(o.surface()))
+                    .toList();
+            Map<String, Object> row = new LinkedHashMap<>(recorded);
+            row.put("offers", mine.size());
+            row.put("unreadable", mine.stream()
+                    .filter(o -> o.priceUsd() == null || o.items().isEmpty())
+                    .count());
+            row.put("fullyScrolled", problems.stream()
+                    .noneMatch(problem -> problem.startsWith(surface + " ") && problem.contains("still scrolling")));
+            rows.add(row);
+        }
+        return rows;
+    }
+
     private static Map<String, Object> entry(DealScoring.ScoredOffer scored, String why) {
         DealOffer offer = scored.offer();
         Map<String, Object> row = new LinkedHashMap<>();
@@ -483,6 +512,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             for (int attempt = 1; attempt <= PANEL_OPEN_ATTEMPTS; attempt++) {
                 if (!returnToCity()) {
                     problems.add(surface + ": skipped because the city view could not be confirmed first.");
+                    recordCoverage(surface, false, null, null, "city view not confirmed");
                     return;
                 }
                 ImageSearchResultData button = templateSearchHelper.locatePattern(
@@ -495,6 +525,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     tapNear(hudFallback);
                 } else {
                     problems.add(surface + ": shortcut not found on the city view; surface skipped.");
+                    recordCoverage(surface, false, null, null, "shortcut not found on the city view");
                     logWarning("bg_deals_telemetry | " + surface + " shortcut not found; skipping it.");
                     return;
                 }
@@ -509,6 +540,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     logWarning("bg_deals_telemetry | " + surface + " showed no tab strip after tapping its shortcut ("
                             + evidence + "); returning to the city and tapping it again.");
                 } else {
+                    recordCoverage(surface, false, null, null, "no tabbed panel opened after "
+                            + PANEL_OPEN_ATTEMPTS + " taps");
                     problems.add(surface + ": no tabbed panel opened after " + PANEL_OPEN_ATTEMPTS
                             + " taps (last screen " + evidence + "); surface skipped.");
                     logWarning("bg_deals_telemetry | " + surface + " did not open a tabbed panel after "
@@ -607,6 +640,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                         surveyTabbedPanel(name);
                     } else {
                         surveyPage(name, name, MAX_POPUP_SCROLLS, false);
+                        recordCoverage(name, true, null, null, null);
                     }
                 } catch (RuntimeException failed) {
                     recordFailure("City icon " + slot, failed);
@@ -639,9 +673,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      */
     private void surveyTabbedPanel(String surface) {
         Set<String> visited = new HashSet<>();
+        Set<String> seen = new HashSet<>();
         String opening = surveyPage(surface, null, MAX_PAGE_SCROLLS, true);
         if (opening != null) {
             visited.add(tabKey(opening));
+            seen.add(tabKey(opening));
         }
         int surveyed = 0;
         int strips = 0;
@@ -649,10 +685,14 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             RawImageData strip = capture();
             BufferedImage image = ImageConverter.toBufferedImage(strip);
             for (TabStripCells.Cell cell : TabStripCells.locate(image)) {
+                String seenLabel = tabLabel(strip, cell);
+                if (!seenLabel.isEmpty()) {
+                    seen.add(tabKey(seenLabel));
+                }
                 if (TabStripCells.isSelected(image, cell)) {
                     continue;
                 }
-                String label = tabLabel(strip, cell);
+                String label = seenLabel;
                 if (!label.isEmpty() && visited.contains(tabKey(label))) {
                     continue;
                 }
@@ -669,10 +709,26 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 break;
             }
         }
-        logInfo("bg_deals_telemetry | " + surface + ": " + surveyed + " tab(s) surveyed after the opening tab.");
+        int found = Math.max(seen.size(), surveyed + 1);
+        recordCoverage(surface, true, found, visited.size(), null);
+        logInfo("bg_deals_telemetry | " + surface + ": " + surveyed + " tab(s) surveyed after the opening tab, "
+                + found + " seen in the strip.");
         if (surveyed == 0) {
             problems.add(surface + ": no other tabs were found; only the opening tab was surveyed.");
         }
+    }
+
+    /** One row per surface the scan knows about, so a surface that vanishes reads as unvisited. */
+    private void recordCoverage(String surface, boolean visited, Integer tabsFound, Integer tabsVisited,
+            String reason) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("surface", surface);
+        row.put("visited", visited);
+        row.put("tabsFound", tabsFound);
+        row.put("tabsVisited", tabsVisited);
+        row.put("reason", reason);
+        coverage.removeIf(existing -> surface.equals(existing.get("surface")));
+        coverage.add(row);
     }
 
     private String tabLabel(RawImageData frame, TabStripCells.Cell cell) {
@@ -704,7 +760,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             return surveyCarousel(frame, carousel.get(), surface, tab, tabbed);
         }
         String firstTitle = null;
+        int barren = 0;
         for (int scroll = 0; scroll <= maxScrolls; scroll++) {
+            int before = offers.size();
             DealFrameReader.Page page = readAndCollect(frame, surface, tab, tabbed);
             if (firstTitle == null) {
                 firstTitle = page.title();
@@ -716,6 +774,13 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             sleepTask(SCROLL_SETTLE_MS);
             RawImageData next = capture();
             if (meanDiff(frame, next, CONTENT_REGION) < STILL_MEAN_DIFF) {
+                return firstTitle;
+            }
+            // A page whose artwork animates never reads as still, so the old fixed cap cut long tabs
+            // off mid-list (4 of them on 2026-10-22). The list has ended when swiping stops yielding
+            // offers nobody has seen, whatever the pixels do.
+            barren = offers.size() > before ? 0 : barren + 1;
+            if (barren >= BARREN_SWIPES_FOR_END) {
                 return firstTitle;
             }
             frame = next;
