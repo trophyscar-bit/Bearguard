@@ -74,10 +74,10 @@ private static final long JOURNEY_INITIAL_RESULT_WAIT_MILLIS = 4_000L;
 private static final long JOURNEY_RESULT_POLL_MILLIS = 1_000L;
 
 // The deploy screen's red "You are not likely to prevail" line is the game quoting odds, not a
-// verdict -- the march can still win. So a warned Fire Beast is deployed anyway; only the count is
-// capped. Three warned deployments in a run and Intel stops rather than grinding stamina into odds
-// that keep coming back the same. A warned march that goes out is a try spent, and the routine
-// carries straight on to the next Fire Beast.
+// verdict -- the march can still win. So a warned Fire Beast gets exactly one attempt per Intel
+// cycle: the march goes out once, and Fire Beasts are then left alone until the next refresh rather
+// than spending more stamina and troops on odds that come back the same every time. A win resets it
+// (a claimed reward means that beast is dead), so the next Fire Beast gets its own single attempt.
 //
 // Nothing on the screen is touched on the way past. maxAllTroopSliders() is deliberately not called:
 // tested live 2026-08-30 against a real warned Fire Beast screen, the march was already at capacity
@@ -85,7 +85,7 @@ private static final long JOURNEY_RESULT_POLL_MILLIS = 1_000L;
 // from 36,003 infantry down to 36,001 and costing 1,016 power.
 //
 // Fire Beast deployments only -- ordinary beast markers are not counted or capped.
-private static final int PREVAIL_WARNING_MAX_ATTEMPTS = 3;
+private static final int PREVAIL_WARNING_MAX_ATTEMPTS = 1;
 
 // A marker that will not open after this many taps is left alone for this pass.
 private static final int BEAST_OPEN_MAX_TAPS = 3;
@@ -334,7 +334,7 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 			marchQueueLimitReached = !marchesAvailable.available() || intelMarchesRemaining <= 0;
 
 
-			// A claimed reward is a fight that was won. The three warned tries are per beast, not per
+			// A claimed reward is a fight that was won. The warned attempt is per beast, not per
 			// run: beating one earns a fresh three against the next, which is the difference between
 			// working through the map and stopping after the third warning of the day.
 			if (redeemCompletedMissions() > 0 && prevailWarningAttempts > 0) {
@@ -1664,15 +1664,18 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 			}
 		}
 		if (fireBeast) {
-			// Stop at the third march, not at the fourth deploy screen. Waiting for the next sighting to
-			// notice the tries are spent costs a whole pointless open-read-back trip per remaining
-			// marker, which is the 4th and 5th "attempt" that shows up on screen after the 3rd fight.
+			// Give up the moment the allowed march is away, not at the next deploy screen: waiting for the
+			// next sighting to notice costs a pointless open-read-back trip per remaining marker.
 			if (prevailWarningAttempts >= PREVAIL_WARNING_MAX_ATTEMPTS) {
 				giveUpOnFireBeastsFlow();
-				logInfo(routineLogIntelligenceLine("Third warned Fire Beast march is away; that is the last "
-						+ "one this Intel cycle. Leaving Fire Beasts alone until the next refresh."));
+				logInfo(routineLogIntelligenceLine("Warned Fire Beast march is away; that is the only attempt "
+						+ "this Intel cycle. Leaving Fire Beasts alone until the next refresh."));
 			}
-			waitForBeastMarchReturnFlow(travelTimeSeconds);
+			// The wait only exists so a further Fire Beast attempt goes out with the whole army home. With
+			// Fire Beasts given up there is no further attempt, so carry straight on with the rest of the map.
+			if (!fireBeastAttemptsExhausted) {
+				waitForBeastMarchReturnFlow(travelTimeSeconds);
+			}
 		}
 		intelScreenHelper.returnToIntelFromWilderness();
 	}
