@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -36,6 +37,7 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.deals.DealItem;
 import dev.frostguard.api.deals.DealOffer;
 import dev.frostguard.api.deals.DealScan;
+import dev.frostguard.api.deals.DealScoring;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
@@ -82,6 +84,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final LocalTime RUN_AT_UTC = LocalTime.of(2, 0);
     private static final int RUN_JITTER_MINUTES = 10;
     private static final int FRAME_RETENTION_DAYS = 7;
+    /** History the nightly report scores against; the verdict bands compare a week. */
+    private static final int REPORT_HISTORY_DAYS = 30;
+    private static final List<String> GOOD_VERDICTS = List.of("Best this week", "Great");
+    private static final com.fasterxml.jackson.databind.ObjectMapper REPORT_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
     private static final DateTimeFormatter UTC_INPUT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private static final int PANEL_SETTLE_MS = 2500;
@@ -238,11 +245,119 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             store.write(day, new DealScan(LocalDateTime.now().toString(), new ArrayList<>(offers.values()), problems));
             logInfo("bg_deals_telemetry | Wrote " + offers.size() + " offer(s) and " + problems.size()
                     + " problem(s) for " + day + ".");
+            writeReport(day);
         } catch (IOException writeFailed) {
             logError("bg_deals_telemetry | Could not write the scan for " + day + ": " + writeFailed.getMessage());
         }
         pruneOldFrames(day);
         reschedule(nextRun(LocalDateTime.now()));
+    }
+
+    /**
+     * Writes {@code data/deals/reports/<day>.json} beside the scan: today's offers with the verdict
+     * {@link DealScoring} gave them, what changed since the previous scan, and the offers whose price or
+     * items could not be read, so a reader does not have to re-score the history itself.
+     */
+    private void writeReport(LocalDate day) {
+        try {
+            DealsStore.Loaded loaded = store.readSince(day.minusDays(REPORT_HISTORY_DAYS));
+            Map<String, Double> manual = store.readItemValues();
+            List<DealScoring.ScoredOffer> today = DealScoring.score(loaded.scans(), manual).stream()
+                    .filter(s -> day.equals(s.day()))
+                    .toList();
+            DealScan previous = loaded.scans().entrySet().stream()
+                    .filter(e -> e.getKey().isBefore(day))
+                    .max(Map.Entry.comparingByKey())
+                    .map(Map.Entry::getValue)
+                    .orElse(null);
+            Map<String, DealOffer> before = new LinkedHashMap<>();
+            if (previous != null) {
+                previous.offers().forEach(o -> before.put(o.packKey() + "|" + o.priceText(), o));
+            }
+
+            List<Map<String, Object>> best = new ArrayList<>();
+            List<Map<String, Object>> skip = new ArrayList<>();
+            List<Map<String, Object>> changed = new ArrayList<>();
+            List<Map<String, Object>> unreadable = new ArrayList<>();
+            for (DealScoring.ScoredOffer scored : today) {
+                DealOffer offer = scored.offer();
+                if (offer.priceUsd() == null || offer.items().isEmpty()) {
+                    unreadable.add(entry(scored, offer.priceUsd() == null
+                            ? "price unreadable (" + offer.priceText() + ")" : "no items read"));
+                    continue;
+                }
+                Map<String, Object> row = entry(scored, why(scored));
+                if (GOOD_VERDICTS.stream().anyMatch(v -> scored.verdict().contains(v))) {
+                    best.add(row);
+                } else if (scored.verdict().contains("Bad")) {
+                    skip.add(row);
+                }
+                DealOffer was = before.get(offer.packKey() + "|" + offer.priceText());
+                if (previous == null) {
+                    continue;
+                }
+                if (was == null) {
+                    changed.add(entry(scored, "new since " + previous.scannedAt().substring(0, 10)));
+                } else if (!Objects.equals(was.priceUsd(), offer.priceUsd())) {
+                    changed.add(entry(scored, "was " + was.priceText()));
+                }
+            }
+            best.sort(Comparator.comparingDouble(r -> -((Number) r.get("score")).doubleValue()));
+            skip.sort(Comparator.comparingDouble(r -> ((Number) r.get("score")).doubleValue()));
+
+            Map<String, Object> report = new LinkedHashMap<>();
+            report.put("day", day.toString());
+            report.put("writtenAt", LocalDateTime.now().toString());
+            report.put("offers", today.size());
+            report.put("best", best);
+            report.put("skip", skip);
+            report.put("changed", changed);
+            report.put("unreadable", unreadable);
+            report.put("problems", problems);
+            Path dir = store.root().resolve("reports");
+            Files.createDirectories(dir);
+            Path file = dir.resolve(day + ".json");
+            Path temporary = dir.resolve(day + ".json.tmp");
+            REPORT_MAPPER.writerWithDefaultPrettyPrinter().writeValue(temporary.toFile(), report);
+            Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            logInfo("bg_deals_telemetry | Report " + file.getFileName() + ": " + best.size() + " best, "
+                    + skip.size() + " to skip, " + changed.size() + " changed, " + unreadable.size() + " unreadable.");
+        } catch (IOException | RuntimeException reportFailed) {
+            problems.add("Report for " + day + " not written: " + reportFailed.getMessage());
+            logWarning("bg_deals_telemetry | Could not write the report for " + day + ": " + reportFailed.getMessage());
+        }
+    }
+
+    private static Map<String, Object> entry(DealScoring.ScoredOffer scored, String why) {
+        DealOffer offer = scored.offer();
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("title", offer.title());
+        row.put("surface", offer.surface());
+        row.put("tab", offer.tab());
+        row.put("priceUsd", offer.priceUsd());
+        row.put("priceText", offer.priceText());
+        row.put("score", scored.score());
+        row.put("verdict", scored.verdict());
+        row.put("basis", scored.basis());
+        row.put("daysSeen", scored.daysSeen());
+        row.put("limitPeriod", offer.limitPeriod());
+        row.put("items", offer.items().stream()
+                .map(i -> Map.of("key", i.key(), "quantity", i.quantity()))
+                .toList());
+        row.put("frame", offer.frame());
+        row.put("why", why);
+        return row;
+    }
+
+    /** One line a reader can print: what the pack is worth per dollar, and where that number came from. */
+    private static String why(DealScoring.ScoredOffer scored) {
+        String worth = String.format(Locale.ROOT, "%.2fx the items' value for the price (%s)",
+                scored.score(), scored.basis());
+        if (scored.lowestEarlierPrice() != null && scored.offer().priceUsd() != null
+                && scored.offer().priceUsd() < scored.lowestEarlierPrice()) {
+            return worth + ", cheapest seen";
+        }
+        return worth;
     }
 
     static LocalDateTime nextRun(LocalDateTime now) {
