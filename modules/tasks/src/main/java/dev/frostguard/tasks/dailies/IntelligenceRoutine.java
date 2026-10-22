@@ -288,6 +288,15 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 			logInfo(routineLogIntelligenceLine("Active Intel cycle entry confirmed from Wilderness."));
 		}
 
+		// Settle stamina before touching anything that has to be put back. This check used to run only
+		// inside the mission loop, after auto-join had been switched off and every gather march
+		// recalled -- so a pass that could not afford a single mission still cost a full recall, and
+		// with stamina unreadable it cost one every minute.
+		if (!hasEnoughStaminaFlow()) {
+			processingTask = false;
+			return;
+		}
+
 		autoJoinTask = TaskManagementService.shared().lookupTaskState(profile.getId(),
 				TpDailyTaskEnum.ALLIANCE_AUTOJOIN.getId());
 		isAutoJoinTaskEnabled = autoJoinTask != null;
@@ -1075,7 +1084,7 @@ boolean hasEnoughStaminaFlow() {
 					". Required: " + MIN_STAMINA_REQUIRED_FLOOR + "."));
 
 			if (useStaminaItems) {
-				StaminaTopUpResult result = staminaHelper.topUpFromProfile(MIN_STAMINA_REQUIRED_FLOOR, staminaItemReserve);
+				StaminaTopUpResult result = staminaHelper.topUpFromHud(MIN_STAMINA_REQUIRED_FLOOR, staminaItemReserve);
 				if (result.successful()) {
 					// The gate has already parked the task for regeneration; the backpack made that wait unnecessary.
 					clearStaminaDeferral();
