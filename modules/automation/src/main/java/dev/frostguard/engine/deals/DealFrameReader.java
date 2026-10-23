@@ -36,6 +36,7 @@ import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.WhiteTextIsolator;
+import dev.frostguard.vision.deals.GreyButtonLocator;
 import dev.frostguard.vision.deals.PriceButtonLocator;
 import dev.frostguard.vision.deals.TileCountReader;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
@@ -101,6 +102,18 @@ public final class DealFrameReader {
      * which a scrolled page otherwise offers as the tallest nearby line.
      */
     private static final int CARD_TITLE_MAX_ABOVE_BUTTON = 230;
+    /** A card title stands within this of the "Buy to get:" line under it. */
+    private static final int TITLE_ABOVE_TERMS = 60;
+    /** A card's title strip, left of its artwork: read on its own when the page-wide pass misses the title. */
+    private static final int CARD_TITLE_CROP_LEFT = 30;
+    private static final int CARD_TITLE_CROP_RIGHT = 460;
+    private static final int CARD_TITLE_CROP_HEIGHT = 140;
+    /** The HOT ribbon: saturated red-orange; a 4 px margin takes its white outline with it. */
+    private static final float RIBBON_MAX_HUE = 12f / 180f;
+    private static final float RIBBON_MIN_WRAPPED_HUE = 170f / 180f;
+    private static final float RIBBON_MIN_SATURATION = 150f / 255f;
+    private static final float RIBBON_MIN_BRIGHTNESS = 150f / 255f;
+    private static final int RIBBON_MARGIN = 4;
     private static final int MIN_TITLE_LETTERS = 5;
     /**
      * Item tiles on stacked cards sit beside and just below their button, so a card's items and
@@ -142,6 +155,8 @@ public final class DealFrameReader {
     private static final float PURE_WHITE_SATURATION = 35f / 255f;
     /** How far right of a grant icon its "xN" count may print. */
     private static final int SIDE_COUNT_REACH = 160;
+    /** How far under a loose item its "x15" may print. */
+    private static final int COUNT_BELOW_REACH = 40;
     /** A printed price within this of a detected button is that button's own label or its struck-out price. */
     private static final int PRINTED_PRICE_CLEARANCE = 60;
     private static final int PRINTED_PRICE_PADDING = 18;
@@ -213,6 +228,12 @@ public final class DealFrameReader {
     private static final Pattern TIMER = Pattern.compile("\\d{1,2}:\\d{2}(:\\d{2})?");
     private static final Pattern VALID_DAYS = Pattern.compile("(?i)valid\\W*(\\d{1,3})\\s*day");
     private static final Pattern LOGIN_DAILY = Pattern.compile("(?i)login\\s*daily");
+    /** "Carry out 10 Intel Mission(s)": a card reward paid when the missions are done. */
+    private static final Pattern MISSION_ROW =
+            Pattern.compile("(?i)carry\\s*out\\s*(\\d{1,3})\\s*([a-z ]{2,20}?)\\s*mission");
+    /** The card's reward column on a mission row, right of the free reward and left of its button. */
+    private static final int MISSION_REWARD_LEFT = 220;
+    private static final int MISSION_REWARD_RIGHT = 470;
     private static final Pattern BUY_TO_GET = Pattern.compile("(?i)buy\\s*to\\s*get");
     /** A count printed beside an icon: "x10", "x5,000", "x1". */
     private static final Pattern SIDE_COUNT = Pattern.compile("^[xX](\\d[\\d,.]*[KkMm]?)$");
@@ -272,8 +293,15 @@ public final class DealFrameReader {
         List<PriceButtonLocator.Box> coloured = PriceButtonLocator.locate(image).stream()
                 .filter(button -> !isActionButton(text.whiteWords(), button))
                 .toList();
-        List<PriceButtonLocator.Box> buttons = Stream.concat(coloured.stream(),
-                        printedPriceButtons(text.whiteLines(), text.whiteWords(), image, coloured).stream())
+        List<PriceButtonLocator.Box> found = Stream.concat(coloured.stream(),
+                printedPriceButtons(text.whiteLines(), text.whiteWords(), image, coloured).stream()).toList();
+        List<PriceButtonLocator.Box> grey = GreyButtonLocator.locate(image).stream()
+                .filter(box -> found.stream().noneMatch(b -> Math.abs(b.y() + b.height() / 2 - (box.y() + box.height() / 2))
+                        <= PRINTED_PRICE_CLEARANCE && Math.abs(b.x() + b.width() / 2 - (box.x() + box.width() / 2))
+                        <= PRINTED_PRICE_CLEARANCE * 2))
+                .filter(box -> parsePrice(readPrice(image, text.whiteWords(), box)) != null)
+                .toList();
+        List<PriceButtonLocator.Box> buttons = Stream.concat(found.stream(), grey.stream())
                 .sorted(Comparator.comparingInt(PriceButtonLocator.Box::y).thenComparingInt(PriceButtonLocator.Box::x))
                 .toList();
 
@@ -310,6 +338,9 @@ public final class DealFrameReader {
                 cardTop = pageTitleLine == null ? top : pageTitleLine.bottom();
             } else {
                 TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button);
+                if (cardTitle == null) {
+                    cardTitle = croppedCardTitle(image, Math.max(titleTop, TAB_STRIP_BOTTOM), button).orElse(null);
+                }
                 title = cardTitle != null ? cleanTitle(cardTitle.text())
                         : (tab == null || tab.isBlank() ? pageTitle : tab)
                                 + (priceUsd == null ? "" : " - $" + String.format(Locale.US, "%.2f", priceUsd));
@@ -335,7 +366,8 @@ public final class DealFrameReader {
                 iconItems(text, cardTop, bottom, tiles).stream()
                         .filter(i -> items.stream().noneMatch(b -> b.key().equals(i.key())))
                         .forEach(items::add);
-                items.addAll(listedItems(text.whiteLines(), top, bottom));
+                items.addAll(listedItems(Stream.concat(text.whiteLines().stream(), text.plainLines().stream()).toList(),
+                        top, bottom));
                 if (buttons.size() > 1) {
                     cardRowYs.addAll(rowsWithRoomForMore(tiles.subList(firstTile, tiles.size()), button));
                 }
@@ -367,8 +399,12 @@ public final class DealFrameReader {
                 }
             }
             Integer limitCount = limitCount(window, button, underButtonText(text, button));
+            List<DealItem> merged = card != null ? items : new ArrayList<>(merge(items));
+            if (buttons.size() == 1) {
+                merged.addAll(missionRewards(text, allLines, button));
+            }
             offers.add(new DealOffer(surface, tab, title, priceUsd, priceText, remaining,
-                    false, card != null ? items : merge(items), frame, cardLimit != null ? cardLimit : pageLimit,
+                    false, merged, frame, cardLimit != null ? cardLimit : pageLimit,
                     limitCount, countdown(window, allLines, cardTop), card));
         }
 
@@ -625,9 +661,83 @@ public final class DealFrameReader {
                 right - left, last.bottom() - first.top(), first.confidence());
     }
 
+    /**
+     * The card's title read from its own top strip. The page-wide pass returned nothing for "Molly's Blessing"
+     * on 2026-10-23, beside its HOT ribbon and portrait, and the card would have been named after its tab.
+     */
+    private static Optional<TextLine> croppedCardTitle(BufferedImage image, int top, PriceButtonLocator.Box button) {
+        int bottom = Math.min(button.y(), top + CARD_TITLE_CROP_HEIGHT);
+        if (bottom - top < BANNER_MIN_HEIGHT) {
+            return Optional.empty();
+        }
+        RawImageData crop = WhiteTextIsolator.isolate(withoutRibbon(image.getSubimage(CARD_TITLE_CROP_LEFT, top,
+                CARD_TITLE_CROP_RIGHT - CARD_TITLE_CROP_LEFT, bottom - top)), 0, 0,
+                CARD_TITLE_CROP_RIGHT - CARD_TITLE_CROP_LEFT, bottom - top, 8);
+        try {
+            return OcrEngine.recognizeLines(crop, new PointData(0, 0), new PointData(crop.getWidth(), crop.getHeight()),
+                            CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS).stream()
+                    .filter(l -> isTitleText(cleanTitle(l.text())))
+                    .filter(l -> !LOGIN_DAILY.matcher(l.text()).find() && !BUY_TO_GET.matcher(l.text()).find())
+                    .max(Comparator.comparingInt(TextLine::height))
+                    .map(l -> new TextLine(l.text(), l.left() + CARD_TITLE_CROP_LEFT - 8, l.top() + top - 8,
+                            l.width(), l.height(), l.confidence()));
+        } catch (OcrException unreadable) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * A copy with the orange "HOT" ribbon and a few pixels round it blacked out: the ribbon's white outline
+     * touches the title's first letter, and "Molly's Blessing" read as "olly's Blessing" until it was gone.
+     */
+    private static BufferedImage withoutRibbon(BufferedImage region) {
+        int width = region.getWidth();
+        int height = region.getHeight();
+        boolean[] ribbon = new boolean[width * height];
+        float[] hsb = new float[3];
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int rgb = region.getRGB(x, y);
+                java.awt.Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, hsb);
+                ribbon[y * width + x] = (hsb[0] <= RIBBON_MAX_HUE || hsb[0] >= RIBBON_MIN_WRAPPED_HUE)
+                        && hsb[1] >= RIBBON_MIN_SATURATION && hsb[2] >= RIBBON_MIN_BRIGHTNESS;
+            }
+        }
+        BufferedImage copy = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                boolean near = false;
+                for (int dy = -RIBBON_MARGIN; dy <= RIBBON_MARGIN && !near; dy++) {
+                    for (int dx = -RIBBON_MARGIN; dx <= RIBBON_MARGIN && !near; dx++) {
+                        int nx = x + dx;
+                        int ny = y + dy;
+                        near = nx >= 0 && ny >= 0 && nx < width && ny < height && ribbon[ny * width + nx];
+                    }
+                }
+                copy.setRGB(x, y, near ? 0 : region.getRGB(x, y));
+            }
+        }
+        return copy;
+    }
+
     private static TextLine cardTitle(List<TextLine> lines, int windowTop, PriceButtonLocator.Box button) {
+        // A weekly or monthly card is taller than the usual reach above its button; its title is the line just
+        // above its "Buy to get:".
+        Optional<TextLine> aboveTerms = lines.stream()
+                .filter(l -> l.top() >= windowTop && l.bottom() <= button.y() && BUY_TO_GET.matcher(l.text()).find())
+                .findFirst()
+                .flatMap(terms -> lines.stream()
+                        .filter(l -> l.bottom() <= terms.top() && terms.top() - l.bottom() <= TITLE_ABOVE_TERMS
+                                && l.top() >= Math.max(windowTop, TAB_STRIP_BOTTOM))
+                        .filter(l -> isTitleText(cleanTitle(l.text())))
+                        .max(Comparator.comparingInt(TextLine::height)));
+        if (aboveTerms.isPresent()) {
+            return aboveTerms.get();
+        }
+        // The floor is the tab strip, not the sticky header of other panels: on Regular Pack and the weekly
+        // cards the first card's title sits right under the strip. A page header is kept out by the reach.
         return lines.stream()
-                .filter(l -> l.top() >= Math.max(windowTop, CARD_TITLE_MIN_TOP) && l.bottom() <= button.y()
+                .filter(l -> l.top() >= Math.max(windowTop, TAB_STRIP_BOTTOM) && l.bottom() <= button.y()
                         && button.y() - l.bottom() <= CARD_TITLE_MAX_ABOVE_BUTTON)
                 .filter(l -> isTitleText(cleanTitle(l.text())))
                 // A card's own terms are never its name: "Login daily to obtain:" titled three cards on
@@ -660,7 +770,8 @@ public final class DealFrameReader {
 
     /** Keeps the run of real words: drops stray glyphs OCR attaches to either end of a banner. */
     static String cleanTitle(String raw) {
-        String[] tokens = clean(raw).split(" ");
+        // OCR runs words together at a capital: "Intel MonthlyCard".
+        String[] tokens = clean(raw).replaceAll("(?<=\\p{Ll})(?=\\p{Lu})", " ").split(" ");
         int start = 0;
         int end = tokens.length;
         while (start < end && !isWordLike(tokens[start])) {
@@ -796,7 +907,7 @@ public final class DealFrameReader {
                 .findFirst()
                 .orElse(cardTop);
         int matchedBefore = tiles.size();
-        List<DealItem> grantRead = iconItems(text, grantTop, daily.top(), tiles, true);
+        List<DealItem> grantRead = iconItems(text, grantTop, daily.top(), tiles);
         List<DealItem> dailyRead = iconItems(text, daily.bottom(), button.y(), tiles);
         int matched = tiles.size() - matchedBefore;
         if (grantRead.size() + dailyRead.size() < matched) {
@@ -929,20 +1040,52 @@ public final class DealFrameReader {
                 .orElse(null);
     }
 
+    /**
+     * Rewards a card pays as its missions are done, under the button: "Carry out 10 Intel Mission(s)" with a
+     * Fire Crystal tile. They are kept apart from what the purchase grants by naming the mission in the item
+     * ("Fire Crystal (10 Intel missions)"). Only the card's own reward column is read; the tile left of it is
+     * the free reward.
+     */
+    private List<DealItem> missionRewards(Text text, List<TextLine> lines, PriceButtonLocator.Box button) {
+        List<TextLine> missions = lines.stream()
+                .filter(l -> l.top() > button.bottom() && MISSION_ROW.matcher(clean(l.text())).find())
+                .sorted(Comparator.comparingInt(TextLine::top))
+                .toList();
+        List<DealItem> rewards = new ArrayList<>();
+        Set<Integer> rows = new HashSet<>();
+        for (int i = 0; i < missions.size(); i++) {
+            Matcher row = MISSION_ROW.matcher(clean(missions.get(i).text()));
+            if (!row.find() || !rows.add(missions.get(i).top() / SAME_ROW_TOLERANCE)) {
+                continue;
+            }
+            TextLine current = missions.get(i);
+            int top = current.bottom();
+            // OCR returns a line more than once; the row ends at the next mission's own line.
+            int bottom = missions.stream().filter(l -> l.top() > current.top() + SAME_ROW_TOLERANCE)
+                    .mapToInt(TextLine::top).min().orElse(FRAME_BOTTOM_RIGHT.getY());
+            String mission = " (" + row.group(1) + " " + row.group(2).trim() + " missions)";
+            for (DealItem item : iconItems(text, top, bottom, new ArrayList<>(), MISSION_REWARD_LEFT,
+                    MISSION_REWARD_RIGHT)) {
+                rewards.add(new DealItem(item.key() + mission, item.quantity(), "mission"));
+            }
+        }
+        return rewards;
+    }
+
     private List<DealItem> iconItems(Text text, int top, int bottom, List<DealItemLibrary.Match> tiles) {
-        return iconItems(text, top, bottom, tiles, false);
+        return iconItems(text, top, bottom, tiles, 0, FRAME_BOTTOM_RIGHT.getX());
     }
 
     private List<DealItem> iconItems(Text text, int top, int bottom, List<DealItemLibrary.Match> tiles,
-            boolean sideCounts) {
+            int left, int right) {
         List<DealItem> items = new ArrayList<>();
         if (library.size() == 0 || bottom <= top) {
             return items;
         }
         int clampedBottom = Math.min(bottom, FRAME_BOTTOM_RIGHT.getY());
         Map<Integer, List<TextLine>> rowWords = new LinkedHashMap<>();
-        PointData from = new PointData(0, top);
-        PointData to = new PointData(FRAME_BOTTOM_RIGHT.getX(), clampedBottom);
+        PointData from = new PointData(left, top);
+        PointData to = new PointData(right, clampedBottom);
         List<DealItemLibrary.Match> found = text.tileScale().isPresent()
                 ? library.find(text.capture(), from, to, text.tileScale().getAsDouble())
                 : library.find(text.capture(), from, to);
@@ -961,8 +1104,11 @@ public final class DealFrameReader {
             Optional<Long> quantity = atEdge
                     ? TileCountReader.read(image, match.x(), match.y(), match.scale()).map(DealFrameReader::parseQuantity)
                     : agreedQuantity(image, text, rowWords, match);
-            if (quantity.isEmpty() && sideCounts) {
+            if (quantity.isEmpty()) {
                 quantity = sideCount(text.whiteWords(), match);
+            }
+            if (quantity.isEmpty()) {
+                quantity = countBelow(text.whiteWords(), match);
             }
             quantity.ifPresent(q -> items.add(new DealItem(match.key(), q, "icon")));
         }
@@ -980,6 +1126,19 @@ public final class DealFrameReader {
         return words.stream()
                 .filter(w -> w.left() >= left - SAME_ROW_TOLERANCE && w.left() <= right)
                 .filter(w -> centreY(w) >= match.y() && centreY(w) <= match.y() + match.height() + SAME_ROW_TOLERANCE)
+                .map(w -> SIDE_COUNT.matcher(clean(w.text()).replace(" ", "")))
+                .filter(Matcher::matches)
+                .map(m -> parseQuantity(m.group(1)))
+                .filter(Objects::nonNull)
+                .findFirst();
+    }
+
+    /** "x15" printed under an item drawn without its tile (Dream Traveler packs). */
+    private static Optional<Long> countBelow(List<TextLine> words, DealItemLibrary.Match match) {
+        int bottom = match.y() + match.height();
+        return words.stream()
+                .filter(w -> centreX(w) >= match.x() && centreX(w) <= match.x() + match.width())
+                .filter(w -> w.top() >= bottom - SAME_ROW_TOLERANCE && w.top() <= bottom + COUNT_BELOW_REACH)
                 .map(w -> SIDE_COUNT.matcher(clean(w.text()).replace(" ", "")))
                 .filter(Matcher::matches)
                 .map(m -> parseQuantity(m.group(1)))

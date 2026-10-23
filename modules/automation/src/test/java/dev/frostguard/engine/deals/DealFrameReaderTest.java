@@ -353,10 +353,12 @@ class DealFrameReaderTest {
     @Test
     void readsTheIntelMonthlyCardGrantAtBothTiers() throws Exception {
         assertEquals(List.of("Gems=5000", "Fire Crystal=83", "1h Speedup=45", "100 VIP XP=40",
-                "100K Resource Supply Chest=125"),
+                "100K Resource Supply Chest=125", "Lucky Hero Gear Chest (5 Intel missions)=6",
+                "Fire Crystal (10 Intel missions)=20", "Lucky Hero Gear Chest (20 Intel missions)=6"),
                 named(read("deals-intel-monthly-card-mythic.png", "Intel Monthly Card").offers().get(0)));
         assertEquals(List.of("Gems=2500", "Fire Crystal=33", "1h Speedup=18", "100 VIP XP=25",
-                "100K Resource Supply Chest=50"),
+                "100K Resource Supply Chest=50", "Lucky Hero Gear Chest (5 Intel missions)=3",
+                "Fire Crystal (10 Intel missions)=10", "Lucky Hero Gear Chest (20 Intel missions)=3"),
                 named(read("deals-intel-monthly-card-epic.png", "Intel Monthly Card").offers().get(0)));
     }
 
