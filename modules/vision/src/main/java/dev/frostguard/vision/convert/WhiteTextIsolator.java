@@ -35,7 +35,30 @@ public final class WhiteTextIsolator {
      */
     public static RawImageData isolateScaled(BufferedImage frame, int x, int y, int width, int height,
             int targetHeight) {
-        RawImageData mask = isolate(frame, x, y, width, height, 0);
+        return scaled(isolate(frame, x, y, width, height, 0, MAX_SATURATION), targetHeight);
+    }
+
+    /**
+     * Masks only near-pure white, after magnifying the region four times. On small glyphs a mask taken at
+     * native size loses the thin strokes (a leading 1) to anti-aliasing; magnified first, the strokes keep
+     * enough pixels to pass a strict saturation cap that a pale tinted background does not.
+     */
+    public static RawImageData isolatePureScaled(BufferedImage frame, int x, int y, int width, int height,
+            int targetHeight, float maxSaturation) {
+        int left = Math.max(0, x);
+        int top = Math.max(0, y);
+        int w = Math.max(1, Math.min(frame.getWidth(), x + width) - left);
+        int h = Math.max(1, Math.min(frame.getHeight(), y + height) - top);
+        BufferedImage magnified = new BufferedImage(w * 4, h * 4, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = magnified.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.drawImage(frame.getSubimage(left, top, w, h), 0, 0, w * 4, h * 4, null);
+        g.dispose();
+        return scaled(isolate(magnified, 0, 0, w * 4, h * 4, 0, maxSaturation), targetHeight);
+    }
+
+    private static RawImageData scaled(RawImageData mask, int targetHeight) {
         if (mask.getHeight() <= targetHeight) {
             return mask;
         }
@@ -72,6 +95,11 @@ public final class WhiteTextIsolator {
      * glyphs touching the crop edge are not mistaken for noise.
      */
     public static RawImageData isolate(BufferedImage frame, int x, int y, int width, int height, int padding) {
+        return isolate(frame, x, y, width, height, padding, MAX_SATURATION);
+    }
+
+    private static RawImageData isolate(BufferedImage frame, int x, int y, int width, int height, int padding,
+            float maxSaturation) {
         int left = Math.max(0, x);
         int top = Math.max(0, y);
         int right = Math.min(frame.getWidth(), x + width);
@@ -85,7 +113,7 @@ public final class WhiteTextIsolator {
             for (int sx = left; sx < right; sx++) {
                 int rgb = frame.getRGB(sx, sy);
                 Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, hsb);
-                int value = hsb[2] >= MIN_BRIGHTNESS && hsb[1] <= MAX_SATURATION ? INK : PAPER;
+                int value = hsb[2] >= MIN_BRIGHTNESS && hsb[1] <= maxSaturation ? INK : PAPER;
                 int offset = ((sy - top + padding) * outWidth + (sx - left + padding)) * 4;
                 rgba[offset] = (byte) ((value >> 16) & 0xFF);
                 rgba[offset + 1] = (byte) ((value >> 8) & 0xFF);

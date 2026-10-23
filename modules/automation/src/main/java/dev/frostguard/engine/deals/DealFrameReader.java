@@ -127,6 +127,15 @@ public final class DealFrameReader {
     private static final int QUANTITY_BOTTOM = 92;
     /** Heights a tile's number band is scaled to for its reads, the two most reliable first. */
     private static final int[] CONSENSUS_CROP_HEIGHTS = {40, 56, 48, 32};
+    /**
+     * Tile counts are pure white: their pixels measured saturation 0-19 (of 255) on the 2026-10-22 chief
+     * gear frame. The lilac floor of a purple tile is bright too, at 50-79, so the general cap of 70 keeps it
+     * as a blob joined to the digits and no read of the Polishing Solution counts agreed. Read magnified, one
+     * line at a time, under this cap, that frame's 15, 9 and 6 read correctly at three or four of the four
+     * crop sizes and no tile read a wrong number; it is only a second opinion, because the sparse read is
+     * what handles multi-digit counts under busy artwork (130, 1,500, 900 all abstained here).
+     */
+    private static final float PURE_WHITE_SATURATION = 35f / 255f;
     /** How far right of a grant icon its "xN" count may print. */
     private static final int SIDE_COUNT_REACH = 160;
     /** A printed price within this of a detected button is that button's own label or its struck-out price. */
@@ -151,7 +160,19 @@ public final class DealFrameReader {
     private static final int PICK_SLOTS_IN_A_ROW = 3;
     /** Bounds the search for a full row when partial rows are found first. */
     private static final int MAX_SLOT_ROWS = 6;
-    private static final byte[] PICK_SLOT = loadPickSlot();
+    private static final byte[] PICK_SLOT = load(PICK_SLOT_RESOURCE);
+    /**
+     * The diamond of the gem banner on Regular Pack cards ("2,500" in large type beside it), its interior only
+     * because the banner behind it changes colour per card. Alone it does not separate -- banner diamonds scored
+     * 82-100 on the 2026-10-22 frames and gem tiles up to 81 -- so it only confirms a large number beside it.
+     */
+    private static final byte[] BANNER_DIAMOND = load("/deals/gem-banner-diamond.png");
+    private static final double BANNER_DIAMOND_MIN_SCORE = 80.0;
+    /** Banner numbers stand about 32 px tall; tile counts about 14. */
+    private static final int BANNER_MIN_HEIGHT = 24;
+    private static final int BANNER_MAX_LEFT = 200;
+    /** How far left of the banner number its diamond sits. */
+    private static final int BANNER_DIAMOND_REACH = 80;
     private static final ExecutorService OCR_PASSES = Executors.newFixedThreadPool(3, runnable -> {
         Thread thread = new Thread(runnable, "deal-page-ocr");
         thread.setDaemon(true);
@@ -284,7 +305,10 @@ public final class DealFrameReader {
                     problems.add(surface + " / " + tab + " / " + title + ": card rewards not all read; no total given.");
                 }
             } else {
-                items.addAll(iconItems(text, cardTop, bottom, tiles));
+                bannerGems(text, cardTop, bottom).ifPresent(items::add);
+                iconItems(text, cardTop, bottom, tiles).stream()
+                        .filter(i -> items.stream().noneMatch(b -> b.key().equals(i.key())))
+                        .forEach(items::add);
                 items.addAll(listedItems(text.whiteLines(), top, bottom));
             }
             Integer remaining = remaining(window, button);
@@ -404,15 +428,31 @@ public final class DealFrameReader {
                 + slotsInRow(capture, slotRight, right, top, bottom, depth + 1);
     }
 
-    private static byte[] loadPickSlot() {
-        try (InputStream in = DealFrameReader.class.getResourceAsStream(PICK_SLOT_RESOURCE)) {
+    private static byte[] load(String resource) {
+        try (InputStream in = DealFrameReader.class.getResourceAsStream(resource)) {
             if (in == null) {
-                throw new IllegalStateException("Missing classpath resource " + PICK_SLOT_RESOURCE);
+                throw new IllegalStateException("Missing classpath resource " + resource);
             }
             return in.readAllBytes();
         } catch (IOException unreadable) {
-            throw new UncheckedIOException("Could not read " + PICK_SLOT_RESOURCE, unreadable);
+            throw new UncheckedIOException("Could not read " + resource, unreadable);
         }
+    }
+
+    /** The gems a card's banner grants: a large number at the card's left with the banner diamond beside it. */
+    private static Optional<DealItem> bannerGems(Text text, int top, int bottom) {
+        // Words, not lines: the line pass reads the diamond into the number ("* 2500").
+        return text.whiteWords().stream()
+                .filter(l -> l.top() >= top && l.bottom() <= bottom)
+                .filter(l -> l.height() >= BANNER_MIN_HEIGHT && l.left() <= BANNER_MAX_LEFT)
+                .filter(l -> QUANTITY.matcher(clean(l.text()).replace(" ", "")).matches())
+                .filter(l -> OpenCvPatternLocator.matchFromRawTemplate(text.capture(), BANNER_DIAMOND,
+                        new PointData(Math.max(0, l.left() - BANNER_DIAMOND_REACH), l.top() - SAME_ROW_TOLERANCE),
+                        new PointData(l.left(), l.bottom() + SAME_ROW_TOLERANCE), BANNER_DIAMOND_MIN_SCORE).isFound())
+                .map(l -> parseQuantity(clean(l.text()).replace(" ", "")))
+                .filter(Objects::nonNull)
+                .findFirst()
+                .map(gems -> new DealItem(DealPriceTracker.GEMS, gems, "banner"));
     }
 
     private Optional<DealOffer> unpricedOffer(Text text, TextLine pageTitleLine, String surface, String tab,
@@ -797,7 +837,7 @@ public final class DealFrameReader {
             Map<Integer, List<TextLine>> rowWords, DealItemLibrary.Match match) {
         List<Long> crops = new ArrayList<>();
         for (int height : CONSENSUS_CROP_HEIGHTS) {
-            croppedQuantity(image, match, height).ifPresent(crops::add);
+            croppedQuantity(image, match, height, false).ifPresent(crops::add);
             Optional<Long> agreed = majority(crops);
             if (agreed.isPresent()) {
                 return agreed;
@@ -819,7 +859,17 @@ public final class DealFrameReader {
         // else, and without them its 52 crystals became 10. A lone word-pass read is never enough: that is
         // where 7000 and 151 came from.
         Set<Long> distinct = new HashSet<>(all);
-        return crops.size() >= 1 && distinct.size() == 1 ? Optional.of(crops.get(0)) : Optional.empty();
+        if (crops.size() >= 1 && distinct.size() == 1) {
+            return Optional.of(crops.get(0));
+        }
+        // A pale tinted tile floor passes the white mask and swallows the digits; masking pure white only
+        // separates them. Consulted only here, and it must agree with itself, because on ordinary tiles the
+        // stricter mask thins the digits.
+        List<Long> pure = new ArrayList<>();
+        for (int height : CONSENSUS_CROP_HEIGHTS) {
+            croppedQuantity(image, match, height, true).ifPresent(pure::add);
+        }
+        return majority(pure);
     }
 
     /** The value read at least twice and more often than any other value, if there is one. */
@@ -839,16 +889,20 @@ public final class DealFrameReader {
      * 2026-10-22 Leap Pack frame at three crop heights: the unrestricted read at 40 px got every tile right,
      * while the digits-only set read "10K" gems as "10" and "2,000" meat as "00".
      */
-    private static Optional<Long> croppedQuantity(BufferedImage image, DealItemLibrary.Match match, int height) {
+    private static Optional<Long> croppedQuantity(BufferedImage image, DealItemLibrary.Match match, int height,
+            boolean pureWhite) {
         int left = match.x() + scaled(TILE_LEFT, match);
         int right = match.x() + scaled(TILE_RIGHT, match);
         int top = match.y() + scaled(QUANTITY_TOP, match);
         int bottom = match.y() + scaled(QUANTITY_BOTTOM, match);
-        RawImageData crop = WhiteTextIsolator.isolateScaled(image, left, top, right - left, bottom - top, height);
+        RawImageData crop = pureWhite
+                ? WhiteTextIsolator.isolatePureScaled(image, left, top, right - left, bottom - top, height,
+                        PURE_WHITE_SATURATION)
+                : WhiteTextIsolator.isolateScaled(image, left, top, right - left, bottom - top, height);
         String read;
         try {
-            read = OcrEngine.recognizeText(crop, new PointData(0, 0),
-                    new PointData(crop.getWidth(), crop.getHeight()), CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
+            read = OcrEngine.recognizeText(crop, new PointData(0, 0), new PointData(crop.getWidth(), crop.getHeight()),
+                    pureWhite ? CommonOCRSettings.DEAL_TILE_COUNT_SETTINGS : CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
         } catch (OcrException unreadable) {
             return Optional.empty();
         }

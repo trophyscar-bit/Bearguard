@@ -28,6 +28,13 @@ public final class CommonOCRSettings {
                     .textLayout(TextLayout.SPARSE)
                     .build();
 
+    // A deal tile's count read as one line, for the pure-white second opinion on tinted tiles; the sparse
+    // layout finds no text in a lone digit such as a Polishing Solution's 9.
+    public static final OcrSettingsData DEAL_TILE_COUNT_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .build();
+
     // Price label inside the orange purchase button, read from a WhiteTextIsolator mask, so no
     // further colour isolation here.
     public static final OcrSettingsData DEAL_PRICE_SETTINGS =
