@@ -117,7 +117,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private static final int MAX_TABS_PER_PANEL = 40;
     private static final int MAX_STRIP_SWIPES = 20;
-    private static final int SAME_TAB_MIN_RUN = 6;
     /** Safety ceiling only: a page now ends when swiping stops finding offers, not at a fixed count. */
     private static final int MAX_PAGE_SCROLLS = 25;
     private static final int MAX_POPUP_SCROLLS = 10;
@@ -286,6 +285,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         }
         try {
             collection.foldFallbackTitles();
+            collection.foldNoisyTitles();
             problems.addAll(collection.problems());
             store.write(day, new DealScan(LocalDateTime.now().toString(), new ArrayList<>(offers.values()), problems));
             logInfo("bg_deals_telemetry | Wrote " + offers.size() + " offer(s) and " + problems.size()
@@ -858,7 +858,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 String label = tabLabel(strip, cell);
                 if (!label.isEmpty()) {
                     seen.add(tabKey(label));
-                    String cluster = spellings.keySet().stream().filter(k -> sameTab(k, tabKey(label))).findFirst()
+                    String cluster = spellings.keySet().stream()
+                            .filter(k -> DealCollection.sameTab(k, tabKey(label)))
+                            .findFirst()
                             .orElse(tabKey(label));
                     spellings.computeIfAbsent(cluster, k -> new LinkedHashMap<>()).merge(label, 1, Integer::sum);
                 }
@@ -897,7 +899,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         renameTabs(surface, spellings);
         Set<String> missed = new LinkedHashSet<>();
         for (String tab : seen) {
-            if (visited.stream().noneMatch(v -> sameTab(v, tab))) {
+            if (visited.stream().noneMatch(v -> DealCollection.sameTab(v, tab))) {
                 missed.add(tab);
             }
         }
@@ -932,7 +934,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             Matcher tier = TIER_SUFFIX.matcher(offer.tab());
             String base = tier.find() ? offer.tab().substring(0, tier.start()).trim() : offer.tab();
             Optional<String> best = spellings.entrySet().stream()
-                    .filter(e -> sameTab(e.getKey(), tabKey(base)))
+                    .filter(e -> DealCollection.sameTab(e.getKey(), tabKey(base)))
                     .findFirst()
                     .flatMap(e -> e.getValue().entrySet().stream()
                             .max(Map.Entry.<String, Integer>comparingByValue()
@@ -947,27 +949,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         }
     }
 
-    /**
-     * One tab read two ways: a letter is sometimes misread, and artwork can eat the end of a label. On
-     * 2026-10-23 "hallofchiet" was Hall of Chiefs and "raveller" Ice Traveller, both visited. A long run of
-     * letters in common is the same tab.
-     */
-    static boolean sameTab(String a, String b) {
-        if (a.contains(b) || b.contains(a)) {
-            return true;
-        }
-        int longest = 0;
-        for (int i = 0; i < a.length(); i++) {
-            for (int j = 0; j < b.length(); j++) {
-                int k = 0;
-                while (i + k < a.length() && j + k < b.length() && a.charAt(i + k) == b.charAt(j + k)) {
-                    k++;
-                }
-                longest = Math.max(longest, k);
-            }
-        }
-        return longest >= Math.max(SAME_TAB_MIN_RUN, Math.min(a.length(), b.length()) * 7 / 10);
-    }
 
     /**
      * Swipes and reports whether the region moved. The game drops a swipe now and then: on 2026-10-23 the
@@ -1194,11 +1175,13 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private DealFrameReader.Page readAndCollect(RawImageData frame, String surface, String tab, boolean tabbed) {
         DealFrameReader.Page page = readPage(frame, surface, tab, tabbed);
-        collect(surface, tabName(tab, page), page.offers(), null);
+        // A pick-your-own page names its shop in its header, as the reader set it on each offer.
+        collect(surface, page.chooseYourOwn() && !page.offers().isEmpty() ? page.offers().get(0).tab()
+                : tabName(tab, page), page.offers(), null, page.chooseYourOwn());
         return page;
     }
 
-    /** Reads and logs one frame, and drops its tab if it turns out to hold choose-your-own packs. */
+    /** Reads and logs one frame. */
     private DealFrameReader.Page readPage(RawImageData frame, String surface, String tab, boolean tabbed) {
         String file = saveFrame(frame);
         DealFrameReader.Page page = reader.read(frame, surface, tab == null ? "" : tab, file, tabbed);
@@ -1214,11 +1197,15 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     /** @param title replaces the title the reader gave each offer, or {@code null} to keep it */
     private void collect(String surface, String tabName, List<DealOffer> read, String title) {
+        collect(surface, tabName, read, title, false);
+    }
+
+    private void collect(String surface, String tabName, List<DealOffer> read, String title, boolean perShop) {
         for (DealOffer offer : read) {
             DealOffer kept = new DealOffer(offer.surface(), tabName, title == null ? offer.title() : title,
                     offer.priceUsd(), offer.priceText(), offer.remaining(), offer.purchased(), offer.items(),
                     offer.frame(), offer.limitPeriod(), offer.limitCount(), offer.timeLeft(), offer.card());
-            collection.add(kept);
+            collection.add(kept, perShop);
         }
     }
 

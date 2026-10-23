@@ -25,6 +25,8 @@ public final class DealCollection {
 
     private final Map<String, DealOffer> offers = new LinkedHashMap<>();
     private final List<String> problems = new ArrayList<>();
+    private final List<String> shops = new ArrayList<>();
+    private static final int SAME_TAB_MIN_RUN = 6;
 
     public Map<String, DealOffer> offers() {
         return offers;
@@ -35,7 +37,48 @@ public final class DealCollection {
     }
 
     public void add(DealOffer offer) {
-        offers.merge(offer.packKey() + "|" + priceKey(offer), offer, this::mergeReads);
+        add(offer, false);
+    }
+
+    /**
+     * @param perShop the pack is one of the tiers that several shops sell alike (pick-your-own chests), so it
+     *                is kept apart per shop; any other pack seen in two tabs is the same pack read twice
+     */
+    public void add(DealOffer offer, boolean perShop) {
+        String key = offer.packKey() + "|" + (perShop ? shop(offer) : "") + "|" + priceKey(offer);
+        offers.merge(key, offer, this::mergeReads);
+    }
+
+    /** The shop a pick-your-own tier was read in; one shop whose name OCR spells two ways is one shop. */
+    private String shop(DealOffer offer) {
+        String key = offer.tab() == null ? "" : offer.tab().replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
+        for (String known : shops) {
+            if (sameTab(known, key)) {
+                return known;
+            }
+        }
+        shops.add(key);
+        return key;
+    }
+
+    public static boolean sameTab(String a, String b) {
+        if (a.isEmpty() || b.isEmpty()) {
+            return a.equals(b);
+        }
+        if (a.contains(b) || b.contains(a)) {
+            return true;
+        }
+        int longest = 0;
+        for (int i = 0; i < a.length(); i++) {
+            for (int j = 0; j < b.length(); j++) {
+                int k = 0;
+                while (i + k < a.length() && j + k < b.length() && a.charAt(i + k) == b.charAt(j + k)) {
+                    k++;
+                }
+                longest = Math.max(longest, k);
+            }
+        }
+        return longest >= Math.max(SAME_TAB_MIN_RUN, Math.min(a.length(), b.length()) * 7 / 10);
     }
 
     /** The price a pack is told apart by: the parsed dollars, since one $99.99 also read as "$99 � 99". */
@@ -106,12 +149,36 @@ public final class DealCollection {
             List<Map.Entry<String, DealOffer>> titled = offers.entrySet().stream()
                     .filter(e -> !e.getKey().equals(fallback.getKey()) && !isFallbackTitle(e.getValue()))
                     .filter(e -> Objects.equals(e.getValue().surface(), offer.surface())
-                            && Objects.equals(e.getValue().tab(), offer.tab())
+                            && Objects.equals(shop(e.getValue()), shop(offer))
                             && Objects.equals(e.getValue().priceUsd(), offer.priceUsd()))
                     .toList();
             if (titled.size() == 1) {
                 offers.put(titled.get(0).getKey(), mergeReads(titled.get(0).getValue(), offer));
                 offers.remove(fallback.getKey());
+            }
+        }
+    }
+
+    /**
+     * A title read with OCR noise after it ("Exquisite Custom Chest qu ustom Che Goo") is the pack whose title
+     * it begins with, in the same tab at the same price, when exactly one such pack exists.
+     */
+    public void foldNoisyTitles() {
+        for (Map.Entry<String, DealOffer> noisy : List.copyOf(offers.entrySet())) {
+            DealOffer offer = noisy.getValue();
+            if (!offers.containsKey(noisy.getKey())) {
+                continue;
+            }
+            List<Map.Entry<String, DealOffer>> clean = offers.entrySet().stream()
+                    .filter(e -> !e.getKey().equals(noisy.getKey()))
+                    .filter(e -> Objects.equals(e.getValue().priceUsd(), offer.priceUsd())
+                            && Objects.equals(e.getValue().surface(), offer.surface())
+                            && Objects.equals(shop(e.getValue()), shop(offer))
+                            && offer.title().startsWith(e.getValue().title() + " "))
+                    .toList();
+            if (clean.size() == 1) {
+                offers.put(clean.get(0).getKey(), mergeReads(clean.get(0).getValue(), offer));
+                offers.remove(noisy.getKey());
             }
         }
     }
