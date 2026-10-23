@@ -46,9 +46,10 @@ class ScanReplayTest {
             boolean tabbed = !surface.equals(tab);
             DealFrameReader.Page page = reader.read(DealFrameReaderTest.rgbaFrame(image), surface, tab, frame, tabbed);
             collection.problems().addAll(page.problems());
-            page.offers().forEach(collection::add);
+            page.offers().forEach(offer -> collection.add(offer, page.chooseYourOwn()));
         }
         collection.foldFallbackTitles();
+        collection.foldNoisyTitles();
         List<Map<String, Object>> rows = new ArrayList<>();
         for (DealOffer offer : collection.offers().values()) {
             Map<String, Object> row = new LinkedHashMap<>();

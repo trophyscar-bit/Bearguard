@@ -196,14 +196,20 @@ public final class TileCountReader {
         }
         List<Mat> glyphs = new ArrayList<>();
         if (!candidates.isEmpty()) {
-            candidates.sort(Comparator.comparingInt(Component::x));
+            // The count is the right-most run on one baseline. Artwork of the tile above can leave a digit-sized
+            // blob between two digits but off their baseline; it is passed over, not taken as the end of the
+            // count: on a Lv.2 Custom Resource Chest one cut "2,000" to "000".
+            Component last = candidates.stream().max(Comparator.comparingInt(Component::x)).orElseThrow();
+            List<Component> onBaseline = candidates.stream()
+                    .filter(c -> Math.abs(c.bottom() - last.bottom()) <= MAX_BASELINE_DRIFT)
+                    .sorted(Comparator.comparingInt(Component::x))
+                    .toList();
             List<Component> run = new ArrayList<>();
-            run.add(candidates.get(candidates.size() - 1));
-            for (int i = candidates.size() - 2; i >= 0; i--) {
+            run.add(onBaseline.get(onBaseline.size() - 1));
+            for (int i = onBaseline.size() - 2; i >= 0; i--) {
                 Component next = run.get(run.size() - 1);
-                Component candidate = candidates.get(i);
-                if (Math.abs(candidate.bottom() - next.bottom()) > MAX_BASELINE_DRIFT
-                        || next.x() - (candidate.x() + candidate.width()) > MAX_GLYPH_GAP) {
+                Component candidate = onBaseline.get(i);
+                if (next.x() - (candidate.x() + candidate.width()) > MAX_GLYPH_GAP) {
                     break;
                 }
                 run.add(candidate);

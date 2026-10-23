@@ -319,6 +319,9 @@ public final class DealFrameReader {
         // A pick-your-own tier is still a pack with a price: each tier is read with its fixed items, and the
         // flag tells the scan its "+" slots hold choices of their own.
         boolean chooseYourOwn = isChooseYourOwn(capture, FRAME_TOP_LEFT.getY(), FRAME_BOTTOM_RIGHT.getY(), 0);
+        // Custom Armament Chest and Custom Pet Chest sell the same tiers; the page's own header says which shop
+        // a tier belongs to, where the tab's label is often misread.
+        String offerTab = chooseYourOwn && pageTitleLine != null ? pageTitle : tab;
         List<TextLine> allLines = Stream.concat(text.plainLines().stream(), text.whiteLines().stream()).toList();
         String pageLimit = pageLimit(allLines, buttons);
         List<DealOffer> offers = new ArrayList<>();
@@ -413,7 +416,7 @@ public final class DealFrameReader {
             if (buttons.size() == 1) {
                 merged.addAll(missionRewards(text, allLines, button));
             }
-            offers.add(new DealOffer(surface, tab, title, priceUsd, priceText, remaining,
+            offers.add(new DealOffer(surface, offerTab, title, priceUsd, priceText, remaining,
                     false, merged, frame, cardLimit != null ? cardLimit : pageLimit,
                     limitCount, countdown(window, allLines, cardTop), card));
         }
