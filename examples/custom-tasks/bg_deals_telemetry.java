@@ -57,6 +57,7 @@ import dev.frostguard.engine.service.CustomTaskService;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.WhiteTextIsolator;
 import dev.frostguard.vision.deals.PriceButtonLocator;
+import dev.frostguard.vision.deals.SegmentedControl;
 import dev.frostguard.vision.deals.TabStripCells;
 import dev.frostguard.vision.ocr.OcrEngine;
 import dev.frostguard.vision.ocr.OcrException;
@@ -90,6 +91,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final List<String> GOOD_VERDICTS = List.of("Best this week", "Great");
     /** The item library's name for Fire Crystals; a pack's crystals are counted under this key. */
     private static final String FIRE_CRYSTAL = "Fire Crystal";
+    /** Materials that only chief gear uses; a pack holding any of them belongs in the chief gear section. */
+    private static final Set<String> CHIEF_GEAR_ITEMS = Set.of("Hardened Alloy", "Polishing Solution", "Design Plans");
+    private static final Pattern CHIEF_GEAR_TITLE = Pattern.compile("(?i)chief\\s*gear|gear\\s*(enhancement|empowerment)");
     /** Bands for dollars per crystal, against the cheapest crystal of the same day. */
     private static final double FC_GOOD_RATIO = 1.15;
     private static final double FC_OK_RATIO = 1.60;
@@ -333,6 +337,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             report.put("unreadable", unreadable);
             report.put("fireCrystals", fireCrystals(today, DealPriceTracker.unitValues(loaded.scans(), manual)));
             report.put("coverage", coverageRows());
+            report.put("chiefGear", chiefGear(today));
             report.put("problems", problems);
             Path dir = store.root().resolve("reports");
             Files.createDirectories(dir);
@@ -465,8 +470,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         DealOffer offer = scored.offer();
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("title", offer.title());
+        row.put("cardTitle", offer.title());
         row.put("surface", offer.surface());
         row.put("tab", offer.tab());
+        row.put("shopTab", offer.tab());
+        row.put("shopPath", shopPath(offer));
         row.put("priceUsd", offer.priceUsd());
         row.put("priceText", offer.priceText());
         row.put("score", scored.score());
@@ -474,12 +482,85 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         row.put("basis", scored.basis());
         row.put("daysSeen", scored.daysSeen());
         row.put("limitPeriod", offer.limitPeriod());
+        row.put("limitCount", offer.limitCount());
+        row.put("limit", limitAsShown(offer));
+        row.put("remaining", offer.remaining());
+        row.put("timeLeft", offer.timeLeft());
+        row.put("card", cardTerms(offer));
         row.put("items", offer.items().stream()
                 .map(i -> Map.of("key", i.key(), "quantity", i.quantity()))
                 .toList());
         row.put("frame", offer.frame());
         row.put("why", why);
         return row;
+    }
+
+    private static String shopPath(DealOffer offer) {
+        return offer.tab() == null || offer.tab().isBlank() ? offer.surface() : offer.surface() + " > " + offer.tab();
+    }
+
+    /** The limit the way the shop states it: "1/week", "5/day", "1/lifetime". */
+    private static String limitAsShown(DealOffer offer) {
+        if (offer.limitPeriod() == null) {
+            return null;
+        }
+        String unit = switch (offer.limitPeriod()) {
+            case "daily" -> "day";
+            case "weekly" -> "week";
+            case "monthly" -> "month";
+            default -> offer.limitPeriod();
+        };
+        Integer count = offer.limitCount() != null ? offer.limitCount() : offer.remaining();
+        return count == null ? "per " + unit : count + "/" + unit;
+    }
+
+    private static Map<String, Object> cardTerms(DealOffer offer) {
+        if (offer.card() == null) {
+            return null;
+        }
+        Map<String, Object> card = new LinkedHashMap<>();
+        card.put("validDays", offer.card().validDays());
+        card.put("upfront", offer.card().upfront().stream()
+                .map(i -> Map.of("key", i.key(), "quantity", i.quantity())).toList());
+        card.put("daily", offer.card().daily().stream()
+                .map(i -> Map.of("key", i.key(), "quantity", i.quantity())).toList());
+        card.put("totalRead", !offer.items().isEmpty());
+        return card;
+    }
+
+    /**
+     * Every pack holding chief gear materials, with all its items by name. An item the scan could not
+     * confirm is absent rather than guessed; itemsRead says how many tiles were read on the card.
+     */
+    private Map<String, Object> chiefGear(List<DealScoring.ScoredOffer> today) {
+        List<Map<String, Object>> packs = new ArrayList<>();
+        for (DealScoring.ScoredOffer scored : today) {
+            DealOffer offer = scored.offer();
+            boolean gear = offer.items().stream().anyMatch(i -> CHIEF_GEAR_ITEMS.contains(i.key()))
+                    || CHIEF_GEAR_TITLE.matcher(offer.title() == null ? "" : offer.title()).find();
+            if (!gear) {
+                continue;
+            }
+            Map<String, Object> items = new LinkedHashMap<>();
+            offer.items().forEach(i -> items.put(i.key().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "_"),
+                    i.quantity()));
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", offer.title());
+            row.put("where", shopPath(offer));
+            row.put("price", offer.priceUsd());
+            row.put("priceText", offer.priceText());
+            row.put("limit", limitAsShown(offer));
+            row.put("remaining", offer.remaining());
+            row.put("timeLeft", offer.timeLeft());
+            row.put("items", items);
+            row.put("itemsRead", offer.items().size());
+            row.put("frame", offer.frame());
+            packs.add(row);
+        }
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("packs", packs);
+        section.put("coverage", coverageRows());
+        return section;
     }
 
     /** One line a reader can print: what the pack is worth per dollar, and where that number came from. */
@@ -756,10 +837,27 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     .map(TextLine::text)
                     .collect(Collectors.joining(" "))
                     .replaceAll("\\s+", " ")
-                    .trim();
+                    .transform(bg_deals_telemetry::trimLabelCrumbs);
         } catch (OcrException unreadable) {
             return "";
         }
+    }
+
+    /**
+     * The tab's artwork reads as short letter clusters either side of its name: "ie rh Fire Crystal Leap
+     * Pack", "wi Regular Pack". Those split one tab into several in the history (81 names for about 25
+     * tabs) and defeat the visited-tab check. Words of fewer than three letters are dropped from both ends.
+     */
+    static String trimLabelCrumbs(String label) {
+        List<String> words = new ArrayList<>(List.of(label.trim().split(" ")));
+        while (!words.isEmpty() && words.get(0).chars().filter(Character::isLetter).count() < 3) {
+            words.remove(0);
+        }
+        while (!words.isEmpty() && words.get(words.size() - 1).chars().filter(Character::isLetter).count() < 3
+                && !words.get(words.size() - 1).matches("\\d{1,2}|&|(?i)it|up|of|in|on")) {
+            words.remove(words.size() - 1);
+        }
+        return String.join(" ", words);
     }
 
     /** Letters only, so "Hall of'Heroes" and "Hall of Heroes" are the same tab. */
@@ -772,6 +870,52 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** Reads a page, then scrolls it until the content stops moving. Returns the first read's page title. */
     private String surveyPage(String surface, String tab, int maxScrolls, boolean tabbed) {
         RawImageData frame = capture();
+        Optional<SegmentedControl.Control> variants = tabbed
+                ? SegmentedControl.locate(ImageConverter.toBufferedImage(frame))
+                : Optional.empty();
+        String title = surveyVariant(surface, tab, maxScrolls, tabbed, frame);
+        if (variants.isEmpty()) {
+            return title;
+        }
+        // An "Epic | Mythic" toggle swaps the whole page to another tier; only the selected one was ever read,
+        // so "Epic" and "Mythic" appeared in none of 22 days of scans. Each other option is opened in turn.
+        SegmentedControl.Control control = variants.get();
+        String where = surface + " / " + (tab == null ? "opening tab" : tab);
+        for (int option = 0; option < control.options().size(); option++) {
+            if (option == control.selectedIndex()) {
+                continue;
+            }
+            scrollToTop();
+            SegmentedControl.Option target = control.options().get(option);
+            tapNear(new PointData(target.centreX(), target.centreY()));
+            sleepTask(TAB_SETTLE_MS);
+            RawImageData switched = capture();
+            Optional<SegmentedControl.Control> now = SegmentedControl.locate(ImageConverter.toBufferedImage(switched));
+            if (now.isEmpty() || now.get().selectedIndex() != option) {
+                problems.add(where + ": variant " + (option + 1) + " of " + control.options().size()
+                        + " did not open after its tap (" + saveFrame(switched) + "); it is unread.");
+                continue;
+            }
+            String variantTab = (tab == null ? (title == null ? "opening tab" : title) : tab)
+                    + " (variant " + (option + 1) + " of " + control.options().size() + ")";
+            surveyVariant(surface, variantTab, maxScrolls, tabbed, switched);
+        }
+        return title;
+    }
+
+    /** Drags the page down until it stops moving, so controls above the list are on screen again. */
+    private void scrollToTop() {
+        for (int swipe = 0; swipe < MAX_PAGE_SCROLLS; swipe++) {
+            RawImageData before = capture();
+            swipe(PANEL_SWIPE_TO, PANEL_SWIPE_FROM, SWIPE_MS);
+            sleepTask(SCROLL_SETTLE_MS);
+            if (meanDiff(before, capture(), CONTENT_REGION) < STILL_MEAN_DIFF) {
+                return;
+            }
+        }
+    }
+
+    private String surveyVariant(String surface, String tab, int maxScrolls, boolean tabbed, RawImageData frame) {
         Optional<DealCarousel.Layout> carousel = DealCarousel.locate(frame);
         if (carousel.isPresent()) {
             return surveyCarousel(frame, carousel.get(), surface, tab, tabbed);
