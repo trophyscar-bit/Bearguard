@@ -287,6 +287,21 @@ class DealFrameReaderTest {
         assertEquals(25L, enhancementItems.get("100 VIP XP"), enhancementItems.toString());
         assertEquals("daily", enhancement.limitPeriod());
         assertEquals(5, enhancement.limitCount());
+
+        // Items keep the card's left-to-right order; an unread tile is skipped, never moved.
+        assertInCardOrder(tool, List.of("Gems", "Polishing Solution", "Hardened Alloy", "100 VIP XP", "10K Meat"));
+        assertInCardOrder(enhancement,
+                List.of("Gems", "Design Plans", "Polishing Solution", "Hardened Alloy", "100 VIP XP"));
+    }
+
+    private static void assertInCardOrder(DealOffer offer, List<String> cardOrder) {
+        List<String> read = offer.items().stream().map(DealItem::key).toList();
+        int next = 0;
+        for (String key : read) {
+            int at = cardOrder.indexOf(key);
+            assertTrue(at >= next, offer.title() + " read " + read + ", card shows " + cardOrder);
+            next = at + 1;
+        }
     }
 
     /** The Get Gems tab has no orange buttons; its six bundles still become offers, gems as the item. */

@@ -529,8 +529,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     }
 
     /**
-     * Every pack holding chief gear materials, with all its items by name. An item the scan could not
-     * confirm is absent rather than guessed; itemsRead says how many tiles were read on the card.
+     * Every pack holding chief gear materials, with all its items by in-game name in card order. An item
+     * the scan could not confirm is absent rather than guessed; itemsRead says how many were read.
      */
     private Map<String, Object> chiefGear(List<DealScoring.ScoredOffer> today) {
         List<Map<String, Object>> packs = new ArrayList<>();
@@ -541,9 +541,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             if (!gear) {
                 continue;
             }
-            Map<String, Object> items = new LinkedHashMap<>();
-            offer.items().forEach(i -> items.put(i.key().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "_"),
-                    i.quantity()));
+            List<Map<String, Object>> items = offer.items().stream()
+                    .map(i -> Map.<String, Object>of("name", i.key(), "quantity", i.quantity()))
+                    .toList();
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("name", offer.title());
             row.put("where", shopPath(offer));
