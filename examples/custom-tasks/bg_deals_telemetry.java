@@ -578,10 +578,27 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private void surveyShortcutColumn() {
         Set<String> surveyed = new HashSet<>();
         // The Deals icon sits in the same column. Its panel header did not read on the 2026-09-22 run, so
-        // the whole panel was surveyed a second time under a slot name, costing 2.5 minutes and filing its
-        // offers twice. Its own template says where it is, so that slot is left alone.
-        ImageSearchResultData dealsIcon = templateSearchHelper.locatePattern(
-                TemplatesEnum.HOME_DEALS_BUTTON, SearchConfigConstants.DEFAULT_SINGLE);
+        // the whole panel was surveyed a second time under a slot name, costing a quarter of the run and
+        // filing its offers twice. Its own template says where it is, so that slot is left alone. It has to
+        // be located on the city view: looked for while the previous surface was still open, it was never
+        // found, and the guard never fired (City icon 665,260 duplicated Deals on 16 of 16 days).
+        ImageSearchResultData dealsIcon;
+        try {
+            if (!returnToCity()) {
+                problems.add("City icons: skipped because the city view could not be confirmed.");
+                recordCoverage("City icons", false, null, null, "city view not confirmed");
+                return;
+            }
+            dealsIcon = templateSearchHelper.locatePattern(TemplatesEnum.HOME_DEALS_BUTTON,
+                    SearchConfigConstants.DEFAULT_SINGLE);
+        } catch (RuntimeException failed) {
+            recordFailure("City icons", failed);
+            return;
+        }
+        if (!dealsIcon.isFound()) {
+            problems.add("City icons: the Deals shortcut was not found on the city view, so its slot is not"
+                    + " excluded and the Deals panel may be surveyed twice.");
+        }
         int opened = 0;
         for (int x : ICON_COLUMN_X) {
             for (int y : ICON_ROW_Y) {
@@ -761,9 +778,14 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         }
         String firstTitle = null;
         int barren = 0;
+        // Offers already seen on this page, not in the whole run: the same Fire Crystal Pack sits under
+        // both Fire Crystal Energy and Regular Pack, so measured against the run two screens of it would
+        // read as the end of a list that goes on below them.
+        Set<String> onThisPage = new HashSet<>();
         for (int scroll = 0; scroll <= maxScrolls; scroll++) {
-            int before = offers.size();
+            int before = onThisPage.size();
             DealFrameReader.Page page = readAndCollect(frame, surface, tab, tabbed);
+            page.offers().forEach(o -> onThisPage.add(o.title() + "|" + o.priceText()));
             if (firstTitle == null) {
                 firstTitle = page.title();
             }
@@ -778,8 +800,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             }
             // A page whose artwork animates never reads as still, so the old fixed cap cut long tabs
             // off mid-list (4 of them on 2026-10-22). The list has ended when swiping stops yielding
-            // offers nobody has seen, whatever the pixels do.
-            barren = offers.size() > before ? 0 : barren + 1;
+            // offers this page has not shown yet, whatever the pixels do.
+            barren = onThisPage.size() > before ? 0 : barren + 1;
             if (barren >= BARREN_SWIPES_FOR_END) {
                 return firstTitle;
             }
