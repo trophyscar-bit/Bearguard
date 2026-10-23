@@ -272,18 +272,18 @@ class DealFrameReaderTest {
         Map<String, Long> toolItems = quantities(tool);
         assertEquals(4.99, tool.priceUsd(), 1e-9);
         assertEquals(1_500L, toolItems.get("Hardened Alloy"), toolItems.toString());
-        // The purple Polishing Solution tile defeats every read measured so far; unknown, never a guess.
-        assertTrue(toolItems.get("Polishing Solution") == null || toolItems.get("Polishing Solution") == 15L,
-                toolItems.toString());
+        assertEquals(2_500L, toolItems.get("Gems"), toolItems.toString());
+        assertEquals(15L, toolItems.get("Polishing Solution"), toolItems.toString());
+        assertEquals(25L, toolItems.get("100 VIP XP"), toolItems.toString());
+        assertEquals(130L, toolItems.get("10K Meat"), toolItems.toString());
         assertEquals("weekly", tool.limitPeriod());
         assertEquals(1, tool.remaining());
 
         Map<String, Long> enhancementItems = quantities(enhancement);
-        assertTrue(enhancementItems.get("Hardened Alloy") == null || enhancementItems.get("Hardened Alloy") == 900L,
-                enhancementItems.toString());
-        assertTrue(enhancementItems.get("Polishing Solution") == null
-                || enhancementItems.get("Polishing Solution") == 9L, enhancementItems.toString());
+        assertEquals(900L, enhancementItems.get("Hardened Alloy"), enhancementItems.toString());
+        assertEquals(9L, enhancementItems.get("Polishing Solution"), enhancementItems.toString());
         assertEquals(20L, enhancementItems.get("Design Plans"), enhancementItems.toString());
+        assertEquals(2_500L, enhancementItems.get("Gems"), enhancementItems.toString());
         assertEquals(25L, enhancementItems.get("100 VIP XP"), enhancementItems.toString());
         assertEquals("daily", enhancement.limitPeriod());
         assertEquals(5, enhancement.limitCount());
