@@ -69,6 +69,26 @@ class DealFrameReaderTest {
         }
     }
 
+    /** Live frame of 2026-10-23: the first "+" slot of the Shining Custom Chest, opened. */
+    @Test
+    void readsTheChoicesOfAPickSlot() throws Exception {
+        BufferedImage image = ImageIO.read(Objects.requireNonNull(
+                DealFrameReaderTest.class.getResourceAsStream("/deals/popup-custom-chest-select-items.png")));
+
+        List<String> choices = reader.readSlotChoices(rgbaFrame(image)).orElseThrow().stream()
+                .map(i -> i.key() + "=" + i.quantity()).toList();
+
+        assertEquals(List.of("100 Enhancement XP Component=6", "Lucky Hero Gear Chest=4", "Essence Stones=4"), choices);
+    }
+
+    @Test
+    void findsThreePickSlotsOnEachVisibleTier() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-custom-chest-top.png", "Mix & Match");
+
+        assertEquals(page.offers().size(), page.pickSlots().size(), page.pickSlots().toString());
+        page.pickSlots().values().forEach(slots -> assertEquals(3, slots.size(), slots.toString()));
+    }
+
     @Test
     void recordsNothingForTheWeeklyBenefitsCardPickYourPackPage() throws Exception {
         DealFrameReader.Page page = read("deals-weekly-benefits-card-live.png", "Weekly Benefits Card");
