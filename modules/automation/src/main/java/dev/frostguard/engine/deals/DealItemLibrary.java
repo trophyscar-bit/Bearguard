@@ -221,8 +221,29 @@ public final class DealItemLibrary {
                 kept.add(candidate);
             }
         }
-        kept.sort(Comparator.comparingInt(Match::y).thenComparingInt(Match::x));
-        return kept;
+        return inReadingOrder(kept);
+    }
+
+    /**
+     * Rows top to bottom, tiles left to right. Tiles in one row match a pixel or two apart vertically, so a
+     * plain y-then-x sort can put a row's right tile before its left one.
+     */
+    private static List<Match> inReadingOrder(List<Match> matches) {
+        List<Match> byTop = new ArrayList<>(matches);
+        byTop.sort(Comparator.comparingInt(Match::y));
+        List<Match> ordered = new ArrayList<>();
+        List<Match> row = new ArrayList<>();
+        for (Match match : byTop) {
+            if (!row.isEmpty() && match.y() - row.get(0).y() > row.get(0).height() / 2) {
+                row.sort(Comparator.comparingInt(Match::x));
+                ordered.addAll(row);
+                row.clear();
+            }
+            row.add(match);
+        }
+        row.sort(Comparator.comparingInt(Match::x));
+        ordered.addAll(row);
+        return ordered;
     }
 
     private static BufferedImage scale(BufferedImage image, double scale) {
