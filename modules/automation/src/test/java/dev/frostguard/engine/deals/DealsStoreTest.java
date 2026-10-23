@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,25 @@ class DealsStoreTest {
         assertEquals(List.of("Deals: tab strip unreadable"), scan.problems());
         assertEquals(1, loaded.problems().size());
         assertTrue(loaded.problems().get(0).contains(DAY.plusDays(1).toString()));
+    }
+
+    @Test
+    void keepsAnEarlierRunOfTheSameDayInsteadOfOverwritingIt(@TempDir Path workspace) throws Exception {
+        DealsStore store = DealsStore.forWorkspace(workspace);
+        store.write(DAY, new DealScan(DAY + "T18:22", List.of(), List.of()));
+        Files.createDirectories(store.frameDir(DAY));
+        Files.writeString(store.frameDir(DAY).resolve("001.png"), "frame");
+        Files.createDirectories(store.root().resolve("reports"));
+        Files.writeString(store.root().resolve("reports").resolve(DAY + ".json"), "{}");
+
+        List<Path> moved = store.supersede(DAY, LocalTime.of(22, 15, 3));
+
+        assertEquals(3, moved.size(), moved.toString());
+        assertTrue(Files.exists(store.scansDir().resolve(DAY + "-superseded-221503.json")));
+        assertTrue(Files.exists(store.scansDir().resolve(DAY + "-superseded-221503").resolve("001.png")));
+        assertTrue(Files.exists(store.root().resolve("reports").resolve(DAY + "-superseded-221503.json")));
+        assertTrue(store.readSince(DAY).scans().isEmpty(), "a superseded scan is not read as the day's scan");
+        assertTrue(store.readSince(DAY).problems().isEmpty());
     }
 
     @Test

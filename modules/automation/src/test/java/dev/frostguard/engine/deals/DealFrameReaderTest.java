@@ -304,6 +304,58 @@ class DealFrameReaderTest {
         }
     }
 
+    /**
+     * The one-pack event page of 2026-10-22, checked by eye: its banner gems, the purple Polishing Solution,
+     * the "Event Remaining: 1" limit, and the last tile cut by the card edge (its 130 once read as 134) left
+     * for the swiped frame to read whole.
+     */
+    @Test
+    void readsEveryItemOfTheChiefGearEnhancementSpecialAcrossItsSwipedRow() throws Exception {
+        DealOffer first = read("gem-shop-top-chief-gear-special.png", "The Top Chief").offers().get(0);
+        DealOffer swiped = read("gem-shop-top-chief-gear-special-swiped.png", "The Top Chief").offers().get(0);
+
+        assertEquals("Chief Gear Enhancement Special", first.title());
+        assertEquals("event", first.limitPeriod());
+        assertEquals(1, first.remaining());
+        assertEquals(List.of("Gems=2500", "Design Plans=35", "Polishing Solution=40", "Hardened Alloy=4000",
+                "100 VIP XP=25"), named(first));
+        assertEquals(List.of("Gems=2500", "10K Meat=130", "10K Wood=130", "1K Coal=240", "1K Iron=60",
+                "Supply Crate=1"), named(swiped));
+    }
+
+    @Test
+    void joinsATitleThatWrapsOntoTwoLines() throws Exception {
+        DealOffer offer = read("gem-shop-exclusive-gear-special.png", "Exclusive Gear").offers().get(0);
+
+        assertEquals("Exclusive Gear Enhancement Special", offer.title());
+        assertEquals(List.of("Gems=2500", "100 VIP XP=25", "10K Meat=130", "10K Wood=130"), named(offer));
+    }
+
+    /** Small tiles of the Leap Pack tab: 1hr(s), 1K VIP XP and 100K Meat were missing or misnamed before. */
+    @Test
+    void readsEveryTileOfTheSmallLeapPackGrid() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-leap-packs-purchased-1-2.png", "Fire Crystal Leap Pack");
+
+        assertEquals(List.of("Gems=50000", "Fire Crystal=500", "1h Speedup=300", "5min Speedup=4800",
+                "1K VIP XP=20", "100K Meat=1000", "100K Wood=1000", "100K Coal=200", "100K Iron=50"),
+                named(offerPriced(page, 99.99)));
+        assertEquals(List.of("Gems=5000", "Fire Crystal=50", "1h Speedup=30", "5min Speedup=480",
+                "100 VIP XP=40", "10K Meat=1000", "10K Wood=1000", "10K Coal=200", "10K Iron=50"),
+                named(offerPriced(page, 9.99)));
+    }
+
+    @Test
+    void readsTheIntelMonthlyCardGrantAtBothTiers() throws Exception {
+        assertEquals(List.of("Gems=5000", "Fire Crystal=83", "1h Speedup=45", "100 VIP XP=40"),
+                named(read("deals-intel-monthly-card-mythic.png", "Intel Monthly Card").offers().get(0)));
+        assertEquals(List.of("Gems=2500", "Fire Crystal=33", "1h Speedup=18", "100 VIP XP=25"),
+                named(read("deals-intel-monthly-card-epic.png", "Intel Monthly Card").offers().get(0)));
+    }
+
+    private static List<String> named(DealOffer offer) {
+        return offer.items().stream().map(i -> i.key() + "=" + i.quantity()).toList();
+    }
+
     /** The Get Gems tab has no orange buttons; its six bundles still become offers, gems as the item. */
     @Test
     void recordsEveryGetGemsBundle() throws Exception {

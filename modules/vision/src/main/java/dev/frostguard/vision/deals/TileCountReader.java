@@ -74,10 +74,24 @@ public final class TileCountReader {
         int right = Math.min(frame.getWidth(), (int) (iconX + BAND_RIGHT * scale));
         int top = Math.max(0, (int) (iconY + BAND_TOP * scale));
         int bottom = Math.min(frame.getHeight(), (int) (iconY + BAND_BOTTOM * scale));
+        return readRegion(frame, left, top, right - left, bottom - top, MAGNIFICATION);
+    }
+
+    /**
+     * The number ending at the right of a region, read at {@code magnification}. Tile counts are about 12 px
+     * tall and are magnified four times; a pack's gem banner prints the same font at about 40 px and is read
+     * as it is. Its glyphs differ slightly in rendering, so the references include banner glyphs too.
+     */
+    public static Optional<String> readRegion(BufferedImage frame, int x, int y, int width, int height,
+            int magnification) {
+        int left = Math.max(0, x);
+        int top = Math.max(0, y);
+        int right = Math.min(frame.getWidth(), x + width);
+        int bottom = Math.min(frame.getHeight(), y + height);
         if (right - left < 8 || bottom - top < 8) {
             return Optional.empty();
         }
-        Mat mask = whiteMask(frame, left, top, right - left, bottom - top);
+        Mat mask = whiteMask(frame, left, top, right - left, bottom - top, magnification);
         List<Mat> glyphs = glyphs(mask);
         mask.release();
         if (glyphs.isEmpty()) {
@@ -101,7 +115,7 @@ public final class TileCountReader {
         return Optional.of(read);
     }
 
-    private static Mat whiteMask(BufferedImage frame, int x, int y, int width, int height) {
+    private static Mat whiteMask(BufferedImage frame, int x, int y, int width, int height, int magnification) {
         Mat bgr = new Mat(height, width, CvType.CV_8UC3);
         byte[] pixels = new byte[width * height * 3];
         int offset = 0;
@@ -115,7 +129,11 @@ public final class TileCountReader {
         }
         bgr.put(0, 0, pixels);
         Mat magnified = new Mat();
-        Imgproc.resize(bgr, magnified, new Size(), MAGNIFICATION, MAGNIFICATION, Imgproc.INTER_CUBIC);
+        if (magnification == 1) {
+            bgr.copyTo(magnified);
+        } else {
+            Imgproc.resize(bgr, magnified, new Size(), magnification, magnification, Imgproc.INTER_CUBIC);
+        }
         Mat hsv = new Mat();
         Imgproc.cvtColor(magnified, hsv, Imgproc.COLOR_BGR2HSV);
         Mat mask = new Mat(hsv.rows(), hsv.cols(), CvType.CV_8UC1);
