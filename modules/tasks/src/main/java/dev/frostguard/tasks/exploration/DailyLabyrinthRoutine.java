@@ -38,6 +38,20 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final PointData SKIP_BUTTON = new PointData(71, 827);
     private static final PointData RESULT_SKIP_BUTTON = new PointData(640, 175);
 
+    // When every available troop is already loaded but the squads are still under capacity (Research
+    // Center 2026-10-23: 159,192/160,800 troops, rows at 53,064/250,000), Deploy opens a modal --
+    // "Confirmation" / "Your squads still have available capacity ... Continue anyway?" -- and the
+    // battle does not start until Continue is tapped. The modal swallows Back, so leaving it up
+    // stranded every later navigation. Read the title AND the body: "Confirmation" alone is a
+    // generic title. Measured over 300 saved Labyrinth frames: all 9 frames showing this modal
+    // (Research Center and Charm Mine) read both cleanly; no other frame read either word.
+    static final PointData CAPACITY_CONFIRM_TITLE_TL = new PointData(180, 425);
+    static final PointData CAPACITY_CONFIRM_TITLE_BR = new PointData(540, 472);
+    static final PointData CAPACITY_CONFIRM_BODY_TL = new PointData(95, 520);
+    static final PointData CAPACITY_CONFIRM_BODY_BR = new PointData(625, 660);
+    static final OcrSettingsData CAPACITY_CONFIRM_BODY_SETTINGS = OcrSettingsData.forTextBlock();
+    private static final PointData CAPACITY_CONFIRM_CONTINUE_BTN = new PointData(360, 789);
+
     // ============ Win/loss by stage advancement  ============
     // Reported: "you wanna keep going if you're winning. When you lose once, you're toast. Just exit
     // then, but keep going if you win."
@@ -90,6 +104,8 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private String stageBeforeBattle;
     private String stageAfterBattle;
     private Integer lastAttemptsRemaining;
+    /** Set when Deploy was tapped but the stage screen did not come back, so the result is unknown. */
+    private boolean battleOutcomeUnknown;
 
     // Timing constants
     private static final int MENU_NAVIGATION_DELAY = 1000;
@@ -275,7 +291,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     //    broke unattended runs was slow-load timing; polling absorbs it without risky double-taps.
     private static final int SCREEN_POLL_INTERVAL_MS = 400;   // OCR re-check cadence while waiting
     private static final int SCREEN_POLL_TIMEOUT_MS = 5000;   // give a slow screen up to this long
-    private static final OcrSettingsData WHITE_TITLE_SETTINGS =
+    static final OcrSettingsData WHITE_TITLE_SETTINGS =
             OcrSettingsData.assembler()
                     .charWhitelist("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ")
                     .textLayout(TextLayout.SINGLE_LINE)
@@ -479,9 +495,12 @@ public class DailyLabyrinthRoutine extends DelayedTask {
             }
 
             // Step 2: Execute challenges based on current day
-            executeLabyrinthChallenges();
-
-            reschedule(nextLabyrinthStartTime());
+            boolean outcomeUnknown = executeLabyrinthChallenges();
+            if (outcomeUnknown) {
+                logWarning("A battle ended with an unknown outcome and attempts may be left today; "
+                        + "retrying in one hour (fallback) instead of waiting for the daily start time.");
+            }
+            reschedule(nextRunAfterPass(outcomeUnknown, LocalDateTime.now(), nextLabyrinthStartTime()));
 
         } catch (Exception e) {
             logError("An error occurred during the Labyrinth task: " + e.getMessage());
@@ -543,15 +562,26 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     // =========================== CHALLENGE EXECUTION ===========================
 
     /**
-     * Executes labyrinth challenges based on the current day of the week
+     * An unknown battle outcome may have left attempts unspent, so it retries in an hour (a fallback,
+     * not a read timer) instead of jumping to tomorrow's daily start.
      */
-    private void executeLabyrinthChallenges() {
+    static LocalDateTime nextRunAfterPass(boolean outcomeUnknown, LocalDateTime now, LocalDateTime dailyStart) {
+        return outcomeUnknown ? now.plusHours(1) : dailyStart;
+    }
+
+    /**
+     * Executes labyrinth challenges based on the current day of the week
+     *
+     * @return true if any zone stopped on a battle whose outcome could not be read
+     */
+    private boolean executeLabyrinthChallenges() {
         DayOfWeek currentDay = LocalDateTime.now(ZoneOffset.UTC).getDayOfWeek();
         List<Integer> availableDungeons = getAvailableDungeons(currentDay);
 
         logInfo("Executing challenges for " + currentDay + ". Available dungeons: " + availableDungeons);
 
         boolean anyCompleted = false;
+        boolean anyOutcomeUnknown = false;
         for (Integer dungeonNumber : availableDungeons) {
             // Observed live: after a completed battle, attemptNormalChallenge's single
             // pressBack() only returns to the zone's OWN stage-select screen, not the outer "The
@@ -600,6 +630,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
                 stageBeforeBattle = null;
                 stageAfterBattle = null;
                 lastAttemptsRemaining = null;
+                battleOutcomeUnknown = false;
 
                 // executeDungeonChallenge() fills stageBeforeBattle/lastAttemptsRemaining once it
                 // actually reaches the zone's stage screen -- the caller is still on the map here.
@@ -624,6 +655,13 @@ public class DailyLabyrinthRoutine extends DelayedTask {
                     }
                 }
                 battlesFought++;
+                if (battleOutcomeUnknown) {
+                    logWarning("Dungeon " + dungeonNumber + ": Deploy was tapped but the stage screen "
+                            + "did not come back, so the battle's outcome is unknown. Not counting it as "
+                            + "completed; stopping this zone. Frame saved.");
+                    anyOutcomeUnknown = true;
+                    break;
+                }
                 logInfo("Successfully completed challenge for dungeon " + dungeonNumber + ".");
                 anyCompleted = true;
 
@@ -678,6 +716,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         if (!anyCompleted) {
             logWarning("No dungeons were successfully completed today.");
         }
+        return anyOutcomeUnknown;
     }
 
     /**
@@ -969,7 +1008,17 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         if (deployResult.isFound()) {
             logInfo("'Deploy' button found. Deploying troops for dungeon " + dungeonNumber + ".");
             tapInside(deployResult);
-            sleepTask(BATTLE_COMPLETION_DELAY);
+            sleepTask(MENU_NAVIGATION_DELAY);
+            // The battle only starts once Continue is tapped, so a confirm restarts the full wait
+            // for the Skip button rather than spending what is left of it.
+            if (confirmUnderCapacityDeploy(dungeonNumber)) {
+                sleepTask(BATTLE_COMPLETION_DELAY);
+            } else {
+                sleepTask(BATTLE_COMPLETION_DELAY - MENU_NAVIGATION_DELAY);
+                if (confirmUnderCapacityDeploy(dungeonNumber)) {
+                    sleepTask(BATTLE_COMPLETION_DELAY);
+                }
+            }
 
             // OBSERVE: the result screen shows win/loss + rewards. This is the data we need to build
             // labyrinth victory/defeat detection (no template exists yet).
@@ -987,6 +1036,10 @@ public class DailyLabyrinthRoutine extends DelayedTask {
             sleepTask(LABYRINTH_LOAD_DELAY);
             stageAfterBattle = readCurrentStage();
             logInfo("Dungeon " + dungeonNumber + ": post-battle stage reads " + stageAfterBattle + ".");
+            if (stageAfterBattle == null) {
+                battleOutcomeUnknown = true;
+                saveLabyrinthFrame("post_battle_unknown", dungeonNumber);
+            }
 
             // No pressBack() here. The battle already returns to the zone's own stage screen -- which
             // is exactly why the stage label above is readable -- and that screen carries the
@@ -1004,6 +1057,32 @@ public class DailyLabyrinthRoutine extends DelayedTask {
                 + " -- it is most likely still disabled because the squads are empty.");
         saveLabyrinthFrame("deploy_missing", dungeonNumber);
         return false;
+    }
+
+    /** Taps Continue on the under-capacity Deploy confirmation if it is showing; see CAPACITY_CONFIRM_TITLE_TL. */
+    private boolean confirmUnderCapacityDeploy(int dungeonNumber) {
+        String title = readStringValue(CAPACITY_CONFIRM_TITLE_TL, CAPACITY_CONFIRM_TITLE_BR, WHITE_TITLE_SETTINGS);
+        if (title == null || !title.toLowerCase().contains("confirmation")) {
+            return false;
+        }
+        String body = readStringValue(CAPACITY_CONFIRM_BODY_TL, CAPACITY_CONFIRM_BODY_BR, CAPACITY_CONFIRM_BODY_SETTINGS);
+        if (!isSquadCapacityConfirmation(title, body)) {
+            saveLabyrinthFrame("unknown_confirmation", dungeonNumber);
+            logWarning("Dungeon " + dungeonNumber + ": a 'Confirmation' popup appeared after Deploy but its "
+                    + "text is not the squad-capacity prompt (read '" + body + "'); not tapping it. Frame saved.");
+            return false;
+        }
+        saveLabyrinthFrame("capacity_confirm", dungeonNumber);
+        logInfo("Dungeon " + dungeonNumber + ": the game asked to confirm deploying under squad capacity "
+                + "(every available troop is already loaded); tapping Continue to start the battle.");
+        tapNear(CAPACITY_CONFIRM_CONTINUE_BTN);
+        return true;
+    }
+
+    static boolean isSquadCapacityConfirmation(String title, String body) {
+        return title != null && body != null
+                && title.toLowerCase().contains("confirmation")
+                && body.toLowerCase().contains("capacity");
     }
 
     // =================== ZONE FORMATION SETUP ===================
