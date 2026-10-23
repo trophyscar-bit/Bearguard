@@ -74,6 +74,47 @@ class ChatPassLogTest {
     }
 
     @Test
+    void aRecentUnbridgedOrdinaryPassIsAHoleUntilAReconcileStarts() {
+        ChatPassLog log = new ChatPassLog(dir);
+        Instant now = Instant.now();
+        java.time.Duration reach = java.time.Duration.ofHours(12);
+
+        assertEquals(false, log.unbridgedSinceLastReconcile("alliance", reach, now));
+
+        log.read("alliance", false, 74, 30, true);
+        assertEquals(false, log.unbridgedSinceLastReconcile("alliance", reach, now),
+                "a pass that reached known history left no hole");
+
+        log.read("alliance", false, 74, 30, false);
+        assertTrue(log.unbridgedSinceLastReconcile("alliance", reach, now));
+        assertEquals(false, log.unbridgedSinceLastReconcile("world", reach, now),
+                "the other channel is unaffected");
+
+        log.photographed("alliance", true, 150);
+        assertEquals(false, log.unbridgedSinceLastReconcile("alliance", reach, now),
+                "a reconcile has looked at it since");
+    }
+
+    @Test
+    void anUnbridgedReconcileIsNotAHoleToReconcileAgain() {
+        // Otherwise a gap too old to reach would re-trigger a reconcile on every pass for ever.
+        ChatPassLog log = new ChatPassLog(dir);
+        log.read("alliance", true, 150, 40, false);
+
+        assertEquals(false, log.unbridgedSinceLastReconcile("alliance",
+                java.time.Duration.ofHours(12), Instant.now()));
+    }
+
+    @Test
+    void aHoleTooOldForAShortReconcileToReachIsIgnored() {
+        ChatPassLog log = new ChatPassLog(dir);
+        log.read("alliance", false, 74, 30, false);
+
+        assertEquals(false, log.unbridgedSinceLastReconcile("alliance",
+                java.time.Duration.ofHours(12), Instant.now().plus(java.time.Duration.ofHours(13))));
+    }
+
+    @Test
     void recordsWhetherAReconcileReachedHistoryItAlreadyHad() throws IOException {
         ChatPassLog log = new ChatPassLog(dir);
         log.read("alliance", true, 150, 40, false);

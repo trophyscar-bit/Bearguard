@@ -88,6 +88,58 @@ public final class ChatPassLog {
         return Optional.ofNullable(latest);
     }
 
+    /**
+     * Whether an ordinary pass of this channel left a hole that no reconcile has looked at since.
+     *
+     * <p>An ordinary pass that photographs its whole scroll and still finds messages it does not
+     * have has not reached the end of what was said: whatever lies between its oldest screen and
+     * the previous pass's newest message is missing, and the next ordinary pass starts from the
+     * newest again, so nothing else will ever go back for it. Five of these in ten days, all in
+     * Alliance, each waiting for the 1 AM catch-up or for nothing.
+     *
+     * <p>A pass whose frames were dropped unread counts the same: nothing of it was stored.
+     *
+     * @param within how recent the unbridged pass must be. Past this a five minute reconcile could
+     *               not reach back to it anyway, and re-walking for a hole that old only holds the
+     *               emulator for nothing.
+     */
+    public boolean unbridgedSinceLastReconcile(String channel, java.time.Duration within, Instant now) {
+        if (!Files.isRegularFile(file)) {
+            return false;
+        }
+        Instant unbridgedAt = null;
+        try {
+            for (String raw : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                JsonNode n;
+                try {
+                    n = MAPPER.readTree(raw);
+                } catch (Exception malformed) {
+                    continue;
+                }
+                if (n == null || !channel.equals(n.path("channel").asText())) {
+                    continue;
+                }
+                String mode = n.path("mode").asText();
+                String phase = n.path("phase").asText();
+                Instant at;
+                try {
+                    at = Instant.parse(n.path("at").asText());
+                } catch (Exception badTime) {
+                    continue;
+                }
+                if ("reconcile".equals(mode) && "photographed".equals(phase)) {
+                    unbridgedAt = null;
+                } else if ("normal".equals(mode) && "read".equals(phase)
+                        && !n.path("bridged").asBoolean(true)) {
+                    unbridgedAt = at;
+                }
+            }
+        } catch (IOException e) {
+            return false;
+        }
+        return unbridgedAt != null && !unbridgedAt.isBefore(now.minus(within));
+    }
+
     private static Instant reconcileAt(String raw, String channel) {
         try {
             JsonNode n = MAPPER.readTree(raw);

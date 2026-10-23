@@ -223,6 +223,9 @@ public class ChatCaptureRoutine extends DelayedTask {
     private static final int RECONCILE_DEDUPE_WINDOW = 30_000;
     private static final int RECONCILE_PRIME_DAYS = 4;
 
+    /** How recent an unbridged ordinary pass must be for a reconcile to be worth running for it. */
+    private static final Duration UNBRIDGED_REACH = Duration.ofHours(12);
+
     private boolean reconcileEnabled = true;
     private LocalTime reconcileTime = LocalTime.parse(DEFAULT_RECONCILE_TIME);
     private long reconcileBudgetMs = DEFAULT_RECONCILE_MINUTES * 60_000L;
@@ -563,7 +566,17 @@ public class ChatCaptureRoutine extends DelayedTask {
         }
         Optional<LocalDateTime> last = passLog.lastReconcileStart(channel)
                 .map(at -> LocalDateTime.ofInstant(at, ZoneId.systemDefault()));
-        return ChatReconcileSchedule.due(now, reconcileTime, last);
+        if (ChatReconcileSchedule.due(now, reconcileTime, last)) {
+            return true;
+        }
+        // Not only at night: an ordinary pass that could not reach what it already had left a hole
+        // nothing else will go back for, so the next pass fills it instead of waiting for 01:00.
+        boolean hole = passLog.unbridgedSinceLastReconcile(channel, UNBRIDGED_REACH, Instant.now());
+        if (hole) {
+            logInfo("ChatCaptureRoutine | " + channel + ": the last ordinary pass did not reach"
+                    + " messages it already had, so this pass is a reconcile.");
+        }
+        return hole;
     }
 
     /** A lost log line must not cost a pass; it is worth a warning and nothing more. */
@@ -819,6 +832,11 @@ public class ChatCaptureRoutine extends DelayedTask {
                     + (reconcile ? " This was a reconcile, so it is still owed and will run on the"
                     + " next pass." : ""));
             clear(shots.get(0).getParent());
+            if (!reconcile) {
+                // Nothing of this pass was stored, which is a hole like any other.
+                ChatPassLog dropped = passLog;
+                recordPass(() -> dropped.read(channel, false, 0, 0, false));
+            }
             return false;
         }
         PENDING_READS.incrementAndGet();
