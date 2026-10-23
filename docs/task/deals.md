@@ -113,12 +113,45 @@ become prices.
 
 ## End-of-list detection
 
-Timers and animation change every frame, so byte equality never holds. The task compares the
-content region below the countdowns (mean channel difference under 3). Tab-strip swipes move
-about one 198 px tab; 500 px swipes skipped labels between frames.
+Timers and animation change every frame, so byte equality never holds. A list ends when the
+content region below the countdowns stops moving (mean channel difference under 3), or when two
+swipes in a row add no offer this page has not already shown; artwork that animates never reads as
+still, and the old fixed 8-swipe cap cut four tabs off mid-list on 2026-10-22. 25 swipes is a safety
+ceiling only. Tab-strip swipes move about one 198 px tab; 500 px swipes skipped labels between frames.
+
+## Discovery, every run
+
+The layout changes from night to night: event shops appear and vanish, tabs reorder, packs come and
+go. Nothing is cached between runs. Each surface's tabs are found from the strip on screen and the
+strip is swiped to its end; city event icons are tried slot by slot and named by their own header; a
+page's variant controls (carousel arrows, Epic | Mythic toggles) are found on the page itself. What a
+run actually visited is in the nightly report's coverage[], so a tab that was missed reads as unvisited.
+
+## Reading numbers
+
+- Icons are matched at the tile size measured on the frame and at the fixed sizes together; each tile
+  keeps the best score. The Leap Pack tab draws tiles at 0.80, between the fixed sizes; the cards
+  page draws its daily rewards smaller than its other tiles.
+- A tile's count is read from a crop of its own band at several sizes and kept only when two reads
+  agree, or one crop read is uncontradicted. Every single read path produced a wrong value on a real
+  frame (2,000 read as 7000, 15 as 151, a clipped 4,800 as 77). No agreement leaves the tile unread.
+- Counts with K or M ("10K" gems) parse as thousands and millions; "2.400" is 2,400.
+- A card ("Login daily to obtain", "Valid: N day(s)") totals its grant plus daily rewards x days. If
+  any of its tiles is not confirmed, it gives no total: a partial total is wrong, not incomplete.
+- Prices on gold cards come from the printed white price, because the button and card merge.
+- The Get Gems tab has its own reader (white prices on blue cards, no orange button).
 
 ## Unsupported
 
 - Craftsman's Treasure grade tabs other than the one showing on open.
-- Unlabelled shortcut icons, and items missing from the icon library.
+- Items missing from the icon library: 100K Meat, 1K VIP XP, the blue snowflake chest and others.
 - A carousel on a page that also scrolls: only the visible part of the page is read.
+- The 1h speedup tile: at 0.80 it scores 78 against a 75 noise floor from the near-identical 5min
+  tile. Reading the tile's own label ("1 hr(s)", "5 min") would separate them.
+- Counts on purple Polishing Solution tiles: the white-text isolation keeps nothing there at any size.
+- The gem banner above some cards' tiles ("2,500" beside a diamond) is not read as gems.
+- The Fire Crystal Weekly Card's daily 6 does not reach agreement, so the card reports no total.
+- Two-column grids (Tundra Supply Station): the right card's window collapses; prices there can be
+  doubled by OCR ($4,939.99).
+- Paid tracks (Hero Rally's Path of Honor) have no dollar price on the page.
+- Shops never opened: Events hub, Mystery Shop, Nomadic Merchant, Alliance Shop, VIP.
