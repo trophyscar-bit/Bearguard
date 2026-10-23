@@ -862,7 +862,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         int swipes = 0;
         int stillSwipes = 0;
         Set<Integer> tappedHere = new HashSet<>();
-        Map<String, Map<String, Integer>> spellings = new LinkedHashMap<>();
         while (swipes < MAX_STRIP_SWIPES && surveyed < MAX_TABS_PER_PANEL) {
             // The strip is read again after every visit: tapping a tab near the edge scrolls the strip, and
             // positions from the earlier capture then point at other tabs.
@@ -874,11 +873,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 String label = tabLabel(strip, cell);
                 if (!label.isEmpty()) {
                     seen.add(tabKey(label));
-                    String cluster = spellings.keySet().stream()
-                            .filter(k -> DealCollection.sameTab(k, tabKey(label)))
-                            .findFirst()
-                            .orElse(tabKey(label));
-                    spellings.computeIfAbsent(cluster, k -> new LinkedHashMap<>()).merge(label, 1, Integer::sum);
+                    collection.noteTabSpelling(surface, label);
                 }
                 boolean done = TabStripCells.isSelected(image, cell)
                         || !label.isEmpty() && visited.contains(tabKey(label))
@@ -912,7 +907,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             }
         }
         seen.remove("");
-        renameTabs(surface, spellings);
         Set<String> missed = new LinkedHashSet<>();
         for (String tab : seen) {
             if (visited.stream().noneMatch(v -> DealCollection.sameTab(v, tab))) {
@@ -935,36 +929,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             problems.add(surface + ": no other tabs were found; only the opening tab was surveyed.");
         }
     }
-
-    /**
-     * Gives each tab the spelling read most often. A tab is read on every strip capture that shows it, and
-     * artwork beside the label adds stray letters to some reads: "Yas Tech Research", "Enhanca Gear" and "Ice
-     * raveller" named tabs on 2026-10-23 that other captures of the same strip read cleanly.
-     */
-    private void renameTabs(String surface, Map<String, Map<String, Integer>> spellings) {
-        for (Map.Entry<String, DealOffer> entry : List.copyOf(offers.entrySet())) {
-            DealOffer offer = entry.getValue();
-            if (!surface.equals(offer.surface()) || offer.tab() == null) {
-                continue;
-            }
-            Matcher tier = TIER_SUFFIX.matcher(offer.tab());
-            String base = tier.find() ? offer.tab().substring(0, tier.start()).trim() : offer.tab();
-            Optional<String> best = spellings.entrySet().stream()
-                    .filter(e -> DealCollection.sameTab(e.getKey(), tabKey(base)))
-                    .findFirst()
-                    .flatMap(e -> e.getValue().entrySet().stream()
-                            .max(Map.Entry.<String, Integer>comparingByValue()
-                                    .thenComparing(spelling -> spelling.getKey().length()))
-                            .map(Map.Entry::getKey));
-            if (best.isPresent() && !best.get().equals(base)) {
-                String renamed = best.get() + (offer.tab().equals(base) ? "" : offer.tab().substring(base.length()));
-                offers.put(entry.getKey(), new DealOffer(offer.surface(), renamed, offer.title(), offer.priceUsd(),
-                        offer.priceText(), offer.remaining(), offer.purchased(), offer.items(), offer.frame(),
-                        offer.limitPeriod(), offer.limitCount(), offer.timeLeft(), offer.card()));
-            }
-        }
-    }
-
 
     /**
      * Swipes and reports whether the region moved. The game drops a swipe now and then: on 2026-10-23 the

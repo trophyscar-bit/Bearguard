@@ -27,9 +27,11 @@ public final class DealCollection {
     private final List<String> problems = new ArrayList<>();
     private final List<String> shops = new ArrayList<>();
     private final Set<String> pickShops = new HashSet<>();
+    private final Map<String, List<String>> tabSpellings = new LinkedHashMap<>();
     /** Seven letters in common at least: "custom" alone would make Custom Pet Chest the Armament shop. */
     private static final int SAME_TAB_MIN_RUN = 7;
-    private static final int SAME_SHOP_PREFIX = 10;
+    /** Shorter reads than this are too little to judge by; they only match exactly. */
+    private static final int SAME_NAME_MIN_LETTERS = 8;
 
     public Map<String, DealOffer> offers() {
         return offers;
@@ -74,17 +76,14 @@ public final class DealCollection {
         }
         foldFallbackTitles();
         foldNoisyTitles();
+        nameTabs();
     }
 
     /** The shop a pick-your-own tier was read in; one shop whose name OCR spells two ways is one shop. */
     private String shop(DealOffer offer) {
         String key = offer.tab() == null ? "" : offer.tab().replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
-        // Not by a shared run of letters: "custompetchest" and "customarmamentchest" share "custom" but are two
-        // shops. The header's start reads reliably and its end is crossed by artwork ("Custom Armameng", "Custom
-        // Armament Ch _ wer;"), so a long common start is one shop, and so is a close spelling throughout.
         for (String known : shops) {
-            if (commonPrefix(known, key) >= SAME_SHOP_PREFIX
-                    || editDistance(known, key) * 4 <= Math.max(known.length(), key.length())) {
+            if (sameName(known, key)) {
                 return known;
             }
         }
@@ -92,12 +91,89 @@ public final class DealCollection {
         return key;
     }
 
-    private static int commonPrefix(String a, String b) {
-        int n = 0;
-        while (n < a.length() && n < b.length() && a.charAt(n) == b.charAt(n)) {
-            n++;
+    /**
+     * Two reads of one name, as letters only. Not by a shared run of letters: "custompetchest" and
+     * "customarmamentchest" share "custom" but are two shops. A name's start reads reliably while artwork
+     * crosses its end ("Custom Armameng", "Custom Armament Ch _ wer;"), so the shorter read is compared with the
+     * longer one's start: close throughout it is one name. "firecrystalenergy" against "firecrystalleappack"
+     * stays two.
+     */
+    static boolean sameName(String a, String b) {
+        String shorter = a.length() <= b.length() ? a : b;
+        String longer = shorter == a ? b : a;
+        if (shorter.length() < SAME_NAME_MIN_LETTERS) {
+            return shorter.equals(longer);
         }
-        return n;
+        return editDistance(shorter, longer.substring(0, shorter.length())) * 4 <= shorter.length();
+    }
+
+    /** Every spelling a tab's label was read with this run, from the strip and the page header. */
+    public void noteTabSpelling(String surface, String spelling) {
+        if (spelling != null && !spelling.isBlank()) {
+            tabSpellings.computeIfAbsent(surface, k -> new ArrayList<>()).add(spelling);
+        }
+    }
+
+    /**
+     * Names each tab by a letter-by-letter vote across every read of it. The smallest strip labels never read
+     * whole on any one capture of 2026-10-23 ("Sustom Armanient Chest", "Custom Armamentj Chest", "Custom
+     * Armameng"), but each letter was read right more often than wrong.
+     */
+    void nameTabs() {
+        // Strip labels are whole names; a page header is cut short by its artwork ("Custom Armameng") and would
+        // vote "Chest" away. Headers only name a tab no strip read covers.
+        Map<String, List<String>> spellings = new LinkedHashMap<>();
+        tabSpellings.forEach((surface, list) -> spellings.computeIfAbsent(surface, k -> new ArrayList<>()).addAll(list));
+        offers.values().forEach(o -> {
+            if (o.tab() == null || o.tab().isBlank()) {
+                return;
+            }
+            List<String> known = spellings.computeIfAbsent(o.surface(), k -> new ArrayList<>());
+            String base = baseTab(o.tab());
+            if (known.stream().noneMatch(k -> sameName(letters(k), letters(base)))) {
+                known.add(base);
+            }
+        });
+        for (Map.Entry<String, List<String>> surface : spellings.entrySet()) {
+            List<List<String>> groups = new ArrayList<>();
+            for (String spelling : surface.getValue()) {
+                String letters = letters(spelling);
+                if (letters.isEmpty()) {
+                    continue;
+                }
+                groups.stream().filter(g -> sameName(letters(g.get(0)), letters)).findFirst()
+                        .orElseGet(() -> {
+                            List<String> group = new ArrayList<>();
+                            groups.add(group);
+                            return group;
+                        })
+                        .add(spelling);
+            }
+            for (List<String> group : groups) {
+                String name = TabNameConsensus.of(group);
+                for (Map.Entry<String, DealOffer> entry : List.copyOf(offers.entrySet())) {
+                    DealOffer offer = entry.getValue();
+                    if (!surface.getKey().equals(offer.surface()) || offer.tab() == null
+                            || !sameName(letters(group.get(0)), letters(baseTab(offer.tab())))) {
+                        continue;
+                    }
+                    String tier = offer.tab().substring(baseTab(offer.tab()).length());
+                    offers.put(entry.getKey(), new DealOffer(offer.surface(), name + tier, offer.title(),
+                            offer.priceUsd(), offer.priceText(), offer.remaining(), offer.purchased(), offer.items(),
+                            offer.frame(), offer.limitPeriod(), offer.limitCount(), offer.timeLeft(), offer.card()));
+                }
+            }
+        }
+    }
+
+    /** A tab name without a toggle tier after it: "Intel Monthly Card (Mythic)" is "Intel Monthly Card". */
+    private static String baseTab(String tab) {
+        int tier = tab.lastIndexOf(" (");
+        return tier > 0 && tab.endsWith(")") ? tab.substring(0, tier) : tab;
+    }
+
+    private static String letters(String text) {
+        return text.replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
     }
 
     static int editDistance(String a, String b) {
