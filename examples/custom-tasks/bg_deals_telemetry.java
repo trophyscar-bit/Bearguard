@@ -1003,7 +1003,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             DealOffer kept = new DealOffer(offer.surface(), tabName, title == null ? offer.title() : title,
                     offer.priceUsd(), offer.priceText(), offer.remaining(), offer.purchased(), offer.items(),
                     offer.frame(), offer.limitPeriod(), offer.limitCount(), offer.timeLeft(), offer.card());
-            offers.merge(kept.packKey() + "|" + kept.priceText(), kept, bg_deals_telemetry::mergeReads);
+            offers.merge(kept.packKey() + "|" + kept.priceText(), kept, this::mergeReads);
         }
     }
 
@@ -1132,10 +1132,29 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     }
 
     /** Two reads of the same pack: keep every item, and the larger quantity when they disagree. */
-    private static DealOffer mergeReads(DealOffer first, DealOffer second) {
+    /**
+     * One offer from reads of it on several frames: as its rows are swiped, scrolled or carouselled. Items
+     * keep the order they were first seen in, which is card order.
+     */
+    private DealOffer mergeReads(DealOffer first, DealOffer second) {
         Map<String, DealItem> items = new LinkedHashMap<>();
-        Stream.concat(first.items().stream(), second.items().stream())
-                .forEach(item -> items.merge(item.key(), item, (a, b) -> a.quantity() >= b.quantity() ? a : b));
+        Set<String> conflicting = new HashSet<>();
+        for (DealItem item : Stream.concat(first.items().stream(), second.items().stream()).toList()) {
+            DealItem earlier = items.get(item.key());
+            if (earlier == null) {
+                items.put(item.key(), item);
+            } else if (earlier.quantity() != item.quantity()) {
+                Optional<DealItem> whole = wholerRead(earlier, item);
+                if (whole.isPresent()) {
+                    items.put(item.key(), whole.get());
+                } else if (conflicting.add(item.key())) {
+                    problems.add(first.surface() + " / " + first.tab() + " / " + first.title() + ": " + item.key()
+                            + " read as " + earlier.quantity() + " and " + item.quantity()
+                            + " on different frames; left out.");
+                }
+            }
+        }
+        conflicting.forEach(items::remove);
         return new DealOffer(first.surface(), first.tab(), first.title(),
                 first.priceUsd() != null ? first.priceUsd() : second.priceUsd(), first.priceText(),
                 first.remaining() != null ? first.remaining() : second.remaining(),
@@ -1144,6 +1163,23 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 first.limitCount() != null ? first.limitCount() : second.limitCount(),
                 first.timeLeft() != null ? first.timeLeft() : second.timeLeft(),
                 first.card() != null ? first.card() : second.card());
+    }
+
+    /**
+     * Of two different reads of one tile, the one a cut-off tile could not have produced. A tile cut by its
+     * row's edge loses its last digits, so a read that is the other's leading digits is the cut one: 24 of
+     * 240. Any other disagreement means one read is wrong, and neither is kept.
+     */
+    static Optional<DealItem> wholerRead(DealItem a, DealItem b) {
+        String digitsA = Long.toString(a.quantity());
+        String digitsB = Long.toString(b.quantity());
+        if (digitsB.length() > digitsA.length() && digitsB.startsWith(digitsA)) {
+            return Optional.of(b);
+        }
+        if (digitsA.length() > digitsB.length() && digitsA.startsWith(digitsB)) {
+            return Optional.of(a);
+        }
+        return Optional.empty();
     }
 
     // ── navigation ──────────────────────────────────────────────────
