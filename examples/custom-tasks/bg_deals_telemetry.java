@@ -1204,9 +1204,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         DealFrameReader.Page page = reader.read(frame, surface, tab == null ? "" : tab, file, tabbed);
         String tabName = tabName(tab, page);
         if (page.chooseYourOwn() && chooseYourOwnTabs.add(surface + "|" + tabName)) {
-            // The pick slots glow on and off, so earlier frames of this tab may not have been flagged.
-            offers.values().removeIf(o -> o.surface().equals(surface) && Objects.equals(o.tab(), tabName));
-            logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " holds choose-your-own packs; left out.");
+            problems.add(surface + " / " + tabName + ": pick-your-own slots; the choices in them are not read.");
         }
         problems.addAll(page.problems());
         logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " (" + file + "): " + page.offers().size()
@@ -1216,9 +1214,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     /** @param title replaces the title the reader gave each offer, or {@code null} to keep it */
     private void collect(String surface, String tabName, List<DealOffer> read, String title) {
-        if (chooseYourOwnTabs.contains(surface + "|" + tabName)) {
-            return;
-        }
         for (DealOffer offer : read) {
             DealOffer kept = new DealOffer(offer.surface(), tabName, title == null ? offer.title() : title,
                     offer.priceUsd(), offer.priceText(), offer.remaining(), offer.purchased(), offer.items(),

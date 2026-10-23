@@ -69,8 +69,8 @@ public final class DealFrameReader {
     /**
      * @param clippedTileRowY centre y of a single-card tile row whose last tile runs into the card
      *                        edge, meaning more tiles are hidden to the right; {@code null} otherwise
-     * @param chooseYourOwn   the frame shows a choose-your-own page; it yields no offers, and callers
-     *                        should drop what they already collected from the same tab
+     * @param chooseYourOwn   the frame shows pick-your-own packs; each tier is an offer with its fixed items,
+     *                        and its "+" slots hold choices that are not read from this frame
      * @param cardRowYs       centre y of each tile row on a page of several cards that leaves room before
      *                        its card's button for a tile hidden off the row's end; swiping it sideways
      *                        may show more items
@@ -104,10 +104,11 @@ public final class DealFrameReader {
     private static final int CARD_TITLE_MAX_ABOVE_BUTTON = 230;
     /** A card title stands within this of the "Buy to get:" line under it. */
     private static final int TITLE_ABOVE_TERMS = 60;
-    /** A card's title strip, left of its artwork: read on its own when the page-wide pass misses the title. */
+    /** A card's title strip, read on its own when the page-wide pass misses the title; tier titles are centred. */
     private static final int CARD_TITLE_CROP_LEFT = 30;
-    private static final int CARD_TITLE_CROP_RIGHT = 460;
-    private static final int CARD_TITLE_CROP_HEIGHT = 140;
+    private static final int CARD_TITLE_CROP_RIGHT = 690;
+    /** From the card above's button to this title: about 150 px on the Custom Chest tiers. */
+    private static final int CARD_TITLE_CROP_HEIGHT = 200;
     /** The HOT ribbon: saturated red-orange; a 4 px margin takes its white outline with it. */
     private static final float RIBBON_MAX_HUE = 12f / 180f;
     private static final float RIBBON_MIN_WRAPPED_HUE = 170f / 180f;
@@ -155,6 +156,9 @@ public final class DealFrameReader {
     private static final float PURE_WHITE_SATURATION = 35f / 255f;
     /** How far right of a grant icon its "xN" count may print. */
     private static final int SIDE_COUNT_REACH = 160;
+    /** A grant's "x2,500" stands about 21 px tall beside its tile; magnified into the glyph reader's range. */
+    private static final int GRANT_COUNT_HALF_HEIGHT = 25;
+    private static final double GRANT_COUNT_MAGNIFICATION = 2.0;
     /** How far under a loose item its "x15" may print. */
     private static final int COUNT_BELOW_REACH = 40;
     /** A printed price within this of a detected button is that button's own label or its struck-out price. */
@@ -197,6 +201,7 @@ public final class DealFrameReader {
      * 82-100 on the 2026-10-22 frames and gem tiles up to 81 -- so it only confirms a large number beside it.
      */
     private static final byte[] BANNER_DIAMOND = load("/deals/gem-banner-diamond.png");
+    private static final byte[] BANNER_DIAMOND_SMALL = load("/deals/gem-banner-diamond-small.png");
     private static final double BANNER_DIAMOND_MIN_SCORE = 80.0;
     /** Lines of one wrapped title: letters within this ratio in width, starting at the same margin. */
     private static final double TITLE_TYPE_RATIO = 1.35;
@@ -211,6 +216,7 @@ public final class DealFrameReader {
     /** How far from the diamond the banner number may run, and the half-height of its row. */
     private static final int BANNER_NUMBER_REACH = 220;
     private static final int BANNER_ROW_HALF_HEIGHT = 30;
+    private static final double[] BANNER_MAGNIFICATIONS = {1.0, 1.35};
     private static final ExecutorService OCR_PASSES = Executors.newFixedThreadPool(3, runnable -> {
         Thread thread = new Thread(runnable, "deal-page-ocr");
         thread.setDaemon(true);
@@ -310,9 +316,9 @@ public final class DealFrameReader {
             pageTitleLine = pageTitle(text.plainLines(), tabbed);
         }
         String pageTitle = pageTitleLine == null ? tab : cleanTitle(pageTitleLine.text());
-        if (isChooseYourOwn(capture, FRAME_TOP_LEFT.getY(), FRAME_BOTTOM_RIGHT.getY(), 0)) {
-            return new Page(pageTitle, List.of(), problems, null, true, List.of());
-        }
+        // A pick-your-own tier is still a pack with a price: each tier is read with its fixed items, and the
+        // flag tells the scan its "+" slots hold choices of their own.
+        boolean chooseYourOwn = isChooseYourOwn(capture, FRAME_TOP_LEFT.getY(), FRAME_BOTTOM_RIGHT.getY(), 0);
         List<TextLine> allLines = Stream.concat(text.plainLines().stream(), text.whiteLines().stream()).toList();
         String pageLimit = pageLimit(allLines, buttons);
         List<DealOffer> offers = new ArrayList<>();
@@ -339,7 +345,11 @@ public final class DealFrameReader {
             } else {
                 TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button);
                 if (cardTitle == null) {
-                    cardTitle = croppedCardTitle(image, Math.max(titleTop, TAB_STRIP_BOTTOM), button).orElse(null);
+                    // The page's own header is not a card's title: on a scrolled Custom Chest page the first card's
+                    // title is under the sticky header, and the crop finds the header's "Custom Pet Chest".
+                    cardTitle = croppedCardTitle(image, Math.max(titleTop, TAB_STRIP_BOTTOM), button)
+                            .filter(l -> !cleanTitle(l.text()).equalsIgnoreCase(pageTitle))
+                            .orElse(null);
                 }
                 title = cardTitle != null ? cleanTitle(cardTitle.text())
                         : (tab == null || tab.isBlank() ? pageTitle : tab)
@@ -411,7 +421,7 @@ public final class DealFrameReader {
         if (buttons.isEmpty()) {
             unpricedOffer(text, pageTitleLine, surface, tab, pageTitle, frame).ifPresent(offers::add);
         }
-        return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null, false,
+        return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null, chooseYourOwn,
                 cardRowYs);
     }
 
@@ -534,9 +544,14 @@ public final class DealFrameReader {
      * read it as 2900; an uncertain banner is left out.
      */
     private static Optional<DealItem> bannerBesideDiamond(Text text, int top, int bottom) {
-        ImageSearchResultData diamond = OpenCvPatternLocator.matchFromRawTemplate(text.capture(), BANNER_DIAMOND,
-                new PointData(0, top), new PointData(FRAME_BOTTOM_RIGHT.getX(), bottom), BANNER_DIAMOND_MIN_SCORE);
-        if (!diamond.isFound()) {
+        // Hero Gear Mastery's pop-up draws its diamond smaller: 80 at 0.9 scale against 70 at full size.
+        ImageSearchResultData diamond = Stream.of(BANNER_DIAMOND, BANNER_DIAMOND_SMALL)
+                .map(template -> OpenCvPatternLocator.matchFromRawTemplate(text.capture(), template,
+                        new PointData(0, top), new PointData(FRAME_BOTTOM_RIGHT.getX(), bottom), BANNER_DIAMOND_MIN_SCORE))
+                .filter(ImageSearchResultData::isFound)
+                .max(Comparator.comparingDouble(ImageSearchResultData::getMatchScore))
+                .orElse(null);
+        if (diamond == null) {
             return Optional.empty();
         }
         BufferedImage image = ImageConverter.toBufferedImage(text.capture());
@@ -544,10 +559,14 @@ public final class DealFrameReader {
         int rowTop = diamond.getY() - BANNER_ROW_HALF_HEIGHT;
         for (int[] span : List.of(new int[] {diamond.getX() - half - BANNER_NUMBER_REACH, diamond.getX() - half},
                 new int[] {diamond.getX() + half, diamond.getX() + half + BANNER_NUMBER_REACH})) {
-            Optional<Long> gems = TileCountReader.readRegion(image, span[0], rowTop, span[1] - span[0],
-                    2 * BANNER_ROW_HALF_HEIGHT, 1).map(DealFrameReader::parseQuantity);
-            if (gems.isPresent()) {
-                return Optional.of(new DealItem(DealPriceTracker.GEMS, gems.get(), "banner"));
+            // Event-page banners print their digits about 40 px tall, Regular Pack cards about 31; the glyph
+            // reader takes 36-52, so the smaller is read magnified.
+            for (double magnification : BANNER_MAGNIFICATIONS) {
+                Optional<Long> gems = TileCountReader.readRegion(image, span[0], rowTop, span[1] - span[0],
+                        2 * BANNER_ROW_HALF_HEIGHT, magnification).map(DealFrameReader::parseQuantity);
+                if (gems.isPresent()) {
+                    return Optional.of(new DealItem(DealPriceTracker.GEMS, gems.get(), "banner"));
+                }
             }
         }
         return Optional.empty();
@@ -673,17 +692,63 @@ public final class DealFrameReader {
         RawImageData crop = WhiteTextIsolator.isolate(withoutRibbon(image.getSubimage(CARD_TITLE_CROP_LEFT, top,
                 CARD_TITLE_CROP_RIGHT - CARD_TITLE_CROP_LEFT, bottom - top)), 0, 0,
                 CARD_TITLE_CROP_RIGHT - CARD_TITLE_CROP_LEFT, bottom - top, 8);
+        List<TextLine> words;
+        List<TextLine> lines;
         try {
-            return OcrEngine.recognizeLines(crop, new PointData(0, 0), new PointData(crop.getWidth(), crop.getHeight()),
-                            CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS).stream()
-                    .filter(l -> isTitleText(cleanTitle(l.text())))
-                    .filter(l -> !LOGIN_DAILY.matcher(l.text()).find() && !BUY_TO_GET.matcher(l.text()).find())
-                    .max(Comparator.comparingInt(TextLine::height))
-                    .map(l -> new TextLine(l.text(), l.left() + CARD_TITLE_CROP_LEFT - 8, l.top() + top - 8,
-                            l.width(), l.height(), l.confidence()));
+            words = OcrEngine.recognizeWords(crop, new PointData(0, 0), new PointData(crop.getWidth(), crop.getHeight()),
+                    CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
+            lines = OcrEngine.recognizeLines(crop, new PointData(0, 0), new PointData(crop.getWidth(), crop.getHeight()),
+                    CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
         } catch (OcrException unreadable) {
             return Optional.empty();
         }
+        Optional<TextLine> fromWords = titleRun(words);
+        Optional<TextLine> found = fromWords.isPresent() ? fromWords : lines.stream()
+                .filter(l -> isTitleText(cleanTitle(l.text())))
+                .filter(l -> !LOGIN_DAILY.matcher(l.text()).find() && !BUY_TO_GET.matcher(l.text()).find())
+                .max(Comparator.comparingInt(TextLine::height));
+        return found.map(l -> new TextLine(l.text(), l.left() + CARD_TITLE_CROP_LEFT - 8, l.top() + top - 8,
+                l.width(), l.height(), l.confidence()));
+    }
+
+    /** The run of words in a crop's largest type, as one line. */
+    private static Optional<TextLine> titleRun(List<TextLine> words) {
+        // The title is the run of words in the largest type: a "Best Deals" ribbon beside a centred tier title
+        // read as "a a wel" on the same line, in smaller type and set apart.
+        Optional<TextLine> anchor = words.stream()
+                .filter(w -> w.text().chars().filter(Character::isLetter).count() >= 3)
+                .max(Comparator.comparingInt(TextLine::height));
+        if (anchor.isEmpty()) {
+            return Optional.empty();
+        }
+        TextLine tallest = anchor.get();
+        List<TextLine> row = words.stream()
+                .filter(w -> Math.abs(centreY(w) - centreY(tallest)) <= tallest.height() / 2
+                        && w.height() * 10 >= tallest.height() * 7)
+                .sorted(Comparator.comparingInt(TextLine::left))
+                .toList();
+        int at = row.indexOf(tallest);
+        int first = at;
+        int last = at;
+        // Words of a title stand about a third of their height apart; a ribbon's text beside it, further.
+        int maxGap = tallest.height() * 6 / 10;
+        while (first > 0 && row.get(first).left() - (row.get(first - 1).left() + row.get(first - 1).width())
+                <= maxGap) {
+            first--;
+        }
+        while (last + 1 < row.size() && row.get(last + 1).left() - (row.get(last).left() + row.get(last).width())
+                <= maxGap) {
+            last++;
+        }
+        List<TextLine> title = row.subList(first, last + 1);
+        String text = title.stream().map(TextLine::text).collect(Collectors.joining(" "));
+        if (!isTitleText(cleanTitle(text)) || LOGIN_DAILY.matcher(text).find() || BUY_TO_GET.matcher(text).find()) {
+            return Optional.empty();
+        }
+        TextLine start = title.get(0);
+        TextLine end = title.get(title.size() - 1);
+        return Optional.of(new TextLine(text, start.left(), start.top(), end.left() + end.width() - start.left(),
+                tallest.height(), tallest.confidence()));
     }
 
     /**
@@ -907,7 +972,20 @@ public final class DealFrameReader {
                 .findFirst()
                 .orElse(cardTop);
         int matchedBefore = tiles.size();
-        List<DealItem> grantRead = iconItems(text, grantTop, daily.top(), tiles);
+        int grantFirst = tiles.size();
+        List<DealItem> grantRead = new ArrayList<>(iconItems(text, grantTop, daily.top(), tiles));
+        // A grant prints its count beside the tile as "x2,500"; OCR has dropped the "x" (Speedup Weekly Card,
+        // 2026-10-23) and the read was lost. The number is read glyph by glyph beside each unread grant tile.
+        BufferedImage image = ImageConverter.toBufferedImage(text.capture());
+        for (DealItemLibrary.Match grant : List.copyOf(tiles.subList(grantFirst, tiles.size()))) {
+            if (grantRead.stream().noneMatch(item -> item.key().equals(grant.key()))) {
+                int centre = grant.y() + grant.height() / 2;
+                TileCountReader.readPrefixedRegion(image, grant.x() + grant.width(), centre - GRANT_COUNT_HALF_HEIGHT,
+                                SIDE_COUNT_REACH, 2 * GRANT_COUNT_HALF_HEIGHT, GRANT_COUNT_MAGNIFICATION)
+                        .map(DealFrameReader::parseQuantity)
+                        .ifPresent(count -> grantRead.add(new DealItem(grant.key(), count, "icon")));
+            }
+        }
         List<DealItem> dailyRead = iconItems(text, daily.bottom(), button.y(), tiles);
         int matched = tiles.size() - matchedBefore;
         if (grantRead.size() + dailyRead.size() < matched) {
@@ -1280,7 +1358,20 @@ public final class DealFrameReader {
             if (line.top() < top || line.bottom() > bottom) {
                 continue;
             }
-            Matcher row = LISTED_ROW.matcher(clean(line.text()));
+            // A list row's name and its "x24" can come back as two lines: the name in the plain pass, the
+            // count in the white one (Hero Gear Mastery's "Essence Stones ... x24").
+            String rowText = clean(line.text());
+            if (!LISTED_ROW.matcher(rowText).matches()) {
+                Optional<TextLine> count = lines.stream()
+                        .filter(other -> other.left() > line.left() + line.width()
+                                && Math.abs(centreY(other) - centreY(line)) <= SAME_ROW_TOLERANCE
+                                && SIDE_COUNT.matcher(clean(other.text()).replace(" ", "")).matches())
+                        .findFirst();
+                if (count.isPresent()) {
+                    rowText = rowText + " " + clean(count.get().text()).replace(" ", "");
+                }
+            }
+            Matcher row = LISTED_ROW.matcher(rowText);
             if (row.matches()) {
                 Long quantity = parseQuantity(row.group(2));
                 String name = itemName(row.group(1));

@@ -55,13 +55,17 @@ class DealFrameReaderTest {
     }
 
     @Test
-    void leavesOutChooseYourOwnCustomChestCards() throws Exception {
+    void recordsEveryTierOfAChooseYourOwnPage() throws Exception {
         for (String frame : List.of("gem-shop-custom-chest-top.png", "gem-shop-custom-chest-middle.png",
                 "gem-shop-custom-chest-scrolled-live.png")) {
             DealFrameReader.Page page = read(frame, "Mix & Match");
 
             assertTrue(page.chooseYourOwn(), frame);
-            assertTrue(page.offers().isEmpty(), frame + " -> " + page.offers());
+            assertFalse(page.offers().isEmpty(), frame);
+            // A tier whose title is under the sticky header is named after its tab and price, never the header.
+            assertTrue(page.offers().stream().allMatch(o -> o.priceUsd() != null
+                    && (o.title().matches("(Shining|Brilliant|Dazzling|Exquisite|Majestic) Custom Chest.*")
+                            || o.title().startsWith("Mix & Match - $"))), frame + " -> " + page.offers());
         }
     }
 
@@ -80,9 +84,9 @@ class DealFrameReaderTest {
         assertFalse(page.chooseYourOwn());
         assertEquals(3, page.offers().size(), page.offers().toString());
         page.offers().forEach(o -> assertEquals(4.99, o.priceUsd(), 1e-9));
-        // Molly's Blessing sits on a gradient banner the white mask does not separate, so its title falls
-        // back to the page title plus price rather than borrowing the tab strip or a neighbour's banner.
-        assertEquals("Regular Pack - $4.99", page.offers().get(0).title());
+        // Molly's Blessing is missed by the page-wide pass on its gradient banner; it is read from the card's
+        // own title strip.
+        assertEquals("Molly's Blessing", page.offers().get(0).title());
         assertEquals("lifetime", page.offers().get(0).limitPeriod());
         assertTrue(page.offers().get(1).title().startsWith("Charm Design Pack"), page.offers().get(1).title());
         assertNull(page.offers().get(1).limitPeriod());
