@@ -41,6 +41,9 @@ class ScanReplayTest {
             int slash = cells[1].indexOf(" / ");
             String surface = slash < 0 ? cells[1] : cells[1].substring(0, slash);
             String tab = slash < 0 ? null : cells[1].substring(slash + 3);
+            if (tab != null) {
+                collection.noteTabSpelling(surface, tab);
+            }
             BufferedImage image = ImageIO.read(new File(framesDir, frame));
             // A city icon that opened a pop-up without tabs is logged with the surface as its tab.
             boolean tabbed = !surface.equals(tab);
@@ -54,6 +57,8 @@ class ScanReplayTest {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("surface", offer.surface());
             row.put("tab", offer.tab());
+            row.put("where", offer.tab() == null || offer.tab().isBlank() ? offer.surface()
+                    : offer.surface() + " > " + offer.tab());
             row.put("title", offer.title());
             row.put("priceUsd", offer.priceUsd());
             row.put("items", offer.items().stream().map(i -> Map.of("key", i.key(), "quantity", i.quantity())).toList());
