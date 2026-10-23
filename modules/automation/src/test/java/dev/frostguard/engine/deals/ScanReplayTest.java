@@ -48,8 +48,7 @@ class ScanReplayTest {
             collection.problems().addAll(page.problems());
             page.offers().forEach(offer -> collection.add(offer, page.chooseYourOwn()));
         }
-        collection.foldFallbackTitles();
-        collection.foldNoisyTitles();
+        collection.settle();
         List<Map<String, Object>> rows = new ArrayList<>();
         for (DealOffer offer : collection.offers().values()) {
             Map<String, Object> row = new LinkedHashMap<>();

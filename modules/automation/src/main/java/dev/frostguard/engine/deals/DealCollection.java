@@ -26,7 +26,10 @@ public final class DealCollection {
     private final Map<String, DealOffer> offers = new LinkedHashMap<>();
     private final List<String> problems = new ArrayList<>();
     private final List<String> shops = new ArrayList<>();
-    private static final int SAME_TAB_MIN_RUN = 6;
+    private final Set<String> pickShops = new HashSet<>();
+    /** Seven letters in common at least: "custom" alone would make Custom Pet Chest the Armament shop. */
+    private static final int SAME_TAB_MIN_RUN = 7;
+    private static final int SAME_SHOP_PREFIX = 10;
 
     public Map<String, DealOffer> offers() {
         return offers;
@@ -45,20 +48,75 @@ public final class DealCollection {
      *                is kept apart per shop; any other pack seen in two tabs is the same pack read twice
      */
     public void add(DealOffer offer, boolean perShop) {
-        String key = offer.packKey() + "|" + (perShop ? shop(offer) : "") + "|" + priceKey(offer);
-        offers.merge(key, offer, this::mergeReads);
+        if (perShop) {
+            pickShops.add(shop(offer));
+        }
+        offers.merge(key(offer, perShop), offer, this::mergeReads);
+    }
+
+    private String key(DealOffer offer, boolean perShop) {
+        return offer.packKey() + "|" + (perShop ? shop(offer) : "") + "|" + priceKey(offer);
+    }
+
+    /**
+     * Puts the collected reads in their final rows: every tier of a pick-your-own shop is kept per shop, then
+     * fallback and noisy titles join their pack. A pick-your-own page is known by its pulsing "+" slots, so
+     * some of its frames are not recognised as one; once any frame of a shop was, all its tiers are its own.
+     */
+    public void settle() {
+        for (Map.Entry<String, DealOffer> entry : List.copyOf(offers.entrySet())) {
+            DealOffer offer = entry.getValue();
+            String perShop = key(offer, true);
+            if (!entry.getKey().equals(perShop) && pickShops.contains(shop(offer))) {
+                offers.remove(entry.getKey());
+                offers.merge(perShop, offer, this::mergeReads);
+            }
+        }
+        foldFallbackTitles();
+        foldNoisyTitles();
     }
 
     /** The shop a pick-your-own tier was read in; one shop whose name OCR spells two ways is one shop. */
     private String shop(DealOffer offer) {
         String key = offer.tab() == null ? "" : offer.tab().replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
+        // Not by a shared run of letters: "custompetchest" and "customarmamentchest" share "custom" but are two
+        // shops. The header's start reads reliably and its end is crossed by artwork ("Custom Armameng", "Custom
+        // Armament Ch _ wer;"), so a long common start is one shop, and so is a close spelling throughout.
         for (String known : shops) {
-            if (sameTab(known, key)) {
+            if (commonPrefix(known, key) >= SAME_SHOP_PREFIX
+                    || editDistance(known, key) * 4 <= Math.max(known.length(), key.length())) {
                 return known;
             }
         }
         shops.add(key);
         return key;
+    }
+
+    private static int commonPrefix(String a, String b) {
+        int n = 0;
+        while (n < a.length() && n < b.length() && a.charAt(n) == b.charAt(n)) {
+            n++;
+        }
+        return n;
+    }
+
+    static int editDistance(String a, String b) {
+        int[] previous = new int[b.length() + 1];
+        int[] current = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) {
+            previous[j] = j;
+        }
+        for (int i = 1; i <= a.length(); i++) {
+            current[0] = i;
+            for (int j = 1; j <= b.length(); j++) {
+                int substitute = previous[j - 1] + (a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1);
+                current[j] = Math.min(substitute, Math.min(previous[j], current[j - 1]) + 1);
+            }
+            int[] swap = previous;
+            previous = current;
+            current = swap;
+        }
+        return previous[b.length()];
     }
 
     public static boolean sameTab(String a, String b) {
@@ -140,7 +198,7 @@ public final class DealCollection {
      * Pack - $99.99"). Where exactly one titled pack in that tab has that price, both reads are that pack;
      * on 2026-10-23 Leap Pack 5 appeared three times this way.
      */
-    public void foldFallbackTitles() {
+    void foldFallbackTitles() {
         for (Map.Entry<String, DealOffer> fallback : List.copyOf(offers.entrySet())) {
             DealOffer offer = fallback.getValue();
             if (!isFallbackTitle(offer)) {
@@ -163,7 +221,7 @@ public final class DealCollection {
      * A title read with OCR noise after it ("Exquisite Custom Chest qu ustom Che Goo") is the pack whose title
      * it begins with, in the same tab at the same price, when exactly one such pack exists.
      */
-    public void foldNoisyTitles() {
+    void foldNoisyTitles() {
         for (Map.Entry<String, DealOffer> noisy : List.copyOf(offers.entrySet())) {
             DealOffer offer = noisy.getValue();
             if (!offers.containsKey(noisy.getKey())) {

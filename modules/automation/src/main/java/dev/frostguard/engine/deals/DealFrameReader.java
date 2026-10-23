@@ -150,6 +150,10 @@ public final class DealFrameReader {
     private static final int CARD_TITLE_CROP_RIGHT = 690;
     /** From the card above's button to this title: about 150 px on the Custom Chest tiers. */
     private static final int CARD_TITLE_CROP_HEIGHT = 200;
+    /** A page's header title, under the tab strip and left of its artwork. */
+    private static final int HEADER_RIGHT = 470;
+    private static final int HEADER_TOP = 5;
+    private static final int HEADER_HEIGHT = 70;
     /** The HOT ribbon: saturated red-orange; a 4 px margin takes its white outline with it. */
     private static final float RIBBON_MAX_HUE = 12f / 180f;
     private static final float RIBBON_MIN_WRAPPED_HUE = 170f / 180f;
@@ -233,6 +237,8 @@ public final class DealFrameReader {
     private static final String PICK_SLOT_RESOURCE = "/deals/pick-slot.png";
     private static final double PICK_SLOT_MIN_SCORE = 90.0;
     private static final int PICK_SLOTS_IN_A_ROW = 3;
+    private static final Set<Double> STORE_PRICES = Set.of(0.99, 1.99, 2.99, 4.99, 9.99, 19.99, 49.99, 99.99, 299.99,
+            499.99, 699.99, 999.99);
     /** A tier's slot row starts about 80 px above its button's top (Custom Chest tiers, 2026-10-23). */
     private static final int SLOT_ROW_ABOVE_BUTTON = 130;
     private static final Pattern SELECT_ITEMS = Pattern.compile("(?i)select\\s*items");
@@ -354,7 +360,7 @@ public final class DealFrameReader {
                 .filter(box -> found.stream().noneMatch(b -> Math.abs(b.y() + b.height() / 2 - (box.y() + box.height() / 2))
                         <= PRINTED_PRICE_CLEARANCE && Math.abs(b.x() + b.width() / 2 - (box.x() + box.width() / 2))
                         <= PRINTED_PRICE_CLEARANCE * 2))
-                .filter(box -> parsePrice(readPrice(image, text.whiteWords(), box)) != null)
+                .filter(box -> isStorePrice(parsePrice(readPrice(image, text.whiteWords(), box))))
                 .toList();
         List<PriceButtonLocator.Box> buttons = Stream.concat(found.stream(), grey.stream())
                 .sorted(Comparator.comparingInt(PriceButtonLocator.Box::y).thenComparingInt(PriceButtonLocator.Box::x))
@@ -369,8 +375,9 @@ public final class DealFrameReader {
         // flag tells the scan its "+" slots hold choices of their own.
         boolean chooseYourOwn = isChooseYourOwn(capture, FRAME_TOP_LEFT.getY(), FRAME_BOTTOM_RIGHT.getY(), 0);
         // Custom Armament Chest and Custom Pet Chest sell the same tiers; the page's own header says which shop
-        // a tier belongs to, where the tab's label is often misread.
-        String offerTab = chooseYourOwn && pageTitleLine != null ? pageTitle : tab;
+        // a tier belongs to. It is read on its own, as the run of words in the largest type: the page-wide
+        // pass joined it to the description under it on 2026-10-23.
+        String offerTab = chooseYourOwn ? headerTitle(image).orElse(tab) : tab;
         List<TextLine> allLines = Stream.concat(text.plainLines().stream(), text.whiteLines().stream()).toList();
         String pageLimit = pageLimit(allLines, buttons);
         List<DealOffer> offers = new ArrayList<>();
@@ -387,7 +394,7 @@ public final class DealFrameReader {
             previousButtonBottom = button.bottom();
 
             String priceText = readPrice(image, text.whiteWords(), button);
-            Double priceUsd = parsePrice(priceText);
+            Double priceUsd = isStorePrice(parsePrice(priceText)) ? parsePrice(priceText) : null;
 
             String title;
             int cardTop;
@@ -396,6 +403,18 @@ public final class DealFrameReader {
                 cardTop = pageTitleLine == null ? top : pageTitleLine.bottom();
             } else {
                 TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button);
+                if (cardTitle != null) {
+                    // The line pass runs a title into ribbon text beside it ("Exquisite Custom Chest ee: 5",
+                    // 2026-10-23); its own words, in its own type, are the title.
+                    TextLine line = cardTitle;
+                    cardTitle = titleRun(text.whiteWords().stream()
+                                    .filter(w -> centreY(w) >= line.top() && centreY(w) <= line.bottom()
+                                            && w.left() >= line.left() - SAME_ROW_TOLERANCE
+                                            && w.left() + w.width() <= line.left() + line.width() + SAME_ROW_TOLERANCE)
+                                    .toList())
+                            .filter(run -> isTitleText(cleanTitle(run.text())))
+                            .orElse(line);
+                }
                 if (cardTitle == null) {
                     // The page's own header is not a card's title: on a scrolled Custom Chest page the first card's
                     // title is under the sticky header, and the crop finds the header's "Custom Pet Chest".
@@ -795,6 +814,26 @@ public final class DealFrameReader {
                 l.width(), l.height(), l.confidence()));
     }
 
+    /**
+     * The page header read as one line from its own band. Measured on 16 Custom Chest frames of 2026-10-23:
+     * every Pet frame read "Custom Pet Chest", every Armament frame "Custom Armament" plus a few stray letters
+     * where the artwork crosses "Chest" -- close enough to cluster, far enough from the other shop.
+     */
+    private static Optional<String> headerTitle(BufferedImage image) {
+        RawImageData crop = WhiteTextIsolator.isolate(image, CARD_TITLE_CROP_LEFT, TAB_STRIP_BOTTOM + HEADER_TOP,
+                HEADER_RIGHT - CARD_TITLE_CROP_LEFT, HEADER_HEIGHT, 10);
+        try {
+            String line = OcrEngine.recognizeLines(crop, new PointData(0, 0),
+                            new PointData(crop.getWidth(), crop.getHeight()), CommonOCRSettings.DEAL_TILE_COUNT_SETTINGS)
+                    .stream().map(TextLine::text).collect(Collectors.joining(" "));
+            String title = cleanTitle(line);
+            return title.chars().filter(Character::isLetter).count() >= MIN_TITLE_LETTERS ? Optional.of(title)
+                    : Optional.empty();
+        } catch (OcrException unreadable) {
+            return Optional.empty();
+        }
+    }
+
     /** The run of words in a crop's largest type, as one line. */
     private static Optional<TextLine> titleRun(List<TextLine> words) {
         // The title is the run of words in the largest type: a "Best Deals" ribbon beside a centred tier title
@@ -958,16 +997,25 @@ public final class DealFrameReader {
         return last;
     }
 
+    /**
+     * Whether a price is one the store charges. Every price read across the scans up to 2026-10-23 was one of
+     * these, or a misread of one: 4.39, 8.99, 184.95, 493.99 (for $49.99), 999.90 and 4,939.99. A read off the
+     * ladder is another read's turn, and if every read is off it the price is unread, never a guess.
+     */
+    static boolean isStorePrice(Double usd) {
+        return usd != null && STORE_PRICES.contains(usd);
+    }
+
     private static String readPrice(BufferedImage image, List<TextLine> words, PriceButtonLocator.Box button) {
         String inside = wordsInside(words, button.x(), button.y(), button.right(), button.bottom());
-        if (PRICE.matcher(inside.replace(" ", "")).find()) {
+        if (isStorePrice(parsePrice(inside))) {
             return inside;
         }
         int width = (int) (button.width() * PRICE_TEXT_WIDTH_SHARE);
         RawImageData crop = WhiteTextIsolator.isolateScaled(image, button.x(), button.y(), width, button.height(),
                 PRICE_CROP_HEIGHT);
         String strict = cropRead(crop, CommonOCRSettings.DEAL_PRICE_SETTINGS);
-        if (PRICE.matcher(strict).find()) {
+        if (isStorePrice(parsePrice(strict))) {
             return strict;
         }
         // The digits-and-dot glyph set drops the decimal point on some buttons: eight offers of the
@@ -975,7 +1023,7 @@ public final class DealFrameReader {
         // restriction recovered "$4.99" on every button measured, at the cost of stray marks around it,
         // which the price pattern ignores. The strict read stays first because it comes back clean.
         String loose = cropRead(crop, CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
-        if (PRICE.matcher(loose.replace(" ", "")).find()) {
+        if (isStorePrice(parsePrice(loose))) {
             return loose;
         }
         return strict.isEmpty() ? inside : strict;
