@@ -321,7 +321,7 @@ class DealFrameReaderTest {
         assertEquals(List.of("Gems=2500", "Design Plans=35", "Polishing Solution=40", "Hardened Alloy=4000",
                 "100 VIP XP=25"), named(first));
         assertEquals(List.of("Gems=2500", "10K Meat=130", "10K Wood=130", "1K Coal=240", "1K Iron=60",
-                "Supply Crate=1"), named(swiped));
+                "Alliance Gift I=1"), named(swiped));
     }
 
     @Test
@@ -329,7 +329,8 @@ class DealFrameReaderTest {
         DealOffer offer = read("gem-shop-exclusive-gear-special.png", "Exclusive Gear").offers().get(0);
 
         assertEquals("Exclusive Gear Enhancement Special", offer.title());
-        assertEquals(List.of("Gems=2500", "100 VIP XP=25", "10K Meat=130", "10K Wood=130"), named(offer));
+        assertEquals(List.of("Gems=2500", "Gen 2 Custom Hero Widget Chest=5", "100 VIP XP=25", "10K Meat=130",
+                "10K Wood=130"), named(offer));
     }
 
     /** Small tiles of the Leap Pack tab: 1hr(s), 1K VIP XP and 100K Meat were missing or misnamed before. */
@@ -338,24 +339,24 @@ class DealFrameReaderTest {
         DealFrameReader.Page page = read("gem-shop-leap-packs-purchased-1-2.png", "Fire Crystal Leap Pack");
 
         assertEquals(List.of("Gems=50000", "Fire Crystal=500", "1h Speedup=300", "5min Speedup=4800",
-                "1K VIP XP=20", "100K Meat=1000", "100K Wood=1000", "100K Coal=200", "100K Iron=50"),
+                "1K VIP XP=20", "100K Meat=1000", "100K Wood=1000", "100K Coal=200", "100K Iron=50", "Alliance Gift V=1"),
                 named(offerPriced(page, 99.99)));
         assertEquals(List.of("Gems=5000", "Fire Crystal=50", "1h Speedup=30", "5min Speedup=480",
-                "100 VIP XP=40", "10K Meat=1000", "10K Wood=1000", "10K Coal=200", "10K Iron=50"),
+                "100 VIP XP=40", "10K Meat=1000", "10K Wood=1000", "10K Coal=200", "10K Iron=50", "Alliance Gift II=1"),
                 named(offerPriced(page, 9.99)));
         assertEquals(List.of("Gems=2500", "Fire Crystal=25", "1h Speedup=15", "5min Speedup=240",
-                "100 VIP XP=25", "10K Meat=500", "10K Wood=500", "10K Coal=100", "10K Iron=25", "Supply Crate=1"),
+                "100 VIP XP=25", "10K Meat=500", "10K Wood=500", "10K Coal=100", "10K Iron=25", "Alliance Gift I=1"),
                 named(offerPriced(page, 4.99)), "the bought pack's grey button still prices its card");
-        // Rows are complete; only the two ending in a chest with no icon yet look short, and swiping them
-        // does nothing but cost a capture.
-        assertEquals(List.of(560, 1166), page.cardRowYs());
+        assertTrue(page.cardRowYs().isEmpty(), "Leap Pack rows are complete: " + page.cardRowYs());
     }
 
     @Test
     void readsTheIntelMonthlyCardGrantAtBothTiers() throws Exception {
-        assertEquals(List.of("Gems=5000", "Fire Crystal=83", "1h Speedup=45", "100 VIP XP=40"),
+        assertEquals(List.of("Gems=5000", "Fire Crystal=83", "1h Speedup=45", "100 VIP XP=40",
+                "100K Resource Supply Chest=125"),
                 named(read("deals-intel-monthly-card-mythic.png", "Intel Monthly Card").offers().get(0)));
-        assertEquals(List.of("Gems=2500", "Fire Crystal=33", "1h Speedup=18", "100 VIP XP=25"),
+        assertEquals(List.of("Gems=2500", "Fire Crystal=33", "1h Speedup=18", "100 VIP XP=25",
+                "100K Resource Supply Chest=50"),
                 named(read("deals-intel-monthly-card-epic.png", "Intel Monthly Card").offers().get(0)));
     }
 
