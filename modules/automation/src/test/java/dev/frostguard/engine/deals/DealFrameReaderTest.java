@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import javax.imageio.ImageIO;
@@ -179,12 +180,51 @@ class DealFrameReaderTest {
         assertEquals(4.99, offer.priceUsd(), 1e-9);
     }
 
+    /** Read by eye from the frame: every tile of Leap Pack 3 on 2026-10-22, gems printed as "10K". */
+    @Test
+    void readsEveryItemOfAPackIncludingThousandsWrittenWithK() throws Exception {
+        DealOffer pack3 = offerPriced(read("gem-shop-leap-packs-3-4-5.png", "Fire Crystal Leap Pack"), 19.99);
+
+        Map<String, Long> items = quantities(pack3);
+        assertEquals(10_000L, items.get("Gems"), items.toString());
+        assertEquals(100L, items.get("Fire Crystal"), items.toString());
+        assertEquals(960L, items.get("5min Speedup"), items.toString());
+        assertEquals(60L, items.get("100 VIP XP"), items.toString());
+        assertEquals(2_000L, items.get("10K Meat"), items.toString());
+        assertEquals(2_000L, items.get("10K Wood"), items.toString());
+        assertEquals(400L, items.get("10K Coal"), items.toString());
+        assertEquals(100L, items.get("10K Iron"), items.toString());
+        assertEquals("lifetime", pack3.limitPeriod());
+    }
+
+    /**
+     * Pack 5's tile row runs off the bottom of the frame. Its 5-minute speedups are printed 4,800; on
+     * 2026-10-22 the clipped quantity was kept as 77. A wrong number is worse than a missing one.
+     */
+    @Test
+    void neverRecordsAQuantityFromATileTheFrameEdgeCutsOff() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-leap-packs-3-4-5.png", "Fire Crystal Leap Pack");
+
+        page.offers().stream()
+                .flatMap(o -> o.items().stream())
+                .filter(i -> i.key().equals("5min Speedup"))
+                .forEach(i -> assertTrue(Set.of(960L, 2_400L, 4_800L).contains(i.quantity()),
+                        "5min Speedup x" + i.quantity() + " is not printed anywhere on this frame"));
+    }
+
     private static DealFrameReader.Page read(String name, String tab) throws Exception {
         BufferedImage image = ImageIO.read(Objects.requireNonNull(
                 DealFrameReaderTest.class.getResourceAsStream("/deals/" + name), name));
         DealFrameReader.Page page = reader.read(rgbaFrame(image), "Test", tab, name, !name.startsWith("popup-"));
         System.out.println(name + " -> " + page);
         return page;
+    }
+
+    private static DealOffer offerPriced(DealFrameReader.Page page, double usd) {
+        return page.offers().stream()
+                .filter(o -> o.priceUsd() != null && Math.abs(o.priceUsd() - usd) < 0.001)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no $" + usd + " offer in " + page.offers()));
     }
 
     private static Map<String, Long> quantities(DealOffer offer) {
