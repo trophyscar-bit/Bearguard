@@ -113,9 +113,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private static final int MAX_TABS_PER_PANEL = 40;
     private static final int MAX_STRIP_SWIPES = 20;
-    /** A part-shown tab at the strip's end narrower than this has no readable label. */
-    private static final int PARTIAL_TAB_MIN_WIDTH = 90;
-    private static final int PARTIAL_TAB_MIN_LETTERS = 5;
+    private static final int SAME_TAB_MIN_RUN = 6;
     /** Safety ceiling only: a page now ends when swiping stops finding offers, not at a fixed count. */
     private static final int MAX_PAGE_SCROLLS = 25;
     private static final int MAX_POPUP_SCROLLS = 10;
@@ -146,8 +144,16 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      */
     private static final PointData PANEL_SWIPE_FROM = new PointData(34, 1000);
     private static final PointData PANEL_SWIPE_TO = new PointData(34, 600);
+    /** Second tries after a swipe the game ignored: longer and slower, measured to move the strip when the first did not. */
+    private static final PointData PANEL_SWIPE_ALT_FROM = new PointData(34, 1060);
+    private static final PointData PANEL_SWIPE_ALT_TO = new PointData(34, 560);
+    private static final PointData STRIP_SWIPE_ALT_FROM = new PointData(600, 160);
+    private static final PointData STRIP_SWIPE_ALT_TO = new PointData(200, 160);
+    private static final int SLOW_SWIPE_MS = 1000;
     private static final PointData POPUP_SWIPE_FROM = new PointData(360, 1000);
     private static final PointData POPUP_SWIPE_TO = new PointData(360, 600);
+    private static final PointData POPUP_SWIPE_ALT_FROM = new PointData(360, 1060);
+    private static final PointData POPUP_SWIPE_ALT_TO = new PointData(360, 560);
     private static final int ROW_SWIPE_FROM_X = 560;
     private static final int ROW_SWIPE_TO_X = 140;
     /** A card's item row on a page of several cards lies left of its price button (x about 470). */
@@ -156,6 +162,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final int CARD_ROW_LEFT = 30;
     private static final int CARD_ROW_RIGHT = 460;
     private static final int CARD_ROW_HALF_HEIGHT = 45;
+    /** A Regular Pack row of nine or more items needs more than three swipes to reach its end. */
+    private static final int MAX_CARD_ROW_SWIPES = 6;
     private static final int SWIPE_MS = 800;
 
     /** Countdown timers sit above y 450; comparing below them makes "nothing moved" measurable. */
@@ -814,7 +822,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     nextLabel = label;
                 }
             }
-            seen.addAll(partialTabLabels(strip, image));
             if (next != null) {
                 tappedHere.add(next.centre());
                 tapNear(new PointData(next.centre(), TAB_TAP_Y));
@@ -826,14 +833,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 surveyed++;
                 continue;
             }
-            RawImageData before = capture();
-            swipe(STRIP_SWIPE_FROM, STRIP_SWIPE_TO, SWIPE_MS);
             swipes++;
-            sleepTask(SCROLL_SETTLE_MS);
             tappedHere.clear();
             // One still swipe has ended the survey early: on 2026-10-22 the strip stopped at Daily Deals with
             // Weekly/Monthly Cards and Regular Pack still to its right. The end is two still swipes in a row.
-            if (meanDiff(before, capture(), STRIP_REGION) < STILL_MEAN_DIFF) {
+            if (!scrolled(STRIP_SWIPE_FROM, STRIP_SWIPE_TO, STRIP_SWIPE_ALT_FROM, STRIP_SWIPE_ALT_TO, STRIP_REGION)) {
                 if (++stillSwipes >= 2) {
                     break;
                 }
@@ -842,10 +846,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             }
         }
         seen.remove("");
-        // A part-shown tab reads as the start of its name ("weeklymonthl"); it is the visited tab it begins.
         Set<String> missed = new LinkedHashSet<>();
         for (String tab : seen) {
-            if (visited.stream().noneMatch(v -> v.startsWith(tab) || tab.startsWith(v))) {
+            if (visited.stream().noneMatch(v -> sameTab(v, tab))) {
                 missed.add(tab);
             }
         }
@@ -866,25 +869,44 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         }
     }
 
-    /** Labels of tabs the strip shows only in part at either end; they count as seen, not visited. */
-    private List<String> partialTabLabels(RawImageData strip, BufferedImage image) {
-        List<TabStripCells.Cell> cells = TabStripCells.locate(image);
-        List<String> labels = new ArrayList<>();
-        if (cells.isEmpty()) {
-            return labels;
+    /**
+     * One tab read two ways: a letter is sometimes misread, and artwork can eat the end of a label. On
+     * 2026-10-23 "hallofchiet" was Hall of Chiefs and "raveller" Ice Traveller, both visited. A long run of
+     * letters in common is the same tab.
+     */
+    static boolean sameTab(String a, String b) {
+        if (a.contains(b) || b.contains(a)) {
+            return true;
         }
-        int leftEdge = cells.stream().mapToInt(TabStripCells.Cell::left).min().orElse(0);
-        int rightEdge = cells.stream().mapToInt(TabStripCells.Cell::right).max().orElse(image.getWidth());
-        for (int[] span : List.of(new int[] {STRIP_REGION[0], leftEdge}, new int[] {rightEdge, STRIP_REGION[2]})) {
-            if (span[1] - span[0] < PARTIAL_TAB_MIN_WIDTH) {
-                continue;
-            }
-            String label = tabLabel(strip, new TabStripCells.Cell(span[0], span[1]));
-            if (label.chars().filter(Character::isLetter).count() >= PARTIAL_TAB_MIN_LETTERS) {
-                labels.add(tabKey(label));
+        int longest = 0;
+        for (int i = 0; i < a.length(); i++) {
+            for (int j = 0; j < b.length(); j++) {
+                int k = 0;
+                while (i + k < a.length() && j + k < b.length() && a.charAt(i + k) == b.charAt(j + k)) {
+                    k++;
+                }
+                longest = Math.max(longest, k);
             }
         }
-        return labels;
+        return longest >= Math.max(SAME_TAB_MIN_RUN, Math.min(a.length(), b.length()) * 7 / 10);
+    }
+
+    /**
+     * Swipes and reports whether the region moved. The game drops a swipe now and then: on 2026-10-23 the
+     * same strip swipe did nothing and then worked a moment later, and a dropped page swipe ended Regular
+     * Pack one screen short of the chief gear packs. A still region is tried once more with a longer, slower
+     * swipe before it counts as the end.
+     */
+    private boolean scrolled(PointData from, PointData to, PointData altFrom, PointData altTo, int[] region) {
+        RawImageData before = capture();
+        swipe(from, to, SWIPE_MS);
+        sleepTask(SCROLL_SETTLE_MS);
+        if (meanDiff(before, capture(), region) >= STILL_MEAN_DIFF) {
+            return true;
+        }
+        swipe(altFrom, altTo, SLOW_SWIPE_MS);
+        sleepTask(SCROLL_SETTLE_MS);
+        return meanDiff(before, capture(), region) >= STILL_MEAN_DIFF;
     }
 
     /** One row per surface the scan knows about, so a surface that vanishes reads as unvisited. */
@@ -1010,12 +1032,14 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             for (int rowY : page.cardRowYs()) {
                 frame = swipeCardRow(frame, surface, tab, tabbed, rowY);
             }
-            swipe(tabbed ? PANEL_SWIPE_FROM : POPUP_SWIPE_FROM, tabbed ? PANEL_SWIPE_TO : POPUP_SWIPE_TO, SWIPE_MS);
-            sleepTask(SCROLL_SETTLE_MS);
-            RawImageData next = capture();
-            if (meanDiff(frame, next, CONTENT_REGION) < STILL_MEAN_DIFF) {
+            boolean moved = tabbed
+                    ? scrolled(PANEL_SWIPE_FROM, PANEL_SWIPE_TO, PANEL_SWIPE_ALT_FROM, PANEL_SWIPE_ALT_TO, CONTENT_REGION)
+                    : scrolled(POPUP_SWIPE_FROM, POPUP_SWIPE_TO, POPUP_SWIPE_ALT_FROM, POPUP_SWIPE_ALT_TO,
+                            CONTENT_REGION);
+            if (!moved) {
                 return firstTitle;
             }
+            RawImageData next = capture();
             // A page whose artwork animates never reads as still, so the old fixed cap cut long tabs
             // off mid-list (4 of them on 2026-10-22). The list has ended when swiping stops yielding
             // offers this page has not shown yet, whatever the pixels do.
@@ -1055,14 +1079,13 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         int[] band = {CARD_ROW_LEFT, Math.max(0, rowY - CARD_ROW_HALF_HEIGHT), CARD_ROW_RIGHT,
                 rowY + CARD_ROW_HALF_HEIGHT};
         RawImageData current = frame;
-        for (int swipes = 0; swipes < MAX_ROW_SWIPES; swipes++) {
-            swipe(new PointData(CARD_ROW_SWIPE_FROM_X, rowY), new PointData(CARD_ROW_SWIPE_TO_X, rowY), SWIPE_MS);
-            sleepTask(SCROLL_SETTLE_MS);
-            RawImageData next = capture();
-            if (meanDiff(current, next, band) < STILL_MEAN_DIFF) {
+        for (int swipes = 0; swipes < MAX_CARD_ROW_SWIPES; swipes++) {
+            if (!scrolled(new PointData(CARD_ROW_SWIPE_FROM_X, rowY), new PointData(CARD_ROW_SWIPE_TO_X, rowY),
+                    new PointData(CARD_ROW_SWIPE_FROM_X + 30, rowY), new PointData(CARD_ROW_SWIPE_TO_X - 30, rowY),
+                    band)) {
                 break;
             }
-            current = next;
+            current = capture();
             readAndCollect(current, surface, tab, tabbed);
         }
         return current;

@@ -311,7 +311,8 @@ public final class DealFrameReader {
             } else {
                 TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button);
                 title = cardTitle != null ? cleanTitle(cardTitle.text())
-                        : pageTitle + (priceUsd == null ? "" : " - $" + String.format(Locale.US, "%.2f", priceUsd));
+                        : (tab == null || tab.isBlank() ? pageTitle : tab)
+                                + (priceUsd == null ? "" : " - $" + String.format(Locale.US, "%.2f", priceUsd));
                 cardTop = cardTitle == null ? Math.max(top, CARD_TITLE_MIN_TOP) : cardTitle.bottom();
             }
             if (priceUsd == null) {
@@ -551,6 +552,12 @@ public final class DealFrameReader {
             rows.computeIfAbsent(row, y -> new ArrayList<>()).add(tile);
         }
         List<Integer> ys = new ArrayList<>();
+        if (rows.values().stream().noneMatch(row -> row.size() >= 2)) {
+            // No icon on the row is known (Molly's Blessing: hero items), so its place comes from the card:
+            // a Regular Pack card's item row runs level with its button.
+            ys.add(button.y() + button.height() / 2);
+            return ys;
+        }
         for (List<DealItemLibrary.Match> row : rows.values()) {
             int right = row.stream().mapToInt(m -> m.x() + m.width()).max().orElseThrow();
             int buttonCentre = button.x() + button.width() / 2;
@@ -623,6 +630,10 @@ public final class DealFrameReader {
                 .filter(l -> l.top() >= Math.max(windowTop, CARD_TITLE_MIN_TOP) && l.bottom() <= button.y()
                         && button.y() - l.bottom() <= CARD_TITLE_MAX_ABOVE_BUTTON)
                 .filter(l -> isTitleText(cleanTitle(l.text())))
+                // A card's own terms are never its name: "Login daily to obtain:" titled three cards on
+                // 2026-10-23 when the real title had scrolled above the window.
+                .filter(l -> !LOGIN_DAILY.matcher(l.text()).find() && !BUY_TO_GET.matcher(l.text()).find()
+                        && !VALID_DAYS.matcher(l.text()).find())
                 .max(Comparator.comparingInt(TextLine::height))
                 .orElse(null);
     }
@@ -638,7 +649,9 @@ public final class DealFrameReader {
         String[] tokens = text.split(" ");
         long words = Arrays.stream(tokens).filter(t -> t.chars().filter(Character::isLetter).count() >= 3).count();
         long letters = text.chars().filter(Character::isLetter).count();
-        return letters >= MIN_TITLE_LETTERS
+        // A name has a word of four letters or more; tile labels read as a line ("min min") do not.
+        boolean named = Arrays.stream(tokens).anyMatch(t -> t.chars().filter(Character::isLetter).count() >= 4);
+        return letters >= MIN_TITLE_LETTERS && named
                 && words * 10 >= tokens.length * 6L
                 && NOT_A_TITLE.stream().noneMatch(lower::contains)
                 && !TIMER.matcher(text).find()
