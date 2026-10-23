@@ -165,7 +165,11 @@ public final class DealItemLibrary {
 
     /** Like {@link #find(RawImageData, PointData, PointData)}, but only at the given size and its neighbours. */
     public List<Match> find(RawImageData capture, PointData topLeft, PointData bottomRight, double scale) {
-        List<Variant> sized = new ArrayList<>();
+        // The fixed sizes stay in the search alongside the measured one. A frame can draw tiles at more
+        // than one size: on the 2026-10-22 cards page the daily-reward tiles are smaller than the rest, and
+        // matched at the measured size alone the Weekly Card's 6 daily crystals were lost. Overlapping
+        // candidates resolve to the best score, so each tile keeps whichever size fits it.
+        List<Variant> sized = new ArrayList<>(variants);
         for (String key : originals.keySet()) {
             for (double s = scale - SCALE_STEP; s <= scale + SCALE_STEP + 1e-9; s += SCALE_STEP) {
                 sized.add(variant(key, s));

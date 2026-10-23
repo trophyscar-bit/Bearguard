@@ -858,7 +858,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         for (DealOffer offer : read) {
             DealOffer kept = new DealOffer(offer.surface(), tabName, title == null ? offer.title() : title,
                     offer.priceUsd(), offer.priceText(), offer.remaining(), offer.purchased(), offer.items(),
-                    offer.frame(), offer.limitPeriod());
+                    offer.frame(), offer.limitPeriod(), offer.limitCount(), offer.timeLeft(), offer.card());
             offers.merge(kept.packKey() + "|" + kept.priceText(), kept, bg_deals_telemetry::mergeReads);
         }
     }
@@ -996,7 +996,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 first.priceUsd() != null ? first.priceUsd() : second.priceUsd(), first.priceText(),
                 first.remaining() != null ? first.remaining() : second.remaining(),
                 first.purchased() || second.purchased(), new ArrayList<>(items.values()), first.frame(),
-                first.limitPeriod() != null ? first.limitPeriod() : second.limitPeriod());
+                first.limitPeriod() != null ? first.limitPeriod() : second.limitPeriod(),
+                first.limitCount() != null ? first.limitCount() : second.limitCount(),
+                first.timeLeft() != null ? first.timeLeft() : second.timeLeft(),
+                first.card() != null ? first.card() : second.card());
     }
 
     // ── navigation ──────────────────────────────────────────────────

@@ -7,12 +7,15 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -22,6 +25,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import dev.frostguard.api.deals.CardTerms;
 import dev.frostguard.api.deals.DealItem;
 import dev.frostguard.api.deals.DealOffer;
 import dev.frostguard.api.domain.ImageSearchResultData;
@@ -120,8 +124,13 @@ public final class DealFrameReader {
     private static final int TILE_RIGHT = 89;
     private static final int QUANTITY_TOP = 46;
     private static final int QUANTITY_BOTTOM = 92;
-    /** Height a tile's number band is scaled to before it is read on its own. */
-    private static final int QUANTITY_CROP_HEIGHT = 40;
+    /** Heights a tile's number band is scaled to for its reads, the two most reliable first. */
+    private static final int[] CONSENSUS_CROP_HEIGHTS = {40, 56, 48, 32};
+    /** How far right of a grant icon its "xN" count may print. */
+    private static final int SIDE_COUNT_REACH = 160;
+    /** A printed price within this of a detected button is that button's own label or its struck-out price. */
+    private static final int PRINTED_PRICE_CLEARANCE = 60;
+    private static final int PRINTED_PRICE_PADDING = 18;
     /** Tiles on one row share a top within this many pixels. */
     private static final int SAME_ROW_TOLERANCE = 20;
     /** A row whose last tile ends past this x is cut off by the card edge (inner edge ~640). */
@@ -157,6 +166,19 @@ public final class DealFrameReader {
     private static final Pattern REMAINING = Pattern.compile("(?i)remaining\\W*(\\d+)");
     private static final Pattern LIMIT = Pattern.compile("(?i)\\b(daily|weekly|monthly|lifetime)\\s*limit\\W*(\\d+)");
     private static final Pattern TIMER = Pattern.compile("\\d{1,2}:\\d{2}(:\\d{2})?");
+    private static final Pattern VALID_DAYS = Pattern.compile("(?i)valid\\W*(\\d{1,3})\\s*day");
+    private static final Pattern LOGIN_DAILY = Pattern.compile("(?i)login\\s*daily");
+    private static final Pattern BUY_TO_GET = Pattern.compile("(?i)buy\\s*to\\s*get");
+    /** A count printed beside an icon: "x10", "x5,000", "x1". */
+    private static final Pattern SIDE_COUNT = Pattern.compile("^[xX](\\d[\\d,.]*[KkMm]?)$");
+    private static final Pattern PERIOD_REMAINING = Pattern.compile("(?i)\\b(daily|weekly|monthly)\\s*remaining\\W*(\\d+)");
+    /** The count a tile read ends with, in any form {@link #QUANTITY} accepts. */
+    private static final Pattern TRAILING_QUANTITY = Pattern.compile(
+            "(?<![\\d.,])(\\d{1,3}(?:[.,]\\d{3})+|\\d{1,4}(?:[.,]\\d{1,2})?[KkMm]|\\d{1,7})$");
+    /** A line that is nothing but a dollar price, as printed on a buy button: "$9.99". */
+    private static final Pattern PRICE_ONLY = Pattern.compile("^\\$\\d{1,3}[.°,:]\\d{2}$");
+    /** "2d 01:48:15", "13d 20:45:42" or "05:45:35". */
+    private static final Pattern COUNTDOWN = Pattern.compile("(?:\\d{1,3}d\\s*)?\\d{1,2}:\\d{2}:\\d{2}");
     private static final Pattern LISTED_ROW = Pattern.compile("^(.*[A-Za-z].*?)\\s+[xX]\\s?(\\d[\\d,]*)\\b.*$");
     private static final Pattern PURCHASED = Pattern.compile("(?i)\\bpurchased\\b");
     private static final Pattern POINTS_NEEDED = Pattern.compile("(?i)top.?up.*?([\\d,]{3,})\\s*more\\s*points");
@@ -189,8 +211,12 @@ public final class DealFrameReader {
         BufferedImage image = ImageConverter.toBufferedImage(capture);
         Text text = readText(capture, image, surface, tab, problems)
                 .withTileScale(library.estimateScale(capture, FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT));
-        List<PriceButtonLocator.Box> buttons = PriceButtonLocator.locate(image).stream()
+        List<PriceButtonLocator.Box> coloured = PriceButtonLocator.locate(image).stream()
                 .filter(button -> !isActionButton(text.whiteWords(), button))
+                .toList();
+        List<PriceButtonLocator.Box> buttons = Stream.concat(coloured.stream(),
+                        printedPriceButtons(text.whiteLines(), coloured).stream())
+                .sorted(Comparator.comparingInt(PriceButtonLocator.Box::y).thenComparingInt(PriceButtonLocator.Box::x))
                 .toList();
 
         TextLine pageTitleLine = pageTitle(text.whiteLines(), tabbed);
@@ -233,13 +259,20 @@ public final class DealFrameReader {
                 problems.add(surface + " / " + tab + " / " + title + ": price unreadable (\"" + priceText + "\")");
             }
 
-            List<DealItem> items = new ArrayList<>();
-            items.addAll(iconItems(text, cardTop, bottom, tiles));
-            items.addAll(listedItems(text.whiteLines(), top, bottom));
-
             List<TextLine> window = allLines.stream()
                     .filter(l -> l.top() >= top && l.bottom() <= bottom)
                     .toList();
+            CardTerms card = cardTerms(text, window, cardTop, button, tiles);
+            List<DealItem> items = new ArrayList<>();
+            if (card != null) {
+                items.addAll(cardTotal(card));
+                if (items.isEmpty()) {
+                    problems.add(surface + " / " + tab + " / " + title + ": card rewards not all read; no total given.");
+                }
+            } else {
+                items.addAll(iconItems(text, cardTop, bottom, tiles));
+                items.addAll(listedItems(text.whiteLines(), top, bottom));
+            }
             Integer remaining = remaining(window, button);
             String cardLimit = cardLimit(window, button);
             if (remaining == null || cardLimit == null) {
@@ -253,8 +286,23 @@ public final class DealFrameReader {
                     cardLimit = read.find() ? read.group(1).toLowerCase(Locale.ROOT) : null;
                 }
             }
+            if (cardLimit == null) {
+                // "Weekly Remaining: 1" states the reset period and what is left of it in one line; the
+                // Chief Gear Tool Pack prints its limit no other way.
+                String nearButton = window.stream()
+                        .filter(l -> Math.abs(l.top() - button.y()) <= REMAINING_WINDOW)
+                        .map(l -> clean(l.text()))
+                        .collect(Collectors.joining(" ")) + " " + underButtonText(text, button);
+                Matcher periodic = PERIOD_REMAINING.matcher(nearButton);
+                if (periodic.find()) {
+                    cardLimit = periodic.group(1).toLowerCase(Locale.ROOT);
+                    remaining = remaining != null ? remaining : Integer.valueOf(periodic.group(2));
+                }
+            }
+            Integer limitCount = limitCount(window, button, underButtonText(text, button));
             offers.add(new DealOffer(surface, tab, title, priceUsd, priceText, remaining,
-                    false, merge(items), frame, cardLimit != null ? cardLimit : pageLimit));
+                    false, card != null ? items : merge(items), frame, cardLimit != null ? cardLimit : pageLimit,
+                    limitCount, countdown(window, allLines, cardTop), card));
         }
 
         if (buttons.isEmpty()) {
@@ -427,10 +475,21 @@ public final class DealFrameReader {
         while (start < end && !isWordLike(tokens[start])) {
             start++;
         }
-        while (end > start && !isWordLike(tokens[end - 1])) {
+        while (end > start && !isTitleEnd(tokens[end - 1])) {
             end--;
         }
         return start >= end ? clean(raw) : String.join(" ", Arrays.copyOfRange(tokens, start, end));
+    }
+
+    /**
+     * A title may end in a word or in its tier number. Read as plain text, "Fire Crystal Leap Pack 3" lost
+     * its "3" (too short to count as a word) while the top-up badge beside it, read as "205.", was kept
+     * (three digits counted as a word), giving "Fire Crystal Leap Pack 4 205." for one tier and no tier
+     * at all for the next. A trailing token needs letters, or must be a one- or two-digit tier.
+     */
+    private static boolean isTitleEnd(String token) {
+        return token.chars().filter(Character::isLetter).count() >= 3 || token.matches("\\d{1,2}")
+                || token.matches("(?i)of|in|to|a|&");
     }
 
     private static boolean isWordLike(String token) {
@@ -519,6 +578,118 @@ public final class DealFrameReader {
     }
 
     /** A limit printed beside this card's own button ("Lifetime Limit: 1"). */
+    /**
+     * A card's terms, when its window prints both "Login daily to obtain" and "Valid: N day(s)". Measured on
+     * the 2026-10-22 Weekly and Monthly cards: the grant rows sit between "Buy to get" and "Login daily",
+     * the daily rows between "Login daily" and the price button, and "Valid" prints under the button, still
+     * inside the card's window.
+     */
+    private CardTerms cardTerms(Text text, List<TextLine> window, int cardTop, PriceButtonLocator.Box button,
+            List<DealItemLibrary.Match> tiles) {
+        Integer days = window.stream()
+                .map(l -> VALID_DAYS.matcher(clean(l.text())))
+                .filter(Matcher::find)
+                .map(m -> Integer.valueOf(m.group(1)))
+                .findFirst()
+                .orElse(null);
+        TextLine daily = window.stream()
+                .filter(l -> LOGIN_DAILY.matcher(clean(l.text())).find() && l.bottom() < button.y())
+                .findFirst()
+                .orElse(null);
+        if (days == null || daily == null || days <= 0) {
+            return null;
+        }
+        int grantTop = window.stream()
+                .filter(l -> BUY_TO_GET.matcher(clean(l.text())).find() && l.top() < daily.top())
+                .map(TextLine::bottom)
+                .findFirst()
+                .orElse(cardTop);
+        int matchedBefore = tiles.size();
+        List<DealItem> grantRead = iconItems(text, grantTop, daily.top(), tiles, true);
+        List<DealItem> dailyRead = iconItems(text, daily.bottom(), button.y(), tiles);
+        int matched = tiles.size() - matchedBefore;
+        if (grantRead.size() + dailyRead.size() < matched) {
+            // A tile was recognised but its count was not confirmed. A card's total multiplies its daily
+            // rows by its days, so leaving one out is not a smaller total but a wrong one: the Weekly Card
+            // came out at 10 crystals instead of 52. Such a card reports no total at all.
+            return new CardTerms(days, List.of(), List.of());
+        }
+        return new CardTerms(days, merge(grantRead), merge(dailyRead));
+    }
+
+    /** Everything a card pays over its whole validity: the grant once, plus each daily reward every day. */
+    static List<DealItem> cardTotal(CardTerms card) {
+        Map<String, Long> totals = new LinkedHashMap<>();
+        card.upfront().forEach(i -> totals.merge(i.key(), i.quantity(), Long::sum));
+        card.daily().forEach(i -> totals.merge(i.key(), i.quantity() * card.validDays(), Long::sum));
+        return totals.entrySet().stream()
+                .map(e -> new DealItem(e.getKey(), e.getValue(), "card"))
+                .toList();
+    }
+
+    private static Integer limitCount(List<TextLine> window, PriceButtonLocator.Box button, String under) {
+        Optional<Integer> near = window.stream()
+                .filter(l -> Math.abs(l.top() - button.y()) <= REMAINING_WINDOW)
+                .map(l -> LIMIT.matcher(clean(l.text())))
+                .filter(Matcher::find)
+                .map(m -> Integer.valueOf(m.group(2)))
+                .findFirst();
+        if (near.isPresent()) {
+            return near.get();
+        }
+        Matcher read = LIMIT.matcher(under);
+        return read.find() ? Integer.valueOf(read.group(2)) : null;
+    }
+
+    /**
+     * The countdown that applies to this offer: one inside its own card first, else the page's own timer
+     * above the first card ("2d 01:48:15" under the Fire Crystal Value Pack's title).
+     */
+    private static String countdown(List<TextLine> window, List<TextLine> all, int cardTop) {
+        Optional<String> own = window.stream()
+                .map(l -> COUNTDOWN.matcher(clean(l.text())))
+                .filter(Matcher::find)
+                .map(m -> m.group().trim())
+                .findFirst();
+        if (own.isPresent()) {
+            return own.get();
+        }
+        return all.stream()
+                .filter(l -> l.bottom() <= cardTop && l.top() >= PAGE_TITLE_TOP)
+                .map(l -> COUNTDOWN.matcher(clean(l.text())))
+                .filter(Matcher::find)
+                .map(m -> m.group().trim())
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Price buttons the colour test cannot see. On a gold card the orange button and the card are one
+     * component: on the 2026-10-22 Ultra Value Monthly Card it measured 673 x 537 px at 0.41 fill, so the
+     * $9.99 offer was never read. Its white price text was read, though. A printed price well clear of every
+     * detected button stands in for the button, sized around the text.
+     */
+    private static List<PriceButtonLocator.Box> printedPriceButtons(List<TextLine> whiteLines,
+            List<PriceButtonLocator.Box> detected) {
+        List<PriceButtonLocator.Box> printed = new ArrayList<>();
+        for (TextLine line : whiteLines) {
+            String compact = clean(line.text()).replace(" ", "");
+            if (!PRICE_ONLY.matcher(compact).matches() || line.top() < CARD_TITLE_MIN_TOP) {
+                continue;
+            }
+            boolean nearButton = detected.stream().anyMatch(b ->
+                    centreX(line) >= b.x() - PRINTED_PRICE_CLEARANCE && centreX(line) <= b.right() + PRINTED_PRICE_CLEARANCE
+                            && centreY(line) >= b.y() - PRINTED_PRICE_CLEARANCE
+                            && centreY(line) <= b.bottom() + PRINTED_PRICE_CLEARANCE);
+            if (!nearButton) {
+                printed.add(new PriceButtonLocator.Box(line.left() - PRINTED_PRICE_PADDING,
+                        line.top() - PRINTED_PRICE_PADDING, line.width() + 2 * PRINTED_PRICE_PADDING,
+                        line.height() + 2 * PRINTED_PRICE_PADDING));
+            }
+        }
+        return printed;
+    }
+
     private static String cardLimit(List<TextLine> window, PriceButtonLocator.Box button) {
         return window.stream()
                 .filter(l -> Math.abs(l.top() - button.y()) <= REMAINING_WINDOW)
@@ -544,6 +715,11 @@ public final class DealFrameReader {
     }
 
     private List<DealItem> iconItems(Text text, int top, int bottom, List<DealItemLibrary.Match> tiles) {
+        return iconItems(text, top, bottom, tiles, false);
+    }
+
+    private List<DealItem> iconItems(Text text, int top, int bottom, List<DealItemLibrary.Match> tiles,
+            boolean sideCounts) {
         List<DealItem> items = new ArrayList<>();
         if (library.size() == 0 || bottom <= top) {
             return items;
@@ -563,22 +739,31 @@ public final class DealFrameReader {
                 // clipped 4,800 was kept as 77. The tile is read again once scrolling brings it whole.
                 continue;
             }
-            // The tile's own crop first. The whole-frame word pass read the 2,000 on a 10K Meat tile as
-            // 7000; the crop read 2,000, and all five other tiles on that pack, correctly.
-            Optional<Long> quantity = croppedQuantity(image, match);
-            if (quantity.isEmpty()) {
-                quantity = quantity(text.whiteWords(), match);
-            }
-            if (quantity.isEmpty()) {
-                // A narrow strip gives the recogniser one row of numbers to lay out instead of a
-                // whole busy frame; on the brown Vault tiles only the strip read them.
-                List<TextLine> strip = rowWords.computeIfAbsent(match.y() / SAME_ROW_TOLERANCE,
-                        row -> rowStripWords(text.whiteMask(), match));
-                quantity = quantity(strip, match);
+            Optional<Long> quantity = agreedQuantity(image, text, rowWords, match);
+            if (quantity.isEmpty() && sideCounts) {
+                quantity = sideCount(text.whiteWords(), match);
             }
             quantity.ifPresent(q -> items.add(new DealItem(match.key(), q, "icon")));
         }
         return items;
+    }
+
+    /**
+     * A card's up-front grant prints its count beside the icon ("x10", "x5,000"), not in the tile's corner:
+     * on the 2026-10-22 Weekly Card the crystal tile's own band held no number, and "x10" sat level with it
+     * to the right.
+     */
+    private static Optional<Long> sideCount(List<TextLine> words, DealItemLibrary.Match match) {
+        int left = match.x() + match.width();
+        int right = left + SIDE_COUNT_REACH;
+        return words.stream()
+                .filter(w -> w.left() >= left - SAME_ROW_TOLERANCE && w.left() <= right)
+                .filter(w -> centreY(w) >= match.y() && centreY(w) <= match.y() + match.height() + SAME_ROW_TOLERANCE)
+                .map(w -> SIDE_COUNT.matcher(clean(w.text()).replace(" ", "")))
+                .filter(Matcher::matches)
+                .map(m -> parseQuantity(m.group(1)))
+                .filter(Objects::nonNull)
+                .findFirst();
     }
 
     private static boolean bandCutOff(BufferedImage image, DealItemLibrary.Match match) {
@@ -588,17 +773,64 @@ public final class DealFrameReader {
     }
 
     /**
+     * A tile's number, kept only when two independent reads agree on it. Every single read has produced a
+     * wrong value on a real frame: the whole-frame word pass read 2,000 as 7000, a fallback read a Polishing
+     * Solution's 15 as 151, and the smallest crop read 2,000 as "Sto". On the Leap Pack and chief gear frames
+     * of 2026-10-22 the crops at 40 and 56 px agreed on 13 of 14 tiles, every time correctly; where they do
+     * not, the other crop sizes and the word reads vote too. No agreement leaves the tile unread.
+     */
+    private static Optional<Long> agreedQuantity(BufferedImage image, Text text,
+            Map<Integer, List<TextLine>> rowWords, DealItemLibrary.Match match) {
+        List<Long> crops = new ArrayList<>();
+        for (int height : CONSENSUS_CROP_HEIGHTS) {
+            croppedQuantity(image, match, height).ifPresent(crops::add);
+            Optional<Long> agreed = majority(crops);
+            if (agreed.isPresent()) {
+                return agreed;
+            }
+        }
+        List<Long> all = new ArrayList<>(crops);
+        quantity(text.whiteWords(), match).ifPresent(all::add);
+        // A narrow strip gives the recogniser one row of numbers to lay out instead of a whole busy frame;
+        // on the brown Vault tiles only the strip read them.
+        List<TextLine> strip = rowWords.computeIfAbsent(match.y() / SAME_ROW_TOLERANCE,
+                row -> rowStripWords(text.whiteMask(), match));
+        quantity(strip, match).ifPresent(all::add);
+        Optional<Long> agreed = majority(all);
+        if (agreed.isPresent()) {
+            return agreed;
+        }
+        // One crop read that nothing contradicts stands; the other reads gave no number at all. A single
+        // digit often reads at only one size: the Weekly Card's 6 daily crystals read at 40 px and nowhere
+        // else, and without them its 52 crystals became 10. A lone word-pass read is never enough: that is
+        // where 7000 and 151 came from.
+        Set<Long> distinct = new HashSet<>(all);
+        return crops.size() >= 1 && distinct.size() == 1 ? Optional.of(crops.get(0)) : Optional.empty();
+    }
+
+    /** The value read at least twice and more often than any other value, if there is one. */
+    static Optional<Long> majority(List<Long> votes) {
+        Map<Long, Long> counts = votes.stream()
+                .collect(Collectors.groupingBy(v -> v, LinkedHashMap::new, Collectors.counting()));
+        long best = counts.values().stream().mapToLong(c -> c).max().orElse(0);
+        List<Long> leaders = counts.entrySet().stream()
+                .filter(e -> e.getValue() == best)
+                .map(Map.Entry::getKey)
+                .toList();
+        return best >= 2 && leaders.size() == 1 ? Optional.of(leaders.get(0)) : Optional.empty();
+    }
+
+    /**
      * The tile's number, read from a crop of its own band without a glyph restriction. Measured on the
      * 2026-10-22 Leap Pack frame at three crop heights: the unrestricted read at 40 px got every tile right,
      * while the digits-only set read "10K" gems as "10" and "2,000" meat as "00".
      */
-    private static Optional<Long> croppedQuantity(BufferedImage image, DealItemLibrary.Match match) {
+    private static Optional<Long> croppedQuantity(BufferedImage image, DealItemLibrary.Match match, int height) {
         int left = match.x() + scaled(TILE_LEFT, match);
         int right = match.x() + scaled(TILE_RIGHT, match);
         int top = match.y() + scaled(QUANTITY_TOP, match);
         int bottom = match.y() + scaled(QUANTITY_BOTTOM, match);
-        RawImageData crop = WhiteTextIsolator.isolateScaled(image, left, top, right - left, bottom - top,
-                QUANTITY_CROP_HEIGHT);
+        RawImageData crop = WhiteTextIsolator.isolateScaled(image, left, top, right - left, bottom - top, height);
         String read;
         try {
             read = OcrEngine.recognizeText(crop, new PointData(0, 0),
@@ -606,14 +838,10 @@ public final class DealFrameReader {
         } catch (OcrException unreadable) {
             return Optional.empty();
         }
-        Long last = null;
-        for (String token : read.trim().split("\\s+")) {
-            String candidate = clean(token);
-            if (QUANTITY.matcher(candidate).matches()) {
-                last = parseQuantity(candidate);
-            }
-        }
-        return Optional.ofNullable(last);
+        // The count is printed right-aligned at the tile's bottom-right, so it is the number the read ends
+        // with; whatever comes before it is artwork read as letters ("OY130" and "ee,130" for a 130).
+        Matcher trailing = TRAILING_QUANTITY.matcher(clean(read.trim()));
+        return trailing.find() ? Optional.ofNullable(parseQuantity(trailing.group(1))) : Optional.empty();
     }
 
     private static List<TextLine> rowStripWords(RawImageData mask, DealItemLibrary.Match match) {
