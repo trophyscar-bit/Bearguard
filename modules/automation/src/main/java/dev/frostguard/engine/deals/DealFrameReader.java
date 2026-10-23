@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -69,7 +70,11 @@ public final class DealFrameReader {
     }
 
     private record Text(List<TextLine> plainLines, List<TextLine> whiteLines, List<TextLine> whiteWords,
-            RawImageData capture, RawImageData whiteMask) {
+            RawImageData capture, RawImageData whiteMask, OptionalDouble tileScale) {
+
+        Text withTileScale(OptionalDouble scale) {
+            return new Text(plainLines, whiteLines, whiteWords, capture, whiteMask, scale);
+        }
     }
 
     private static final PointData FRAME_TOP_LEFT = new PointData(0, 80);
@@ -115,6 +120,8 @@ public final class DealFrameReader {
     private static final int TILE_RIGHT = 89;
     private static final int QUANTITY_TOP = 46;
     private static final int QUANTITY_BOTTOM = 92;
+    /** Height a tile's number band is scaled to before it is read on its own. */
+    private static final int QUANTITY_CROP_HEIGHT = 40;
     /** Tiles on one row share a top within this many pixels. */
     private static final int SAME_ROW_TOLERANCE = 20;
     /** A row whose last tile ends past this x is cut off by the card edge (inner edge ~640). */
@@ -154,7 +161,14 @@ public final class DealFrameReader {
     private static final Pattern PURCHASED = Pattern.compile("(?i)\\bpurchased\\b");
     private static final Pattern POINTS_NEEDED = Pattern.compile("(?i)top.?up.*?([\\d,]{3,})\\s*more\\s*points");
 
-    private static final Pattern QUANTITY = Pattern.compile("^\\d{1,3}(,\\d{3})*$|^\\d{1,7}$");
+    /**
+     * A tile's printed count: "960", "2,000", "2.400" (the comma read as a point), or "10K", "2.5K", "1M".
+     * Gems on every Fire Crystal Leap Pack print as 10K, 25K and 50K, which the digits-only form rejected,
+     * so no pack's gems ever reached a scan.
+     */
+    private static final Pattern QUANTITY =
+            Pattern.compile("^\\d{1,3}([.,]\\d{3})*$|^\\d{1,7}$|^\\d{1,4}([.,]\\d{1,2})?[KkMm]$");
+    private static final Pattern SUFFIXED = Pattern.compile("^(\\d{1,4})(?:[.,](\\d{1,2}))?([KkMm])$");
     private static final Pattern SHORT_SPEEDUP = Pattern.compile("^[lIi|]([hm])$");
     private static final Pattern LISTED_ITEM_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9 '-]*");
     private static final List<String> NOT_A_TITLE = List.of("remaining", "purchase", "select your", "best deal",
@@ -173,7 +187,8 @@ public final class DealFrameReader {
     public Page read(RawImageData capture, String surface, String tab, String frame, boolean tabbed) {
         List<String> problems = new ArrayList<>();
         BufferedImage image = ImageConverter.toBufferedImage(capture);
-        Text text = readText(capture, image, surface, tab, problems);
+        Text text = readText(capture, image, surface, tab, problems)
+                .withTileScale(library.estimateScale(capture, FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT));
         List<PriceButtonLocator.Box> buttons = PriceButtonLocator.locate(image).stream()
                 .filter(button -> !isActionButton(text.whiteWords(), button))
                 .toList();
@@ -260,7 +275,7 @@ public final class DealFrameReader {
         Future<List<TextLine>> words = OCR_PASSES.submit(() -> OcrEngine.recognizeWords(mask,
                 FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT, CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS));
         return new Text(pass(plain, surface, tab, problems), pass(white, surface, tab, problems),
-                pass(words, surface, tab, problems), capture, mask);
+                pass(words, surface, tab, problems), capture, mask, OptionalDouble.empty());
     }
 
     private static List<TextLine> pass(Future<List<TextLine>> result, String surface, String tab,
@@ -535,10 +550,25 @@ public final class DealFrameReader {
         }
         int clampedBottom = Math.min(bottom, FRAME_BOTTOM_RIGHT.getY());
         Map<Integer, List<TextLine>> rowWords = new LinkedHashMap<>();
-        for (DealItemLibrary.Match match : library.find(text.capture(), new PointData(0, top),
-                new PointData(FRAME_BOTTOM_RIGHT.getX(), clampedBottom))) {
+        PointData from = new PointData(0, top);
+        PointData to = new PointData(FRAME_BOTTOM_RIGHT.getX(), clampedBottom);
+        List<DealItemLibrary.Match> found = text.tileScale().isPresent()
+                ? library.find(text.capture(), from, to, text.tileScale().getAsDouble())
+                : library.find(text.capture(), from, to);
+        BufferedImage image = ImageConverter.toBufferedImage(text.capture());
+        for (DealItemLibrary.Match match : found) {
             tiles.add(match);
-            Optional<Long> quantity = quantity(text.whiteWords(), match);
+            if (bandCutOff(image, match)) {
+                // Part of the number is off the frame, so any read of it is a fragment: on 2026-10-22 a
+                // clipped 4,800 was kept as 77. The tile is read again once scrolling brings it whole.
+                continue;
+            }
+            // The tile's own crop first. The whole-frame word pass read the 2,000 on a 10K Meat tile as
+            // 7000; the crop read 2,000, and all five other tiles on that pack, correctly.
+            Optional<Long> quantity = croppedQuantity(image, match);
+            if (quantity.isEmpty()) {
+                quantity = quantity(text.whiteWords(), match);
+            }
             if (quantity.isEmpty()) {
                 // A narrow strip gives the recogniser one row of numbers to lay out instead of a
                 // whole busy frame; on the brown Vault tiles only the strip read them.
@@ -549,6 +579,41 @@ public final class DealFrameReader {
             quantity.ifPresent(q -> items.add(new DealItem(match.key(), q, "icon")));
         }
         return items;
+    }
+
+    private static boolean bandCutOff(BufferedImage image, DealItemLibrary.Match match) {
+        return match.y() + scaled(QUANTITY_BOTTOM, match) > image.getHeight()
+                || match.x() + scaled(TILE_RIGHT, match) > image.getWidth()
+                || match.x() + scaled(TILE_LEFT, match) < 0;
+    }
+
+    /**
+     * The tile's number, read from a crop of its own band without a glyph restriction. Measured on the
+     * 2026-10-22 Leap Pack frame at three crop heights: the unrestricted read at 40 px got every tile right,
+     * while the digits-only set read "10K" gems as "10" and "2,000" meat as "00".
+     */
+    private static Optional<Long> croppedQuantity(BufferedImage image, DealItemLibrary.Match match) {
+        int left = match.x() + scaled(TILE_LEFT, match);
+        int right = match.x() + scaled(TILE_RIGHT, match);
+        int top = match.y() + scaled(QUANTITY_TOP, match);
+        int bottom = match.y() + scaled(QUANTITY_BOTTOM, match);
+        RawImageData crop = WhiteTextIsolator.isolateScaled(image, left, top, right - left, bottom - top,
+                QUANTITY_CROP_HEIGHT);
+        String read;
+        try {
+            read = OcrEngine.recognizeText(crop, new PointData(0, 0),
+                    new PointData(crop.getWidth(), crop.getHeight()), CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
+        } catch (OcrException unreadable) {
+            return Optional.empty();
+        }
+        Long last = null;
+        for (String token : read.trim().split("\\s+")) {
+            String candidate = clean(token);
+            if (QUANTITY.matcher(candidate).matches()) {
+                last = parseQuantity(candidate);
+            }
+        }
+        return Optional.ofNullable(last);
     }
 
     private static List<TextLine> rowStripWords(RawImageData mask, DealItemLibrary.Match match) {
@@ -633,6 +698,13 @@ public final class DealFrameReader {
     }
 
     static Long parseQuantity(String raw) {
+        Matcher suffixed = SUFFIXED.matcher(raw == null ? "" : clean(raw));
+        if (suffixed.matches()) {
+            String fraction = suffixed.group(2) == null ? "0" : suffixed.group(2);
+            double value = Double.parseDouble(suffixed.group(1) + "." + fraction);
+            long unit = Character.toUpperCase(suffixed.group(3).charAt(0)) == 'M' ? 1_000_000L : 1_000L;
+            return Math.round(value * unit);
+        }
         String digits = raw == null ? "" : raw.replaceAll("[^0-9]", "");
         if (digits.isEmpty() || digits.length() > 9) {
             return null;
