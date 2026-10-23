@@ -37,6 +37,7 @@ import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.WhiteTextIsolator;
 import dev.frostguard.vision.deals.PriceButtonLocator;
+import dev.frostguard.vision.deals.TileCountReader;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
 import dev.frostguard.vision.ocr.OcrEngine;
 import dev.frostguard.vision.ocr.OcrException;
@@ -835,6 +836,11 @@ public final class DealFrameReader {
      */
     private static Optional<Long> agreedQuantity(BufferedImage image, Text text,
             Map<Integer, List<TextLine>> rowWords, DealItemLibrary.Match match) {
+        Optional<Long> glyphs = TileCountReader.read(image, match.x(), match.y(), match.scale())
+                .map(DealFrameReader::parseQuantity);
+        if (glyphs.isPresent()) {
+            return glyphs;
+        }
         List<Long> crops = new ArrayList<>();
         for (int height : CONSENSUS_CROP_HEIGHTS) {
             croppedQuantity(image, match, height, false).ifPresent(crops::add);
