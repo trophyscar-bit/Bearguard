@@ -27,6 +27,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -46,6 +47,7 @@ import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.runtime.WorkspacePaths;
 import dev.frostguard.engine.deals.DealCarousel;
+import dev.frostguard.engine.deals.DealCollection;
 import dev.frostguard.engine.deals.DealFrameReader;
 import dev.frostguard.engine.deals.DealItemLibrary;
 import dev.frostguard.engine.deals.DealsStore;
@@ -92,6 +94,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final List<String> GOOD_VERDICTS = List.of("Best this week", "Great");
     /** The item library's name for Fire Crystals; a pack's crystals are counted under this key. */
     private static final String FIRE_CRYSTAL = "Fire Crystal";
+    /** A toggle tier carried in a tab name: "Intel Monthly Card (Mythic)". */
+    private static final Pattern TIER_SUFFIX = Pattern.compile("\\(([A-Z][a-z]+)\\)$");
     /** Materials that only chief gear uses; a pack holding any of them belongs in the chief gear section. */
     private static final Set<String> CHIEF_GEAR_ITEMS = Set.of("Hardened Alloy", "Polishing Solution", "Design Plans");
     /** Bands for dollars per crystal, against the cheapest crystal of the same day. */
@@ -199,7 +203,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final PointData HEADER_BOTTOM_RIGHT = new PointData(420, 70);
     private static final Pattern ALREADY_SURVEYED_HEADER = Pattern.compile("(?i)\\bdeals\\b");
 
-    private final Map<String, DealOffer> offers = new LinkedHashMap<>();
+    private DealCollection collection = new DealCollection();
+    private Map<String, DealOffer> offers = collection.offers();
     private final List<String> problems = new ArrayList<>();
     private final List<Map<String, Object>> coverage = new ArrayList<>();
     /** Tabs found to hold choose-your-own packs; nothing from them is kept. */
@@ -241,7 +246,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     @Override
     protected void execute() {
-        offers.clear();
+        collection = new DealCollection();
+        offers = collection.offers();
         problems.clear();
         coverage.clear();
         chooseYourOwnTabs.clear();
@@ -279,6 +285,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             logWarning("bg_deals_telemetry | Scan finished with no offers read; the scan file records it as a failure.");
         }
         try {
+            collection.foldFallbackTitles();
+            problems.addAll(collection.problems());
             store.write(day, new DealScan(LocalDateTime.now().toString(), new ArrayList<>(offers.values()), problems));
             logInfo("bg_deals_telemetry | Wrote " + offers.size() + " offer(s) and " + problems.size()
                     + " problem(s) for " + day + ".");
@@ -358,6 +366,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             report.put("fireCrystals", fireCrystals(today, DealPriceTracker.unitValues(loaded.scans(), manual)));
             report.put("coverage", coverageRows());
             report.put("chiefGear", chiefGear(today));
+            report.put("packs", packs(today));
             report.put("problems", problems);
             Path dir = store.root().resolve("reports");
             Files.createDirectories(dir);
@@ -552,6 +561,41 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      * Every pack holding chief gear materials, with all its items by in-game name in card order. An item
      * the scan could not confirm is absent rather than guessed; itemsRead says how many were read.
      */
+    /**
+     * Every pack read today with a price, one row each, every item by name in card order. Each Discord channel
+     * picks its own item from these rows by exact name ("Fire Crystal", "Hardened Alloy", "Charm Guide").
+     */
+    private static List<Map<String, Object>> packs(List<DealScoring.ScoredOffer> today) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (DealScoring.ScoredOffer scored : today) {
+            DealOffer offer = scored.offer();
+            if (offer.priceUsd() == null) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", displayTitle(offer));
+            row.put("where", shopPath(offer));
+            row.put("price", offer.priceUsd());
+            row.put("limit", limitAsShown(offer));
+            row.put("purchased", offer.purchased());
+            row.put("items", offer.items().stream()
+                    .map(i -> Map.<String, Object>of("name", i.key(), "quantity", i.quantity()))
+                    .toList());
+            row.put("frame", offer.frame());
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /** The card title with its tier when the tab is one tier of a toggle: "Intel Monthly Card (Mythic)". */
+    private static String displayTitle(DealOffer offer) {
+        Matcher tier = TIER_SUFFIX.matcher(offer.tab() == null ? "" : offer.tab());
+        if (tier.find() && !offer.title().contains(tier.group(1))) {
+            return offer.title() + " (" + tier.group(1) + ")";
+        }
+        return offer.title();
+    }
+
     private Map<String, Object> chiefGear(List<DealScoring.ScoredOffer> today) {
         List<Map<String, Object>> packs = new ArrayList<>();
         for (DealScoring.ScoredOffer scored : today) {
@@ -566,7 +610,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     .map(i -> Map.<String, Object>of("name", i.key(), "quantity", i.quantity()))
                     .toList();
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("name", offer.title());
+            row.put("name", displayTitle(offer));
             row.put("where", shopPath(offer));
             row.put("price", offer.priceUsd());
             row.put("priceText", offer.priceText());
@@ -802,6 +846,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         int swipes = 0;
         int stillSwipes = 0;
         Set<Integer> tappedHere = new HashSet<>();
+        Map<String, Map<String, Integer>> spellings = new LinkedHashMap<>();
         while (swipes < MAX_STRIP_SWIPES && surveyed < MAX_TABS_PER_PANEL) {
             // The strip is read again after every visit: tapping a tab near the edge scrolls the strip, and
             // positions from the earlier capture then point at other tabs.
@@ -813,6 +858,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 String label = tabLabel(strip, cell);
                 if (!label.isEmpty()) {
                     seen.add(tabKey(label));
+                    String cluster = spellings.keySet().stream().filter(k -> sameTab(k, tabKey(label))).findFirst()
+                            .orElse(tabKey(label));
+                    spellings.computeIfAbsent(cluster, k -> new LinkedHashMap<>()).merge(label, 1, Integer::sum);
                 }
                 boolean done = TabStripCells.isSelected(image, cell)
                         || !label.isEmpty() && visited.contains(tabKey(label))
@@ -846,6 +894,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             }
         }
         seen.remove("");
+        renameTabs(surface, spellings);
         Set<String> missed = new LinkedHashSet<>();
         for (String tab : seen) {
             if (visited.stream().noneMatch(v -> sameTab(v, tab))) {
@@ -866,6 +915,35 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         }
         if (surveyed == 0) {
             problems.add(surface + ": no other tabs were found; only the opening tab was surveyed.");
+        }
+    }
+
+    /**
+     * Gives each tab the spelling read most often. A tab is read on every strip capture that shows it, and
+     * artwork beside the label adds stray letters to some reads: "Yas Tech Research", "Enhanca Gear" and "Ice
+     * raveller" named tabs on 2026-10-23 that other captures of the same strip read cleanly.
+     */
+    private void renameTabs(String surface, Map<String, Map<String, Integer>> spellings) {
+        for (Map.Entry<String, DealOffer> entry : List.copyOf(offers.entrySet())) {
+            DealOffer offer = entry.getValue();
+            if (!surface.equals(offer.surface()) || offer.tab() == null) {
+                continue;
+            }
+            Matcher tier = TIER_SUFFIX.matcher(offer.tab());
+            String base = tier.find() ? offer.tab().substring(0, tier.start()).trim() : offer.tab();
+            Optional<String> best = spellings.entrySet().stream()
+                    .filter(e -> sameTab(e.getKey(), tabKey(base)))
+                    .findFirst()
+                    .flatMap(e -> e.getValue().entrySet().stream()
+                            .max(Map.Entry.<String, Integer>comparingByValue()
+                                    .thenComparing(spelling -> spelling.getKey().length()))
+                            .map(Map.Entry::getKey));
+            if (best.isPresent() && !best.get().equals(base)) {
+                String renamed = best.get() + (offer.tab().equals(base) ? "" : offer.tab().substring(base.length()));
+                offers.put(entry.getKey(), new DealOffer(offer.surface(), renamed, offer.title(), offer.priceUsd(),
+                        offer.priceText(), offer.remaining(), offer.purchased(), offer.items(), offer.frame(),
+                        offer.limitPeriod(), offer.limitCount(), offer.timeLeft(), offer.card()));
+            }
         }
     }
 
@@ -929,6 +1007,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     .stream()
                     .map(TextLine::text)
                     .collect(Collectors.joining(" "))
+                    .replaceAll("(?<=\\p{L})['’`](?=\\p{Lu})", " ")
                     .replaceAll("\\s+", " ")
                     .transform(bg_deals_telemetry::trimLabelCrumbs);
         } catch (OcrException unreadable) {
@@ -966,7 +1045,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         Optional<SegmentedControl.Control> variants = tabbed
                 ? SegmentedControl.locate(ImageConverter.toBufferedImage(frame))
                 : Optional.empty();
-        String title = surveyVariant(surface, tab, maxScrolls, tabbed, frame);
+        String selectedTab = variants
+                .flatMap(control -> optionLabel(frame, control.options().get(control.selectedIndex())))
+                .map(label -> (tab == null ? "opening tab" : tab) + " (" + label + ")")
+                .orElse(tab);
+        String title = surveyVariant(surface, selectedTab, maxScrolls, tabbed, frame);
         if (variants.isEmpty()) {
             return title;
         }
@@ -989,11 +1072,29 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                         + " did not open after its tap (" + saveFrame(switched) + "); it is unread.");
                 continue;
             }
-            String variantTab = (tab == null ? (title == null ? "opening tab" : title) : tab)
-                    + " (variant " + (option + 1) + " of " + control.options().size() + ")";
+            String variantTab = (tab == null ? (title == null ? "opening tab" : title) : tab) + " ("
+                    + optionLabel(switched, target).orElse("variant " + (option + 1) + " of " + control.options().size())
+                    + ")";
             surveyVariant(surface, variantTab, maxScrolls, tabbed, switched);
         }
         return title;
+    }
+
+    /** A toggle option's own word ("Epic", "Mythic"), so a tier is named rather than numbered. */
+    private Optional<String> optionLabel(RawImageData frame, SegmentedControl.Option option) {
+        try {
+            String label = OcrEngine.recognizeLines(frame, new PointData(option.x(), option.y()),
+                            new PointData(option.x() + option.width(), option.y() + option.height()),
+                            CommonOCRSettings.DEAL_TAB_LABEL_SETTINGS).stream()
+                    .map(TextLine::text)
+                    .collect(Collectors.joining(" "))
+                    .replaceAll("[^A-Za-z]", "");
+            return label.length() >= 3
+                    ? Optional.of(Character.toUpperCase(label.charAt(0)) + label.substring(1).toLowerCase(Locale.ROOT))
+                    : Optional.empty();
+        } catch (OcrException unreadable) {
+            return Optional.empty();
+        }
     }
 
     /** Drags the page down until it stops moving, so controls above the list are on screen again. */
@@ -1122,7 +1223,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             DealOffer kept = new DealOffer(offer.surface(), tabName, title == null ? offer.title() : title,
                     offer.priceUsd(), offer.priceText(), offer.remaining(), offer.purchased(), offer.items(),
                     offer.frame(), offer.limitPeriod(), offer.limitCount(), offer.timeLeft(), offer.card());
-            offers.merge(kept.packKey() + "|" + kept.priceText(), kept, this::mergeReads);
+            collection.add(kept);
         }
     }
 
@@ -1248,57 +1349,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private static boolean isNear(Collection<Integer> known, int centre, int tolerance) {
         return known.stream().anyMatch(k -> Math.abs(k - centre) <= tolerance);
-    }
-
-    /** Two reads of the same pack: keep every item, and the larger quantity when they disagree. */
-    /**
-     * One offer from reads of it on several frames: as its rows are swiped, scrolled or carouselled. Items
-     * keep the order they were first seen in, which is card order.
-     */
-    private DealOffer mergeReads(DealOffer first, DealOffer second) {
-        Map<String, DealItem> items = new LinkedHashMap<>();
-        Set<String> conflicting = new HashSet<>();
-        for (DealItem item : Stream.concat(first.items().stream(), second.items().stream()).toList()) {
-            DealItem earlier = items.get(item.key());
-            if (earlier == null) {
-                items.put(item.key(), item);
-            } else if (earlier.quantity() != item.quantity()) {
-                Optional<DealItem> whole = wholerRead(earlier, item);
-                if (whole.isPresent()) {
-                    items.put(item.key(), whole.get());
-                } else if (conflicting.add(item.key())) {
-                    problems.add(first.surface() + " / " + first.tab() + " / " + first.title() + ": " + item.key()
-                            + " read as " + earlier.quantity() + " and " + item.quantity()
-                            + " on different frames; left out.");
-                }
-            }
-        }
-        conflicting.forEach(items::remove);
-        return new DealOffer(first.surface(), first.tab(), first.title(),
-                first.priceUsd() != null ? first.priceUsd() : second.priceUsd(), first.priceText(),
-                first.remaining() != null ? first.remaining() : second.remaining(),
-                first.purchased() || second.purchased(), new ArrayList<>(items.values()), first.frame(),
-                first.limitPeriod() != null ? first.limitPeriod() : second.limitPeriod(),
-                first.limitCount() != null ? first.limitCount() : second.limitCount(),
-                first.timeLeft() != null ? first.timeLeft() : second.timeLeft(),
-                first.card() != null ? first.card() : second.card());
-    }
-
-    /**
-     * Of two different reads of one tile, the one a cut-off tile could not have produced. A tile cut by its
-     * row's edge loses its last digits, so a read that is the other's leading digits is the cut one: 24 of
-     * 240. Any other disagreement means one read is wrong, and neither is kept.
-     */
-    static Optional<DealItem> wholerRead(DealItem a, DealItem b) {
-        String digitsA = Long.toString(a.quantity());
-        String digitsB = Long.toString(b.quantity());
-        if (digitsB.length() > digitsA.length() && digitsB.startsWith(digitsA)) {
-            return Optional.of(b);
-        }
-        if (digitsA.length() > digitsB.length() && digitsA.startsWith(digitsB)) {
-            return Optional.of(a);
-        }
-        return Optional.empty();
     }
 
     // ── navigation ──────────────────────────────────────────────────

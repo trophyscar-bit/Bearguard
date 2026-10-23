@@ -111,6 +111,10 @@ public final class DealItemLibrary {
                 // blurs its corner label, and "1hr(s)" stopped matching at all on the Leap Pack tiles.
                 int at = stem.lastIndexOf('@');
                 String key = at < 0 ? stem : stem.substring(0, at);
+                // "Fire Crystal~loose": the item drawn without its tile, as on Dream Traveler packs.
+                if (key.contains("~")) {
+                    key = key.substring(0, key.indexOf('~'));
+                }
                 double drawnAt = at < 0 ? 1.0 : Double.parseDouble(stem.substring(at + 1));
                 icons++;
                 originals.add(new Original(key, image, drawnAt));
