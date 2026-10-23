@@ -28,6 +28,7 @@ import java.util.stream.Stream;
 import dev.frostguard.api.deals.CardTerms;
 import dev.frostguard.api.deals.DealItem;
 import dev.frostguard.api.deals.DealOffer;
+import dev.frostguard.api.deals.DealPriceTracker;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.PointData;
@@ -208,6 +209,19 @@ public final class DealFrameReader {
      */
     public Page read(RawImageData capture, String surface, String tab, String frame, boolean tabbed) {
         List<String> problems = new ArrayList<>();
+        // The Get Gems store prints white prices on blue cards with no orange button, so the button-led read
+        // below finds nothing on it; it has a reader of its own.
+        Optional<List<GemStoreReader.GemBundle>> gemStore = GemStoreReader.read(capture, problems);
+        if (gemStore.isPresent()) {
+            List<DealOffer> bundles = gemStore.get().stream()
+                    .map(b -> new DealOffer(surface, tab,
+                            String.format(Locale.US, "%,d Gems", b.gems()) + (b.bonusGems() == null ? ""
+                                    : String.format(Locale.US, " (first purchase +%,d)", b.bonusGems())),
+                            b.priceUsd(), String.format(Locale.US, "$%.2f", b.priceUsd()), null, false,
+                            List.of(new DealItem(DealPriceTracker.GEMS, b.gems(), "gem store")), frame, null))
+                    .toList();
+            return new Page("Get Gems", bundles, problems, null, false);
+        }
         BufferedImage image = ImageConverter.toBufferedImage(capture);
         Text text = readText(capture, image, surface, tab, problems)
                 .withTileScale(library.estimateScale(capture, FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT));

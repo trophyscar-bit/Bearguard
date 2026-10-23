@@ -289,6 +289,17 @@ class DealFrameReaderTest {
         assertEquals(5, enhancement.limitCount());
     }
 
+    /** The Get Gems tab has no orange buttons; its six bundles still become offers, gems as the item. */
+    @Test
+    void recordsEveryGetGemsBundle() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-get-gems.png", "Get Gems");
+
+        assertEquals(6, page.offers().size(), page.offers().toString());
+        assertEquals(500L, quantities(offerPriced(page, 0.99)).get("Gems"));
+        assertEquals(50_000L, quantities(offerPriced(page, 99.99)).get("Gems"));
+        assertTrue(offerPriced(page, 99.99).title().contains("+50,000"), offerPriced(page, 99.99).title());
+    }
+
     private static DealFrameReader.Page read(String name, String tab) throws Exception {
         BufferedImage image = ImageIO.read(Objects.requireNonNull(
                 DealFrameReaderTest.class.getResourceAsStream("/deals/" + name), name));
