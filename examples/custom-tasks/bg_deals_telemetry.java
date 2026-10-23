@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -133,6 +134,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** Tab labels sit in this band on both the gem shop and the Deals panel. */
     private static final int TAB_LABEL_TOP = 140;
     private static final int TAB_LABEL_BOTTOM = 190;
+    /** The label line itself, under the tab's artwork, for the masked read. */
+    private static final int MASKED_LABEL_TOP = 155;
+    private static final int MASKED_LABEL_HEIGHT = 40;
+    private static final float MASKED_LABEL_SATURATION = 40f / 255f;
     private static final int TAB_TAP_Y = 150;
     /** A panel is tabbed when its strip shows at least this many whole tabs. */
     private static final int MIN_TABS_FOR_STRIP = 2;
@@ -213,6 +218,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private final Set<String> chooseYourOwnTabs = new HashSet<>();
     /** Pick-your-own tiers whose slots were already opened this run; each is read once. */
     private final Set<String> slotsRead = new HashSet<>();
+    /** The page header read for each pick-your-own tab this run, by the tab's strip label. */
+    private final Map<String, String> headerByTab = new HashMap<>();
+    /** The shop the last page read was collected under; its pick slots belong to it. */
+    private String lastShop;
     private DealsStore store;
     private DealFrameReader reader;
     private Path frameDir;
@@ -267,6 +276,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         coverage.clear();
         chooseYourOwnTabs.clear();
         slotsRead.clear();
+        headerByTab.clear();
         frameNumber = 0;
         LocalDate day = LocalDate.now();
         store = DealsStore.forWorkspace(WorkspacePaths.current().root());
@@ -874,6 +884,15 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 if (!label.isEmpty()) {
                     seen.add(tabKey(label));
                     collection.noteTabSpelling(surface, label);
+                    // A second read of the label, masked to its white letters and taken as one line. On five
+                    // cells of 2026-10-23 it read "Tech Research" and "Custom Pet Chest" where the sparse read
+                    // above gives "Yas Tech Research" and "Custom'Pet Chest" on every capture: the same pixels
+                    // misread the same way each time, which no number of captures outvotes. It counts twice.
+                    String masked = maskedTabLabel(image, cell);
+                    if (!masked.isEmpty()) {
+                        collection.noteTabSpelling(surface, masked);
+                        collection.noteTabSpelling(surface, masked);
+                    }
                 }
                 boolean done = TabStripCells.isSelected(image, cell)
                         || !label.isEmpty() && visited.contains(tabKey(label))
@@ -959,6 +978,23 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         row.put("reason", reason);
         coverage.removeIf(existing -> surface.equals(existing.get("surface")));
         coverage.add(row);
+    }
+
+    private static String maskedTabLabel(BufferedImage image, TabStripCells.Cell cell) {
+        RawImageData crop = WhiteTextIsolator.isolatePureScaled(image, cell.left() + 4, MASKED_LABEL_TOP,
+                cell.right() - cell.left() - 8, TAB_LABEL_BOTTOM - MASKED_LABEL_TOP, MASKED_LABEL_HEIGHT,
+                MASKED_LABEL_SATURATION);
+        try {
+            return OcrEngine.recognizeLines(crop, new PointData(0, 0), new PointData(crop.getWidth(), crop.getHeight()),
+                            CommonOCRSettings.DEAL_TILE_COUNT_SETTINGS).stream()
+                    .map(TextLine::text)
+                    .collect(Collectors.joining(" "))
+                    .replaceAll("[^A-Za-z &/'-]", "")
+                    .replaceAll("\\s+", " ")
+                    .transform(bg_deals_telemetry::trimLabelCrumbs);
+        } catch (OcrException unreadable) {
+            return "";
+        }
     }
 
     private String tabLabel(RawImageData frame, TabStripCells.Cell cell) {
@@ -1168,7 +1204,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      */
     private void readPickSlots(DealFrameReader.Page page, String surface) {
         for (Map.Entry<Integer, List<PointData>> tier : page.pickSlots().entrySet()) {
-            DealOffer offer = page.offers().get(tier.getKey());
+            DealOffer tierRead = page.offers().get(tier.getKey());
+            DealOffer offer = new DealOffer(tierRead.surface(), lastShop, tierRead.title(), tierRead.priceUsd(),
+                    tierRead.priceText(), tierRead.remaining(), tierRead.purchased(), tierRead.items(), tierRead.frame(),
+                    tierRead.limitPeriod(), tierRead.limitCount(), tierRead.timeLeft(), tierRead.card());
             String key = offer.packKey() + "|" + offer.tab();
             if (!slotsRead.add(key)) {
                 continue;
@@ -1209,8 +1248,24 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private DealFrameReader.Page readAndCollect(RawImageData frame, String surface, String tab, boolean tabbed) {
         DealFrameReader.Page page = readPage(frame, surface, tab, tabbed);
         // A pick-your-own page names its shop in its header, as the reader set it on each offer.
-        collect(surface, page.chooseYourOwn() && !page.offers().isEmpty() ? page.offers().get(0).tab()
-                : tabName(tab, page), page.offers(), null, page.chooseYourOwn());
+        String shop = tabName(tab, page);
+        if (page.chooseYourOwn() && !page.offers().isEmpty()) {
+            // The reader names a pick-your-own tier's shop by the page header. When the header does not read,
+            // it falls back to the strip label, which for these tabs can be far from any header read
+            // ("Custonfarmatient Chest", 2026-10-23); the header read on this tab's other frames is used.
+            String header = page.offers().get(0).tab();
+            if (header != null && !header.equals(tab)) {
+                headerByTab.put(shop, header);
+            }
+            shop = headerByTab.getOrDefault(shop, header);
+        }
+        String shopName = shop;
+        lastShop = shop;
+        List<DealOffer> read = page.offers().stream()
+                .map(o -> new DealOffer(o.surface(), shopName, o.title(), o.priceUsd(), o.priceText(), o.remaining(),
+                        o.purchased(), o.items(), o.frame(), o.limitPeriod(), o.limitCount(), o.timeLeft(), o.card()))
+                .toList();
+        collect(surface, shop, read, null, page.chooseYourOwn());
         return page;
     }
 
