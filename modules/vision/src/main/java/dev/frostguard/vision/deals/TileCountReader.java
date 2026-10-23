@@ -83,7 +83,21 @@ public final class TileCountReader {
      * as it is. Its glyphs differ slightly in rendering, so the references include banner glyphs too.
      */
     public static Optional<String> readRegion(BufferedImage frame, int x, int y, int width, int height,
-            int magnification) {
+            double magnification) {
+        return readRegion(frame, x, y, width, height, magnification, false);
+    }
+
+    /**
+     * Like {@link #readRegion(BufferedImage, int, int, int, int, double)} for a count printed as "x2,500": the
+     * "x" has no reference and touches the first digit, so one unrecognised glyph at the front is dropped.
+     */
+    public static Optional<String> readPrefixedRegion(BufferedImage frame, int x, int y, int width, int height,
+            double magnification) {
+        return readRegion(frame, x, y, width, height, magnification, true);
+    }
+
+    private static Optional<String> readRegion(BufferedImage frame, int x, int y, int width, int height,
+            double magnification, boolean prefixed) {
         int left = Math.max(0, x);
         int top = Math.max(0, y);
         int right = Math.min(frame.getWidth(), x + width);
@@ -98,13 +112,17 @@ public final class TileCountReader {
             return Optional.empty();
         }
         StringBuilder text = new StringBuilder();
-        for (Mat glyph : glyphs) {
-            Optional<Character> character = classify(glyph);
-            glyph.release();
-            if (character.isEmpty()) {
+        for (int i = 0; i < glyphs.size(); i++) {
+            Optional<Character> character = classify(glyphs.get(i));
+            glyphs.get(i).release();
+            if (character.isEmpty() && !(prefixed && i == 0)) {
+                glyphs.subList(i + 1, glyphs.size()).forEach(Mat::release);
                 return Optional.empty();
             }
-            text.append(character.get());
+            character.ifPresent(text::append);
+        }
+        if (text.isEmpty()) {
+            return Optional.empty();
         }
         // K only ever ends a count, and a count never starts with 0.
         String read = text.toString();
@@ -115,7 +133,7 @@ public final class TileCountReader {
         return Optional.of(read);
     }
 
-    private static Mat whiteMask(BufferedImage frame, int x, int y, int width, int height, int magnification) {
+    private static Mat whiteMask(BufferedImage frame, int x, int y, int width, int height, double magnification) {
         Mat bgr = new Mat(height, width, CvType.CV_8UC3);
         byte[] pixels = new byte[width * height * 3];
         int offset = 0;

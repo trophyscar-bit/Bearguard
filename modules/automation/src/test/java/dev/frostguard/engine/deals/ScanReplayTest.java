@@ -46,9 +46,7 @@ class ScanReplayTest {
             boolean tabbed = !surface.equals(tab);
             DealFrameReader.Page page = reader.read(DealFrameReaderTest.rgbaFrame(image), surface, tab, frame, tabbed);
             collection.problems().addAll(page.problems());
-            if (!page.chooseYourOwn()) {
-                page.offers().forEach(collection::add);
-            }
+            page.offers().forEach(collection::add);
         }
         collection.foldFallbackTitles();
         List<Map<String, Object>> rows = new ArrayList<>();
