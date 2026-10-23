@@ -69,14 +69,55 @@ public final class DealFrameReader {
     /**
      * @param clippedTileRowY centre y of a single-card tile row whose last tile runs into the card
      *                        edge, meaning more tiles are hidden to the right; {@code null} otherwise
-     * @param chooseYourOwn   the frame shows pick-your-own packs; each tier is an offer with its fixed items,
-     *                        and its "+" slots hold choices that are not read from this frame
+     * @param chooseYourOwn   the frame shows pick-your-own packs; each tier is an offer with its fixed items
+     * @param pickSlots       the "+" slots of each offer, by its index in {@code offers}: tapping one opens the
+     *                        list of choices for that slot
      * @param cardRowYs       centre y of each tile row on a page of several cards that leaves room before
      *                        its card's button for a tile hidden off the row's end; swiping it sideways
      *                        may show more items
      */
     public record Page(String title, List<DealOffer> offers, List<String> problems, Integer clippedTileRowY,
-            boolean chooseYourOwn, List<Integer> cardRowYs) {
+            boolean chooseYourOwn, List<Integer> cardRowYs, Map<Integer, List<PointData>> pickSlots) {
+    }
+
+    /** The choices one "+" slot offers, read from its Select Items pop-up; empty when the pop-up is not open. */
+    public Optional<List<DealItem>> readSlotChoices(RawImageData popup) {
+        BufferedImage image = ImageConverter.toBufferedImage(popup);
+        Text text = readText(popup, image, "Select Items", "", new ArrayList<>());
+        boolean open = text.whiteLines().stream().anyMatch(l -> SELECT_ITEMS.matcher(clean(l.text())).find())
+                || text.plainLines().stream().anyMatch(l -> SELECT_ITEMS.matcher(clean(l.text())).find());
+        if (!open) {
+            return Optional.empty();
+        }
+        // A choice's name wraps onto a second line ("100 Enhancement XP" over "Component X6"); lines that follow
+        // closely at the same margin are one row.
+        List<TextLine> lines = text.plainLines().stream()
+                .filter(l -> l.top() > SLOT_LIST_TOP && l.bottom() < SLOT_LIST_BOTTOM && l.left() > SLOT_NAME_LEFT)
+                .sorted(Comparator.comparingInt(TextLine::top))
+                .toList();
+        List<String> rows = new ArrayList<>();
+        TextLine previous = null;
+        for (TextLine line : lines) {
+            if (previous != null && line.top() - previous.bottom() <= SLOT_ROW_LINE_GAP
+                    && Math.abs(line.left() - previous.left()) <= SAME_ROW_TOLERANCE) {
+                rows.set(rows.size() - 1, rows.get(rows.size() - 1) + " " + clean(line.text()));
+            } else {
+                rows.add(clean(line.text()));
+            }
+            previous = line;
+        }
+        List<DealItem> choices = new ArrayList<>();
+        for (String row : rows) {
+            Matcher listed = LISTED_ROW.matcher(row);
+            if (listed.matches()) {
+                Long quantity = parseQuantity(listed.group(2));
+                String name = itemName(listed.group(1));
+                if (quantity != null && isListedItemName(name)) {
+                    choices.add(new DealItem(name, quantity, "choice"));
+                }
+            }
+        }
+        return Optional.of(choices);
     }
 
     private record Text(List<TextLine> plainLines, List<TextLine> whiteLines, List<TextLine> whiteWords,
@@ -192,6 +233,14 @@ public final class DealFrameReader {
     private static final String PICK_SLOT_RESOURCE = "/deals/pick-slot.png";
     private static final double PICK_SLOT_MIN_SCORE = 90.0;
     private static final int PICK_SLOTS_IN_A_ROW = 3;
+    /** A tier's slot row starts about 80 px above its button's top (Custom Chest tiers, 2026-10-23). */
+    private static final int SLOT_ROW_ABOVE_BUTTON = 130;
+    private static final Pattern SELECT_ITEMS = Pattern.compile("(?i)select\\s*items");
+    /** The Select Items list: rows between its header and its Confirm button, names right of the icons. */
+    private static final int SLOT_LIST_TOP = 260;
+    private static final int SLOT_LIST_BOTTOM = 960;
+    private static final int SLOT_NAME_LEFT = 180;
+    private static final int SLOT_ROW_LINE_GAP = 14;
     /** Bounds the search for a full row when partial rows are found first. */
     private static final int MAX_SLOT_ROWS = 6;
     private static final byte[] PICK_SLOT = load(PICK_SLOT_RESOURCE);
@@ -291,7 +340,7 @@ public final class DealFrameReader {
                             b.priceUsd(), String.format(Locale.US, "$%.2f", b.priceUsd()), null, false,
                             List.of(new DealItem(DealPriceTracker.GEMS, b.gems(), "gem store")), frame, null))
                     .toList();
-            return new Page("Get Gems", bundles, problems, null, false, List.of());
+            return new Page("Get Gems", bundles, problems, null, false, List.of(), Map.of());
         }
         BufferedImage image = ImageConverter.toBufferedImage(capture);
         Text text = readText(capture, image, surface, tab, problems)
@@ -425,7 +474,7 @@ public final class DealFrameReader {
             unpricedOffer(text, pageTitleLine, surface, tab, pageTitle, frame).ifPresent(offers::add);
         }
         return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null, chooseYourOwn,
-                cardRowYs);
+                cardRowYs, chooseYourOwn ? pickSlots(capture, buttons) : Map.of());
     }
 
     private static Text readText(RawImageData capture, BufferedImage image, String surface, String tab,
@@ -486,6 +535,38 @@ public final class DealFrameReader {
         }
         return isChooseYourOwn(capture, clampedTop, rowTop, depth + 1)
                 || isChooseYourOwn(capture, rowBottom, clampedBottom, depth + 1);
+    }
+
+    /** The "+" slots above each button, by the button's index; a slot row sits just above its tier's tiles. */
+    private static Map<Integer, List<PointData>> pickSlots(RawImageData capture, List<PriceButtonLocator.Box> buttons) {
+        Map<Integer, List<PointData>> slots = new LinkedHashMap<>();
+        for (int i = 0; i < buttons.size(); i++) {
+            PriceButtonLocator.Box button = buttons.get(i);
+            int top = Math.max(FRAME_TOP_LEFT.getY(), button.y() - SLOT_ROW_ABOVE_BUTTON);
+            List<PointData> found = new ArrayList<>();
+            collectSlots(capture, 0, button.x(), top, button.y() + button.height() / 2, found, 0);
+            if (!found.isEmpty()) {
+                found.sort(Comparator.comparingInt(PointData::getX));
+                slots.put(i, found);
+            }
+        }
+        return slots;
+    }
+
+    private static void collectSlots(RawImageData capture, int left, int right, int top, int bottom, List<PointData> found,
+            int depth) {
+        if (depth > PICK_SLOTS_IN_A_ROW * 2 || right - left <= 0 || bottom <= top) {
+            return;
+        }
+        ImageSearchResultData slot = OpenCvPatternLocator.matchFromRawTemplate(capture, PICK_SLOT,
+                new PointData(left, top), new PointData(right, bottom), PICK_SLOT_MIN_SCORE);
+        if (!slot.isFound()) {
+            return;
+        }
+        found.add(new PointData(slot.getX(), slot.getY()));
+        int slotLeft = slot.getX() - slot.getMatchWidth() / 2;
+        collectSlots(capture, left, slotLeft, top, bottom, found, depth + 1);
+        collectSlots(capture, slotLeft + slot.getMatchWidth(), right, top, bottom, found, depth + 1);
     }
 
     /**

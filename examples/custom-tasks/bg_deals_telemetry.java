@@ -161,6 +161,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final int ROW_SWIPE_TO_X = 140;
     /** A card's item row on a page of several cards lies left of its price button (x about 470). */
     private static final int CARD_ROW_SWIPE_FROM_X = 400;
+    /** The close mark of a pick slot's Select Items list (live frame of 2026-10-23). */
+    private static final PointData SLOT_LIST_CLOSE = new PointData(640, 224);
+    private static final int POPUP_SETTLE_MS = 1500;
     private static final int CARD_ROW_SWIPE_TO_X = 70;
     private static final int CARD_ROW_LEFT = 30;
     private static final int CARD_ROW_RIGHT = 460;
@@ -208,6 +211,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private final List<Map<String, Object>> coverage = new ArrayList<>();
     /** Tabs found to hold choose-your-own packs; nothing from them is kept. */
     private final Set<String> chooseYourOwnTabs = new HashSet<>();
+    /** Pick-your-own tiers whose slots were already opened this run; each is read once. */
+    private final Set<String> slotsRead = new HashSet<>();
     private DealsStore store;
     private DealFrameReader reader;
     private Path frameDir;
@@ -250,6 +255,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         problems.clear();
         coverage.clear();
         chooseYourOwnTabs.clear();
+        slotsRead.clear();
         frameNumber = 0;
         LocalDate day = LocalDate.now();
         store = DealsStore.forWorkspace(WorkspacePaths.current().root());
@@ -1104,6 +1110,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         for (int scroll = 0; scroll <= maxScrolls; scroll++) {
             int before = onThisPage.size();
             DealFrameReader.Page page = readAndCollect(frame, surface, tab, tabbed);
+            if (page.chooseYourOwn()) {
+                readPickSlots(page, surface);
+            }
             page.offers().forEach(o -> onThisPage.add(o.title() + "|" + o.priceText()));
             if (firstTitle == null) {
                 firstTitle = page.title();
@@ -1171,6 +1180,51 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             readAndCollect(current, surface, tab, tabbed);
         }
         return current;
+    }
+
+    /**
+     * Opens each "+" slot of each pick-your-own tier on screen, reads the choices it offers and closes it with
+     * its own close mark; nothing is ever selected or confirmed. Each choice joins the tier's items named for
+     * its slot ("Essence Stones (slot 1 choice)"), so a channel can see what a slot can hold.
+     */
+    private void readPickSlots(DealFrameReader.Page page, String surface) {
+        for (Map.Entry<Integer, List<PointData>> tier : page.pickSlots().entrySet()) {
+            DealOffer offer = page.offers().get(tier.getKey());
+            String key = offer.packKey() + "|" + offer.tab();
+            if (!slotsRead.add(key)) {
+                continue;
+            }
+            List<DealItem> choices = new ArrayList<>();
+            List<PointData> slots = tier.getValue();
+            for (int slot = 0; slot < slots.size(); slot++) {
+                tapNear(slots.get(slot));
+                sleepTask(POPUP_SETTLE_MS);
+                RawImageData popup = capture();
+                Optional<List<DealItem>> read = reader.readSlotChoices(popup);
+                if (read.isEmpty()) {
+                    problems.add(surface + " / " + offer.tab() + " / " + offer.title() + ": slot " + (slot + 1)
+                            + " did not open its list (" + saveFrame(popup) + "); its choices are unread.");
+                    continue;
+                }
+                saveFrame(popup);
+                int number = slot + 1;
+                read.get().forEach(choice -> choices.add(new DealItem(choice.key() + " (slot " + number + " choice)",
+                        choice.quantity(), "choice")));
+                tapNear(SLOT_LIST_CLOSE);
+                sleepTask(POPUP_SETTLE_MS);
+                if (reader.readSlotChoices(capture()).isPresent()) {
+                    pressBack();
+                    sleepTask(POPUP_SETTLE_MS);
+                }
+            }
+            if (!choices.isEmpty()) {
+                List<DealItem> items = new ArrayList<>(offer.items());
+                items.addAll(choices);
+                collect(surface, offer.tab(), List.of(new DealOffer(offer.surface(), offer.tab(), offer.title(),
+                        offer.priceUsd(), offer.priceText(), offer.remaining(), offer.purchased(), items, offer.frame(),
+                        offer.limitPeriod(), offer.limitCount(), offer.timeLeft(), offer.card())), null, true);
+            }
+        }
     }
 
     private DealFrameReader.Page readAndCollect(RawImageData frame, String surface, String tab, boolean tabbed) {
