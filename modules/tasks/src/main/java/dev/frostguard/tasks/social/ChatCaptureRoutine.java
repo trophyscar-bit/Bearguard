@@ -461,6 +461,8 @@ public class ChatCaptureRoutine extends DelayedTask {
             logWarning("ChatCaptureRoutine | Could not read the existing transcript: " + e.getMessage());
         }
 
+        recoverUnreadFrames();
+
         logInfo("ChatCaptureRoutine | Opening chat (" + mode + ", " + scrollBack + " screens back)."
                 + (reconcile ? " Nightly reconcile is owed (slot " + reconcileTime + "): "
                 + (reconcileBudgetMs / 60_000L) + " min per channel, and every screen is read."
@@ -839,6 +841,83 @@ public class ChatCaptureRoutine extends DelayedTask {
         return true;
     }
 
+    /** When this session began; a frame folder modified since belongs to it, not to a past one. */
+    private static final Instant SESSION_START = Instant.now();
+
+    /** Folders being recovered right now, so a pass does not offer one the reader already holds. */
+    private static final java.util.Set<Path> RECOVERING =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** At most one recovery at a time: each is a whole folder of slow reading. */
+    private static final java.util.concurrent.atomic.AtomicBoolean RECOVERY_RUNNING =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * Reads one frame folder a previous session photographed and never read.
+     *
+     * <p>A pass photographs first and reads later on its own thread, so stopping the application
+     * while a read is under way leaves its folder behind for good: nothing looked at it on the next
+     * launch, and its messages never reached the transcript. Two thousand frames had piled up that
+     * way. Every restart, including the ones made to deploy a fix, orphaned whatever was being read.
+     *
+     * <p>One folder per pass, oldest first, so the backlog drains without ever competing with the
+     * live capture: it is read on the reader thread, but not counted against the limit that makes a
+     * busy reader drop a live pass's frames, because a read that is waiting is not a read that is
+     * lost. Only folders still inside the transcript's retention window are read: anything older
+     * would be purged the moment it was stored.
+     *
+     * <p>Read as a reconcile, since what a folder holds may be missing from the transcript and its
+     * messages carry no time of their own: they are placed between stored messages, and never later
+     * than the moment the folder was photographed.
+     */
+    private void recoverUnreadFrames() {
+        if (!RECOVERY_RUNNING.compareAndSet(false, true)) {
+            return;
+        }
+        ChatLeftovers.Leftover next = ChatLeftovers.find(baseDir().resolve("pending"),
+                SESSION_START.minus(Duration.ofDays(retentionDays)), SESSION_START, RECOVERING)
+                .stream().findFirst().orElse(null);
+        if (next == null) {
+            RECOVERY_RUNNING.set(false);
+            return;
+        }
+        List<Path> shots;
+        try (var files = Files.list(next.dir())) {
+            shots = files.filter(p -> p.getFileName().toString().endsWith(".png")).sorted().toList();
+        } catch (IOException e) {
+            logWarning("ChatCaptureRoutine | Could not list " + next.dir() + ": " + e.getMessage());
+            RECOVERY_RUNNING.set(false);
+            return;
+        }
+        RECOVERING.add(next.dir());
+        String reader = readerChoice;
+        int keepDays = retentionDays;
+        logInfo("ChatCaptureRoutine | " + next.channel() + ": recovering " + shots.size()
+                + " frame(s) from " + next.dir().getFileName() + ", photographed "
+                + next.capturedAt() + " and never read.");
+        READER.submit(() -> {
+            try {
+                // Its own store, primed when it runs and not when it was queued: reads before it
+                // may have stored some of what these frames hold, and a window primed earlier would
+                // not know.
+                ChatTranscriptStore recovering =
+                        new ChatTranscriptStore(transcriptDir(reader), ZoneId.systemDefault());
+                recovering.widenWindow(RECONCILE_DEDUPE_WINDOW);
+                recovering.primeFromDisk(keepDays);
+                int stored = read(next.channel(), shots, true, recovering, null, next.capturedAt());
+                logInfo("ChatCaptureRoutine | " + next.channel() + ": recovery of "
+                        + next.dir().getFileName() + " finished, " + stored
+                        + " new message(s) stored.");
+            } catch (IOException | RuntimeException e) {
+                logError("ChatCaptureRoutine | " + next.channel() + ": recovery of "
+                        + next.dir().getFileName() + " failed: " + e, e);
+            } finally {
+                RECOVERING.remove(next.dir());
+                RECOVERY_RUNNING.set(false);
+            }
+        });
+    }
+
     /**
      * The one thread that reads photographs, shared by every channel and every pass.
      *
@@ -1027,6 +1106,17 @@ public class ChatCaptureRoutine extends DelayedTask {
      */
     private int read(String channel, List<Path> shots, boolean reconcile,
                       ChatTranscriptStore transcript, ChatPassLog log) {
+        return read(channel, shots, reconcile, transcript, log, null);
+    }
+
+    /**
+     * @param newestPossible nothing in these frames was said after this moment, or null for "now".
+     *                       A recovered folder is photographed hours or days ago, and placing its
+     *                       messages back from the present would file them on the wrong day.
+     * @param log            the pass log, or null for a read that is not a pass of its own
+     */
+    private int read(String channel, List<Path> shots, boolean reconcile,
+                      ChatTranscriptStore transcript, ChatPassLog log, Instant newestPossible) {
         dev.frostguard.vision.ocr.ChatTextReader engine = reader();
         boolean engineUp = engine != null && engine.isUp();
         logInfo("ChatCaptureRoutine | Reader: " + (engineUp ? engine.name() : "built-in"));
@@ -1146,10 +1236,12 @@ public class ChatCaptureRoutine extends DelayedTask {
                         + " older than that was not read this pass.");
             }
             int stored = reconcile && !conversations
-                    ? appendReconciled(channel, pass, transcript)
+                    ? appendReconciled(channel, pass, transcript, newestPossible)
                     : transcript.append(pass.messages());
             int screens = screensRead;
-            recordPass(() -> log.read(channel, reconcile, screens, stored, bridged));
+            if (log != null) {
+                recordPass(() -> log.read(channel, reconcile, screens, stored, bridged));
+            }
             return stored;
         } catch (IOException e) {
             logWarning("ChatCaptureRoutine | Could not write the transcript for " + channel
@@ -1168,8 +1260,8 @@ public class ChatCaptureRoutine extends DelayedTask {
      * them, so a night the bot was not listening lands in that night's file and not in today's. See
      * {@link ChatTimeEstimator} for how far the estimate can be trusted.
      */
-    private int appendReconciled(String channel, ChatPass pass, ChatTranscriptStore transcript)
-            throws IOException {
+    private int appendReconciled(String channel, ChatPass pass, ChatTranscriptStore transcript,
+                                 Instant newestPossible) throws IOException {
         List<ChatTimeEstimator.Candidate> read = new ArrayList<>();
         for (ChatMessage m : pass.chronological()) {
             read.add(new ChatTimeEstimator.Candidate(m, transcript.storedAt(m).orElse(null)));
@@ -1186,7 +1278,8 @@ public class ChatCaptureRoutine extends DelayedTask {
         }
         Instant lowerBound = oldestReached == null ? null
                 : transcript.newestStoredBefore(channel, oldestReached).orElse(null);
-        List<ChatMessage> placed = ChatTimeEstimator.place(read, Instant.now(),
+        List<ChatMessage> placed = ChatTimeEstimator.place(read,
+                newestPossible != null ? newestPossible : Instant.now(),
                 ChatTimeEstimator.spacingFor(channel), lowerBound);
         int stored = transcript.append(placed, true);
         logInfo("ChatCaptureRoutine | " + channel + ": reconcile read " + read.size()
