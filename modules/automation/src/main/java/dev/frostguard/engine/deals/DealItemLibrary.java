@@ -11,7 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
@@ -77,12 +76,16 @@ public final class DealItemLibrary {
     private record Variant(String key, byte[] png, int width, int height, double scale) {
     }
 
+    /** @param drawnAt the tile size the icon was cut at; 1.0 unless its file name says {@code @0.775} */
+    private record Original(String key, BufferedImage image, double drawnAt) {
+    }
+
     private final List<Variant> variants;
     private final int icons;
-    private final Map<String, BufferedImage> originals;
+    private final List<Original> originals;
     private final Map<String, Variant> scaledCache = new ConcurrentHashMap<>();
 
-    private DealItemLibrary(List<Variant> variants, int icons, Map<String, BufferedImage> originals) {
+    private DealItemLibrary(List<Variant> variants, int icons, List<Original> originals) {
         this.variants = variants;
         this.icons = icons;
         this.originals = originals;
@@ -90,7 +93,7 @@ public final class DealItemLibrary {
 
     public static DealItemLibrary load(Path dir) throws IOException {
         List<Variant> variants = new ArrayList<>();
-        Map<String, BufferedImage> originals = new LinkedHashMap<>();
+        List<Original> originals = new ArrayList<>();
         int icons = 0;
         if (!Files.isDirectory(dir)) {
             return new DealItemLibrary(variants, icons, originals);
@@ -103,12 +106,17 @@ public final class DealItemLibrary {
                     throw new IOException("Not a readable PNG: " + file);
                 }
                 String name = file.getFileName().toString();
-                String key = name.substring(0, name.length() - 4).replace('_', ' ');
+                String stem = name.substring(0, name.length() - 4).replace('_', ' ');
+                // A second cut of an item, taken where tiles are drawn small: shrinking the full-size icon
+                // blurs its corner label, and "1hr(s)" stopped matching at all on the Leap Pack tiles.
+                int at = stem.lastIndexOf('@');
+                String key = at < 0 ? stem : stem.substring(0, at);
+                double drawnAt = at < 0 ? 1.0 : Double.parseDouble(stem.substring(at + 1));
                 icons++;
-                originals.put(key, image);
+                originals.add(new Original(key, image, drawnAt));
                 for (double scale : TILE_SCALES) {
-                    BufferedImage scaled = scale == 1.0 ? image : scale(image, scale);
-                    byte[] bytes = scale == 1.0 ? png : encode(scaled);
+                    BufferedImage scaled = scale == drawnAt ? image : scale(image, scale / drawnAt);
+                    byte[] bytes = scale == drawnAt ? png : encode(scaled);
                     variants.add(new Variant(key, bytes, scaled.getWidth(), scaled.getHeight(), scale));
                 }
             }
@@ -138,12 +146,12 @@ public final class DealItemLibrary {
      */
     public OptionalDouble estimateScale(RawImageData capture, PointData topLeft, PointData bottomRight) {
         List<Variant> ladder = new ArrayList<>();
-        for (String key : SCALE_ANCHORS) {
-            if (!originals.containsKey(key)) {
+        for (Original original : originals) {
+            if (!SCALE_ANCHORS.contains(original.key()) || original.drawnAt() != 1.0) {
                 continue;
             }
             for (double scale = SMALLEST_SCALE; scale <= LARGEST_SCALE + 1e-9; scale += SCALE_STEP) {
-                ladder.add(variant(key, scale));
+                ladder.add(variant(original, scale));
             }
         }
         List<Future<ImageSearchResultData>> searches = new ArrayList<>();
@@ -170,20 +178,21 @@ public final class DealItemLibrary {
         // matched at the measured size alone the Weekly Card's 6 daily crystals were lost. Overlapping
         // candidates resolve to the best score, so each tile keeps whichever size fits it.
         List<Variant> sized = new ArrayList<>(variants);
-        for (String key : originals.keySet()) {
+        for (Original original : originals) {
             for (double s = scale - SCALE_STEP; s <= scale + SCALE_STEP + 1e-9; s += SCALE_STEP) {
-                sized.add(variant(key, s));
+                sized.add(variant(original, s));
             }
         }
         return search(capture, topLeft, bottomRight, sized);
     }
 
-    private Variant variant(String key, double scale) {
+    private Variant variant(Original original, double scale) {
         double rounded = Math.round(scale / SCALE_STEP) * SCALE_STEP;
-        return scaledCache.computeIfAbsent(key + "@" + Math.round(rounded * 1000), k -> {
-            BufferedImage scaled = scale(originals.get(key), rounded);
+        String cacheKey = original.key() + "@" + original.drawnAt() + "@" + Math.round(rounded * 1000);
+        return scaledCache.computeIfAbsent(cacheKey, k -> {
+            BufferedImage scaled = scale(original.image(), rounded / original.drawnAt());
             try {
-                return new Variant(key, encode(scaled), scaled.getWidth(), scaled.getHeight(), rounded);
+                return new Variant(original.key(), encode(scaled), scaled.getWidth(), scaled.getHeight(), rounded);
             } catch (IOException unencodable) {
                 throw new UncheckedIOException(unencodable);
             }

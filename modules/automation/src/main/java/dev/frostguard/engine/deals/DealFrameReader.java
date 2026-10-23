@@ -169,11 +169,19 @@ public final class DealFrameReader {
      */
     private static final byte[] BANNER_DIAMOND = load("/deals/gem-banner-diamond.png");
     private static final double BANNER_DIAMOND_MIN_SCORE = 80.0;
+    /** Lines of one wrapped title: letters within this ratio in width, starting at the same margin. */
+    private static final double TITLE_TYPE_RATIO = 1.35;
+    private static final int TITLE_LEFT_TOLERANCE = 12;
     /** Banner numbers stand about 32 px tall; tile counts about 14. */
     private static final int BANNER_MIN_HEIGHT = 24;
-    private static final int BANNER_MAX_LEFT = 200;
-    /** How far left of the banner number its diamond sits. */
+    /**
+     * How far from the banner number its diamond sits: before it on Regular Pack cards, after it on the
+     * one-pack event pages ("2,500" then the diamond, beside a sack of gems).
+     */
     private static final int BANNER_DIAMOND_REACH = 80;
+    /** How far from the diamond the banner number may run, and the half-height of its row. */
+    private static final int BANNER_NUMBER_REACH = 220;
+    private static final int BANNER_ROW_HALF_HEIGHT = 30;
     private static final ExecutorService OCR_PASSES = Executors.newFixedThreadPool(3, runnable -> {
         Thread thread = new Thread(runnable, "deal-page-ocr");
         thread.setDaemon(true);
@@ -194,7 +202,7 @@ public final class DealFrameReader {
     private static final Pattern BUY_TO_GET = Pattern.compile("(?i)buy\\s*to\\s*get");
     /** A count printed beside an icon: "x10", "x5,000", "x1". */
     private static final Pattern SIDE_COUNT = Pattern.compile("^[xX](\\d[\\d,.]*[KkMm]?)$");
-    private static final Pattern PERIOD_REMAINING = Pattern.compile("(?i)\\b(daily|weekly|monthly)\\s*remaining\\W*(\\d+)");
+    private static final Pattern PERIOD_REMAINING = Pattern.compile("(?i)\\b(daily|weekly|monthly|event)\\s*remaining\\W*(\\d+)");
     /** The count a tile read ends with, in any form {@link #QUANTITY} accepts. */
     private static final Pattern TRAILING_QUANTITY = Pattern.compile(
             "(?<![\\d.,])(\\d{1,3}(?:[.,]\\d{3})+|\\d{1,4}(?:[.,]\\d{1,2})?[KkMm]|\\d{1,7})$");
@@ -429,6 +437,12 @@ public final class DealFrameReader {
                 + slotsInRow(capture, slotRight, right, top, bottom, depth + 1);
     }
 
+    private static boolean bannerDiamond(Text text, TextLine number, int left, int right) {
+        return right > left && OpenCvPatternLocator.matchFromRawTemplate(text.capture(), BANNER_DIAMOND,
+                new PointData(left, number.top() - SAME_ROW_TOLERANCE),
+                new PointData(right, number.bottom() + SAME_ROW_TOLERANCE), BANNER_DIAMOND_MIN_SCORE).isFound();
+    }
+
     private static byte[] load(String resource) {
         try (InputStream in = DealFrameReader.class.getResourceAsStream(resource)) {
             if (in == null) {
@@ -440,20 +454,46 @@ public final class DealFrameReader {
         }
     }
 
-    /** The gems a card's banner grants: a large number at the card's left with the banner diamond beside it. */
+    /** The gems a card's banner grants: a large number with the banner diamond beside it. */
     private static Optional<DealItem> bannerGems(Text text, int top, int bottom) {
         // Words, not lines: the line pass reads the diamond into the number ("* 2500").
-        return text.whiteWords().stream()
+        Optional<DealItem> fromWords = text.whiteWords().stream()
                 .filter(l -> l.top() >= top && l.bottom() <= bottom)
-                .filter(l -> l.height() >= BANNER_MIN_HEIGHT && l.left() <= BANNER_MAX_LEFT)
+                .filter(l -> l.height() >= BANNER_MIN_HEIGHT)
                 .filter(l -> QUANTITY.matcher(clean(l.text()).replace(" ", "")).matches())
-                .filter(l -> OpenCvPatternLocator.matchFromRawTemplate(text.capture(), BANNER_DIAMOND,
-                        new PointData(Math.max(0, l.left() - BANNER_DIAMOND_REACH), l.top() - SAME_ROW_TOLERANCE),
-                        new PointData(l.left(), l.bottom() + SAME_ROW_TOLERANCE), BANNER_DIAMOND_MIN_SCORE).isFound())
+                .filter(l -> bannerDiamond(text, l, Math.max(0, l.left() - BANNER_DIAMOND_REACH), l.left())
+                        || bannerDiamond(text, l, l.left() + l.width(),
+                                Math.min(FRAME_BOTTOM_RIGHT.getX(), l.left() + l.width() + BANNER_DIAMOND_REACH)))
                 .map(l -> parseQuantity(clean(l.text()).replace(" ", "")))
                 .filter(Objects::nonNull)
                 .findFirst()
                 .map(gems -> new DealItem(DealPriceTracker.GEMS, gems, "banner"));
+        return fromWords.isPresent() ? fromWords : bannerBesideDiamond(text, top, bottom);
+    }
+
+    /**
+     * The banner read glyph by glyph either side of its diamond. The page-wide word pass returns nothing for
+     * the "2,500" of the one-pack event pages (Chief Gear Enhancement Special, 2026-10-22), and OCR of a crop
+     * read it as 2900; an uncertain banner is left out.
+     */
+    private static Optional<DealItem> bannerBesideDiamond(Text text, int top, int bottom) {
+        ImageSearchResultData diamond = OpenCvPatternLocator.matchFromRawTemplate(text.capture(), BANNER_DIAMOND,
+                new PointData(0, top), new PointData(FRAME_BOTTOM_RIGHT.getX(), bottom), BANNER_DIAMOND_MIN_SCORE);
+        if (!diamond.isFound()) {
+            return Optional.empty();
+        }
+        BufferedImage image = ImageConverter.toBufferedImage(text.capture());
+        int half = diamond.getMatchWidth() / 2;
+        int rowTop = diamond.getY() - BANNER_ROW_HALF_HEIGHT;
+        for (int[] span : List.of(new int[] {diamond.getX() - half - BANNER_NUMBER_REACH, diamond.getX() - half},
+                new int[] {diamond.getX() + half, diamond.getX() + half + BANNER_NUMBER_REACH})) {
+            Optional<Long> gems = TileCountReader.readRegion(image, span[0], rowTop, span[1] - span[0],
+                    2 * BANNER_ROW_HALF_HEIGHT, 1).map(DealFrameReader::parseQuantity);
+            if (gems.isPresent()) {
+                return Optional.of(new DealItem(DealPriceTracker.GEMS, gems.get(), "banner"));
+            }
+        }
+        return Optional.empty();
     }
 
     private Optional<DealOffer> unpricedOffer(Text text, TextLine pageTitleLine, String surface, String tab,
@@ -487,12 +527,52 @@ public final class DealFrameReader {
         return oneRow && last.x() + last.width() >= CLIPPED_TILE_MIN_RIGHT ? last.y() + last.height() / 2 : null;
     }
 
+    private static double letterWidth(TextLine line) {
+        return (double) line.width() / Math.max(1, line.text().replace(" ", "").length());
+    }
+
     private static TextLine pageTitle(List<TextLine> lines, boolean tabbed) {
         int top = tabbed ? TAB_STRIP_BOTTOM : PAGE_TITLE_TOP;
-        return lines.stream()
+        List<TextLine> candidates = lines.stream()
                 .filter(l -> l.top() >= top && l.bottom() <= PAGE_TITLE_BOTTOM && isTitleText(cleanTitle(l.text())))
-                .max(Comparator.comparingInt(TextLine::height))
-                .orElse(null);
+                .toList();
+        TextLine tallest = candidates.stream().max(Comparator.comparingInt(TextLine::height)).orElse(null);
+        if (tallest == null) {
+            return null;
+        }
+        // A long title wraps: "Exclusive Gear Enhancement" over "Special" on 2026-10-22, where the second
+        // line alone became the title. Lines in the same type directly above or below belong to it. Type size
+        // is judged by width per letter (21 and 19 px for those two lines, 11 for the subtitle under them):
+        // the measured line heights were 33 and 44, because "Special" descends.
+        List<TextLine> title = new ArrayList<>(List.of(tallest));
+        double letterWidth = letterWidth(tallest);
+        boolean grew = true;
+        while (grew) {
+            grew = false;
+            for (TextLine line : candidates) {
+                double ratio = letterWidth(line) / letterWidth;
+                if (title.contains(line) || ratio < 1 / TITLE_TYPE_RATIO || ratio > TITLE_TYPE_RATIO
+                        || Math.abs(line.left() - tallest.left()) > TITLE_LEFT_TOLERANCE) {
+                    continue;
+                }
+                boolean stacked = title.stream().anyMatch(t -> Math.abs(line.top() - t.bottom()) <= tallest.height() / 2
+                        || Math.abs(t.top() - line.bottom()) <= tallest.height() / 2);
+                if (stacked) {
+                    title.add(line);
+                    grew = true;
+                }
+            }
+        }
+        if (title.size() == 1) {
+            return tallest;
+        }
+        title.sort(Comparator.comparingInt(TextLine::top));
+        TextLine first = title.get(0);
+        TextLine last = title.get(title.size() - 1);
+        int left = title.stream().mapToInt(TextLine::left).min().orElse(first.left());
+        int right = title.stream().mapToInt(l -> l.left() + l.width()).max().orElse(first.left() + first.width());
+        return new TextLine(title.stream().map(TextLine::text).collect(Collectors.joining(" ")), left, first.top(),
+                right - left, last.bottom() - first.top(), first.confidence());
     }
 
     private static TextLine cardTitle(List<TextLine> lines, int windowTop, PriceButtonLocator.Box button) {
@@ -794,7 +874,13 @@ public final class DealFrameReader {
                 // clipped 4,800 was kept as 77. The tile is read again once scrolling brings it whole.
                 continue;
             }
-            Optional<Long> quantity = agreedQuantity(image, text, rowWords, match);
+            // A tile reaching the card's inner edge may be cut by it. Only the glyph read is taken there: it
+            // rejects a part-hidden digit, where OCR read a cut 130 as 134. A wholly hidden last digit reads
+            // short ("24" of 240) and gives way to the whole read once the row is swiped.
+            boolean atEdge = match.x() + match.width() >= CLIPPED_TILE_MIN_RIGHT;
+            Optional<Long> quantity = atEdge
+                    ? TileCountReader.read(image, match.x(), match.y(), match.scale()).map(DealFrameReader::parseQuantity)
+                    : agreedQuantity(image, text, rowWords, match);
             if (quantity.isEmpty() && sideCounts) {
                 quantity = sideCount(text.whiteWords(), match);
             }

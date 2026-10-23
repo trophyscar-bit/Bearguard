@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -64,6 +65,30 @@ public final class DealsStore {
     /** {@code {"1h Speedup": 0.35}} -- dollars per unit, written by the operator. */
     public Path itemValuesFile() {
         return root.resolve("item-values.json");
+    }
+
+    /**
+     * Moves an earlier run's scan, frames and report for {@code day} aside, so a second run that day never
+     * overwrites them unseen: on 2026-10-22 a 22:22 re-run replaced the 18:22 scan. Kept beside the
+     * originals as {@code <day>-superseded-<time>}; names that are not a date are ignored by {@link #readSince}.
+     *
+     * @return the paths that were moved, for the log
+     */
+    public List<Path> supersede(LocalDate day, LocalTime at) throws IOException {
+        String suffix = "-superseded-" + at.withNano(0).toString().replace(":", "");
+        List<Path> moved = new ArrayList<>();
+        for (Path original : List.of(scansDir().resolve(day + ".json"), frameDir(day),
+                root.resolve("reports").resolve(day + ".json"))) {
+            if (!Files.exists(original)) {
+                continue;
+            }
+            String name = original.getFileName().toString();
+            String target = name.endsWith(".json")
+                    ? name.substring(0, name.length() - ".json".length()) + suffix + ".json"
+                    : name + suffix;
+            moved.add(Files.move(original, original.resolveSibling(target)));
+        }
+        return moved;
     }
 
     public void write(LocalDate day, DealScan scan) throws IOException {

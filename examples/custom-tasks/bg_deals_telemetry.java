@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -93,7 +94,6 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final String FIRE_CRYSTAL = "Fire Crystal";
     /** Materials that only chief gear uses; a pack holding any of them belongs in the chief gear section. */
     private static final Set<String> CHIEF_GEAR_ITEMS = Set.of("Hardened Alloy", "Polishing Solution", "Design Plans");
-    private static final Pattern CHIEF_GEAR_TITLE = Pattern.compile("(?i)chief\\s*gear|gear\\s*(enhancement|empowerment)");
     /** Bands for dollars per crystal, against the cheapest crystal of the same day. */
     private static final double FC_GOOD_RATIO = 1.15;
     private static final double FC_OK_RATIO = 1.60;
@@ -113,6 +113,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private static final int MAX_TABS_PER_PANEL = 40;
     private static final int MAX_STRIP_SWIPES = 20;
+    /** A part-shown tab at the strip's end narrower than this has no readable label. */
+    private static final int PARTIAL_TAB_MIN_WIDTH = 90;
+    private static final int PARTIAL_TAB_MIN_LETTERS = 5;
     /** Safety ceiling only: a page now ends when swiping stops finding offers, not at a fixed count. */
     private static final int MAX_PAGE_SCROLLS = 25;
     private static final int MAX_POPUP_SCROLLS = 10;
@@ -233,6 +236,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         store = DealsStore.forWorkspace(WorkspacePaths.current().root());
         frameDir = store.frameDir(day);
         try {
+            for (Path moved : store.supersede(day, LocalTime.now())) {
+                logInfo("bg_deals_telemetry | An earlier scan today was kept as " + moved.getFileName() + ".");
+            }
             Files.createDirectories(frameDir);
             DealItemLibrary library = DealItemLibrary.load(store.itemIconsDir());
             if (library.size() == 0) {
@@ -460,7 +466,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     .filter(o -> o.priceUsd() == null || o.items().isEmpty())
                     .count());
             row.put("fullyScrolled", problems.stream()
-                    .noneMatch(problem -> problem.startsWith(surface + " ") && problem.contains("still scrolling")));
+                    .noneMatch(problem -> (problem.startsWith(surface + " ") || problem.startsWith(surface + ":"))
+                            && (problem.contains("still scrolling") || problem.contains("strip end not reached")
+                                    || problem.contains("not visited"))));
             rows.add(row);
         }
         return rows;
@@ -499,19 +507,17 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         return offer.tab() == null || offer.tab().isBlank() ? offer.surface() : offer.surface() + " > " + offer.tab();
     }
 
-    /** The limit the way the shop states it: "1/week", "5/day", "1/lifetime". */
+    /** The limit worded as the card prints it: "Daily Limit: 5", "Weekly Remaining: 1", "Event Remaining: 1". */
     private static String limitAsShown(DealOffer offer) {
-        if (offer.limitPeriod() == null) {
-            return null;
+        String period = offer.limitPeriod() == null ? ""
+                : Character.toUpperCase(offer.limitPeriod().charAt(0)) + offer.limitPeriod().substring(1) + " ";
+        if (offer.limitCount() != null) {
+            return period + "Limit: " + offer.limitCount();
         }
-        String unit = switch (offer.limitPeriod()) {
-            case "daily" -> "day";
-            case "weekly" -> "week";
-            case "monthly" -> "month";
-            default -> offer.limitPeriod();
-        };
-        Integer count = offer.limitCount() != null ? offer.limitCount() : offer.remaining();
-        return count == null ? "per " + unit : count + "/" + unit;
+        if (offer.remaining() != null) {
+            return period + "Remaining: " + offer.remaining();
+        }
+        return period.isEmpty() ? null : period + "Limit";
     }
 
     private static Map<String, Object> cardTerms(DealOffer offer) {
@@ -536,9 +542,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         List<Map<String, Object>> packs = new ArrayList<>();
         for (DealScoring.ScoredOffer scored : today) {
             DealOffer offer = scored.offer();
-            boolean gear = offer.items().stream().anyMatch(i -> CHIEF_GEAR_ITEMS.contains(i.key()))
-                    || CHIEF_GEAR_TITLE.matcher(offer.title() == null ? "" : offer.title()).find();
-            if (!gear) {
+            // By what the pack holds, not its title: "Exclusive Gear Enhancement Special" is hero gear, and
+            // a top-up milestone holding alloy has no price and is not a pack.
+            boolean gear = offer.items().stream().anyMatch(i -> CHIEF_GEAR_ITEMS.contains(i.key()));
+            if (!gear || offer.priceUsd() == null) {
                 continue;
             }
             List<Map<String, Object>> items = offer.items().stream()
@@ -771,49 +778,107 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      */
     private void surveyTabbedPanel(String surface) {
         Set<String> visited = new HashSet<>();
-        Set<String> seen = new HashSet<>();
+        Set<String> seen = new LinkedHashSet<>();
         String opening = surveyPage(surface, null, MAX_PAGE_SCROLLS, true);
         if (opening != null) {
             visited.add(tabKey(opening));
             seen.add(tabKey(opening));
         }
         int surveyed = 0;
-        int strips = 0;
-        while (strips++ < MAX_STRIP_SWIPES && surveyed < MAX_TABS_PER_PANEL) {
+        int swipes = 0;
+        int stillSwipes = 0;
+        Set<Integer> tappedHere = new HashSet<>();
+        while (swipes < MAX_STRIP_SWIPES && surveyed < MAX_TABS_PER_PANEL) {
+            // The strip is read again after every visit: tapping a tab near the edge scrolls the strip, and
+            // positions from the earlier capture then point at other tabs.
             RawImageData strip = capture();
             BufferedImage image = ImageConverter.toBufferedImage(strip);
+            TabStripCells.Cell next = null;
+            String nextLabel = "";
             for (TabStripCells.Cell cell : TabStripCells.locate(image)) {
-                String seenLabel = tabLabel(strip, cell);
-                if (!seenLabel.isEmpty()) {
-                    seen.add(tabKey(seenLabel));
+                String label = tabLabel(strip, cell);
+                if (!label.isEmpty()) {
+                    seen.add(tabKey(label));
                 }
-                if (TabStripCells.isSelected(image, cell)) {
-                    continue;
+                boolean done = TabStripCells.isSelected(image, cell)
+                        || !label.isEmpty() && visited.contains(tabKey(label))
+                        || label.isEmpty() && tappedHere.contains(cell.centre());
+                if (next == null && !done) {
+                    next = cell;
+                    nextLabel = label;
                 }
-                String label = seenLabel;
-                if (!label.isEmpty() && visited.contains(tabKey(label))) {
-                    continue;
-                }
-                tapNear(new PointData(cell.centre(), TAB_TAP_Y));
+            }
+            seen.addAll(partialTabLabels(strip, image));
+            if (next != null) {
+                tappedHere.add(next.centre());
+                tapNear(new PointData(next.centre(), TAB_TAP_Y));
                 sleepTask(TAB_SETTLE_MS);
-                String title = surveyPage(surface, label.isEmpty() ? null : label, MAX_PAGE_SCROLLS, true);
-                visited.add(tabKey(label.isEmpty() && title != null ? title : label));
+                String title = surveyPage(surface, nextLabel.isEmpty() ? null : nextLabel, MAX_PAGE_SCROLLS, true);
+                String key = tabKey(nextLabel.isEmpty() && title != null ? title : nextLabel);
+                visited.add(key);
+                seen.add(key);
                 surveyed++;
+                continue;
             }
             RawImageData before = capture();
             swipe(STRIP_SWIPE_FROM, STRIP_SWIPE_TO, SWIPE_MS);
+            swipes++;
             sleepTask(SCROLL_SETTLE_MS);
+            tappedHere.clear();
+            // One still swipe has ended the survey early: on 2026-10-22 the strip stopped at Daily Deals with
+            // Weekly/Monthly Cards and Regular Pack still to its right. The end is two still swipes in a row.
             if (meanDiff(before, capture(), STRIP_REGION) < STILL_MEAN_DIFF) {
-                break;
+                if (++stillSwipes >= 2) {
+                    break;
+                }
+            } else {
+                stillSwipes = 0;
             }
         }
-        int found = Math.max(seen.size(), surveyed + 1);
-        recordCoverage(surface, true, found, visited.size(), null);
+        seen.remove("");
+        // A part-shown tab reads as the start of its name ("weeklymonthl"); it is the visited tab it begins.
+        Set<String> missed = new LinkedHashSet<>();
+        for (String tab : seen) {
+            if (visited.stream().noneMatch(v -> v.startsWith(tab) || tab.startsWith(v))) {
+                missed.add(tab);
+            }
+        }
+        boolean reachedEnd = stillSwipes >= 2;
+        recordCoverage(surface, true, seen.size(), visited.size(),
+                reachedEnd && missed.isEmpty() ? null
+                        : (reachedEnd ? "" : "strip end not reached; ") + (missed.isEmpty() ? ""
+                                : "tabs seen but not visited: " + String.join(", ", missed)));
         logInfo("bg_deals_telemetry | " + surface + ": " + surveyed + " tab(s) surveyed after the opening tab, "
-                + found + " seen in the strip.");
+                + seen.size() + " seen in the strip" + (reachedEnd ? "" : ", strip end NOT reached")
+                + (missed.isEmpty() ? "." : "; not visited: " + missed + "."));
+        if (!missed.isEmpty() || !reachedEnd) {
+            problems.add(surface + ": " + (reachedEnd ? "" : "strip end not reached; ")
+                    + (missed.isEmpty() ? "" : "tabs seen but not visited: " + missed));
+        }
         if (surveyed == 0) {
             problems.add(surface + ": no other tabs were found; only the opening tab was surveyed.");
         }
+    }
+
+    /** Labels of tabs the strip shows only in part at either end; they count as seen, not visited. */
+    private List<String> partialTabLabels(RawImageData strip, BufferedImage image) {
+        List<TabStripCells.Cell> cells = TabStripCells.locate(image);
+        List<String> labels = new ArrayList<>();
+        if (cells.isEmpty()) {
+            return labels;
+        }
+        int leftEdge = cells.stream().mapToInt(TabStripCells.Cell::left).min().orElse(0);
+        int rightEdge = cells.stream().mapToInt(TabStripCells.Cell::right).max().orElse(image.getWidth());
+        for (int[] span : List.of(new int[] {STRIP_REGION[0], leftEdge}, new int[] {rightEdge, STRIP_REGION[2]})) {
+            if (span[1] - span[0] < PARTIAL_TAB_MIN_WIDTH) {
+                continue;
+            }
+            String label = tabLabel(strip, new TabStripCells.Cell(span[0], span[1]));
+            if (label.chars().filter(Character::isLetter).count() >= PARTIAL_TAB_MIN_LETTERS) {
+                labels.add(tabKey(label));
+            }
+        }
+        return labels;
     }
 
     /** One row per surface the scan knows about, so a surface that vanishes reads as unvisited. */
