@@ -150,6 +150,12 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final PointData POPUP_SWIPE_TO = new PointData(360, 600);
     private static final int ROW_SWIPE_FROM_X = 560;
     private static final int ROW_SWIPE_TO_X = 140;
+    /** A card's item row on a page of several cards lies left of its price button (x about 470). */
+    private static final int CARD_ROW_SWIPE_FROM_X = 400;
+    private static final int CARD_ROW_SWIPE_TO_X = 70;
+    private static final int CARD_ROW_LEFT = 30;
+    private static final int CARD_ROW_RIGHT = 460;
+    private static final int CARD_ROW_HALF_HEIGHT = 45;
     private static final int SWIPE_MS = 800;
 
     /** Countdown timers sit above y 450; comparing below them makes "nothing moved" measurable. */
@@ -1001,6 +1007,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             if (page.offers().size() == 1 && page.clippedTileRowY() != null) {
                 frame = swipeTileRow(frame, surface, tab, tabbed, page.clippedTileRowY());
             }
+            for (int rowY : page.cardRowYs()) {
+                frame = swipeCardRow(frame, surface, tab, tabbed, rowY);
+            }
             swipe(tabbed ? PANEL_SWIPE_FROM : POPUP_SWIPE_FROM, tabbed ? PANEL_SWIPE_TO : POPUP_SWIPE_TO, SWIPE_MS);
             sleepTask(SCROLL_SETTLE_MS);
             RawImageData next = capture();
@@ -1029,6 +1038,28 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             sleepTask(SCROLL_SETTLE_MS);
             RawImageData next = capture();
             if (meanDiff(current, next, CONTENT_REGION) < STILL_MEAN_DIFF) {
+                break;
+            }
+            current = next;
+            readAndCollect(current, surface, tab, tabbed);
+        }
+        return current;
+    }
+
+    /**
+     * A card's item row on a page of several cards, swiped sideways to its end and read at each stop. The
+     * Chief Gear Tool Pack shows four of its items before its button; the rest were never read. Only the
+     * row's own band is compared, since one row moving barely changes the whole page.
+     */
+    private RawImageData swipeCardRow(RawImageData frame, String surface, String tab, boolean tabbed, int rowY) {
+        int[] band = {CARD_ROW_LEFT, Math.max(0, rowY - CARD_ROW_HALF_HEIGHT), CARD_ROW_RIGHT,
+                rowY + CARD_ROW_HALF_HEIGHT};
+        RawImageData current = frame;
+        for (int swipes = 0; swipes < MAX_ROW_SWIPES; swipes++) {
+            swipe(new PointData(CARD_ROW_SWIPE_FROM_X, rowY), new PointData(CARD_ROW_SWIPE_TO_X, rowY), SWIPE_MS);
+            sleepTask(SCROLL_SETTLE_MS);
+            RawImageData next = capture();
+            if (meanDiff(current, next, band) < STILL_MEAN_DIFF) {
                 break;
             }
             current = next;

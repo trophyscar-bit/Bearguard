@@ -70,9 +70,12 @@ public final class DealFrameReader {
      *                        edge, meaning more tiles are hidden to the right; {@code null} otherwise
      * @param chooseYourOwn   the frame shows a choose-your-own page; it yields no offers, and callers
      *                        should drop what they already collected from the same tab
+     * @param cardRowYs       centre y of each tile row on a page of several cards that leaves room before
+     *                        its card's button for a tile hidden off the row's end; swiping it sideways
+     *                        may show more items
      */
     public record Page(String title, List<DealOffer> offers, List<String> problems, Integer clippedTileRowY,
-            boolean chooseYourOwn) {
+            boolean chooseYourOwn, List<Integer> cardRowYs) {
     }
 
     private record Text(List<TextLine> plainLines, List<TextLine> whiteLines, List<TextLine> whiteWords,
@@ -146,6 +149,17 @@ public final class DealFrameReader {
     private static final int SAME_ROW_TOLERANCE = 20;
     /** A row whose last tile ends past this x is cut off by the card edge (inner edge ~640). */
     private static final int CLIPPED_TILE_MIN_RIGHT = 620;
+    /**
+     * Room between a card row's last whole tile and its button's centre that holds a part-shown tile. Measured
+     * to the centre because a grey button is found by its price text alone: on 2026-10-22 the Regular Pack
+     * rows, which run on past the button, left 160 px; the complete rows of the Leap Pack grid 109.
+     */
+    private static final int HIDDEN_TILE_ROOM = 135;
+    /** Grey button fill beside its price text. */
+    private static final int GREY_SAMPLE_OFFSET = 10;
+    private static final float GREY_MAX_SATURATION = 0.15f;
+    private static final float GREY_MIN_BRIGHTNESS = 0.35f;
+    private static final float GREY_MAX_BRIGHTNESS = 0.80f;
 
     /**
      * The plus sign inside a choose-your-own slot, cropped to the glyph so the card's silver, gold or red
@@ -250,7 +264,7 @@ public final class DealFrameReader {
                             b.priceUsd(), String.format(Locale.US, "$%.2f", b.priceUsd()), null, false,
                             List.of(new DealItem(DealPriceTracker.GEMS, b.gems(), "gem store")), frame, null))
                     .toList();
-            return new Page("Get Gems", bundles, problems, null, false);
+            return new Page("Get Gems", bundles, problems, null, false, List.of());
         }
         BufferedImage image = ImageConverter.toBufferedImage(capture);
         Text text = readText(capture, image, surface, tab, problems)
@@ -259,7 +273,7 @@ public final class DealFrameReader {
                 .filter(button -> !isActionButton(text.whiteWords(), button))
                 .toList();
         List<PriceButtonLocator.Box> buttons = Stream.concat(coloured.stream(),
-                        printedPriceButtons(text.whiteLines(), coloured).stream())
+                        printedPriceButtons(text.whiteLines(), text.whiteWords(), image, coloured).stream())
                 .sorted(Comparator.comparingInt(PriceButtonLocator.Box::y).thenComparingInt(PriceButtonLocator.Box::x))
                 .toList();
 
@@ -269,12 +283,13 @@ public final class DealFrameReader {
         }
         String pageTitle = pageTitleLine == null ? tab : cleanTitle(pageTitleLine.text());
         if (isChooseYourOwn(capture, FRAME_TOP_LEFT.getY(), FRAME_BOTTOM_RIGHT.getY(), 0)) {
-            return new Page(pageTitle, List.of(), problems, null, true);
+            return new Page(pageTitle, List.of(), problems, null, true, List.of());
         }
         List<TextLine> allLines = Stream.concat(text.plainLines().stream(), text.whiteLines().stream()).toList();
         String pageLimit = pageLimit(allLines, buttons);
         List<DealOffer> offers = new ArrayList<>();
         List<DealItemLibrary.Match> tiles = new ArrayList<>();
+        List<Integer> cardRowYs = new ArrayList<>();
 
         int windowTop = FRAME_TOP_LEFT.getY();
         int previousButtonBottom = FRAME_TOP_LEFT.getY();
@@ -315,10 +330,14 @@ public final class DealFrameReader {
                 }
             } else {
                 bannerGems(text, cardTop, bottom).ifPresent(items::add);
+                int firstTile = tiles.size();
                 iconItems(text, cardTop, bottom, tiles).stream()
                         .filter(i -> items.stream().noneMatch(b -> b.key().equals(i.key())))
                         .forEach(items::add);
                 items.addAll(listedItems(text.whiteLines(), top, bottom));
+                if (buttons.size() > 1) {
+                    cardRowYs.addAll(rowsWithRoomForMore(tiles.subList(firstTile, tiles.size()), button));
+                }
             }
             Integer remaining = remaining(window, button);
             String cardLimit = cardLimit(window, button);
@@ -355,7 +374,8 @@ public final class DealFrameReader {
         if (buttons.isEmpty()) {
             unpricedOffer(text, pageTitleLine, surface, tab, pageTitle, frame).ifPresent(offers::add);
         }
-        return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null, false);
+        return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null, false,
+                cardRowYs);
     }
 
     private static Text readText(RawImageData capture, BufferedImage image, String surface, String tab,
@@ -516,6 +536,29 @@ public final class DealFrameReader {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Tile rows of one card whose last tile ends well before the card's button. Regular Pack cards show four
+     * tiles and part of a fifth before the button; the rest of the pack's items lie off the row's end.
+     */
+    private static List<Integer> rowsWithRoomForMore(List<DealItemLibrary.Match> cardTiles,
+            PriceButtonLocator.Box button) {
+        Map<Integer, List<DealItemLibrary.Match>> rows = new LinkedHashMap<>();
+        for (DealItemLibrary.Match tile : cardTiles) {
+            Integer row = rows.keySet().stream().filter(y -> Math.abs(y - tile.y()) <= SAME_ROW_TOLERANCE)
+                    .findFirst().orElse(tile.y());
+            rows.computeIfAbsent(row, y -> new ArrayList<>()).add(tile);
+        }
+        List<Integer> ys = new ArrayList<>();
+        for (List<DealItemLibrary.Match> row : rows.values()) {
+            int right = row.stream().mapToInt(m -> m.x() + m.width()).max().orElseThrow();
+            int buttonCentre = button.x() + button.width() / 2;
+            if (row.size() >= 2 && right < button.x() && buttonCentre - right >= HIDDEN_TILE_ROOM) {
+                ys.add(row.get(0).y() + row.get(0).height() / 2);
+            }
+        }
+        return ys;
     }
 
     private static Integer clippedRow(List<DealItemLibrary.Match> tiles) {
@@ -804,15 +847,21 @@ public final class DealFrameReader {
      * $9.99 offer was never read. Its white price text was read, though. A printed price well clear of every
      * detected button stands in for the button, sized around the text.
      */
+    /**
+     * Buttons found by their printed white price. A word is taken only on a grey button: the line pass joined
+     * the grey "$4.99" of a bought Leap Pack to the tile counts beside it and the card went unread, while
+     * words elsewhere include the Daily Deals "Purchase All" price, which is not a pack of its own.
+     */
     private static List<PriceButtonLocator.Box> printedPriceButtons(List<TextLine> whiteLines,
-            List<PriceButtonLocator.Box> detected) {
+            List<TextLine> whiteWords, BufferedImage image, List<PriceButtonLocator.Box> detected) {
+        List<TextLine> greyWords = whiteWords.stream().filter(word -> onGreyButton(image, word)).toList();
         List<PriceButtonLocator.Box> printed = new ArrayList<>();
-        for (TextLine line : whiteLines) {
+        for (TextLine line : Stream.concat(whiteLines.stream(), greyWords.stream()).toList()) {
             String compact = clean(line.text()).replace(" ", "");
             if (!PRICE_ONLY.matcher(compact).matches() || line.top() < CARD_TITLE_MIN_TOP) {
                 continue;
             }
-            boolean nearButton = detected.stream().anyMatch(b ->
+            boolean nearButton = Stream.concat(detected.stream(), printed.stream()).anyMatch(b ->
                     centreX(line) >= b.x() - PRINTED_PRICE_CLEARANCE && centreX(line) <= b.right() + PRINTED_PRICE_CLEARANCE
                             && centreY(line) >= b.y() - PRINTED_PRICE_CLEARANCE
                             && centreY(line) <= b.bottom() + PRINTED_PRICE_CLEARANCE);
@@ -823,6 +872,24 @@ public final class DealFrameReader {
             }
         }
         return printed;
+    }
+
+    /** Grey behind a word: the button of a pack that was bought or is not yet open. */
+    private static boolean onGreyButton(BufferedImage image, TextLine word) {
+        int[] xs = {word.left() - GREY_SAMPLE_OFFSET, word.left() + word.width() + GREY_SAMPLE_OFFSET};
+        int y = word.top() + word.height() / 2;
+        float[] hsb = new float[3];
+        for (int x : xs) {
+            if (x < 0 || x >= image.getWidth() || y < 0 || y >= image.getHeight()) {
+                return false;
+            }
+            int rgb = image.getRGB(x, y);
+            java.awt.Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, hsb);
+            if (hsb[1] > GREY_MAX_SATURATION || hsb[2] < GREY_MIN_BRIGHTNESS || hsb[2] > GREY_MAX_BRIGHTNESS) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String cardLimit(List<TextLine> window, PriceButtonLocator.Box button) {

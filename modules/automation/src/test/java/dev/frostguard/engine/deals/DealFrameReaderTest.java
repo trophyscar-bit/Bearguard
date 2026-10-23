@@ -287,6 +287,7 @@ class DealFrameReaderTest {
         assertEquals(25L, enhancementItems.get("100 VIP XP"), enhancementItems.toString());
         assertEquals("daily", enhancement.limitPeriod());
         assertEquals(5, enhancement.limitCount());
+        assertEquals(3, page.cardRowYs().size(), "each card's row runs past its button: " + page.cardRowYs());
 
         // Items keep the card's left-to-right order; an unread tile is skipped, never moved.
         assertInCardOrder(tool, List.of("Gems", "Polishing Solution", "Hardened Alloy", "100 VIP XP", "10K Meat"));
@@ -342,6 +343,12 @@ class DealFrameReaderTest {
         assertEquals(List.of("Gems=5000", "Fire Crystal=50", "1h Speedup=30", "5min Speedup=480",
                 "100 VIP XP=40", "10K Meat=1000", "10K Wood=1000", "10K Coal=200", "10K Iron=50"),
                 named(offerPriced(page, 9.99)));
+        assertEquals(List.of("Gems=2500", "Fire Crystal=25", "1h Speedup=15", "5min Speedup=240",
+                "100 VIP XP=25", "10K Meat=500", "10K Wood=500", "10K Coal=100", "10K Iron=25", "Supply Crate=1"),
+                named(offerPriced(page, 4.99)), "the bought pack's grey button still prices its card");
+        // Rows are complete; only the two ending in a chest with no icon yet look short, and swiping them
+        // does nothing but cost a capture.
+        assertEquals(List.of(560, 1166), page.cardRowYs());
     }
 
     @Test
