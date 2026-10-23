@@ -197,6 +197,14 @@ class DealFrameReaderTest {
         assertEquals("lifetime", pack3.limitPeriod());
     }
 
+    @Test
+    void keepsThePackNumberInTheCardTitle() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-leap-packs-3-4-5.png", "Fire Crystal Leap Pack");
+
+        assertEquals("Fire Crystal Leap Pack 3", offerPriced(page, 19.99).title());
+        assertEquals("Fire Crystal Leap Pack 4", offerPriced(page, 49.99).title());
+    }
+
     /**
      * Pack 5's tile row runs off the bottom of the frame. Its 5-minute speedups are printed 4,800; on
      * 2026-10-22 the clipped quantity was kept as 77. A wrong number is worse than a missing one.
@@ -210,6 +218,75 @@ class DealFrameReaderTest {
                 .filter(i -> i.key().equals("5min Speedup"))
                 .forEach(i -> assertTrue(Set.of(960L, 2_400L, 4_800L).contains(i.quantity()),
                         "5min Speedup x" + i.quantity() + " is not printed anywhere on this frame"));
+    }
+
+    /** "Buy to get" x10 plus 6 a day for "Valid: 7 day(s)": 52 crystals, not the 6 one tile shows. */
+    @Test
+    void totalsACardsCrystalsOverItsValidity() throws Exception {
+        DealOffer weekly = offerPriced(read("gem-shop-weekly-monthly-cards.png", "Weekly/Monthly Cards"), 4.99);
+
+        // Never a partial total: either all 52 crystals, or no total at all.
+        assertTrue(weekly.items().isEmpty() || Long.valueOf(52L).equals(quantities(weekly).get("Fire Crystal")),
+                weekly.items().toString());
+        assertEquals(7, weekly.card().validDays());
+    }
+
+    /** "x5,000" gems on purchase plus 300 a day for "Valid: 30 day(s)": 14,000 gems in all. */
+    @Test
+    void totalsAMonthlyCardsGemsOverThirtyDays() throws Exception {
+        DealOffer monthly = offerPriced(read("gem-shop-weekly-monthly-cards.png", "Weekly/Monthly Cards"), 9.99);
+
+        assertEquals(30, monthly.card().validDays(), String.valueOf(monthly.card()));
+        assertTrue(monthly.items().isEmpty() || Long.valueOf(14_000L).equals(quantities(monthly).get("Gems")),
+                "a partial total is wrong, not incomplete: " + monthly.items());
+    }
+
+    @Test
+    void recordsTheLimitCountPrintedUnderEachTier() throws Exception {
+        DealOffer pack3 = offerPriced(read("gem-shop-leap-packs-3-4-5.png", "Fire Crystal Leap Pack"), 19.99);
+
+        assertEquals("lifetime", pack3.limitPeriod());
+        assertEquals(1, pack3.limitCount());
+    }
+
+    /** The Value Pack prints "Event Remaining: 1" and a countdown under its title. */
+    @Test
+    void recordsWhatIsLeftOfALimitedOfferAndItsCountdown() throws Exception {
+        DealOffer value = offerPriced(read("gem-shop-fire-crystal-value-pack.png", "Fire Crystal Energy"), 4.99);
+
+        assertEquals(1, value.remaining());
+        assertTrue(value.timeLeft() != null && value.timeLeft().matches("\\d+d\\s*\\d{2}:\\d{2}:\\d{2}"),
+                "countdown: " + value.timeLeft());
+        assertEquals(30L, quantities(value).get("Fire Crystal"), value.items().toString());
+    }
+
+    /** Read by eye from the Regular Pack tab of 2026-10-22: both chief gear packs, every item and limit. */
+    @Test
+    void readsTheChiefGearPacksItemsAndLimits() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-chief-gear-packs.png", "Regular Pack");
+        DealOffer tool = page.offers().stream().filter(o -> o.title().equals("Chief Gear Tool Pack")).findFirst()
+                .orElseThrow(() -> new AssertionError(page.offers().toString()));
+        DealOffer enhancement = page.offers().stream().filter(o -> o.title().equals("Chief Gear Enhancement"))
+                .findFirst().orElseThrow(() -> new AssertionError(page.offers().toString()));
+
+        Map<String, Long> toolItems = quantities(tool);
+        assertEquals(4.99, tool.priceUsd(), 1e-9);
+        assertEquals(1_500L, toolItems.get("Hardened Alloy"), toolItems.toString());
+        // The purple Polishing Solution tile defeats every read measured so far; unknown, never a guess.
+        assertTrue(toolItems.get("Polishing Solution") == null || toolItems.get("Polishing Solution") == 15L,
+                toolItems.toString());
+        assertEquals("weekly", tool.limitPeriod());
+        assertEquals(1, tool.remaining());
+
+        Map<String, Long> enhancementItems = quantities(enhancement);
+        assertTrue(enhancementItems.get("Hardened Alloy") == null || enhancementItems.get("Hardened Alloy") == 900L,
+                enhancementItems.toString());
+        assertTrue(enhancementItems.get("Polishing Solution") == null
+                || enhancementItems.get("Polishing Solution") == 9L, enhancementItems.toString());
+        assertEquals(20L, enhancementItems.get("Design Plans"), enhancementItems.toString());
+        assertEquals(25L, enhancementItems.get("100 VIP XP"), enhancementItems.toString());
+        assertEquals("daily", enhancement.limitPeriod());
+        assertEquals(5, enhancement.limitCount());
     }
 
     private static DealFrameReader.Page read(String name, String tab) throws Exception {

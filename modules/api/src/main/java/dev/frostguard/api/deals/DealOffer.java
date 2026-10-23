@@ -17,12 +17,24 @@ import java.util.Locale;
  * @param frame       frame file name relative to the scan's frame directory
  * @param limitPeriod how often the limit resets as printed ({@code daily}, {@code weekly},
  *                    {@code monthly}, {@code lifetime}), or {@code null} when no period was shown
+ * @param limitCount  the number printed with that limit ({@code Lifetime Limit: 1}), or {@code null}
+ * @param timeLeft    the offer's countdown as printed, e.g. {@code 2d 01:48:15}, or {@code null}
+ * @param card        for a card that pays out daily, its up-front and per-day rewards and how many days it
+ *                    runs, in which case {@code items} holds the whole-period total; {@code null} otherwise
  */
 public record DealOffer(String surface, String tab, String title, Double priceUsd, String priceText,
-        Integer remaining, boolean purchased, List<DealItem> items, String frame, String limitPeriod) {
+        Integer remaining, boolean purchased, List<DealItem> items, String frame, String limitPeriod,
+        Integer limitCount, String timeLeft, CardTerms card) {
 
     public DealOffer {
         items = items == null ? List.of() : List.copyOf(items);
+    }
+
+    /** An offer read without limit counts, countdowns or card terms, as every scan before 2026-10-22 was. */
+    public DealOffer(String surface, String tab, String title, Double priceUsd, String priceText,
+            Integer remaining, boolean purchased, List<DealItem> items, String frame, String limitPeriod) {
+        this(surface, tab, title, priceUsd, priceText, remaining, purchased, items, frame, limitPeriod,
+                null, null, null);
     }
 
     /** The same pack seen on another day: surface and title, regardless of price. */
