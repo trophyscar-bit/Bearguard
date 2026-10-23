@@ -223,6 +223,17 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         reschedule(nextRun(LocalDateTime.now()));
     }
 
+    /**
+     * No helper taps while the shop is open. On 2026-10-23 the alliance-help helper tapped where it had seen a
+     * help bubble on the city view, but the Intel Monthly Card was on screen and the tap hit a mission's
+     * Continue, which closed the Deals panel before its Epic tier was read. The scan moves through pages of
+     * price buttons; a tap aimed at another screen must never land on one.
+     */
+    @Override
+    protected boolean acceptsInjections() {
+        return false;
+    }
+
     @Override
     protected Object getDistinctKey() {
         return "bg_deals_telemetry";
@@ -290,8 +301,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             logWarning("bg_deals_telemetry | Scan finished with no offers read; the scan file records it as a failure.");
         }
         try {
-            collection.foldFallbackTitles();
-            collection.foldNoisyTitles();
+            collection.settle();
             problems.addAll(collection.problems());
             store.write(day, new DealScan(LocalDateTime.now().toString(), new ArrayList<>(offers.values()), problems));
             logInfo("bg_deals_telemetry | Wrote " + offers.size() + " offer(s) and " + problems.size()
@@ -1028,6 +1038,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     /** Reads a page, then scrolls it until the content stops moving. Returns the first read's page title. */
     private String surveyPage(String surface, String tab, int maxScrolls, boolean tabbed) {
+        if (tabbed) {
+            // A tab keeps the scroll position it was left at: on 2026-10-23 Custom Pet Chest opened with its
+            // first tier above the screen, and the Shining tier was never read.
+            scrollToTop();
+        }
         RawImageData frame = capture();
         Optional<SegmentedControl.Control> variants = tabbed
                 ? SegmentedControl.locate(ImageConverter.toBufferedImage(frame))
@@ -1241,7 +1256,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         DealFrameReader.Page page = reader.read(frame, surface, tab == null ? "" : tab, file, tabbed);
         String tabName = tabName(tab, page);
         if (page.chooseYourOwn() && chooseYourOwnTabs.add(surface + "|" + tabName)) {
-            problems.add(surface + " / " + tabName + ": pick-your-own slots; the choices in them are not read.");
+            logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " has pick-your-own slots; reading their choices.");
         }
         problems.addAll(page.problems());
         logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " (" + file + "): " + page.offers().size()
