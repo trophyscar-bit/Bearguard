@@ -69,6 +69,28 @@ class DealFrameReaderTest {
         }
     }
 
+    /**
+     * An owned weekly card (2026-10-23 22:02, frame 042) shows "Claimed / Remaining claims: 5" where its
+     * "Valid: 7 day(s)" stood. Its total is still the card's: 10 up front and 6 a day for 7 days.
+     */
+    @Test
+    void totalsAnOwnedWeeklyCardOverItsWeek() throws Exception {
+        DealOffer card = read("gem-shop-weekly-card-owned.png", "Weekly/Monthly Cards").offers().stream()
+                .filter(o -> o.title().equals("Fire Crystal Weekly Card")).findFirst().orElseThrow();
+
+        assertEquals(52L, quantities(card).get("Fire Crystal"), card.toString());
+        assertEquals(7, card.card().validDays());
+    }
+
+    /** The first tier under the Custom Pet Chest header is named by its own banner, not the header's description. */
+    @Test
+    void namesTheFirstPickYourOwnTierByItsBanner() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-custom-pet-chest-top.png", "Custom Pet Chest");
+
+        assertEquals(List.of("Shining Custom Chest", "Brilliant Custom Chest"),
+                page.offers().stream().map(DealOffer::title).toList());
+    }
+
     /** Live frame of 2026-10-23: the first "+" slot of the Shining Custom Chest, opened. */
     @Test
     void readsTheChoicesOfAPickSlot() throws Exception {

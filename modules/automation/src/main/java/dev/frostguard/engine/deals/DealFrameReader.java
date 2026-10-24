@@ -277,8 +277,6 @@ public final class DealFrameReader {
     private static final double BANNER_DIAMOND_MIN_SCORE = 80.0;
     /** Lines of one wrapped title: letters within this ratio in width, starting at the same margin. */
     private static final double TITLE_TYPE_RATIO = 1.35;
-    /** Taller than this, a card title is two joined lines and is not trimmed to one line's words. */
-    private static final int TITLE_RUN_MAX_HEIGHT = 50;
     private static final int TITLE_LEFT_TOLERANCE = 12;
     /** Banner numbers stand about 32 px tall; tile counts about 14. */
     private static final int BANNER_MIN_HEIGHT = 24;
@@ -307,6 +305,8 @@ public final class DealFrameReader {
     private static final Pattern LIMIT = Pattern.compile("(?i)\\b(daily|weekly|monthly|lifetime)\\s*limit\\W*(\\d+)");
     private static final Pattern TIMER = Pattern.compile("\\d{1,2}:\\d{2}(:\\d{2})?");
     private static final Pattern VALID_DAYS = Pattern.compile("(?i)valid\\W*(\\d{1,3})\\s*day");
+    private static final Pattern REMAINING_CLAIMS = Pattern.compile("(?i)remaining\\s*claims");
+    private static final Pattern CARD_PERIOD = Pattern.compile("(?i)\\b(weekly|monthly)\\s+card\\b");
     private static final Pattern LOGIN_DAILY = Pattern.compile("(?i)login\\s*daily");
     /** "Carry out 10 Intel Mission(s)": a card reward paid when the missions are done. */
     private static final Pattern MISSION_ROW =
@@ -438,6 +438,7 @@ public final class DealFrameReader {
                     // A card title wraps too: "Exclusive Gear" over "Enhancement Special" on Regular Pack, where
                     // each line alone became a pack of its own on 2026-10-23.
                     int lineTop = Math.max(titleTop, TAB_STRIP_BOTTOM);
+                    TextLine single = cardTitle;
                     cardTitle = withWrappedLines(cardTitle, text.whiteLines().stream()
                             .filter(l -> l.top() >= lineTop && l.bottom() <= button.y()
                                     && isTitleText(cleanTitle(l.text())))
@@ -445,7 +446,7 @@ public final class DealFrameReader {
                     // The line pass runs a title into ribbon text beside it ("Exquisite Custom Chest ee: 5",
                     // 2026-10-23); its own words, in its own type, are the title.
                     TextLine line = cardTitle;
-                    cardTitle = line.height() > TITLE_RUN_MAX_HEIGHT ? line : titleRun(text.whiteWords().stream()
+                    cardTitle = line != single ? line : titleRun(text.whiteWords().stream()
                                     .filter(w -> centreY(w) >= line.top() && centreY(w) <= line.bottom()
                                             && w.left() >= line.left() - SAME_ROW_TOLERANCE
                                             && w.left() + w.width() <= line.left() + line.width() + SAME_ROW_TOLERANCE)
@@ -458,6 +459,7 @@ public final class DealFrameReader {
                     // title is under the sticky header, and the crop finds the header's "Custom Pet Chest".
                     cardTitle = croppedCardTitle(image, Math.max(titleTop, TAB_STRIP_BOTTOM), button)
                             .filter(l -> !cleanTitle(l.text()).equalsIgnoreCase(pageTitle))
+                            .filter(l -> startsWithCapital(cleanTitle(l.text())))
                             .orElse(null);
                 }
                 title = cardTitle != null ? cleanTitle(cardTitle.text())
@@ -481,7 +483,7 @@ public final class DealFrameReader {
             List<TextLine> window = allLines.stream()
                     .filter(l -> l.top() >= top && l.bottom() <= bottom)
                     .toList();
-            CardTerms card = cardTerms(text, window, cardTop, button, tiles);
+            CardTerms card = cardTerms(text, window, cardTop, button, tiles, title);
             List<DealItem> items = new ArrayList<>();
             if (card != null) {
                 items.addAll(cardTotal(card));
@@ -860,7 +862,10 @@ public final class DealFrameReader {
      * The card's title read from its own top strip. The page-wide pass returned nothing for "Molly's Blessing"
      * on 2026-10-23, beside its HOT ribbon and portrait, and the card would have been named after its tab.
      */
-    private static Optional<TextLine> croppedCardTitle(BufferedImage image, int top, PriceButtonLocator.Box button) {
+    private static Optional<TextLine> croppedCardTitle(BufferedImage image, int windowTop, PriceButtonLocator.Box button) {
+        // No higher than a title stands above its button: the first Custom Pet Chest tier's crop reached the
+        // page header and took its description, "customize your own Chest", as the tier's name (2026-10-23).
+        int top = Math.max(windowTop, button.y() - CARD_TITLE_MAX_ABOVE_BUTTON);
         int bottom = Math.min(button.y(), top + CARD_TITLE_CROP_HEIGHT);
         if (bottom - top < BANNER_MIN_HEIGHT) {
             return Optional.empty();
@@ -1002,9 +1007,10 @@ public final class DealFrameReader {
                         && button.y() - l.bottom() <= CARD_TITLE_MAX_ABOVE_BUTTON)
                 .filter(l -> isTitleText(cleanTitle(l.text())))
                 // A card's own terms are never its name: "Login daily to obtain:" titled three cards on
-                // 2026-10-23 when the real title had scrolled above the window.
+                // 2026-10-23 when the real title had scrolled above the window. Nor is a page description,
+                // which starts in lower case ("customize your own Chest" named a Custom Pet Chest tier).
                 .filter(l -> !LOGIN_DAILY.matcher(l.text()).find() && !BUY_TO_GET.matcher(l.text()).find()
-                        && !VALID_DAYS.matcher(l.text()).find())
+                        && !VALID_DAYS.matcher(l.text()).find() && startsWithCapital(cleanTitle(l.text())))
                 .max(Comparator.comparingInt(TextLine::height))
                 .orElse(null);
     }
@@ -1165,13 +1171,20 @@ public final class DealFrameReader {
      * inside the card's window.
      */
     private CardTerms cardTerms(Text text, List<TextLine> window, int cardTop, PriceButtonLocator.Box button,
-            List<DealItemLibrary.Match> tiles) {
+            List<DealItemLibrary.Match> tiles, String title) {
         Integer days = window.stream()
                 .map(l -> VALID_DAYS.matcher(clean(l.text())))
                 .filter(Matcher::find)
                 .map(m -> Integer.valueOf(m.group(1)))
                 .findFirst()
                 .orElse(null);
+        if (days == null && window.stream().anyMatch(l -> REMAINING_CLAIMS.matcher(clean(l.text())).find())) {
+            // An owned card shows "Claimed / Remaining claims: 5" where "Valid: 7 day(s)" stood, and was read as a
+            // plain pack: its Fire Crystal Weekly Card came out at 10 crystals instead of 52 on 2026-10-23. The
+            // card's own name gives its length; any other name leaves it without a total.
+            Matcher period = CARD_PERIOD.matcher(title == null ? "" : title);
+            days = period.find() ? (period.group(1).equalsIgnoreCase("weekly") ? 7 : 30) : null;
+        }
         TextLine daily = window.stream()
                 .filter(l -> LOGIN_DAILY.matcher(clean(l.text())).find() && l.bottom() < button.y())
                 .findFirst()
@@ -1342,6 +1355,10 @@ public final class DealFrameReader {
             }
         }
         return true;
+    }
+
+    private static boolean startsWithCapital(String text) {
+        return text.chars().filter(Character::isLetter).findFirst().stream().anyMatch(Character::isUpperCase);
     }
 
     private static String cardLimit(List<TextLine> window, PriceButtonLocator.Box button) {
