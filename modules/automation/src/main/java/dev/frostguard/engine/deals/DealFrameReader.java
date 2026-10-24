@@ -219,6 +219,16 @@ public final class DealFrameReader {
      * rows, which run on past the button, left 160 px; the complete rows of the Leap Pack grid 109.
      */
     private static final int HIDDEN_TILE_ROOM = 135;
+    /**
+     * Where a card's button stands relative to its title on pages of stacked cards: 170-200 px below the
+     * title's bottom on the Regular Pack cards of 2026-10-23, in the right half.
+     */
+    private static final int ORPHAN_BUTTON_FROM = 130;
+    private static final int ORPHAN_BUTTON_TO = 240;
+    private static final int ORPHAN_BUTTON_LEFT = 470;
+    private static final int ORPHAN_BUTTON_WIDTH = 220;
+    private static final int ORPHAN_TITLE_MAX_LEFT = 80;
+    private static final int ORPHAN_TITLE_MIN_HEIGHT = 24;
     /** Grey button fill beside its price text. */
     private static final int GREY_SAMPLE_OFFSET = 10;
     private static final float GREY_MAX_SATURATION = 0.15f;
@@ -237,6 +247,13 @@ public final class DealFrameReader {
     private static final String PICK_SLOT_RESOURCE = "/deals/pick-slot.png";
     private static final double PICK_SLOT_MIN_SCORE = 90.0;
     private static final int PICK_SLOTS_IN_A_ROW = 3;
+    /** An item tile with no icon in the library: kept with its count, named "Unidentified item #<picture>". */
+    public static final String UNIDENTIFIED = "Unidentified item";
+    /** Tiles on a row stand about 1.15 tile widths apart, measured on Regular Pack and Leap Pack rows. */
+    private static final double TILE_PITCH_PER_WIDTH = 1.15;
+    private static final int UNKNOWN_TILE_MIN_LEFT = 20;
+    /** The title of a card cut off at the bottom of the frame, read before its title is in view. */
+    public static final String CUT_BELOW_TITLE = "";
     private static final Set<Double> STORE_PRICES = Set.of(0.99, 1.99, 2.99, 4.99, 9.99, 19.99, 49.99, 99.99, 299.99,
             499.99, 699.99, 999.99);
     /** A tier's slot row starts about 80 px above its button's top (Custom Chest tiers, 2026-10-23). */
@@ -260,6 +277,8 @@ public final class DealFrameReader {
     private static final double BANNER_DIAMOND_MIN_SCORE = 80.0;
     /** Lines of one wrapped title: letters within this ratio in width, starting at the same margin. */
     private static final double TITLE_TYPE_RATIO = 1.35;
+    /** Taller than this, a card title is two joined lines and is not trimmed to one line's words. */
+    private static final int TITLE_RUN_MAX_HEIGHT = 50;
     private static final int TITLE_LEFT_TOLERANCE = 12;
     /** Banner numbers stand about 32 px tall; tile counts about 14. */
     private static final int BANNER_MIN_HEIGHT = 24;
@@ -362,7 +381,9 @@ public final class DealFrameReader {
                         <= PRINTED_PRICE_CLEARANCE * 2))
                 .filter(box -> isStorePrice(parsePrice(readPrice(image, text.whiteWords(), box))))
                 .toList();
-        List<PriceButtonLocator.Box> buttons = Stream.concat(found.stream(), grey.stream())
+        List<PriceButtonLocator.Box> located = Stream.concat(found.stream(), grey.stream()).toList();
+        List<PriceButtonLocator.Box> buttons = Stream.concat(located.stream(),
+                        orphanTitleButtons(image, text, located).stream())
                 .sorted(Comparator.comparingInt(PriceButtonLocator.Box::y).thenComparingInt(PriceButtonLocator.Box::x))
                 .toList();
 
@@ -383,10 +404,20 @@ public final class DealFrameReader {
         List<DealOffer> offers = new ArrayList<>();
         List<DealItemLibrary.Match> tiles = new ArrayList<>();
         List<Integer> cardRowYs = new ArrayList<>();
+        List<Integer> offerButtons = new ArrayList<>();
 
         int windowTop = FRAME_TOP_LEFT.getY();
         int previousButtonBottom = FRAME_TOP_LEFT.getY();
+        // Cards with no title of their own (Daily Deals) are named after their tab; only on pages of titled
+        // cards does a missing title mean the card is cut off by the frame.
+        boolean titledCards = false;
+        int scanTop = FRAME_TOP_LEFT.getY();
         for (PriceButtonLocator.Box button : buttons) {
+            titledCards |= cardTitle(text.whiteLines(), scanTop, button) != null;
+            scanTop = button.bottom();
+        }
+        for (int index = 0; index < buttons.size(); index++) {
+            PriceButtonLocator.Box button = buttons.get(index);
             int top = windowTop;
             int titleTop = previousButtonBottom;
             int bottom = button.bottom() + CARD_BELOW_BUTTON;
@@ -404,10 +435,17 @@ public final class DealFrameReader {
             } else {
                 TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button);
                 if (cardTitle != null) {
+                    // A card title wraps too: "Exclusive Gear" over "Enhancement Special" on Regular Pack, where
+                    // each line alone became a pack of its own on 2026-10-23.
+                    int lineTop = Math.max(titleTop, TAB_STRIP_BOTTOM);
+                    cardTitle = withWrappedLines(cardTitle, text.whiteLines().stream()
+                            .filter(l -> l.top() >= lineTop && l.bottom() <= button.y()
+                                    && isTitleText(cleanTitle(l.text())))
+                            .toList());
                     // The line pass runs a title into ribbon text beside it ("Exquisite Custom Chest ee: 5",
                     // 2026-10-23); its own words, in its own type, are the title.
                     TextLine line = cardTitle;
-                    cardTitle = titleRun(text.whiteWords().stream()
+                    cardTitle = line.height() > TITLE_RUN_MAX_HEIGHT ? line : titleRun(text.whiteWords().stream()
                                     .filter(w -> centreY(w) >= line.top() && centreY(w) <= line.bottom()
                                             && w.left() >= line.left() - SAME_ROW_TOLERANCE
                                             && w.left() + w.width() <= line.left() + line.width() + SAME_ROW_TOLERANCE)
@@ -426,6 +464,15 @@ public final class DealFrameReader {
                         : (tab == null || tab.isBlank() ? pageTitle : tab)
                                 + (priceUsd == null ? "" : " - $" + String.format(Locale.US, "%.2f", priceUsd));
                 cardTop = cardTitle == null ? Math.max(top, CARD_TITLE_MIN_TOP) : cardTitle.bottom();
+                if (titledCards && cardTitle == null && index == 0 && buttons.size() > 1) {
+                    // The page has scrolled this card's title away; the card was read whole on an earlier frame.
+                    continue;
+                }
+                if (titledCards && cardTitle == null && index == buttons.size() - 1) {
+                    // A card entering at the bottom edge: its title is still below the window. It is the next
+                    // card the scroll brings up, and its read joins that card's (see DealCollection).
+                    title = CUT_BELOW_TITLE;
+                }
             }
             if (priceUsd == null) {
                 problems.add(surface + " / " + tab + " / " + title + ": price unreadable (\"" + priceText + "\")");
@@ -444,12 +491,16 @@ public final class DealFrameReader {
             } else {
                 bannerGems(text, cardTop, bottom).ifPresent(items::add);
                 int firstTile = tiles.size();
-                iconItems(text, cardTop, bottom, tiles).stream()
+                iconItems(text, cardTop, bottom, tiles, 0, buttons.size() > 1 ? button.x() : FRAME_BOTTOM_RIGHT.getX())
+                        .stream()
                         .filter(i -> items.stream().noneMatch(b -> b.key().equals(i.key())))
                         .forEach(items::add);
                 items.addAll(listedItems(Stream.concat(text.whiteLines().stream(), text.plainLines().stream()).toList(),
                         top, bottom));
-                if (buttons.size() > 1) {
+                // Only a card with its title on screen is swiped: a row swiped while its title was still below the
+                // window came into view already swiped, and its left tiles -- each pack's main item, the Chief
+                // Gear Tool Pack's alloy and polish -- were never read on 2026-10-23.
+                if (buttons.size() > 1 && !CUT_BELOW_TITLE.equals(title)) {
                     cardRowYs.addAll(rowsWithRoomForMore(tiles.subList(firstTile, tiles.size()), button));
                 }
             }
@@ -480,6 +531,7 @@ public final class DealFrameReader {
                 }
             }
             Integer limitCount = limitCount(window, button, underButtonText(text, button));
+            offerButtons.add(index);
             List<DealItem> merged = card != null ? items : new ArrayList<>(merge(items));
             if (buttons.size() == 1) {
                 merged.addAll(missionRewards(text, allLines, button));
@@ -493,7 +545,7 @@ public final class DealFrameReader {
             unpricedOffer(text, pageTitleLine, surface, tab, pageTitle, frame).ifPresent(offers::add);
         }
         return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null, chooseYourOwn,
-                cardRowYs, chooseYourOwn ? pickSlots(capture, buttons) : Map.of());
+                cardRowYs, chooseYourOwn ? byOffer(pickSlots(capture, buttons), offerButtons) : Map.of());
     }
 
     private static Text readText(RawImageData capture, BufferedImage image, String surface, String tab,
@@ -554,6 +606,19 @@ public final class DealFrameReader {
         }
         return isChooseYourOwn(capture, clampedTop, rowTop, depth + 1)
                 || isChooseYourOwn(capture, rowBottom, clampedBottom, depth + 1);
+    }
+
+    /** Slots by the index of the offer they belong to; a card left out has no offer and no slots. */
+    private static Map<Integer, List<PointData>> byOffer(Map<Integer, List<PointData>> byButton,
+            List<Integer> offerButtons) {
+        Map<Integer, List<PointData>> slots = new LinkedHashMap<>();
+        for (int offer = 0; offer < offerButtons.size(); offer++) {
+            List<PointData> found = byButton.get(offerButtons.get(offer));
+            if (found != null) {
+                slots.put(offer, found);
+            }
+        }
+        return slots;
     }
 
     /** The "+" slots above each button, by the button's index; a slot row sits just above its tier's tiles. */
@@ -717,6 +782,12 @@ public final class DealFrameReader {
             return ys;
         }
         for (List<DealItemLibrary.Match> row : rows.values()) {
+            // A row whose counts run off the bottom of the frame is not swiped yet: its tiles cannot be read
+            // whole here, and once swiped it scrolls into view showing only its right end. On 2026-10-23 the
+            // Chief Gear Tool Pack's alloy and polish were lost that way; one scroll later the row is whole.
+            if (row.stream().anyMatch(m -> m.y() + scaled(QUANTITY_BOTTOM, m) > FRAME_BOTTOM_RIGHT.getY())) {
+                continue;
+            }
             int right = row.stream().mapToInt(m -> m.x() + m.width()).max().orElseThrow();
             int buttonCentre = button.x() + button.width() / 2;
             if (row.size() >= 2 && right < button.x() && buttonCentre - right >= HIDDEN_TILE_ROOM) {
@@ -745,9 +816,11 @@ public final class DealFrameReader {
                 .filter(l -> l.top() >= top && l.bottom() <= PAGE_TITLE_BOTTOM && isTitleText(cleanTitle(l.text())))
                 .toList();
         TextLine tallest = candidates.stream().max(Comparator.comparingInt(TextLine::height)).orElse(null);
-        if (tallest == null) {
-            return null;
-        }
+        return tallest == null ? null : withWrappedLines(tallest, candidates);
+    }
+
+    /** A title line joined with the lines of the same title wrapped above or below it. */
+    private static TextLine withWrappedLines(TextLine tallest, List<TextLine> candidates) {
         // A long title wraps: "Exclusive Gear Enhancement" over "Special" on 2026-10-22, where the second
         // line alone became the title. Lines in the same type directly above or below belong to it. Type size
         // is judged by width per letter (21 and 19 px for those two lines, 11 for the subtitle under them):
@@ -960,6 +1033,14 @@ public final class DealFrameReader {
     static String cleanTitle(String raw) {
         // OCR runs words together at a capital: "Intel MonthlyCard".
         String[] tokens = clean(raw).replaceAll("(?<=\\p{Ll})(?=\\p{Lu})", " ").split(" ");
+        // Ribbon text read after a title starts with a stray mark ("Majestic Custom Chest ae: cer"): a word
+        // carrying ":" or ";" after two words of title ends it.
+        for (int i = 2; i < tokens.length; i++) {
+            if (tokens[i].matches(".*[:;].*")) {
+                tokens = Arrays.copyOfRange(tokens, 0, i);
+                break;
+            }
+        }
         int start = 0;
         int end = tokens.length;
         while (start < end && !isWordLike(tokens[start])) {
@@ -1208,6 +1289,43 @@ public final class DealFrameReader {
         return printed;
     }
 
+    /**
+     * Buttons of cards whose title is on screen but whose button was not found. An orange button on an orange
+     * card ("Mastery Forging", 2026-10-23) merges into the card for the colour search, and its price was not in
+     * the page-wide text either; the card was never recorded. Its price is read where the button stands, in the
+     * card's right half under its title, and only a store price makes it a button.
+     */
+    private static List<PriceButtonLocator.Box> orphanTitleButtons(BufferedImage image, Text text,
+            List<PriceButtonLocator.Box> located) {
+        if (located.size() < 2) {
+            return List.of();
+        }
+        List<PriceButtonLocator.Box> orphans = new ArrayList<>();
+        for (TextLine title : text.whiteLines()) {
+            String name = cleanTitle(title.text());
+            // A card's name is in title case; "Purchase all packs daily" on Daily Deals is not a card.
+            boolean titleCase = Arrays.stream(name.split(" "))
+                    .filter(word -> word.chars().filter(Character::isLetter).count() >= 4)
+                    .allMatch(word -> Character.isUpperCase(word.charAt(0)));
+            if (title.left() > ORPHAN_TITLE_MAX_LEFT || title.height() < ORPHAN_TITLE_MIN_HEIGHT
+                    || title.top() < TAB_STRIP_BOTTOM || !isTitleText(name) || !titleCase) {
+                continue;
+            }
+            int from = title.bottom() + ORPHAN_BUTTON_FROM;
+            int to = title.bottom() + ORPHAN_BUTTON_TO;
+            if (to > FRAME_BOTTOM_RIGHT.getY()
+                    || located.stream().anyMatch(b -> b.y() + b.height() / 2 >= from && b.y() + b.height() / 2 <= to)) {
+                continue;
+            }
+            PriceButtonLocator.Box box = new PriceButtonLocator.Box(ORPHAN_BUTTON_LEFT, from,
+                    ORPHAN_BUTTON_WIDTH, to - from);
+            if (isStorePrice(parsePrice(readPrice(image, text.whiteWords(), box)))) {
+                orphans.add(box);
+            }
+        }
+        return orphans;
+    }
+
     /** Grey behind a word: the button of a pack that was bought or is not yet open. */
     private static boolean onGreyButton(BufferedImage image, TextLine word) {
         int[] xs = {word.left() - GREY_SAMPLE_OFFSET, word.left() + word.width() + GREY_SAMPLE_OFFSET};
@@ -1300,6 +1418,8 @@ public final class DealFrameReader {
                 ? library.find(text.capture(), from, to, text.tileScale().getAsDouble())
                 : library.find(text.capture(), from, to);
         BufferedImage image = ImageConverter.toBufferedImage(text.capture());
+        List<DealItemLibrary.Match> placed = new ArrayList<>();
+        Map<DealItemLibrary.Match, DealItem> read = new LinkedHashMap<>();
         for (DealItemLibrary.Match match : found) {
             tiles.add(match);
             if (bandCutOff(image, match)) {
@@ -1320,9 +1440,95 @@ public final class DealFrameReader {
             if (quantity.isEmpty()) {
                 quantity = countBelow(text.whiteWords(), match);
             }
-            quantity.ifPresent(q -> items.add(new DealItem(match.key(), q, "icon")));
+            quantity.ifPresent(q -> read.put(match, new DealItem(match.key(), q, "icon")));
+            placed.add(match);
         }
+        unknownTiles(image, found, left, right).forEach(read::put);
+        read.keySet().stream()
+                .sorted(Comparator.comparingInt((DealItemLibrary.Match m) -> m.y() / SAME_ROW_TOLERANCE)
+                        .thenComparingInt(DealItemLibrary.Match::x))
+                .forEach(m -> items.add(read.get(m)));
         return items;
+    }
+
+    /**
+     * Tiles on a row of known tiles whose icon is not in the library. On 2026-10-23 the Steel Pack's 40K steel,
+     * the Hero Gear Pack's Enhancement XP Component and the Hero XP Pack's XP tiles have no icon, and every one
+     * was dropped without a word. Positions a tile's spacing away from the known ones are probed; one whose
+     * count reads glyph by glyph is kept as an unidentified item with that count, named by a fingerprint of its
+     * picture so its reads on other frames join, and never given a guessed name.
+     */
+    private Map<DealItemLibrary.Match, DealItem> unknownTiles(BufferedImage image, List<DealItemLibrary.Match> known,
+            int left, int right) {
+        Map<DealItemLibrary.Match, DealItem> unknown = new LinkedHashMap<>();
+        Map<Integer, List<DealItemLibrary.Match>> rows = new LinkedHashMap<>();
+        for (DealItemLibrary.Match tile : known) {
+            Integer row = rows.keySet().stream().filter(y -> Math.abs(y - tile.y()) <= SAME_ROW_TOLERANCE)
+                    .findFirst().orElse(tile.y());
+            rows.computeIfAbsent(row, y -> new ArrayList<>()).add(tile);
+        }
+        for (List<DealItemLibrary.Match> row : rows.values()) {
+            row.sort(Comparator.comparingInt(DealItemLibrary.Match::x));
+            DealItemLibrary.Match first = row.get(0);
+            int pitch = row.size() >= 2
+                    ? (row.get(row.size() - 1).x() - first.x()) / (row.size() - 1)
+                    : (int) Math.round(first.width() * TILE_PITCH_PER_WIDTH);
+            if (pitch < first.width()) {
+                continue;
+            }
+            List<Integer> probes = new ArrayList<>();
+            for (int x = first.x() - pitch; x >= Math.max(left, UNKNOWN_TILE_MIN_LEFT); x -= pitch) {
+                probes.add(x);
+            }
+            for (int i = 0; i + 1 < row.size(); i++) {
+                for (int x = row.get(i).x() + pitch; x + first.width() / 2 < row.get(i + 1).x(); x += pitch) {
+                    probes.add(x);
+                }
+            }
+            DealItemLibrary.Match last = row.get(row.size() - 1);
+            for (int x = last.x() + pitch; x + last.width() <= right; x += pitch) {
+                probes.add(x);
+            }
+            for (int x : probes) {
+                DealItemLibrary.Match probe = new DealItemLibrary.Match("", x, first.y(), first.width(), first.height(),
+                        0, first.scale());
+                if (x < 0 || x + first.width() > image.getWidth() || bandCutOff(image, probe)) {
+                    continue;
+                }
+                Optional<Long> count = TileCountReader.read(image, x, first.y(), first.scale())
+                        .map(DealFrameReader::parseQuantity);
+                if (count.isPresent()) {
+                    String name = UNIDENTIFIED + " " + fingerprint(image, x, first.y(), first.width(), first.height());
+                    unknown.put(probe, new DealItem(name, count.get(), "unidentified"));
+                }
+            }
+        }
+        return unknown;
+    }
+
+    /** A coarse picture of a tile's icon: its colour on a 2 x 2 grid, so other reads of the same tile agree. */
+    private static String fingerprint(BufferedImage image, int x, int y, int width, int height) {
+        StringBuilder print = new StringBuilder();
+        for (int cell = 0; cell < 4; cell++) {
+            int cx = x + (cell % 2) * width / 2;
+            int cy = y + (cell / 2) * height / 2;
+            long r = 0;
+            long g = 0;
+            long b = 0;
+            int n = 0;
+            for (int yy = cy; yy < cy + height / 2; yy += 2) {
+                for (int xx = cx; xx < cx + width / 2; xx += 2) {
+                    int rgb = image.getRGB(xx, yy);
+                    r += (rgb >> 16) & 0xFF;
+                    g += (rgb >> 8) & 0xFF;
+                    b += rgb & 0xFF;
+                    n++;
+                }
+            }
+            print.append(Integer.toHexString((int) (r / n / 64))).append(Integer.toHexString((int) (g / n / 64)))
+                    .append(Integer.toHexString((int) (b / n / 64)));
+        }
+        return "#" + print;
     }
 
     /**

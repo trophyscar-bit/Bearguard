@@ -1,6 +1,7 @@
 package dev.frostguard.engine.deals;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,11 +28,16 @@ public final class DealCollection {
     private final List<String> problems = new ArrayList<>();
     private final List<String> shops = new ArrayList<>();
     private final Set<String> pickShops = new HashSet<>();
+    private final Map<String, DealOffer> cutBelow = new HashMap<>();
+    /** A card cut at the bottom shows its title within a frame or two: one scroll, perhaps a row swipe between. */
+    private static final int MAX_CUT_BELOW_FRAMES = 3;
     private final Map<String, List<String>> tabSpellings = new LinkedHashMap<>();
     /** Seven letters in common at least: "custom" alone would make Custom Pet Chest the Armament shop. */
     private static final int SAME_TAB_MIN_RUN = 7;
     /** Shorter reads than this are too little to judge by; they only match exactly. */
     private static final int SAME_NAME_MIN_LETTERS = 8;
+    /** Items besides gems that two reads must share, quantity and all, to be one card. */
+    private static final int MIN_SHARED_ITEMS = 2;
 
     public Map<String, DealOffer> offers() {
         return offers;
@@ -50,10 +56,37 @@ public final class DealCollection {
      *                is kept apart per shop; any other pack seen in two tabs is the same pack read twice
      */
     public void add(DealOffer offer, boolean perShop) {
+        String place = offer.surface() + "|" + offer.tab();
+        if (DealFrameReader.CUT_BELOW_TITLE.equals(offer.title())) {
+            // A card entering at the bottom edge, its title not yet in view: the next card the scroll brings up in
+            // this tab is the same card. Its tiles read here are kept for that card, ahead of what it shows later:
+            // when a row was already swiped by the time its title showed, these are its first items.
+            cutBelow.put(place, offer);
+            return;
+        }
+        DealOffer pending = cutBelow.remove(place);
+        boolean firstSight = !offers.containsKey(key(offer, perShop)) && !offers.containsKey(key(offer, true));
+        if (pending != null && firstSight && Objects.equals(pending.priceUsd(), offer.priceUsd())
+                && frameGap(pending, offer) <= MAX_CUT_BELOW_FRAMES) {
+            offer = new DealOffer(offer.surface(), offer.tab(), offer.title(), offer.priceUsd(), offer.priceText(),
+                    offer.remaining(), offer.purchased(), mergeReads(pending, offer).items(), offer.frame(),
+                    offer.limitPeriod(), offer.limitCount(), offer.timeLeft(), offer.card());
+        } else if (pending != null) {
+            cutBelow.put(place, pending);
+        }
         if (perShop) {
             pickShops.add(shop(offer));
         }
         offers.merge(key(offer, perShop), offer, this::mergeReads);
+    }
+
+    private static int frameGap(DealOffer earlier, DealOffer later) {
+        try {
+            return Integer.parseInt(later.frame().replaceAll("[^0-9]", ""))
+                    - Integer.parseInt(earlier.frame().replaceAll("[^0-9]", ""));
+        } catch (RuntimeException unnumbered) {
+            return Integer.MAX_VALUE;
+        }
     }
 
     private String key(DealOffer offer, boolean perShop) {
@@ -286,6 +319,11 @@ public final class DealCollection {
                             && Objects.equals(shop(e.getValue()), shop(offer))
                             && Objects.equals(e.getValue().priceUsd(), offer.priceUsd()))
                     .toList();
+            // With several packs at the price (every Regular Pack card is $4.99), the one whose items the
+            // fallback read repeats exactly, two or more of them, is the same card.
+            if (titled.size() > 1) {
+                titled = titled.stream().filter(e -> sharedItems(e.getValue(), offer) >= MIN_SHARED_ITEMS).toList();
+            }
             if (titled.size() == 1) {
                 offers.put(titled.get(0).getKey(), mergeReads(titled.get(0).getValue(), offer));
                 offers.remove(fallback.getKey());
@@ -315,6 +353,13 @@ public final class DealCollection {
                 offers.remove(noisy.getKey());
             }
         }
+    }
+
+    private static long sharedItems(DealOffer a, DealOffer b) {
+        return a.items().stream()
+                .filter(i -> b.items().stream().anyMatch(j -> j.key().equals(i.key()) && j.quantity() == i.quantity()))
+                .filter(i -> !i.key().equals(dev.frostguard.api.deals.DealPriceTracker.GEMS))
+                .count();
     }
 
     private static boolean isFallbackTitle(DealOffer offer) {

@@ -35,6 +35,7 @@ class ScanReplayTest {
         DealFrameReader reader = new DealFrameReader(DealItemLibrary.load(Path.of(Objects.requireNonNull(
                 ScanReplayTest.class.getResource("/deals/item-icons")).toURI())));
         DealCollection collection = new DealCollection();
+        Map<String, String> headerByTab = new java.util.HashMap<>();
         for (String line : Files.readAllLines(Path.of(System.getProperty("replay.map")))) {
             String[] cells = line.split("\t", 2);
             String frame = cells[0] + ".png";
@@ -49,7 +50,19 @@ class ScanReplayTest {
             boolean tabbed = !surface.equals(tab);
             DealFrameReader.Page page = reader.read(DealFrameReaderTest.rgbaFrame(image), surface, tab, frame, tabbed);
             collection.problems().addAll(page.problems());
-            page.offers().forEach(offer -> collection.add(offer, page.chooseYourOwn()));
+            // As the scan does: a pick-your-own page whose header did not read keeps its tab's header read.
+            List<DealOffer> read = page.offers();
+            if (page.chooseYourOwn() && !read.isEmpty()) {
+                String header = read.get(0).tab();
+                if (header != null && !header.equals(tab)) {
+                    headerByTab.put(tab, header);
+                }
+                String shop = headerByTab.getOrDefault(tab, header);
+                read = read.stream().map(o -> new DealOffer(o.surface(), shop, o.title(), o.priceUsd(), o.priceText(),
+                        o.remaining(), o.purchased(), o.items(), o.frame(), o.limitPeriod(), o.limitCount(),
+                        o.timeLeft(), o.card())).toList();
+            }
+            read.forEach(offer -> collection.add(offer, page.chooseYourOwn()));
         }
         collection.settle();
         List<Map<String, Object>> rows = new ArrayList<>();

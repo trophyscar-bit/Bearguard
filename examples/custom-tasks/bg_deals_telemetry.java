@@ -60,7 +60,6 @@ import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.CustomTaskService;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.WhiteTextIsolator;
-import dev.frostguard.vision.deals.PriceButtonLocator;
 import dev.frostguard.vision.deals.SegmentedControl;
 import dev.frostguard.vision.deals.TabStripCells;
 import dev.frostguard.vision.ocr.OcrEngine;
@@ -809,9 +808,13 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     boolean tabbed = TabStripCells.locate(image).size() >= MIN_TABS_FOR_STRIP;
                     // A city building opens a panel too: the infirmary's Heal Injured page was read as a
                     // surface and its "Finish - 94" button kept as an offer. A shop has tabs or a price button.
-                    if (!tabbed && PriceButtonLocator.locate(image).isEmpty()) {
+                    // Judged by the full reader, not the orange-button search alone: an orange button on an
+                    // orange card is invisible to that search (Mastery Forging, 2026-10-23), and an event pack
+                    // drawn that way would be skipped without a trace. A skipped panel keeps its picture.
+                    if (!tabbed && reader.read(frame, name, "", name, false).offers().stream()
+                            .noneMatch(o -> o.priceUsd() != null)) {
                         logInfo("bg_deals_telemetry | " + slot + " opened " + name
-                                + " with no tabs or price buttons; not a deal surface.");
+                                + " with no tabs or store prices; not a deal surface (" + saveFrame(frame) + ").");
                         continue;
                     }
                     if (NOT_A_DEAL_SHORTCUT.matcher(header).find()) {
