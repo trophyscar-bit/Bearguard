@@ -209,6 +209,8 @@ class DealFrameReaderTest {
         assertEquals("1h Construction Speedup", DealFrameReader.itemName("lh Construction Speedup"));
         assertEquals("Shining Custom Chest", DealFrameReader.cleanTitle("Shining Custom Chest / my"));
         assertEquals("Dazzling Custom Chest", DealFrameReader.cleanTitle("q Dazzling Custom Chest"));
+        assertEquals("Brilliant Custom Chest", DealFrameReader.cleanTitle("Brilliant Custom Chest a"));
+        assertEquals("Sign-in & Earn It", DealFrameReader.cleanTitle("Sign-in & Earn It"));
         assertFalse(DealFrameReader.isTitleText("et no po"));
         assertTrue(DealFrameReader.isListedItemName("5m Construction Speedup"));
         assertFalse(DealFrameReader.isListedItemName("\"fy;"));
@@ -395,6 +397,10 @@ class DealFrameReaderTest {
                 "100 VIP XP=25", "10K Meat=500", "10K Wood=500", "10K Coal=100", "10K Iron=25", "Alliance Gift I=1"),
                 named(offerPriced(page, 4.99)), "the bought pack's grey button still prices its card");
         assertTrue(page.cardRowYs().isEmpty(), "Leap Pack rows are complete: " + page.cardRowYs());
+        // Packs 1 and 2 were bought: their buttons are grey, and they are recorded as purchased.
+        assertTrue(offerPriced(page, 4.99).purchased(), "Leap Pack 1 has a grey button");
+        assertTrue(offerPriced(page, 9.99).purchased(), "Leap Pack 2 has a grey button");
+        assertFalse(offerPriced(page, 99.99).purchased(), "Leap Pack 5 is still for sale");
     }
 
     @Test
