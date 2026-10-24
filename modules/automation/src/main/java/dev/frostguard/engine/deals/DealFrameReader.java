@@ -231,6 +231,7 @@ public final class DealFrameReader {
     private static final int ORPHAN_TITLE_MIN_HEIGHT = 24;
     /** Grey button fill beside its price text. */
     private static final int GREY_SAMPLE_OFFSET = 10;
+    private static final int GREY_BUTTON_INSET = 12;
     private static final float GREY_MAX_SATURATION = 0.15f;
     private static final float GREY_MIN_BRIGHTNESS = 0.35f;
     private static final float GREY_MAX_BRIGHTNESS = 0.80f;
@@ -538,8 +539,10 @@ public final class DealFrameReader {
             if (buttons.size() == 1) {
                 merged.addAll(missionRewards(text, allLines, button));
             }
+            // A grey price button is a pack already bought up to its limit: Fire Crystal Leap Pack 1 and 2 on
+            // 2026-10-23 (frames 036/037) were posted as buyable when they were not.
             offers.add(new DealOffer(surface, offerTab, title, priceUsd, priceText, remaining,
-                    false, merged, frame, cardLimit != null ? cardLimit : pageLimit,
+                    isGreyButton(image, button), merged, frame, cardLimit != null ? cardLimit : pageLimit,
                     limitCount, countdown(window, allLines, cardTop), card));
         }
 
@@ -1064,9 +1067,14 @@ public final class DealFrameReader {
      * (three digits counted as a word), giving "Fire Crystal Leap Pack 4 205." for one tier and no tier
      * at all for the next. A trailing token needs letters, or must be a one- or two-digit tier.
      */
+    /**
+     * A title ends in a word, a tier number, or "It"/"Up" ("Sign-in & Earn It"). Not in a lone "a", "&" or
+     * preposition: those only stand inside a title, and at its end they are OCR of the ribbon beside it
+     * ("Brilliant Custom Chest a", 2026-10-23).
+     */
     private static boolean isTitleEnd(String token) {
         return token.chars().filter(Character::isLetter).count() >= 3 || token.matches("\\d{1,2}")
-                || token.matches("(?i)of|in|to|a|&");
+                || token.matches("(?i)it|up");
     }
 
     private static boolean isWordLike(String token) {
@@ -1337,6 +1345,23 @@ public final class DealFrameReader {
             }
         }
         return orphans;
+    }
+
+    /** A button filled grey at both inner ends, where its price text never reaches. */
+    private static boolean isGreyButton(BufferedImage image, PriceButtonLocator.Box button) {
+        int y = button.y() + button.height() / 2;
+        float[] hsb = new float[3];
+        for (int x : new int[] {button.x() + GREY_BUTTON_INSET, button.right() - GREY_BUTTON_INSET}) {
+            if (x < 0 || x >= image.getWidth() || y < 0 || y >= image.getHeight()) {
+                return false;
+            }
+            int rgb = image.getRGB(x, y);
+            java.awt.Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, hsb);
+            if (hsb[1] > GREY_MAX_SATURATION || hsb[2] < GREY_MIN_BRIGHTNESS || hsb[2] > GREY_MAX_BRIGHTNESS) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Grey behind a word: the button of a pack that was bought or is not yet open. */
