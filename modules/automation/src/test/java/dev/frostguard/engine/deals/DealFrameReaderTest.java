@@ -311,7 +311,8 @@ class DealFrameReaderTest {
         assertEquals(25L, enhancementItems.get("100 VIP XP"), enhancementItems.toString());
         assertEquals("daily", enhancement.limitPeriod());
         assertEquals(5, enhancement.limitCount());
-        assertEquals(3, page.cardRowYs().size(), "each card's row runs past its button: " + page.cardRowYs());
+        // The third card's counts run off the bottom of the frame: its row is swiped once it scrolls up whole.
+        assertEquals(2, page.cardRowYs().size(), "each whole card's row runs past its button: " + page.cardRowYs());
 
         // Items keep the card's left-to-right order; an unread tile is skipped, never moved.
         assertInCardOrder(tool, List.of("Gems", "Polishing Solution", "Hardened Alloy", "100 VIP XP", "10K Meat"));
