@@ -39,6 +39,19 @@ class PowerRankingPayloadDecoderTest {
         assertTrue(decoder.decode(List.of(pack(new byte[]{1, 0, 2, 0}))).isEmpty());
     }
 
+    @Test
+    void aMessageWhosePayloadIsNotAStructDoesNotSinkTheWholeCapture() {
+        // A live capture carries every server message. This one has a valid RPC header followed
+        // by a payload claiming five fields with no room for their headers -- the shape that
+        // failed six live captures with "truncated field headers at unpacked offset 16".
+        byte[] unrelated = pack(new byte[]{2, 0, 1, 0, 0x66, (byte) 0xa0, 5, 0});
+        byte[] ranking = packedResponse(member("Member 001", 2001, 19_585_025));
+
+        List<AllianceRankingEntryData> result = decoder.decode(List.of(unrelated, ranking));
+
+        assertEquals(List.of(new AllianceRankingEntryData(1, 2001, "Member 001", 19_585_025)), result);
+    }
+
     private byte[] packedResponse(byte[]... members) {
         ByteArrayOutputStream memberArray = new ByteArrayOutputStream();
         for (byte[] member : members) {
