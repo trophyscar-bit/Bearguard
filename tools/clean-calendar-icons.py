@@ -24,6 +24,35 @@ SOURCE = ROOT / "data" / "calendar-icons"
 TARGET = SOURCE / "clean"
 
 
+#: Alpha at or below this is the halo the cutout leaves behind, not art. Trimming to it instead of
+#: to the art left several icons sitting off-centre with slack down one side.
+HALO_ALPHA = 24
+#: One clear pixel on every side, so nothing touches the edge of its box on screen.
+MARGIN = 1
+
+
+def normalise(cut: Image.Image) -> Image.Image:
+    """Trim to the solid art and centre it in a square, one pixel clear on every side.
+
+    No scaling: the canvas is grown to the art rather than the art squeezed into a canvas, so every
+    icon keeps its own pixels and they all land the same way once the page scales them together.
+    """
+    pixels = cut.load()
+    for y in range(cut.height):
+        for x in range(cut.width):
+            r, g, b, a = pixels[x, y]
+            if a <= HALO_ALPHA:
+                pixels[x, y] = (r, g, b, 0)
+
+    box = cut.getbbox()
+    if box:
+        cut = cut.crop(box)
+    side = max(cut.size) + 2 * MARGIN
+    square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    square.paste(cut, ((side - cut.width) // 2, (side - cut.height) // 2))
+    return square
+
+
 def main() -> int:
     force = "--force" in sys.argv
     if not SOURCE.is_dir():
@@ -37,14 +66,7 @@ def main() -> int:
         if out.exists() and not force:
             skipped += 1
             continue
-        cut = remove(Image.open(icon).convert("RGBA"))
-        box = cut.getbbox()
-        if box:
-            cut = cut.crop(box)
-        # Square it so every icon lands the same size in the row, whatever shape its art is.
-        side = max(cut.size)
-        square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
-        square.paste(cut, ((side - cut.width) // 2, (side - cut.height) // 2))
+        square = normalise(remove(Image.open(icon).convert("RGBA")))
         square.save(out)
         cleaned += 1
         print(f"cleaned {icon.name}")
