@@ -31,6 +31,7 @@ class TileCountReaderFrameTest {
 
     static Stream<Arguments> tiles() {
         return Stream.of(
+                Arguments.of("popup-hero-rally-unlock.png", 214, 646, 0.925, "70"),
                 Arguments.of("deals-intel-monthly-card-epic.png", 133, 585, 0.7000000000000001, "33"),
                 Arguments.of("deals-intel-monthly-card-epic.png", 276, 1141, 1.0, "3"),
                 Arguments.of("deals-intel-monthly-card-epic.png", 279, 952, 0.89, "10"),

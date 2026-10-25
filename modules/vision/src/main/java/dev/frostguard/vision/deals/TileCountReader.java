@@ -30,11 +30,12 @@ import org.opencv.imgproc.Imgproc;
  * scored at least 0.958 and every other class at most 0.904 (6 against 8); the one exception is two digits
  * printed touching ("48"), whose split halves scored 0.902 and are rejected by {@link #MIN_SCORE}. Any
  * glyph below the floor or too close to a second class leaves the count unread: OCR may still try it, and
- * a character with no reference (no 7 has been cut yet) can never be forced onto a known one.</p>
+ * a character with no reference can never be forced onto a known one. The 7 has one reference, from Hero Rally's
+ * "70" Fire Crystals (2026-10-25), where OCR read 76 while no 7 had been cut.</p>
  */
 public final class TileCountReader {
 
-    private static final String CHARACTERS = "012345689K";
+    private static final String CHARACTERS = "0123456789K";
     private static final int GLYPH_WIDTH = 20;
     private static final int GLYPH_HEIGHT = 28;
     private static final int MAGNIFICATION = 4;

@@ -27,13 +27,24 @@ public final class GreyButtonLocator {
     private static final int MIN_HEIGHT = 50;
     private static final int MAX_HEIGHT = 90;
     private static final double MIN_FILL = 0.6;
-    /** Price buttons sit in the right half of a card. */
-    private static final int MIN_LEFT = 380;
+    /** On stacked cards price buttons sit in the right half; a pop-up centres its button. */
+    private static final int CARD_MIN_LEFT = 380;
+    /** A pop-up's button is larger: Hero Rally's Unlock preview, 284 x 84 at a fill of 0.84 (2026-10-25). */
+    private static final int POPUP_MAX_WIDTH = 320;
+    private static final int POPUP_MAX_HEIGHT = 100;
 
     private GreyButtonLocator() {
     }
 
     public static List<PriceButtonLocator.Box> locate(BufferedImage frame) {
+        return locate(frame, true);
+    }
+
+    /** @param cards the frame shows stacked cards, whose buttons are all in the right half */
+    public static List<PriceButtonLocator.Box> locate(BufferedImage frame, boolean cards) {
+        int minLeft = cards ? CARD_MIN_LEFT : 0;
+        int maxWidth = cards ? MAX_WIDTH : POPUP_MAX_WIDTH;
+        int maxHeight = cards ? MAX_HEIGHT : POPUP_MAX_HEIGHT;
         int width = frame.getWidth();
         int height = frame.getHeight();
         byte[] grey = new byte[width * height];
@@ -59,7 +70,7 @@ public final class GreyButtonLocator {
             int w = (int) stats.get(i, Imgproc.CC_STAT_WIDTH)[0];
             int h = (int) stats.get(i, Imgproc.CC_STAT_HEIGHT)[0];
             double fill = stats.get(i, Imgproc.CC_STAT_AREA)[0] / ((double) w * h);
-            if (x >= MIN_LEFT && w >= MIN_WIDTH && w <= MAX_WIDTH && h >= MIN_HEIGHT && h <= MAX_HEIGHT
+            if (x >= minLeft && w >= MIN_WIDTH && w <= maxWidth && h >= MIN_HEIGHT && h <= maxHeight
                     && fill >= MIN_FILL) {
                 buttons.add(new PriceButtonLocator.Box(x, y, w, h));
             }

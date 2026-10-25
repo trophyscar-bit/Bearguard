@@ -168,6 +168,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** The close mark of a pick slot's Select Items list (live frame of 2026-10-23). */
     private static final PointData SLOT_LIST_CLOSE = new PointData(640, 224);
     private static final int POPUP_SETTLE_MS = 1500;
+    /** A paid track's header button; only a header word counts, never one in the reward list below. */
+    private static final String UNLOCK_WORD = "Unlock";
+    private static final int UNLOCK_MAX_Y = 640;
     private static final int CARD_ROW_SWIPE_TO_X = 70;
     private static final int CARD_ROW_LEFT = 30;
     private static final int CARD_ROW_RIGHT = 460;
@@ -219,6 +222,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private final Set<String> slotsRead = new HashSet<>();
     /** The page header read for each pick-your-own tab this run, by the tab's strip label. */
     private final Map<String, String> headerByTab = new HashMap<>();
+    /** Missions done by kind, as the card pages show them ("Intel" = 570); a kind read two ways is dropped. */
+    private final Map<String, Long> missionsDone = new LinkedHashMap<>();
+    private final Set<String> missionsDoneConflicts = new HashSet<>();
     /** The shop the last page read was collected under; its pick slots belong to it. */
     private String lastShop;
     private DealsStore store;
@@ -276,6 +282,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         chooseYourOwnTabs.clear();
         slotsRead.clear();
         headerByTab.clear();
+        missionsDone.clear();
+        missionsDoneConflicts.clear();
         frameNumber = 0;
         LocalDate day = LocalDate.now();
         store = DealsStore.forWorkspace(WorkspacePaths.current().root());
@@ -392,6 +400,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             report.put("coverage", coverageRows());
             report.put("chiefGear", chiefGear(today));
             report.put("packs", packs(today));
+            // Mission rewards (Intel Monthly Card's "Fire Crystal (10 Intel missions)") pay out right away once
+            // this many missions are done; #fire-crystals counts the ones already passed.
+            if (missionsDone.containsKey("Intel")) {
+                report.put("intelMissionsDone", missionsDone.get("Intel"));
+            }
             report.put("problems", problems);
             Path dir = store.root().resolve("reports");
             Files.createDirectories(dir);
@@ -1047,11 +1060,14 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             scrollToTop();
         }
         RawImageData frame = capture();
+        if (tabbed) {
+            readUnlockPreview(frame, surface, tab);
+        }
         Optional<SegmentedControl.Control> variants = tabbed
                 ? SegmentedControl.locate(ImageConverter.toBufferedImage(frame))
                 : Optional.empty();
         String selectedTab = variants
-                .flatMap(control -> optionLabel(frame, control.options().get(control.selectedIndex())))
+                .flatMap(control -> reader.optionLabel(frame, control.options().get(control.selectedIndex())))
                 .map(label -> (tab == null ? "opening tab" : tab) + " (" + label + ")")
                 .orElse(tab);
         String title = surveyVariant(surface, selectedTab, maxScrolls, tabbed, frame);
@@ -1078,28 +1094,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 continue;
             }
             String variantTab = (tab == null ? (title == null ? "opening tab" : title) : tab) + " ("
-                    + optionLabel(switched, target).orElse("variant " + (option + 1) + " of " + control.options().size())
+                    + reader.optionLabel(switched, target).orElse("variant " + (option + 1) + " of " + control.options().size())
                     + ")";
             surveyVariant(surface, variantTab, maxScrolls, tabbed, switched);
         }
         return title;
-    }
-
-    /** A toggle option's own word ("Epic", "Mythic"), so a tier is named rather than numbered. */
-    private Optional<String> optionLabel(RawImageData frame, SegmentedControl.Option option) {
-        try {
-            String label = OcrEngine.recognizeLines(frame, new PointData(option.x(), option.y()),
-                            new PointData(option.x() + option.width(), option.y() + option.height()),
-                            CommonOCRSettings.DEAL_TAB_LABEL_SETTINGS).stream()
-                    .map(TextLine::text)
-                    .collect(Collectors.joining(" "))
-                    .replaceAll("[^A-Za-z]", "");
-            return label.length() >= 3
-                    ? Optional.of(Character.toUpperCase(label.charAt(0)) + label.substring(1).toLowerCase(Locale.ROOT))
-                    : Optional.empty();
-        } catch (OcrException unreadable) {
-            return Optional.empty();
-        }
     }
 
     /** Drags the page down until it stops moving, so controls above the list are on screen again. */
@@ -1248,6 +1247,35 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         }
     }
 
+    /**
+     * A paid track's price and rewards sit behind its header's "Unlock" button: on Hero Rally (2026-10-25) it
+     * opens a "Max Level Rewards Preview" pop-up with a $9.99 button, 70 Fire Crystals and more, none of it on
+     * the page itself. The pop-up is read and closed with Back; its price button is never touched, and it is
+     * greyed until a reward is picked anyway. Nothing opening means nothing to close.
+     */
+    private void readUnlockPreview(RawImageData page, String surface, String tab) {
+        Optional<PointData> unlock = reader.headerButton(page, UNLOCK_WORD, UNLOCK_MAX_Y);
+        if (unlock.isEmpty()) {
+            return;
+        }
+        tapNear(unlock.get());
+        sleepTask(POPUP_SETTLE_MS);
+        RawImageData popup = capture();
+        if (meanDiff(page, popup, WHOLE_FRAME) < OPENED_MEAN_DIFF) {
+            problems.add(surface + " / " + tab + ": Unlock opened nothing (" + saveFrame(popup) + ").");
+            return;
+        }
+        String file = saveFrame(popup);
+        DealFrameReader.Page read = reader.read(popup, surface, tab == null ? "" : tab, file, false);
+        problems.addAll(read.problems());
+        String name = (tab == null || tab.isBlank() ? surface : tab) + " Unlock";
+        collect(surface, tab, read.offers(), name);
+        logInfo("bg_deals_telemetry | " + surface + " / " + tab + " Unlock preview (" + file + "): "
+                + read.offers().size() + " offer(s)");
+        pressBack();
+        sleepTask(POPUP_SETTLE_MS);
+    }
+
     private DealFrameReader.Page readAndCollect(RawImageData frame, String surface, String tab, boolean tabbed) {
         DealFrameReader.Page page = readPage(frame, surface, tab, tabbed);
         // A pick-your-own page names its shop in its header, as the reader set it on each offer.
@@ -1276,6 +1304,18 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private DealFrameReader.Page readPage(RawImageData frame, String surface, String tab, boolean tabbed) {
         String file = saveFrame(frame);
         DealFrameReader.Page page = reader.read(frame, surface, tab == null ? "" : tab, file, tabbed);
+        page.missionsDone().forEach((kind, done) -> {
+            if (missionsDoneConflicts.contains(kind)) {
+                return;
+            }
+            Long earlier = missionsDone.putIfAbsent(kind, done);
+            if (earlier != null && !earlier.equals(done)) {
+                missionsDone.remove(kind);
+                missionsDoneConflicts.add(kind);
+                problems.add(kind + " missions done read as " + earlier + " and " + done + " (" + file
+                        + "); left unknown.");
+            }
+        });
         String tabName = tabName(tab, page);
         if (page.chooseYourOwn() && chooseYourOwnTabs.add(surface + "|" + tabName)) {
             logInfo("bg_deals_telemetry | " + surface + " / " + tabName + " has pick-your-own slots; reading their choices.");
