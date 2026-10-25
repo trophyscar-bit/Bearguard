@@ -456,6 +456,27 @@ class DealFrameReaderTest {
         assertEquals("daily", page.offers().get(1).limitPeriod());
     }
 
+    /**
+     * Regular Pack of 2026-10-25: a speedup is named by the mark in its tile's corner, so City Construction's
+     * hammer-marked speedups are not the plain ones beside them, and Tech Pack's 1h is a research speedup.
+     */
+    @Test
+    void namesSpeedupsByTheMarkOnTheirTile() throws Exception {
+        DealOffer city = offerTitled(read("gem-shop-regular-construction-speedups.png", "Regular Pack"),
+                "City Construction Pack");
+        assertEquals(List.of("Gems=2500", "1h Speedup=3", "5min Speedup=36", "1h Construction Speedup=2",
+                "5min Construction Speedup=24"), named(city));
+
+        DealOffer tech = offerTitled(read("gem-shop-regular-research-speedups.png", "Regular Pack"), "Tech Pack");
+        assertEquals(List.of("Gems=2500", "1h Speedup=3", "5min Speedup=36", "1h Research Speedup=2",
+                "5min Research Speedup=24"), named(tech));
+    }
+
+    private static DealOffer offerTitled(DealFrameReader.Page page, String title) {
+        return page.offers().stream().filter(o -> o.title().equals(title)).findFirst()
+                .orElseThrow(() -> new AssertionError(title + " not in " + page.offers()));
+    }
+
     /** The mission rows' green "(570/5)": #fire-crystals counts mission rewards already passed. */
     @Test
     void readsTheIntelMissionsDoneFromTheCardRows() throws Exception {

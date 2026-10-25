@@ -338,6 +338,22 @@ public final class DealFrameReader {
     private static final int MAX_SLOT_ROWS = 6;
     private static final byte[] PICK_SLOT = load(PICK_SLOT_RESOURCE);
     /**
+     * The mark in a speedup tile's lower left that makes it a construction, training or research speedup. The
+     * item icons stop above it, and whole-tile templates of the marked speedups scored 92 to 97 on plain ones;
+     * the marks alone, on 2026-10-25 tiles, scored 90 to 100 on their own kind and at most 59 elsewhere.
+     */
+    private static final Map<String, byte[]> SPEEDUP_MARKS = Map.of(
+            "Construction", load("/deals/speedup-marks/Construction.png"),
+            "Training", load("/deals/speedup-marks/Training.png"),
+            "Research", load("/deals/speedup-marks/Research.png"));
+    private static final double SPEEDUP_MARK_MIN_SCORE = 75.0;
+    /** The marks were cut from 73 px tiles; the search box is in tile widths from the tile's top left. */
+    private static final double SPEEDUP_MARK_LEFT = -0.08;
+    private static final double SPEEDUP_MARK_RIGHT = 0.6;
+    private static final double SPEEDUP_MARK_TOP = 0.44;
+    private static final double SPEEDUP_MARK_BOTTOM = 1.1;
+    private static final int SPEEDUP_MARK_TILE_WIDTH = 73;
+    /**
      * The diamond of the gem banner on Regular Pack cards ("2,500" in large type beside it), its interior only
      * because the banner behind it changes colour per card. Alone it does not separate -- banner diamonds scored
      * 82-100 on the 2026-10-22 frames and gem tiles up to 81 -- so it only confirms a large number beside it.
@@ -1028,6 +1044,36 @@ public final class DealFrameReader {
         } catch (OcrException unreadable) {
             return List.of();
         }
+    }
+
+    /**
+     * A speedup named by the mark its tile carries, whichever speedup icon matched it: "1h Training Speedup"
+     * when the training mark is there, plain "1h Speedup" when none is.
+     */
+    private static String speedupKind(RawImageData capture, DealItemLibrary.Match tile) {
+        String plain = tile.key();
+        for (String kind : SPEEDUP_MARKS.keySet()) {
+            plain = plain.replace(" " + kind + " Speedup", " Speedup");
+        }
+        if (tile.width() * 10 < SPEEDUP_MARK_TILE_WIDTH * 9 || tile.width() * 10 > SPEEDUP_MARK_TILE_WIDTH * 11) {
+            // The marks were measured at one tile size only; elsewhere the icon's own name stands.
+            return tile.key();
+        }
+        PointData from = new PointData(Math.max(0, tile.x() + (int) (tile.width() * SPEEDUP_MARK_LEFT)),
+                tile.y() + (int) (tile.width() * SPEEDUP_MARK_TOP));
+        PointData to = new PointData(Math.min(capture.getWidth(), tile.x() + (int) (tile.width() * SPEEDUP_MARK_RIGHT)),
+                Math.min(capture.getHeight(), tile.y() + (int) (tile.width() * SPEEDUP_MARK_BOTTOM)));
+        String kind = null;
+        double best = SPEEDUP_MARK_MIN_SCORE;
+        for (Map.Entry<String, byte[]> mark : SPEEDUP_MARKS.entrySet()) {
+            ImageSearchResultData hit = OpenCvPatternLocator.matchFromRawTemplate(capture, mark.getValue(), from, to,
+                    SPEEDUP_MARK_MIN_SCORE);
+            if (hit.isFound() && hit.getMatchScore() >= best) {
+                best = hit.getMatchScore();
+                kind = mark.getKey();
+            }
+        }
+        return kind == null ? plain : plain.replace(" Speedup", " " + kind + " Speedup");
     }
 
     /** The run of words in a crop's largest type, as one line. */
@@ -1736,7 +1782,8 @@ public final class DealFrameReader {
             if (quantity.isEmpty()) {
                 quantity = countBelow(text.whiteWords(), match);
             }
-            quantity.ifPresent(q -> read.put(match, new DealItem(match.key(), q, "icon")));
+            String key = match.key().endsWith(" Speedup") ? speedupKind(text.capture(), match) : match.key();
+            quantity.ifPresent(q -> read.put(match, new DealItem(key, q, "icon")));
             placed.add(match);
         }
         unknownTiles(image, found, left, right).forEach(read::put);
