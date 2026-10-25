@@ -687,7 +687,9 @@ public class ChatCaptureRoutine extends DelayedTask {
         // slower to be sure and loses nothing.
         dev.frostguard.vision.ocr.ChatTextReader checker = reader();
         boolean readerUp = checker != null && checker.isUp();
-        boolean backlogged = PENDING_FRAMES.get() > BACKLOG_FRAMES_BEFORE_FIXED_WALK;
+        // Not a reconcile: its target is chat from a day ago, which is stored whatever is waiting
+        // to be read, so a queue of newer frames does not stop it finding its place.
+        boolean backlogged = !reconcile && PENDING_FRAMES.get() > BACKLOG_FRAMES_BEFORE_FIXED_WALK;
         boolean stopAtStoredChat = scrollUntilOverlap && !conversations && readerUp && !backlogged;
         if (scrollUntilOverlap && !conversations && !stopAtStoredChat) {
             logInfo("ChatCaptureRoutine | " + channel + ": "
