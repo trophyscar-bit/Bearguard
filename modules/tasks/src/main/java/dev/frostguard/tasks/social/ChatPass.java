@@ -66,6 +66,27 @@ final class ChatPass {
      */
     private int knownRun;
     private int knownThisScreen;
+    private final List<ChatMessage> knownRunMessages = new java.util.ArrayList<>();
+    private final List<ChatMessage> knownThisScreenMessages = new java.util.ArrayList<>();
+
+    /** Whether messages matched as stored are one stretch of the conversation; see the store. */
+    private java.util.function.Predicate<List<ChatMessage>> stretch;
+
+    /** When the frames were photographed, so messages are filed at that and not at read time. */
+    private Instant stampedAt;
+
+    void useStretchCheck(java.util.function.Predicate<List<ChatMessage>> sameStretch) {
+        this.stretch = sameStretch;
+    }
+
+    /**
+     * Files this walk's messages at the moment its frames were photographed. Reading can run hours
+     * after photographing when the reader is busy, and a message stamped at read time lands in the
+     * wrong hour of the wrong day.
+     */
+    void useCaptureTime(Instant photographedAt) {
+        this.stampedAt = photographedAt;
+    }
 
     /** How many stored messages the barren screens must show before they count as a bridge. */
     private static final int KNOWN_MESSAGES_TO_BRIDGE = 3;
@@ -139,7 +160,8 @@ final class ChatPass {
             }
         }
 
-        List<ChatMessage> read = ChatFrameReader.read(lines, channel, Instant.now(), translate,
+        List<ChatMessage> read = ChatFrameReader.read(lines, channel,
+                stampedAt != null ? stampedAt : Instant.now(), translate,
                 line -> ChatQuoteBar.isQuoteRow(image, line));
         beginScreen();
         for (ChatMessage m : read) {
@@ -160,9 +182,11 @@ final class ChatPass {
         if (fresh == 0) {
             barrenScreens++;
             knownRun += knownThisScreen;
+            knownRunMessages.addAll(knownThisScreenMessages);
         } else {
             barrenScreens = 0;
             knownRun = 0;
+            knownRunMessages.clear();
         }
         return fresh;
     }
@@ -187,7 +211,8 @@ final class ChatPass {
     /** Whether this walk has reached history it has already read. */
     boolean reachedKnownHistory() {
         return barrenScreens >= BARREN_SCREENS_BEFORE_STOP
-                && (known == null || knownRun >= KNOWN_MESSAGES_TO_BRIDGE);
+                && (known == null || (knownRun >= KNOWN_MESSAGES_TO_BRIDGE
+                && (stretch == null || stretch.test(knownRunMessages))));
     }
 
     /** Everything worth storing from this walk, in the order it was read. */
@@ -611,6 +636,7 @@ final class ChatPass {
         screenNumber++;
         lineOnScreen = 0;
         knownThisScreen = 0;
+        knownThisScreenMessages.clear();
     }
 
     void keep(ChatMessage m) {
@@ -635,6 +661,7 @@ final class ChatPass {
                 unseen++;
             } else if (m.body().length() >= MIN_BODY_TO_PROVE_HISTORY) {
                 knownThisScreen++;
+                knownThisScreenMessages.add(m);
             }
             return;
         }

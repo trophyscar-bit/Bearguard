@@ -42,9 +42,57 @@ public final class ChatPassLog {
 
     /** The device has been released; {@code screens} were photographed. */
     public void photographed(String channel, boolean reconcile, int screens) {
+        photographed(channel, reconcile, screens, true);
+    }
+
+    /**
+     * @param covered whether the walk stopped because it reached the chat it was sent to reach, and
+     *                not because it ran out of time. Only a reconcile that covered its target counts
+     *                as the one the next reconcile builds on; see {@link #lastCoveredReconcile}.
+     */
+    public void photographed(String channel, boolean reconcile, int screens, boolean covered) {
         ObjectNode n = line(channel, reconcile, "photographed");
         n.put("screens", screens);
+        n.put("covered", covered);
         write(n);
+    }
+
+    /**
+     * When the most recent reconcile of this channel that reached its target finished walking, or
+     * empty when none did.
+     *
+     * <p>Not the same as the last one that ran. A reconcile that ran out of time before reaching
+     * what it was sent for has left a hole behind it, and a later reconcile measured from it would
+     * start where the short one began and never look at that hole. Lines written before this field
+     * existed count as covered, since that is what they were assumed to be.
+     */
+    public Optional<Instant> lastCoveredReconcile(String channel) {
+        if (!Files.isRegularFile(file)) {
+            return Optional.empty();
+        }
+        Instant latest = null;
+        try {
+            for (String raw : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                try {
+                    JsonNode n = MAPPER.readTree(raw);
+                    if (n == null || !"reconcile".equals(n.path("mode").asText())
+                            || !channel.equals(n.path("channel").asText())
+                            || !"photographed".equals(n.path("phase").asText())
+                            || !n.path("covered").asBoolean(true)) {
+                        continue;
+                    }
+                    Instant at = Instant.parse(n.path("at").asText());
+                    if (latest == null || at.isAfter(latest)) {
+                        latest = at;
+                    }
+                } catch (Exception malformed) {
+                    // A half-written last line is normal for an append-only file.
+                }
+            }
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(latest);
     }
 
     /**

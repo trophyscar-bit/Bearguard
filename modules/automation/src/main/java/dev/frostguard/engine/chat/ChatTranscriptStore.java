@@ -199,6 +199,49 @@ public final class ChatTranscriptStore {
     }
 
     /**
+     * Whether these messages, already stored, sit close together in the order they were stored.
+     *
+     * <p>What separates "I am back in chat I already have" from "I met three lines that people post
+     * every hour". The store matches on the body alone, so "join the rally please" matches an
+     * old copy of itself; three of those on one screen all match, and each match is far from the
+     * others in storage order. A real stretch of the conversation matches messages that were
+     * stored one after another.
+     *
+     * <p>Counted within the channel, because the two channels' passes are stored in turn and the
+     * other channel's messages would otherwise make every stretch look long.
+     *
+     * @param maxSpread the most same-channel messages allowed between the first and last match
+     */
+    public boolean sameStretch(List<ChatMessage> messages, int maxSpread) {
+        if (messages.size() < 2) {
+            return true;
+        }
+        String channel = messages.get(0).channel();
+        Map<String, Integer> position = new HashMap<>();
+        int index = 0;
+        for (String signature : recent) {
+            if (channel.equals(channelOf(signature))) {
+                position.put(signature, index++);
+            }
+        }
+        int lowest = Integer.MAX_VALUE;
+        int highest = Integer.MIN_VALUE;
+        int found = 0;
+        for (ChatMessage m : messages) {
+            String match = matchOf(signatureOf(m));
+            Integer at = match == null ? null : position.get(match);
+            if (at != null) {
+                lowest = Math.min(lowest, at);
+                highest = Math.max(highest, at);
+                found++;
+            }
+        }
+        // Matches the window no longer holds cannot be placed, and that is not evidence either way;
+        // fewer than two placed ones leave nothing to compare.
+        return found < 2 || highest - lowest <= maxSpread;
+    }
+
+    /**
      * The newest time the transcript holds for this channel that is strictly before a limit.
      *
      * <p>What bounds a partial walk. When a reconcile does not reach as far back as the hole

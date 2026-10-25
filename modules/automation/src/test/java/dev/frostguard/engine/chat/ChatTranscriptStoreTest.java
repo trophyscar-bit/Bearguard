@@ -238,6 +238,39 @@ class ChatTranscriptStoreTest {
     }
 
     @Test
+    void messagesStoredOneAfterAnotherAreOneStretchButScatteredRepeatsAreNot() throws IOException {
+        Instant at = Instant.parse("2026-10-24T05:00:00Z");
+        ChatTranscriptStore s = store();
+        ChatMessage rally = msg(at, "A", "join the rally please everyone");
+        ChatMessage thanks = msg(at, "B", "thanks for the help everyone");
+        ChatMessage speedups = msg(at, "C", "who has spare speedups for tonight");
+
+        // Stored back to back: a real stretch of conversation.
+        s.append(List.of(rally, thanks, speedups));
+        assertTrue(s.sameStretch(List.of(rally, thanks, speedups), 40));
+
+        // Two hundred unrelated messages later the same three lines are posted again, but a fresh
+        // store that only ever saw them far apart must not call them one stretch.
+        ChatTranscriptStore scattered = new ChatTranscriptStore(dir.resolve("scattered"), ZoneOffset.UTC);
+        scattered.append(List.of(rally));
+        for (int i = 0; i < 100; i++) {
+            scattered.append(List.of(msg(at, "X", unrelated(i))));
+        }
+        scattered.append(List.of(thanks));
+        for (int i = 100; i < 200; i++) {
+            scattered.append(List.of(msg(at, "X", unrelated(i))));
+        }
+        scattered.append(List.of(speedups));
+        assertFalse(scattered.sameStretch(List.of(rally, thanks, speedups), 40));
+    }
+
+    /** Bodies that share no run of characters, so none is mistaken for a reread of another. */
+    private static String unrelated(int i) {
+        return Long.toString(i * 2654435761L + 12345L, 36) + " " + Long.toString(i * 40503L + 977L, 36)
+                + " " + Long.toString(i * 7919L + 31L, 36) + " " + Long.toString(i * 104729L + 7L, 36);
+    }
+
+    @Test
     void reportsItsOwnSizeForTheStartupFigure() throws IOException {
         ChatTranscriptStore s = store();
         s.append(List.of(msg(Instant.parse("2026-08-21T22:15:00Z"), "Nightjar", "rally in five")));
