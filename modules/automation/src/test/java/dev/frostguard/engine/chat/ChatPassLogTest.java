@@ -124,4 +124,18 @@ class ChatPassLogTest {
         assertTrue(written.contains("\"stored\":40"));
         assertTrue(written.contains("\"mode\":\"reconcile\""));
     }
+
+    @Test
+    void remembersWhenAChannelWasLastPhotographedInAnyMode() {
+        ChatPassLog log = new ChatPassLog(dir);
+        assertEquals(Optional.empty(), log.lastPhotographed("alliance"));
+
+        log.photographed("alliance", false, 40);
+        log.read("alliance", false, 40, 5, true);
+        log.photographed("world", true, 150);
+
+        assertTrue(log.lastPhotographed("alliance").isPresent(), "a read line is not a photograph");
+        assertTrue(log.lastPhotographed("world").isPresent(), "a reconcile counts too");
+        assertEquals(Optional.empty(), log.lastPhotographed("personal"));
+    }
 }

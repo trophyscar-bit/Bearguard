@@ -63,6 +63,39 @@ public final class ChatPassLog {
     }
 
     /**
+     * When this channel was last photographed in any mode, or empty when none is on record.
+     *
+     * <p>A long gap since it means the bot was not running, and the next pass has more to catch up
+     * on than an ordinary one is sized for.
+     */
+    public Optional<Instant> lastPhotographed(String channel) {
+        if (!Files.isRegularFile(file)) {
+            return Optional.empty();
+        }
+        Instant latest = null;
+        try {
+            for (String raw : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                try {
+                    JsonNode n = MAPPER.readTree(raw);
+                    if (n == null || !channel.equals(n.path("channel").asText())
+                            || !"photographed".equals(n.path("phase").asText())) {
+                        continue;
+                    }
+                    Instant at = Instant.parse(n.path("at").asText());
+                    if (latest == null || at.isAfter(latest)) {
+                        latest = at;
+                    }
+                } catch (Exception malformed) {
+                    // A half-written last line is normal for an append-only file.
+                }
+            }
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(latest);
+    }
+
+    /**
      * When the most recent reconcile of this channel began, or empty when none is on record.
      *
      * <p>Per channel, not per pass: if the World tab would not open one night, the Alliance

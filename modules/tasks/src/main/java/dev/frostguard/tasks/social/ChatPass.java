@@ -60,6 +60,23 @@ final class ChatPass {
     private int barrenScreens;
 
     /**
+     * Messages the transcript already held, counted across the screens since the walk last found
+     * anything new. A bridge needs real matches: two screens that read as empty, or as a banner and
+     * nothing else, have not touched history, and calling that "caught up" is how a gap hides.
+     */
+    private int knownRun;
+    private int knownThisScreen;
+
+    /** How many stored messages the barren screens must show before they count as a bridge. */
+    private static final int KNOWN_MESSAGES_TO_BRIDGE = 3;
+
+    /**
+     * A body shorter than this proves nothing: "ok" and "jajaja" repeat all day, so matching one is
+     * not evidence of being in the same place in the conversation.
+     */
+    private static final int MIN_BODY_TO_PROVE_HISTORY = 8;
+
+    /**
      * Where each collected message first appeared: the screen it was read on and how far down that
      * screen it sat.
      *
@@ -129,10 +146,25 @@ final class ChatPass {
             keep(m);
         }
 
+        return new Screen(lines.size(), read.size(), endScreen());
+    }
+
+    /**
+     * Closes the screen that was being filled and says how many messages on it the transcript did
+     * not already hold. Separate from {@link #addScreen} so the bookkeeping can be tested without a
+     * picture to read.
+     */
+    int endScreen() {
         int fresh = unseen - knownBefore;
         knownBefore = unseen;
-        barrenScreens = fresh == 0 ? barrenScreens + 1 : 0;
-        return new Screen(lines.size(), read.size(), fresh);
+        if (fresh == 0) {
+            barrenScreens++;
+            knownRun += knownThisScreen;
+        } else {
+            barrenScreens = 0;
+            knownRun = 0;
+        }
+        return fresh;
     }
 
     /** Messages found that the transcript did not already hold. */
@@ -154,7 +186,8 @@ final class ChatPass {
 
     /** Whether this walk has reached history it has already read. */
     boolean reachedKnownHistory() {
-        return barrenScreens >= BARREN_SCREENS_BEFORE_STOP;
+        return barrenScreens >= BARREN_SCREENS_BEFORE_STOP
+                && (known == null || knownRun >= KNOWN_MESSAGES_TO_BRIDGE);
     }
 
     /** Everything worth storing from this walk, in the order it was read. */
@@ -577,6 +610,7 @@ final class ChatPass {
     void beginScreen() {
         screenNumber++;
         lineOnScreen = 0;
+        knownThisScreen = 0;
     }
 
     void keep(ChatMessage m) {
@@ -599,6 +633,8 @@ final class ChatPass {
             // kept a busy channel reading all seventy-six of its screens every pass for a night.
             if (known == null || !known.test(m)) {
                 unseen++;
+            } else if (m.body().length() >= MIN_BODY_TO_PROVE_HISTORY) {
+                knownThisScreen++;
             }
             return;
         }
