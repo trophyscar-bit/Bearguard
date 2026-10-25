@@ -884,6 +884,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             visited.add(tabKey(opening));
             seen.add(tabKey(opening));
         }
+        // The walk below only swipes toward the strip's right end, so it starts from the left end. A panel
+        // opens wherever its strip was left: on 2026-10-24 the Gem Shop opened mid-strip on Daily Deals, and
+        // Custom Pet Chest, Chief Gear Enhancement Special and Hall of Chiefs to its left were never seen.
+        boolean rewound = rewindStrip();
         int surveyed = 0;
         int swipes = 0;
         int stillSwipes = 0;
@@ -948,7 +952,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 missed.add(tab);
             }
         }
-        boolean reachedEnd = stillSwipes >= 2;
+        boolean reachedEnd = stillSwipes >= 2 && rewound;
         recordCoverage(surface, true, seen.size(), visited.size(),
                 reachedEnd && missed.isEmpty() ? null
                         : (reachedEnd ? "" : "strip end not reached; ") + (missed.isEmpty() ? ""
@@ -963,6 +967,20 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         if (surveyed == 0) {
             problems.add(surface + ": no other tabs were found; only the opening tab was surveyed.");
         }
+    }
+
+    /** Drags the tab strip right until it stops moving twice in a row; false if it never stopped. */
+    private boolean rewindStrip() {
+        int still = 0;
+        for (int swipe = 0; swipe < MAX_STRIP_SWIPES; swipe++) {
+            if (scrolled(STRIP_SWIPE_TO, STRIP_SWIPE_FROM, STRIP_SWIPE_ALT_TO, STRIP_SWIPE_ALT_FROM, STRIP_REGION)) {
+                still = 0;
+            } else if (++still >= 2) {
+                return true;
+            }
+        }
+        logWarning("bg_deals_telemetry | Tab strip still moving after " + MAX_STRIP_SWIPES + " swipes back to its start.");
+        return false;
     }
 
     /**
