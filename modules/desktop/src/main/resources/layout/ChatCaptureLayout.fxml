@@ -3,7 +3,7 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 
-<!-- Chat Capture settings -- pinned panel; the controller is injected programmatically by
+<!-- Chat Capture settings: pinned panel; the controller is injected programmatically by
      LauncherLayoutController, same as every other panel. -->
 <StackPane maxHeight="Infinity" maxWidth="Infinity"
            HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
