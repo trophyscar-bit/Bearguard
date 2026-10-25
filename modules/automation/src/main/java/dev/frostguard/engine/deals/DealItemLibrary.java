@@ -69,15 +69,18 @@ public final class DealItemLibrary {
         return thread;
     });
 
-    /** @param scale the tile size this match was found at, relative to a full 94 px tile */
-    public record Match(String key, int x, int y, int width, int height, double score, double scale) {
+    /**
+     * @param scale the tile size this match was found at, relative to a full 94 px tile
+     * @param loose the icon is drawn without its tile, so its count is printed beside or under it
+     */
+    public record Match(String key, int x, int y, int width, int height, double score, double scale, boolean loose) {
     }
 
-    private record Variant(String key, byte[] png, int width, int height, double scale) {
+    private record Variant(String key, byte[] png, int width, int height, double scale, boolean loose) {
     }
 
     /** @param drawnAt the tile size the icon was cut at; 1.0 unless its file name says {@code @0.775} */
-    private record Original(String key, BufferedImage image, double drawnAt) {
+    private record Original(String key, BufferedImage image, double drawnAt, boolean loose) {
     }
 
     private final List<Variant> variants;
@@ -112,16 +115,17 @@ public final class DealItemLibrary {
                 int at = stem.lastIndexOf('@');
                 String key = at < 0 ? stem : stem.substring(0, at);
                 // "Fire Crystal~loose": the item drawn without its tile, as on Dream Traveler packs.
-                if (key.contains("~")) {
+                boolean loose = key.contains("~");
+                if (loose) {
                     key = key.substring(0, key.indexOf('~'));
                 }
                 double drawnAt = at < 0 ? 1.0 : Double.parseDouble(stem.substring(at + 1));
                 icons++;
-                originals.add(new Original(key, image, drawnAt));
+                originals.add(new Original(key, image, drawnAt, loose));
                 for (double scale : TILE_SCALES) {
                     BufferedImage scaled = scale == drawnAt ? image : scale(image, scale / drawnAt);
                     byte[] bytes = scale == drawnAt ? png : encode(scaled);
-                    variants.add(new Variant(key, bytes, scaled.getWidth(), scaled.getHeight(), scale));
+                    variants.add(new Variant(key, bytes, scaled.getWidth(), scaled.getHeight(), scale, loose));
                 }
             }
         }
@@ -196,7 +200,8 @@ public final class DealItemLibrary {
         return scaledCache.computeIfAbsent(cacheKey, k -> {
             BufferedImage scaled = scale(original.image(), rounded / original.drawnAt());
             try {
-                return new Variant(original.key(), encode(scaled), scaled.getWidth(), scaled.getHeight(), rounded);
+                return new Variant(original.key(), encode(scaled), scaled.getWidth(), scaled.getHeight(), rounded,
+                        original.loose());
             } catch (IOException unencodable) {
                 throw new UncheckedIOException(unencodable);
             }
@@ -224,7 +229,7 @@ public final class DealItemLibrary {
             if (result.isFound()) {
                 candidates.add(new Match(variant.key(), result.getX() - variant.width() / 2,
                         result.getY() - variant.height() / 2, variant.width(), variant.height(),
-                        result.getMatchScore(), variant.scale()));
+                        result.getMatchScore(), variant.scale(), variant.loose()));
             }
         }
         candidates.sort(Comparator.comparingDouble(Match::score).reversed());

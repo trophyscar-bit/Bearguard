@@ -110,6 +110,41 @@ public final class DealCollection {
         foldFallbackTitles();
         foldNoisyTitles();
         nameTabs();
+        fillPurchaseAll();
+    }
+
+    /**
+     * A "Purchase All" offer holds every other priced offer of its tab, so it is filled with their items. A tier
+     * read with no items would make the sum short of what the banner sells, so then it is left empty and named.
+     */
+    private void fillPurchaseAll() {
+        for (Map.Entry<String, DealOffer> entry : List.copyOf(offers.entrySet())) {
+            DealOffer bundle = entry.getValue();
+            if (!isPurchaseAll(bundle) || !bundle.items().isEmpty()) {
+                continue;
+            }
+            List<DealOffer> tiers = offers.values().stream()
+                    .filter(o -> o != bundle && !isPurchaseAll(o) && o.priceUsd() != null
+                            && Objects.equals(o.surface(), bundle.surface())
+                            && Objects.equals(o.tab(), bundle.tab()))
+                    .toList();
+            if (tiers.size() < 2 || tiers.stream().anyMatch(o -> o.items().isEmpty())) {
+                problems.add(bundle.surface() + " / " + bundle.tab() + " / " + bundle.title() + ": its "
+                        + tiers.size() + " tier(s) not all read; contents left unknown.");
+                continue;
+            }
+            Map<String, Long> sum = new LinkedHashMap<>();
+            tiers.forEach(tier -> tier.items().forEach(i -> sum.merge(i.key(), i.quantity(), Long::sum)));
+            List<DealItem> items = sum.entrySet().stream()
+                    .map(e -> new DealItem(e.getKey(), e.getValue(), "purchase all")).toList();
+            offers.put(entry.getKey(), new DealOffer(bundle.surface(), bundle.tab(), bundle.title(), bundle.priceUsd(),
+                    bundle.priceText(), bundle.remaining(), bundle.purchased(), items, bundle.frame(),
+                    bundle.limitPeriod(), bundle.limitCount(), bundle.timeLeft(), bundle.card()));
+        }
+    }
+
+    private static boolean isPurchaseAll(DealOffer offer) {
+        return offer.title() != null && offer.title().toLowerCase(Locale.ROOT).startsWith("purchase all");
     }
 
     /** The shop a pick-your-own tier was read in; one shop whose name OCR spells two ways is one shop. */

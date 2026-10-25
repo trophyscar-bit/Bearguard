@@ -255,6 +255,10 @@ public final class DealFrameReader {
     private static final float PURE_WHITE_SATURATION = 35f / 255f;
     /** How far right of a grant icon its "xN" count may print. */
     private static final int SIDE_COUNT_REACH = 160;
+    /** Daily Deals' "500" starts about 14 px right of its gem (2026-10-24). */
+    private static final int BARE_SIDE_COUNT_GAP = 30;
+    private static final Pattern BARE_COUNT = Pattern.compile("^\\d{1,3}(,\\d{3})*$");
+    private static final Pattern PLAIN_COUNT = Pattern.compile("^\\d{1,7}$");
     /** A grant's "x2,500" stands about 21 px tall beside its tile; magnified into the glyph reader's range. */
     private static final int GRANT_COUNT_HALF_HEIGHT = 25;
     private static final double GRANT_COUNT_MAGNIFICATION = 2.0;
@@ -446,8 +450,11 @@ public final class DealFrameReader {
                 .filter(box -> isStorePrice(parsePrice(readPrice(image, text.whiteWords(), box))))
                 .toList();
         List<PriceButtonLocator.Box> located = Stream.concat(found.stream(), grey.stream()).toList();
-        List<PriceButtonLocator.Box> buttons = Stream.concat(located.stream(),
-                        orphanTitleButtons(image, text, located).stream())
+        Optional<PurchaseAll> purchaseAll = purchaseAll(text, located);
+        List<PriceButtonLocator.Box> buttons = Stream.of(located.stream(),
+                        orphanTitleButtons(image, text, located).stream(),
+                        purchaseAll.map(PurchaseAll::button).stream())
+                .flatMap(s -> s)
                 .sorted(Comparator.comparingInt(PriceButtonLocator.Box::y).thenComparingInt(PriceButtonLocator.Box::x))
                 .toList();
 
@@ -471,7 +478,10 @@ public final class DealFrameReader {
         // pass joined it to the description under it on 2026-10-23.
         String offerTab = chooseYourOwn ? headerTitle(image).orElse(tab) : tab;
         List<TextLine> allLines = Stream.concat(text.plainLines().stream(), text.whiteLines().stream()).toList();
-        String pageLimit = pageLimit(allLines, buttons);
+        // The tiers' "Daily Limit: 1" sits right under the Purchase All banner; it is the tiers' limit, not its.
+        List<PriceButtonLocator.Box> tierButtons = buttons.stream()
+                .filter(b -> purchaseAll.isEmpty() || purchaseAll.get().button() != b).toList();
+        String pageLimit = pageLimit(allLines, tierButtons);
         List<DealOffer> offers = new ArrayList<>();
         List<DealItemLibrary.Match> tiles = new ArrayList<>();
         List<Integer> cardRowYs = new ArrayList<>();
@@ -482,8 +492,8 @@ public final class DealFrameReader {
         // Cards with no title of their own (Daily Deals) are named after their tab; only on pages of titled
         // cards does a missing title mean the card is cut off by the frame.
         boolean titledCards = false;
-        int scanTop = FRAME_TOP_LEFT.getY();
-        for (PriceButtonLocator.Box button : buttons) {
+        int scanTop = purchaseAll.map(p -> p.button().bottom()).orElse(FRAME_TOP_LEFT.getY());
+        for (PriceButtonLocator.Box button : tierButtons) {
             titledCards |= cardTitle(text.whiteLines(), scanTop, button) != null;
             scanTop = button.bottom();
         }
@@ -491,12 +501,22 @@ public final class DealFrameReader {
             PriceButtonLocator.Box button = buttons.get(index);
             int top = windowTop;
             int titleTop = previousButtonBottom;
-            int bottom = button.bottom() + CARD_BELOW_BUTTON;
+            // Not past half way to the next button: Daily Deals' tiers stand 187 px apart, and 90 px under the
+            // first button took the second tier's "💎 1,000" header into the first (2026-10-24).
+            int bottom = index + 1 < buttons.size() && buttons.get(index + 1).y() > button.bottom()
+                    ? Math.min(button.bottom() + CARD_BELOW_BUTTON, (button.bottom() + buttons.get(index + 1).y()) / 2)
+                    : button.bottom() + CARD_BELOW_BUTTON;
             windowTop = bottom;
             previousButtonBottom = button.bottom();
 
             String priceText = readPrice(image, text.whiteWords(), button);
             Double priceUsd = isStorePrice(parsePrice(priceText)) ? parsePrice(priceText) : null;
+            if (purchaseAll.isPresent() && purchaseAll.get().button() == button) {
+                // Its contents are the tab's tiers together; DealCollection fills them in once every tier is read.
+                offers.add(new DealOffer(surface, offerTab, purchaseAll.get().title(), priceUsd, priceText, null,
+                        false, List.of(), frame, null, null, null, null));
+                continue;
+            }
 
             String title;
             int cardTop;
@@ -1394,6 +1414,65 @@ public final class DealFrameReader {
         return printed;
     }
 
+    private record PurchaseAll(PriceButtonLocator.Box button, String title) {
+    }
+
+    /**
+     * Daily Deals' "Purchase All Discount Packs" banner: every tier of the tab at once ($4.99 for $5.97 of tiers
+     * on 2026-10-24). Its button sits on an orange banner, so the colour search merges the two and never finds
+     * it, and the line pass ran the banner's words together ("3787% Crue $4.99 Purchase All Discount"). The word
+     * pass keeps "Purchase" "All" and the price apart; the price word right of them, on their row or the
+     * wrapped one under it, is the button.
+     */
+    private static Optional<PurchaseAll> purchaseAll(Text text, List<PriceButtonLocator.Box> located) {
+        List<TextLine> words = text.whiteWords();
+        for (TextLine purchase : words) {
+            if (!clean(purchase.text()).equalsIgnoreCase("Purchase")) {
+                continue;
+            }
+            boolean all = words.stream().anyMatch(w -> clean(w.text()).equalsIgnoreCase("All")
+                    && Math.abs(w.top() - purchase.top()) <= SAME_ROW_TOLERANCE && w.left() > purchase.left());
+            Optional<TextLine> price = words.stream()
+                    .filter(w -> PRICE_ONLY.matcher(clean(w.text()).replace(" ", "")).matches()
+                            && w.left() > purchase.right()
+                            && w.top() >= purchase.top() - SAME_ROW_TOLERANCE
+                            && w.top() <= purchase.bottom() + purchase.height() + SAME_ROW_TOLERANCE)
+                    .min(Comparator.comparingInt(TextLine::left));
+            if (!all || price.isEmpty() || located.stream().anyMatch(b -> contains(b, price.get()))) {
+                continue;
+            }
+            TextLine word = price.get();
+            PriceButtonLocator.Box button = new PriceButtonLocator.Box(word.left() - PRINTED_PRICE_PADDING,
+                    word.top() - PRINTED_PRICE_PADDING, word.width() + 2 * PRINTED_PRICE_PADDING,
+                    word.height() + 2 * PRINTED_PRICE_PADDING);
+            return Optional.of(new PurchaseAll(button, purchaseAllTitle(text.whiteMask(), purchase, word)));
+        }
+        return Optional.empty();
+    }
+
+    /** The banner's own words left of its price, wrapped line included: "Purchase All Discount Packs". */
+    private static String purchaseAllTitle(RawImageData whiteMask, TextLine purchase, TextLine price) {
+        try {
+            String read = OcrEngine.recognizeLines(whiteMask, new PointData(purchase.left() - 4, purchase.top() - 6),
+                            new PointData(price.left() - PRINTED_PRICE_PADDING, purchase.bottom() + 2 * purchase.height()),
+                            CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS).stream()
+                    .map(TextLine::text).collect(Collectors.joining(" "));
+            String title = cleanTitle(read);
+            if (title.toLowerCase(Locale.ROOT).startsWith("purchase all")) {
+                return title;
+            }
+        } catch (OcrException unreadable) {
+            // The plain name below still says what the offer is.
+        }
+        return "Purchase All";
+    }
+
+    private static boolean contains(PriceButtonLocator.Box box, TextLine word) {
+        int x = word.left() + word.width() / 2;
+        int y = word.top() + word.height() / 2;
+        return x >= box.x() && x <= box.right() && y >= box.y() && y <= box.bottom();
+    }
+
     /**
      * Buttons of cards whose title is on screen but whose button was not found. An orange button on an orange
      * card ("Mastery Forging", 2026-10-23) merges into the card for the colour search, and its price was not in
@@ -1597,6 +1676,18 @@ public final class DealFrameReader {
             // A tile reaching the card's inner edge may be cut by it. Only the glyph read is taken there: it
             // rejects a part-hidden digit, where OCR read a cut 130 as 134. A wholly hidden last digit reads
             // short ("24" of 240) and gives way to the whole read once the row is swiped.
+            if (match.loose()) {
+                // No tile, so no corner count: Daily Deals prints its gems as "500" beside the gem, larger than
+                // any tile count, and the glyph read under the gem took "4" from it.
+                Optional<Long> loose = sideCount(text.whiteWords(), match).or(() -> bareSideCount(text.whiteWords(), match))
+                        .or(() -> countBelow(text.whiteWords(), match)).or(() -> numberBeside(text.capture(), match));
+                if (loose.isPresent()) {
+                    read.put(match, new DealItem(match.key(), loose.get(), "icon"));
+                    placed.add(match);
+                    continue;
+                }
+                // Dream Traveler's loose gems still read through the tile reads below (2026-10-23 frame 073).
+            }
             boolean atEdge = match.x() + match.width() >= CLIPPED_TILE_MIN_RIGHT;
             Optional<Long> quantity = atEdge
                     ? TileCountReader.read(image, match.x(), match.y(), match.scale()).map(DealFrameReader::parseQuantity)
@@ -1629,7 +1720,8 @@ public final class DealFrameReader {
             int left, int right) {
         Map<DealItemLibrary.Match, DealItem> unknown = new LinkedHashMap<>();
         Map<Integer, List<DealItemLibrary.Match>> rows = new LinkedHashMap<>();
-        for (DealItemLibrary.Match tile : known) {
+        // A loose icon has no tile, so no tile spacing: Daily Deals' "500" beside its gem read as two tiles.
+        for (DealItemLibrary.Match tile : known.stream().filter(m -> !m.loose()).toList()) {
             Integer row = rows.keySet().stream().filter(y -> Math.abs(y - tile.y()) <= SAME_ROW_TOLERANCE)
                     .findFirst().orElse(tile.y());
             rows.computeIfAbsent(row, y -> new ArrayList<>()).add(tile);
@@ -1664,7 +1756,7 @@ public final class DealFrameReader {
             }
             for (int x : probes) {
                 DealItemLibrary.Match probe = new DealItemLibrary.Match("", x, first.y(), first.width(), first.height(),
-                        0, first.scale());
+                        0, first.scale(), false);
                 if (x < 0 || x + first.width() > image.getWidth() || bandCutOff(image, probe)) {
                     continue;
                 }
@@ -1720,6 +1812,37 @@ public final class DealFrameReader {
                 .map(m -> parseQuantity(m.group(1)))
                 .filter(Objects::nonNull)
                 .findFirst();
+    }
+
+    /** A bare number right against a loose icon, as Daily Deals' "💎 1,000". */
+    private static Optional<Long> bareSideCount(List<TextLine> words, DealItemLibrary.Match match) {
+        int left = match.x() + match.width();
+        return words.stream()
+                .filter(w -> w.left() >= left - SAME_ROW_TOLERANCE && w.left() <= left + BARE_SIDE_COUNT_GAP)
+                .filter(w -> centreY(w) >= match.y() && centreY(w) <= match.y() + match.height())
+                .map(w -> clean(w.text()).replace(" ", ""))
+                .filter(t -> BARE_COUNT.matcher(t).matches())
+                .map(DealFrameReader::parseQuantity)
+                .filter(Objects::nonNull)
+                .findFirst();
+    }
+
+    /**
+     * The number right of a loose icon, read from the frame itself. Daily Deals' "500" is pale blue-white on a
+     * pale yellow-to-blue gradient: no white mask separated it from the background, and the page-wide passes
+     * missed all three; the plain crop read 500, 1000 and 1500 on every frame of 2026-10-24.
+     */
+    private static Optional<Long> numberBeside(RawImageData capture, DealItemLibrary.Match match) {
+        int centre = match.y() + match.height() / 2;
+        int left = match.x() + match.width();
+        try {
+            String read = OcrEngine.recognizeText(capture, new PointData(left, centre - GRANT_COUNT_HALF_HEIGHT),
+                    new PointData(Math.min(capture.getWidth(), left + SIDE_COUNT_REACH), centre + GRANT_COUNT_HALF_HEIGHT),
+                    CommonOCRSettings.DEAL_ITEM_QUANTITY_SETTINGS).trim().replace(",", "");
+            return PLAIN_COUNT.matcher(read).matches() ? Optional.of(Long.parseLong(read)) : Optional.empty();
+        } catch (OcrException unreadable) {
+            return Optional.empty();
+        }
     }
 
     /** "x15" printed under an item drawn without its tile (Dream Traveler packs). */

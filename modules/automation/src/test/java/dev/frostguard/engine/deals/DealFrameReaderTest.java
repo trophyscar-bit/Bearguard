@@ -162,12 +162,12 @@ class DealFrameReaderTest {
         DealFrameReader.Page page = read("gem-shop-daily-deals-live.png", "Daily Deals");
 
         assertFalse(page.chooseYourOwn());
-        // The "Purchase All" button is drawn on an orange banner and merges with it, so only the three card
-        // buttons are found.
+        // The "Purchase All" banner is an offer of its own; the "Daily Limit: 1" under it belongs to the tiers.
         List<Double> prices = page.offers().stream().map(DealOffer::priceUsd).toList();
-        assertEquals(List.of(0.99, 1.99, 2.99), prices, page.offers().toString());
-        page.offers().forEach(o -> assertEquals("daily", o.limitPeriod(), o.toString()));
-        assertEquals(30, page.offers().get(0).purchasesPerMonth());
+        assertEquals(List.of(4.99, 0.99, 1.99, 2.99), prices, page.offers().toString());
+        assertTrue(page.offers().get(0).title().startsWith("Purchase All"), page.offers().get(0).title());
+        page.offers().stream().skip(1).forEach(o -> assertEquals("daily", o.limitPeriod(), o.toString()));
+        assertEquals(30, page.offers().get(1).purchasesPerMonth());
     }
 
     @Test
@@ -433,6 +433,25 @@ class DealFrameReaderTest {
                 "100K Resource Supply Chest=50", "Lucky Hero Gear Chest (5 Intel missions)=3",
                 "Fire Crystal (10 Intel missions)=10", "Lucky Hero Gear Chest (20 Intel missions)=3"),
                 named(read("deals-intel-monthly-card-epic.png", "Intel Monthly Card").offers().get(0)));
+    }
+
+    /**
+     * Daily Deals of 2026-10-24: the "Purchase All Discount Packs" banner is an offer of its own, and each
+     * untitled tier carries the gems printed beside its gem, not "4" read off the gem itself.
+     */
+    @Test
+    void readsDailyDealsPurchaseAllAndEachTiersGems() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-daily-deals-top.png", "Daily Deals");
+
+        assertEquals(List.of("Purchase All Discount Packs=4.99", "Daily Deals - $0.99=0.99",
+                "Daily Deals - $1.99=1.99", "Daily Deals - $2.99=2.99"),
+                page.offers().stream().map(o -> o.title() + "=" + o.priceUsd()).toList());
+        assertEquals(List.of("Gems=500", "Hero Shard Chest=1", "3h Speedup=1", "Mystery Badge=200"),
+                named(page.offers().get(1)));
+        assertEquals(List.of(500L, 1000L, 1500L), page.offers().stream().skip(1)
+                .map(o -> o.items().stream().filter(i -> i.key().equals("Gems")).mapToLong(DealItem::quantity).sum())
+                .toList());
+        assertEquals("daily", page.offers().get(1).limitPeriod());
     }
 
     /** The mission rows' green "(570/5)": #fire-crystals counts mission rewards already passed. */
