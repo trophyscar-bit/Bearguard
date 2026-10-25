@@ -601,7 +601,16 @@ public enum ConfigurationKeyEnum {
     // from the account log: 0.5 screens a second and about 1.6 new messages a screen, so five
     // minutes reaches about 240 Alliance messages (roughly six hours at 990 a day) and about 220
     // World messages (roughly nine hours at 556 a day). A multi-day outage needs far longer.
-    CHAT_RECONCILE_MINUTES_INT          ("5",               Integer.class,  ConfigCategory.SYSTEM),
+    CHAT_RECONCILE_MINUTES_INT          ("30",              Integer.class,  ConfigCategory.SYSTEM),
+    // Scroll back only as far as needed, instead of for a fixed time. Each pass checks the screens
+    // it has just photographed against the stored transcript and stops once they match. The minutes
+    // below are then ceilings, not budgets: a quiet pass stops in seconds, a war day keeps going.
+    // Off restores the old fixed 150 seconds per channel.
+    CHAT_SCROLL_UNTIL_OVERLAP_BOOL      ("true",            Boolean.class,  ConfigCategory.SYSTEM),
+    // Ceiling for an ordinary pass, per channel.
+    CHAT_PASS_MAX_MINUTES_INT           ("10",              Integer.class,  ConfigCategory.SYSTEM),
+    // Ceiling for the first pass after the bot has been away for over an hour and a half.
+    CHAT_CATCHUP_MAX_MINUTES_INT        ("30",              Integer.class,  ConfigCategory.SYSTEM),
 
     // Renders non-English messages into English over the network. Nothing is downloaded and no
     // account is needed; a failed lookup leaves the original text in place.

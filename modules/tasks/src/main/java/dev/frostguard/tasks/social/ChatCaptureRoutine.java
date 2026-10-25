@@ -205,8 +205,37 @@ public class ChatCaptureRoutine extends DelayedTask {
     private static final long CHANNEL_TIME_BUDGET_MS = 150_000L;
 
     private static final String DEFAULT_RECONCILE_TIME = "01:00";
-    private static final int DEFAULT_RECONCILE_MINUTES = 5;
+    private static final int DEFAULT_RECONCILE_MINUTES = 30;
     private static final int MAX_RECONCILE_MINUTES = 180;
+
+    /**
+     * Scroll until the screens just photographed are already in the transcript, instead of for a
+     * fixed time. The times below are ceilings: a quiet pass stops in seconds, a busy one keeps
+     * going, and nothing has to guess in advance how heavy the day is.
+     */
+    private static final int DEFAULT_PASS_MAX_MINUTES = 10;
+    private static final int DEFAULT_CATCHUP_MAX_MINUTES = 30;
+    private static final int MAX_PASS_MINUTES = 180;
+
+    /** Away for longer than this and the next pass is sized to catch up, not to keep up. */
+    private static final Duration AWAY_LONG_ENOUGH_TO_CATCH_UP = Duration.ofMinutes(90);
+
+    /** A nightly reconcile reaches back to the last one, plus this, so the two overlap. */
+    private static final Duration RECONCILE_OVERLAP_PAD = Duration.ofMinutes(30);
+    private static final Duration RECONCILE_DEFAULT_REACH = Duration.ofHours(26);
+
+    /**
+     * How often the walk stops to check whether it has reached stored chat, and the fewest frames
+     * it takes before the first check. Reading two frames costs about as long as scrolling ten, so
+     * checking every eighth keeps the overhead near a third while overshooting by at most eight
+     * frames, which are deleted unread.
+     */
+    private static final int OVERLAP_CHECK_EVERY = 8;
+    private static final int OVERLAP_CHECK_FROM = 4;
+
+    private boolean scrollUntilOverlap = true;
+    private long passMaxMs = DEFAULT_PASS_MAX_MINUTES * 60_000L;
+    private long catchupMaxMs = DEFAULT_CATCHUP_MAX_MINUTES * 60_000L;
 
     /** How far past the reconcile slot the pass may start; never the exact second. */
     private static final int RECONCILE_PAD_SECONDS = 90;
@@ -413,6 +442,15 @@ public class ChatCaptureRoutine extends DelayedTask {
         reconcileBudgetMs = Math.min(MAX_RECONCILE_MINUTES,
                 minutes != null && minutes > 0 ? minutes : DEFAULT_RECONCILE_MINUTES) * 60_000L;
 
+        scrollUntilOverlap = !Boolean.FALSE.equals(
+                profile.getConfig(ConfigurationKeyEnum.CHAT_SCROLL_UNTIL_OVERLAP_BOOL, Boolean.class));
+        Integer passMinutes = profile.getConfig(ConfigurationKeyEnum.CHAT_PASS_MAX_MINUTES_INT, Integer.class);
+        passMaxMs = Math.min(MAX_PASS_MINUTES,
+                passMinutes != null && passMinutes > 0 ? passMinutes : DEFAULT_PASS_MAX_MINUTES) * 60_000L;
+        Integer catchupMinutes = profile.getConfig(ConfigurationKeyEnum.CHAT_CATCHUP_MAX_MINUTES_INT, Integer.class);
+        catchupMaxMs = Math.min(MAX_PASS_MINUTES,
+                catchupMinutes != null && catchupMinutes > 0 ? catchupMinutes : DEFAULT_CATCHUP_MAX_MINUTES) * 60_000L;
+
         boolean translate = Boolean.TRUE.equals(
                 profile.getConfig(ConfigurationKeyEnum.CHAT_TRANSLATE_TO_ENGLISH_BOOL, Boolean.class));
         translator = new ChatTranslator(translate, TRANSLATION_CACHE_SIZE);
@@ -614,9 +652,32 @@ public class ChatCaptureRoutine extends DelayedTask {
      */
     private int captureChannel(String channel, PointData tab, boolean reconcile) {
         boolean conversations = "personal".equals(channel);
+        long budgetMs;
+        boolean stopAtStoredChat = scrollUntilOverlap && !conversations;
+        Instant coverBack = null;
+        if (!stopAtStoredChat) {
+            budgetMs = reconcile ? reconcileBudgetMs : CHANNEL_TIME_BUDGET_MS;
+        } else if (reconcile) {
+            // Reach back to the last reconcile, with a pad so the two overlap. A reconcile exists
+            // to fill what ordinary passes missed, so it keeps going past the first stored message.
+            budgetMs = reconcileBudgetMs;
+            Instant since = passLog.lastReconcileStart(channel)
+                    .orElse(Instant.now().minus(RECONCILE_DEFAULT_REACH));
+            coverBack = since.minus(RECONCILE_OVERLAP_PAD);
+        } else {
+            Optional<Instant> last = passLog.lastPhotographed(channel);
+            boolean away = last.isEmpty()
+                    || Duration.between(last.get(), Instant.now()).compareTo(AWAY_LONG_ENOUGH_TO_CATCH_UP) > 0;
+            budgetMs = away ? catchupMaxMs : passMaxMs;
+            if (away) {
+                logInfo("ChatCaptureRoutine | " + channel + ": the bot has been away since "
+                        + last.map(Instant::toString).orElse("an unknown time")
+                        + ", so this pass may scroll up to " + (budgetMs / 60_000L) + " min.");
+            }
+        }
         List<Path> shots = conversations
                 ? photographConversations(tab)
-                : photograph(channel, tab, reconcile ? reconcileBudgetMs : CHANNEL_TIME_BUDGET_MS);
+                : photograph(channel, tab, budgetMs, stopAtStoredChat, coverBack);
         if (shots.isEmpty()) {
             return 0;
         }
@@ -971,7 +1032,8 @@ public class ChatCaptureRoutine extends DelayedTask {
      * which is a comparison of two pictures and costs nothing -- and without it a screen that
      * refuses to scroll produces a hundred identical photographs.
      */
-    private List<Path> photograph(String channel, PointData tab, long budgetMs) {
+    private List<Path> photograph(String channel, PointData tab, long budgetMs,
+                                  boolean stopAtStoredChat, Instant coverBack) {
         tapNear(tab);
         sleepTask(1000L);
         if (!onChannel(channel)) {
@@ -1051,6 +1113,13 @@ public class ChatCaptureRoutine extends DelayedTask {
             } else {
                 stalled = 0;
             }
+            if (stopAtStoredChat && previous != null && shots.size() >= OVERLAP_CHECK_FROM
+                    && shots.size() % OVERLAP_CHECK_EVERY == 0
+                    && reachedStoredChat(channel, previous, image, coverBack)) {
+                logInfo("ChatCaptureRoutine | " + channel + ": the last two screens are already in"
+                        + " the transcript, so the walk stops after " + shots.size() + " screen(s).");
+                break;
+            }
             previous = image;
             swipeUpThroughHistory();
         }
@@ -1059,6 +1128,58 @@ public class ChatCaptureRoutine extends DelayedTask {
                 + " screen(s) in " + ((System.currentTimeMillis() - startedAt) / 1000) + "s of a "
                 + (budgetMs / 1000) + "s budget; reading them now.");
         return shots;
+    }
+
+    /**
+     * Whether two neighbouring frames of the walk are already in the transcript.
+     *
+     * <p>This only decides when to stop photographing. Every frame that was photographed is still
+     * read afterwards, so a stop that comes a few frames late costs nothing and one that comes early
+     * would cost the chat behind it -- which is why the bar is a real match (see
+     * {@link ChatPass#reachedKnownHistory}) and not a quiet-looking screen.
+     *
+     * <p>An ordinary pass is done once it is back in chat it has stored. A reconcile is looking for
+     * holes behind stored chat, so it only stops once it is stored chat from before {@code coverBack}.
+     *
+     * @param newer the frame closer to the present
+     * @param older the frame one step further back
+     */
+    private boolean reachedStoredChat(String channel, BufferedImage newer, BufferedImage older,
+                                      Instant coverBack) {
+        dev.frostguard.vision.ocr.ChatTextReader engine = reader();
+        if (engine == null || !engine.isUp()) {
+            // Without the reading service there is no cheap way to read two frames; the walk runs
+            // to its ceiling, which is slower and loses nothing.
+            return false;
+        }
+        try {
+            ChatPass probe = new ChatPass(channel, body -> java.util.Optional.empty(),
+                    CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
+            ChatTranscriptStore stored = store;
+            probe.useKnownHistory(stored::alreadyStored);
+            for (BufferedImage image : List.of(newer, older)) {
+                List<TextLine> lines = engine.read(image, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT,
+                        FEED_BOTTOM, PADDLE_LANG, PADDLE_MIN_CONFIDENCE);
+                if (lines.isEmpty()) {
+                    return false;
+                }
+                probe.useRereader((l, t, r, b, language) ->
+                        engine.read(image, l, t, r, b, language, PADDLE_MIN_CONFIDENCE));
+                probe.addScreen(ChatFrames.toRaw(image), image, lines, true);
+            }
+            if (coverBack == null) {
+                return probe.reachedKnownHistory();
+            }
+            int olderThanTarget = 0;
+            for (ChatMessage m : probe.messages()) {
+                if (m.body().length() >= 8 && stored.storedAt(m).map(at -> !at.isAfter(coverBack)).orElse(false)) {
+                    olderThanTarget++;
+                }
+            }
+            return olderThanTarget >= 3;
+        } catch (RuntimeException cannotRead) {
+            return false;
+        }
     }
 
     /**
