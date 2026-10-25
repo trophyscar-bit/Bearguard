@@ -51,9 +51,23 @@ public final class ChatPassLog {
      *                as the one the next reconcile builds on; see {@link #lastCoveredReconcile}.
      */
     public void photographed(String channel, boolean reconcile, int screens, boolean covered) {
+        photographed(channel, reconcile, screens, covered, null);
+    }
+
+    /**
+     * @param walkStart when the walk began, the same figure the read line of that walk carries, so
+     *                  the two can be paired exactly. Reads queue and can finish hours later, and a
+     *                  walk whose read was lost to a restart would otherwise shift every pairing
+     *                  after it by one. Null leaves it out.
+     */
+    public void photographed(String channel, boolean reconcile, int screens, boolean covered,
+                             Instant walkStart) {
         ObjectNode n = line(channel, reconcile, "photographed");
         n.put("screens", screens);
         n.put("covered", covered);
+        if (walkStart != null) {
+            n.put("walkStart", walkStart.toString());
+        }
         write(n);
     }
 
@@ -103,10 +117,19 @@ public final class ChatPassLog {
      *                oldest screen read was not looked at.
      */
     public void read(String channel, boolean reconcile, int screens, int stored, boolean bridged) {
+        read(channel, reconcile, screens, stored, bridged, null);
+    }
+
+    /** @param walkStart the walk these frames came from; see {@link #photographed}. Null leaves it out. */
+    public void read(String channel, boolean reconcile, int screens, int stored, boolean bridged,
+                     Instant walkStart) {
         ObjectNode n = line(channel, reconcile, "read");
         n.put("screens", screens);
         n.put("stored", stored);
         n.put("bridged", bridged);
+        if (walkStart != null) {
+            n.put("walkStart", walkStart.toString());
+        }
         write(n);
     }
 
