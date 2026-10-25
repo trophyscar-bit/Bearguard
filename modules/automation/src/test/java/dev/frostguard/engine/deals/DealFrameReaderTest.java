@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import dev.frostguard.api.deals.DealItem;
 import dev.frostguard.api.deals.DealOffer;
 import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.vision.convert.ImageConverter;
+import dev.frostguard.vision.deals.SegmentedControl;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
 
 class DealFrameReaderTest {
@@ -89,6 +91,24 @@ class DealFrameReaderTest {
 
         assertEquals(List.of("Shining Custom Chest", "Brilliant Custom Chest"),
                 page.offers().stream().map(DealOffer::title).toList());
+    }
+
+    /**
+     * Live frame of 2026-10-25: Hero Rally's Unlock preview. Its $9.99 button is grey only because no reward is
+     * picked yet, so it is not a bought pack; the 70 Fire Crystals are what #fire-crystals ranks.
+     */
+    @Test
+    void readsTheHeroRallyUnlockPreviewAsUnbought() throws Exception {
+        DealFrameReader.Page page = read("popup-hero-rally-unlock.png", "Hero Rally");
+
+        assertEquals(1, page.offers().size(), page.offers().toString());
+        DealOffer offer = page.offers().get(0);
+        assertEquals("Max Level Rewards Preview", offer.title());
+        assertEquals(9.99, offer.priceUsd(), 0.001);
+        assertFalse(offer.purchased(), "a pending reward choice greys the button, not a purchase");
+        Map<String, Long> items = offer.items().stream().collect(Collectors.toMap(DealItem::key, DealItem::quantity));
+        assertEquals(70L, items.get("Fire Crystal"));
+        assertEquals(4800L, items.get("Gems"));
     }
 
     /** Live frame of 2026-10-23: the first "+" slot of the Shining Custom Chest, opened. */
@@ -413,6 +433,34 @@ class DealFrameReaderTest {
                 "100K Resource Supply Chest=50", "Lucky Hero Gear Chest (5 Intel missions)=3",
                 "Fire Crystal (10 Intel missions)=10", "Lucky Hero Gear Chest (20 Intel missions)=3"),
                 named(read("deals-intel-monthly-card-epic.png", "Intel Monthly Card").offers().get(0)));
+    }
+
+    /** The mission rows' green "(570/5)": #fire-crystals counts mission rewards already passed. */
+    @Test
+    void readsTheIntelMissionsDoneFromTheCardRows() throws Exception {
+        assertEquals(Map.of("Intel", 570L), read("deals-intel-monthly-card-mythic.png", "Intel Monthly Card")
+                .missionsDone());
+        assertEquals(Map.of("Intel", 570L), read("deals-intel-monthly-card-epic.png", "Intel Monthly Card")
+                .missionsDone());
+    }
+
+    @Test
+    void readsNoMissionsDoneWhereAPageHasNoMissionRows() throws Exception {
+        assertTrue(read("gem-shop-weekly-card-owned.png", "Weekly Card").missionsDone().isEmpty());
+    }
+
+    /** Both tiers are named, selected or not, so the posts say "(Epic)", not "variant 1 of 2". */
+    @Test
+    void namesBothIntelCardTiersOnEitherFrame() throws Exception {
+        assertEquals(List.of("Epic", "Mythic"), toggleLabels("deals-intel-monthly-card-epic.png"));
+        assertEquals(List.of("Epic", "Mythic"), toggleLabels("deals-intel-monthly-card-mythic.png"));
+    }
+
+    private static List<String> toggleLabels(String name) throws Exception {
+        RawImageData frame = rgbaFrame(ImageIO.read(Objects.requireNonNull(
+                DealFrameReaderTest.class.getResourceAsStream("/deals/" + name))));
+        SegmentedControl.Control toggle = SegmentedControl.locate(ImageConverter.toBufferedImage(frame)).orElseThrow();
+        return toggle.options().stream().map(option -> reader.optionLabel(frame, option).orElse("?")).toList();
     }
 
     private static List<String> named(DealOffer offer) {

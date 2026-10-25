@@ -34,10 +34,12 @@ import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.nav.CommonOCRSettings;
+import dev.frostguard.vision.convert.GreenTextIsolator;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.WhiteTextIsolator;
 import dev.frostguard.vision.deals.GreyButtonLocator;
 import dev.frostguard.vision.deals.PriceButtonLocator;
+import dev.frostguard.vision.deals.SegmentedControl;
 import dev.frostguard.vision.deals.TileCountReader;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
 import dev.frostguard.vision.ocr.OcrEngine;
@@ -76,8 +78,58 @@ public final class DealFrameReader {
      *                        its card's button for a tile hidden off the row's end; swiping it sideways
      *                        may show more items
      */
+    /** @param missionsDone missions done so far by kind ("Intel" = 570), from a card's mission rows */
     public record Page(String title, List<DealOffer> offers, List<String> problems, Integer clippedTileRowY,
-            boolean chooseYourOwn, List<Integer> cardRowYs, Map<Integer, List<PointData>> pickSlots) {
+            boolean chooseYourOwn, List<Integer> cardRowYs, Map<Integer, List<PointData>> pickSlots,
+            Map<String, Long> missionsDone) {
+    }
+
+    /**
+     * A toggle option's own word ("Epic", "Mythic"), so a tier is named rather than numbered; empty when it does
+     * not read. The word is white with a dark outline on blue, which the raw frame never read on 2026-10-23 or
+     * 10-24, so it is masked first. "Epic" then read at one size and came back empty at the others (selected:
+     * 24 px only; not selected: 32 px only), while no size misread either word; the pill is read at each size
+     * and the word most sizes agree on is taken.
+     */
+    public Optional<String> optionLabel(RawImageData frame, SegmentedControl.Option option) {
+        BufferedImage image = ImageConverter.toBufferedImage(frame);
+        Map<String, Integer> votes = new LinkedHashMap<>();
+        for (int height : OPTION_LABEL_HEIGHTS) {
+            // Near-pure white only: the unselected pill's pale blue (170,199,231) passes the ordinary mask.
+            RawImageData mask = WhiteTextIsolator.isolatePureScaled(image, option.x(), option.y(), option.width(),
+                    option.height(), height, PURE_WHITE_SATURATION);
+            try {
+                String label = OcrEngine.recognizeLines(mask, new PointData(0, 0),
+                                new PointData(mask.getWidth(), mask.getHeight()),
+                                CommonOCRSettings.DEAL_TAB_LABEL_SETTINGS).stream()
+                        .map(TextLine::text)
+                        .collect(Collectors.joining(" "))
+                        .replaceAll("[^A-Za-z]", "");
+                if (label.length() >= MIN_OPTION_LABEL_LETTERS) {
+                    votes.merge(Character.toUpperCase(label.charAt(0)) + label.substring(1).toLowerCase(Locale.ROOT),
+                            1, Integer::sum);
+                }
+            } catch (OcrException unreadable) {
+                // This size adds no vote.
+            }
+        }
+        int most = votes.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        List<String> leaders = votes.entrySet().stream().filter(e -> e.getValue() == most).map(Map.Entry::getKey)
+                .toList();
+        return leaders.size() == 1 ? Optional.of(leaders.get(0)) : Optional.empty();
+    }
+
+    /**
+     * Where a page's header shows the given button word ("Unlock" on Hero Rally), above {@code maxY}; empty when
+     * the header has none. Only a word standing alone counts, so a sentence that contains it is not a button.
+     */
+    public Optional<PointData> headerButton(RawImageData frame, String word, int maxY) {
+        BufferedImage image = ImageConverter.toBufferedImage(frame);
+        Text text = readText(frame, image, "Header", "", new ArrayList<>());
+        return text.whiteWords().stream()
+                .filter(w -> w.top() < maxY && clean(w.text()).equalsIgnoreCase(word))
+                .findFirst()
+                .map(w -> new PointData(w.left() + w.width() / 2, w.top() + w.height() / 2));
     }
 
     /** The choices one "+" slot offers, read from its Select Items pop-up; empty when the pop-up is not open. */
@@ -133,6 +185,8 @@ public final class DealFrameReader {
     /** Page titles on every measured panel and pop-up sit between the header and the artwork. */
     private static final int PAGE_TITLE_TOP = 90;
     private static final int PAGE_TITLE_BOTTOM = 330;
+    /** A pop-up's title and the instruction line under it ("Select rewards first" at y 346) end above this. */
+    private static final int POPUP_HEADER_BOTTOM = 420;
     /** Tab labels on the gem shop and Deals panels end above this line. */
     private static final int TAB_STRIP_BOTTOM = 190;
     /** Card titles on stacked cards always sit below the panel's sticky header. */
@@ -306,12 +360,21 @@ public final class DealFrameReader {
     private static final Pattern LIMIT = Pattern.compile("(?i)\\b(daily|weekly|monthly|lifetime)\\s*limit\\W*(\\d+)");
     private static final Pattern TIMER = Pattern.compile("\\d{1,2}:\\d{2}(:\\d{2})?");
     private static final Pattern VALID_DAYS = Pattern.compile("(?i)valid\\W*(\\d{1,3})\\s*day");
+    private static final Pattern SELECT_FIRST = Pattern.compile("(?i)select\\s*rewards?\\s*first");
     private static final Pattern REMAINING_CLAIMS = Pattern.compile("(?i)remaining\\s*claims");
     private static final Pattern CARD_PERIOD = Pattern.compile("(?i)\\b(weekly|monthly)\\s+card\\b");
     private static final Pattern LOGIN_DAILY = Pattern.compile("(?i)login\\s*daily");
     /** "Carry out 10 Intel Mission(s)": a card reward paid when the missions are done. */
     private static final Pattern MISSION_ROW =
             Pattern.compile("(?i)carry\\s*out\\s*(\\d{1,3})\\s*([a-z ]{2,20}?)\\s*mission");
+    /** A mission row's "(570/5)" sits right of its title line; measured at x 575-665 on 2026-10-23. */
+    private static final int MISSION_COUNT_LEFT = 540;
+    private static final int MISSION_COUNT_RIGHT = 700;
+    private static final int MISSION_COUNT_MARGIN = 4;
+    private static final int MISSION_COUNT_PADDING = 10;
+    private static final int MAX_MISSION_COUNT_DIGITS = 6;
+    private static final int[] OPTION_LABEL_HEIGHTS = {24, 32, 48, 64};
+    private static final int MIN_OPTION_LABEL_LETTERS = 3;
     /** The card's reward column on a mission row, right of the free reward and left of its button. */
     private static final int MISSION_REWARD_LEFT = 220;
     private static final int MISSION_REWARD_RIGHT = 470;
@@ -366,7 +429,7 @@ public final class DealFrameReader {
                             b.priceUsd(), String.format(Locale.US, "$%.2f", b.priceUsd()), null, false,
                             List.of(new DealItem(DealPriceTracker.GEMS, b.gems(), "gem store")), frame, null))
                     .toList();
-            return new Page("Get Gems", bundles, problems, null, false, List.of(), Map.of());
+            return new Page("Get Gems", bundles, problems, null, false, List.of(), Map.of(), Map.of());
         }
         BufferedImage image = ImageConverter.toBufferedImage(capture);
         Text text = readText(capture, image, surface, tab, problems)
@@ -376,7 +439,7 @@ public final class DealFrameReader {
                 .toList();
         List<PriceButtonLocator.Box> found = Stream.concat(coloured.stream(),
                 printedPriceButtons(text.whiteLines(), text.whiteWords(), image, coloured).stream()).toList();
-        List<PriceButtonLocator.Box> grey = GreyButtonLocator.locate(image).stream()
+        List<PriceButtonLocator.Box> grey = GreyButtonLocator.locate(image, tabbed).stream()
                 .filter(box -> found.stream().noneMatch(b -> Math.abs(b.y() + b.height() / 2 - (box.y() + box.height() / 2))
                         <= PRINTED_PRICE_CLEARANCE && Math.abs(b.x() + b.width() / 2 - (box.x() + box.width() / 2))
                         <= PRINTED_PRICE_CLEARANCE * 2))
@@ -388,7 +451,14 @@ public final class DealFrameReader {
                 .sorted(Comparator.comparingInt(PriceButtonLocator.Box::y).thenComparingInt(PriceButtonLocator.Box::x))
                 .toList();
 
-        TextLine pageTitleLine = pageTitle(text.whiteLines(), tabbed);
+        // A pop-up's header is read again on its own: the page-wide pass over Hero Rally's Unlock preview
+        // (2026-10-25) read "Max Level Preview" and missed "Select rewards first" under it; the band alone
+        // read both.
+        List<TextLine> headerLines = tabbed ? List.of() : popupHeaderLines(text.whiteMask());
+        TextLine pageTitleLine = pageTitle(headerLines, tabbed);
+        if (pageTitleLine == null) {
+            pageTitleLine = pageTitle(text.whiteLines(), tabbed);
+        }
         if (pageTitleLine == null) {
             pageTitleLine = pageTitle(text.plainLines(), tabbed);
         }
@@ -541,8 +611,12 @@ public final class DealFrameReader {
             }
             // A grey price button is a pack already bought up to its limit: Fire Crystal Leap Pack 1 and 2 on
             // 2026-10-23 (frames 036/037) were posted as buyable when they were not.
+            // Not while a choice is pending: Hero Rally's Unlock preview greys its $9.99 until a reward is picked.
+            boolean choicePending = Stream.concat(allLines.stream(), headerLines.stream())
+                    .anyMatch(l -> SELECT_FIRST.matcher(clean(l.text())).find());
             offers.add(new DealOffer(surface, offerTab, title, priceUsd, priceText, remaining,
-                    isGreyButton(image, button), merged, frame, cardLimit != null ? cardLimit : pageLimit,
+                    isGreyButton(image, button) && !choicePending, merged, frame,
+                    cardLimit != null ? cardLimit : pageLimit,
                     limitCount, countdown(window, allLines, cardTop), card));
         }
 
@@ -550,7 +624,8 @@ public final class DealFrameReader {
             unpricedOffer(text, pageTitleLine, surface, tab, pageTitle, frame).ifPresent(offers::add);
         }
         return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null, chooseYourOwn,
-                cardRowYs, chooseYourOwn ? byOffer(pickSlots(capture, buttons), offerButtons) : Map.of());
+                cardRowYs, chooseYourOwn ? byOffer(pickSlots(capture, buttons), offerButtons) : Map.of(),
+                missionsDone(image, allLines, surface, tab, problems));
     }
 
     private static Text readText(RawImageData capture, BufferedImage image, String surface, String tab,
@@ -912,6 +987,15 @@ public final class DealFrameReader {
                     : Optional.empty();
         } catch (OcrException unreadable) {
             return Optional.empty();
+        }
+    }
+
+    private static List<TextLine> popupHeaderLines(RawImageData whiteMask) {
+        try {
+            return OcrEngine.recognizeLines(whiteMask, new PointData(0, PAGE_TITLE_TOP),
+                    new PointData(FRAME_BOTTOM_RIGHT.getX(), POPUP_HEADER_BOTTOM), CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
+        } catch (OcrException unreadable) {
+            return List.of();
         }
     }
 
@@ -1442,6 +1526,47 @@ public final class DealFrameReader {
         return rewards;
     }
 
+    /**
+     * Missions done so far, by kind, from the green count in each mission row's "(570/5)". Every row on the
+     * page shows the same count, so rows that disagree leave the kind unknown and are reported; a count read
+     * nowhere is left out rather than taken as zero.
+     */
+    private static Map<String, Long> missionsDone(BufferedImage image, List<TextLine> lines, String surface,
+            String tab, List<String> problems) {
+        Map<String, Set<Long>> reads = new LinkedHashMap<>();
+        for (TextLine line : lines) {
+            Matcher row = MISSION_ROW.matcher(clean(line.text()));
+            if (!row.find()) {
+                continue;
+            }
+            String kind = Character.toUpperCase(row.group(2).trim().charAt(0)) + row.group(2).trim().substring(1);
+            RawImageData mask = GreenTextIsolator.isolate(image, MISSION_COUNT_LEFT, line.top() - MISSION_COUNT_MARGIN,
+                    MISSION_COUNT_RIGHT - MISSION_COUNT_LEFT, line.height() + 2 * MISSION_COUNT_MARGIN,
+                    MISSION_COUNT_PADDING);
+            try {
+                String digits = OcrEngine.recognizeLines(mask, new PointData(0, 0),
+                                new PointData(mask.getWidth(), mask.getHeight()),
+                                CommonOCRSettings.DEAL_ITEM_QUANTITY_SETTINGS).stream()
+                        .map(TextLine::text).collect(Collectors.joining()).replaceAll("[^0-9]", "");
+                if (!digits.isEmpty() && digits.length() <= MAX_MISSION_COUNT_DIGITS) {
+                    reads.computeIfAbsent(kind, k -> new HashSet<>()).add(Long.parseLong(digits));
+                }
+            } catch (OcrException unreadable) {
+                // An unread row adds nothing; the other rows carry the same count.
+            }
+        }
+        Map<String, Long> done = new LinkedHashMap<>();
+        reads.forEach((kind, counts) -> {
+            if (counts.size() == 1) {
+                done.put(kind, counts.iterator().next());
+            } else {
+                problems.add(surface + " / " + tab + ": " + kind + " missions done read as " + counts
+                        + "; left unknown.");
+            }
+        });
+        return done;
+    }
+
     private List<DealItem> iconItems(Text text, int top, int bottom, List<DealItemLibrary.Match> tiles) {
         return iconItems(text, top, bottom, tiles, 0, FRAME_BOTTOM_RIGHT.getX());
     }
@@ -1512,9 +1637,15 @@ public final class DealFrameReader {
         for (List<DealItemLibrary.Match> row : rows.values()) {
             row.sort(Comparator.comparingInt(DealItemLibrary.Match::x));
             DealItemLibrary.Match first = row.get(0);
-            int pitch = row.size() >= 2
-                    ? (row.get(row.size() - 1).x() - first.x()) / (row.size() - 1)
-                    : (int) Math.round(first.width() * TILE_PITCH_PER_WIDTH);
+            // The spacing is the closest pair of known neighbours, not the row's average: unknown tiles between
+            // known ones (Hero Rally's preview: Gold Key, two unknowns, 10K Meat) double the average.
+            int pitch = (int) Math.round(first.width() * TILE_PITCH_PER_WIDTH);
+            for (int i = 0; i + 1 < row.size(); i++) {
+                int gap = row.get(i + 1).x() - row.get(i).x();
+                if (gap >= first.width() && gap < pitch * 2 && (row.size() == 2 || gap < pitch)) {
+                    pitch = Math.min(pitch, gap);
+                }
+            }
             if (pitch < first.width()) {
                 continue;
             }
