@@ -81,6 +81,29 @@ class ChatPassBridgeTest {
     }
 
     @Test
+    void repeatedLinesScatteredThroughTheTranscriptAreNotABridge() {
+        Set<String> stored = Set.of("join the rally please everyone", "thanks for the help everyone",
+                "who has spare speedups for tonight");
+        ChatPass pass = pass(stored);
+        // Every one of these matches an old copy, but the store says the copies sit far apart.
+        pass.useStretchCheck(matched -> false);
+        screen(pass, "join the rally please everyone", "thanks for the help everyone");
+        screen(pass, "who has spare speedups for tonight");
+        assertFalse(pass.reachedKnownHistory());
+    }
+
+    @Test
+    void storedMessagesThatSitTogetherAreABridge() {
+        Set<String> stored = Set.of("join the rally please everyone", "thanks for the help everyone",
+                "who has spare speedups for tonight");
+        ChatPass pass = pass(stored);
+        pass.useStretchCheck(matched -> matched.size() >= 3);
+        screen(pass, "join the rally please everyone", "thanks for the help everyone");
+        screen(pass, "who has spare speedups for tonight");
+        assertTrue(pass.reachedKnownHistory());
+    }
+
+    @Test
     void withoutKnownHistoryTheOldRuleStillApplies() {
         ChatPass pass = new ChatPass("alliance", body -> Optional.empty(), null, null, null, 700);
         screen(pass, "first");

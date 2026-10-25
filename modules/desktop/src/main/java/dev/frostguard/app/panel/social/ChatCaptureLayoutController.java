@@ -99,8 +99,9 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
             Alert warn = new Alert(Alert.AlertType.WARNING);
             warn.setTitle("Keep every screen");
             warn.setHeaderText("Nothing will ever be deleted.");
-            warn.setContentText("Screens are about 400 KB each and a pass reads a few hundred of "
-                    + "them, so this grows by roughly a gigabyte a day and keeps going. They are "
+            warn.setContentText("Screens are about 400 KB each. A normal check keeps a few dozen, "
+                    + "and a 30-minute catch-up keeps about 900 per channel, around 700 MB for the "
+                    + "pair, every night. This grows by a gigabyte or more a day and keeps going. They are "
                     + "pictures of your chat, and the only thing that will ever remove them is you."
                     + "\n\nSet a figure instead unless you have a reason to keep the lot.");
             warn.showAndWait();

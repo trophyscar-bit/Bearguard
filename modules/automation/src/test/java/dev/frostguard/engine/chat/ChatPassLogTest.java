@@ -126,6 +126,30 @@ class ChatPassLogTest {
     }
 
     @Test
+    void aReconcileThatRanOutOfTimeIsNotTheOneTheNextBuildsOn() {
+        ChatPassLog log = new ChatPassLog(dir);
+        assertEquals(Optional.empty(), log.lastCoveredReconcile("alliance"));
+
+        log.photographed("alliance", true, 900, false);
+        assertEquals(Optional.empty(), log.lastCoveredReconcile("alliance"),
+                "one that hit its ceiling short of the target does not count");
+        assertTrue(log.lastReconcileStart("alliance").isPresent(),
+                "but it did run, so the night is not owed again");
+
+        log.photographed("alliance", true, 300, true);
+        assertTrue(log.lastCoveredReconcile("alliance").isPresent());
+    }
+
+    @Test
+    void lineWrittenBeforeTheCoveredFieldExistedCountAsCovered() throws IOException {
+        Files.writeString(dir.resolve(ChatPassLog.FILE),
+                "{\"at\":\"2026-10-20T05:00:00Z\",\"channel\":\"world\",\"mode\":\"reconcile\","
+                        + "\"phase\":\"photographed\",\"screens\":150}\n", StandardCharsets.UTF_8);
+        assertEquals(Optional.of(Instant.parse("2026-10-20T05:00:00Z")),
+                new ChatPassLog(dir).lastCoveredReconcile("world"));
+    }
+
+    @Test
     void remembersWhenAChannelWasLastPhotographedInAnyMode() {
         ChatPassLog log = new ChatPassLog(dir);
         assertEquals(Optional.empty(), log.lastPhotographed("alliance"));
