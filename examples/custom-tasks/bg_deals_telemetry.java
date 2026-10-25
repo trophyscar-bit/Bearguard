@@ -117,6 +117,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private static final int MAX_TABS_PER_PANEL = 40;
     private static final int MAX_STRIP_SWIPES = 20;
+    /** A clean page title against the strip's reads of the same tab: one capture per tab, two masked votes each. */
+    private static final int PAGE_TITLE_SPELLING_VOTES = 4;
     /** Safety ceiling only: a page now ends when swiping stops finding offers, not at a fixed count. */
     private static final int MAX_PAGE_SCROLLS = 25;
     private static final int MAX_POPUP_SCROLLS = 10;
@@ -171,7 +173,12 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** A paid track's header button; only a header word counts, never one in the reward list below. */
     private static final String UNLOCK_WORD = "Unlock";
     private static final int UNLOCK_MAX_Y = 640;
-    private static final int CARD_ROW_SWIPE_TO_X = 70;
+    /**
+     * The row flings on past the drag: a 330 px drag moved Fire Crystal Pack's tiles 450 px on 2026-10-25,
+     * more than the 430 px of row that shows, and its 10K Meat was never whole in any frame. A 220 px drag
+     * moves about 300, a tile short of the visible row, so each tile is whole in some frame.
+     */
+    private static final int CARD_ROW_SWIPE_TO_X = 180;
     private static final int CARD_ROW_LEFT = 30;
     private static final int CARD_ROW_RIGHT = 460;
     private static final int CARD_ROW_HALF_HEIGHT = 45;
@@ -879,14 +886,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private void surveyTabbedPanel(String surface) {
         Set<String> visited = new HashSet<>();
         Set<String> seen = new LinkedHashSet<>();
-        String opening = surveyPage(surface, null, MAX_PAGE_SCROLLS, true);
-        if (opening != null) {
-            visited.add(tabKey(opening));
-            seen.add(tabKey(opening));
-        }
-        // The walk below only swipes toward the strip's right end, so it starts from the left end. A panel
-        // opens wherever its strip was left: on 2026-10-24 the Gem Shop opened mid-strip on Daily Deals, and
-        // Custom Pet Chest, Chief Gear Enhancement Special and Hall of Chiefs to its left were never seen.
+        // The walk only swipes toward the strip's right end, so it starts from the left end. A panel opens
+        // wherever its strip was left: on 2026-10-24 the Gem Shop opened mid-strip on Daily Deals, and Custom
+        // Pet Chest, Chief Gear Enhancement Special and Hall of Chiefs to its left were never seen. The tab it
+        // opened on is surveyed in its turn, not first: a selected tab shows no label, so read first it was
+        // filed under no tab at all (2026-10-25).
         boolean rewound = rewindStrip();
         int surveyed = 0;
         int swipes = 0;
@@ -899,7 +903,15 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             BufferedImage image = ImageConverter.toBufferedImage(strip);
             TabStripCells.Cell next = null;
             String nextLabel = "";
-            for (TabStripCells.Cell cell : TabStripCells.locate(image)) {
+            List<TabStripCells.Cell> cells = TabStripCells.locate(image);
+            // The walk goes strictly left to right, and the tab last surveyed stays selected, so every tab at or
+            // left of the selected one is done. Labels alone sent it back: Custom Pet Chest's label read "moe"
+            // and Fire Crystal Leap Pack's "saat ire al ap Pack" once each tab was left (2026-10-25), and both
+            // were surveyed twice.
+            int doneUpTo = surveyed == 0 ? Integer.MIN_VALUE : cells.stream()
+                    .filter(cell -> TabStripCells.isSelected(image, cell))
+                    .mapToInt(TabStripCells.Cell::centre).max().orElse(Integer.MIN_VALUE);
+            for (TabStripCells.Cell cell : cells) {
                 String label = tabLabel(strip, cell);
                 if (!label.isEmpty()) {
                     seen.add(tabKey(label));
@@ -914,9 +926,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                         collection.noteTabSpelling(surface, masked);
                     }
                 }
-                boolean done = TabStripCells.isSelected(image, cell)
+                boolean done = cell.centre() <= doneUpTo
                         || !label.isEmpty() && visited.contains(tabKey(label))
-                        || label.isEmpty() && tappedHere.contains(cell.centre());
+                        || tappedHere.contains(cell.centre());
                 if (next == null && !done) {
                     next = cell;
                     nextLabel = label;
@@ -927,6 +939,14 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 tapNear(new PointData(next.centre(), TAB_TAP_Y));
                 sleepTask(TAB_SETTLE_MS);
                 String title = surveyPage(surface, nextLabel.isEmpty() ? null : nextLabel, MAX_PAGE_SCROLLS, true);
+                // A page title is set in large type and reads clean where the strip's small label does not
+                // ("Custom-Pet Chest", "Tundra SupplyStation" on 2026-10-25); when it has the label's letters it
+                // is the same name, and it outweighs the strip reads.
+                if (title != null && !nextLabel.isEmpty() && sameLetters(title, nextLabel)) {
+                    for (int vote = 0; vote < PAGE_TITLE_SPELLING_VOTES; vote++) {
+                        collection.noteTabSpelling(surface, title);
+                    }
+                }
                 String key = tabKey(nextLabel.isEmpty() && title != null ? title : nextLabel);
                 visited.add(key);
                 seen.add(key);
@@ -957,7 +977,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 reachedEnd && missed.isEmpty() ? null
                         : (reachedEnd ? "" : "strip end not reached; ") + (missed.isEmpty() ? ""
                                 : "tabs seen but not visited: " + String.join(", ", missed)));
-        logInfo("bg_deals_telemetry | " + surface + ": " + surveyed + " tab(s) surveyed after the opening tab, "
+        logInfo("bg_deals_telemetry | " + surface + ": " + surveyed + " tab(s) surveyed, "
                 + seen.size() + " seen in the strip" + (reachedEnd ? "" : ", strip end NOT reached")
                 + (missed.isEmpty() ? "." : "; not visited: " + missed + "."));
         if (!missed.isEmpty() || !reachedEnd) {
@@ -965,8 +985,12 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                     + (missed.isEmpty() ? "" : "tabs seen but not visited: " + missed));
         }
         if (surveyed == 0) {
-            problems.add(surface + ": no other tabs were found; only the opening tab was surveyed.");
+            problems.add(surface + ": no tab was surveyed.");
         }
+    }
+
+    private static boolean sameLetters(String a, String b) {
+        return a.replaceAll("[^A-Za-z]", "").equalsIgnoreCase(b.replaceAll("[^A-Za-z]", ""));
     }
 
     /** Drags the tab strip right until it stops moving twice in a row; false if it never stopped. */
@@ -1084,9 +1108,12 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         Optional<SegmentedControl.Control> variants = tabbed
                 ? SegmentedControl.locate(ImageConverter.toBufferedImage(frame))
                 : Optional.empty();
+        // A tab whose strip label was hidden is named by its page, which a toggle's tier name is added to.
+        String pageName = tab != null || variants.isEmpty() ? tab
+                : reader.read(frame, surface, "", "", true).title();
         String selectedTab = variants
                 .flatMap(control -> reader.optionLabel(frame, control.options().get(control.selectedIndex())))
-                .map(label -> (tab == null ? "opening tab" : tab) + " (" + label + ")")
+                .map(label -> (pageName == null || pageName.isBlank() ? "opening tab" : pageName) + " (" + label + ")")
                 .orElse(tab);
         String title = surveyVariant(surface, selectedTab, maxScrolls, tabbed, frame);
         if (variants.isEmpty()) {
@@ -1111,7 +1138,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                         + " did not open after its tap (" + saveFrame(switched) + "); it is unread.");
                 continue;
             }
-            String variantTab = (tab == null ? (title == null ? "opening tab" : title) : tab) + " ("
+            String variantTab = (pageName != null && !pageName.isBlank() ? pageName : title == null ? "opening tab" : title) + " ("
                     + reader.optionLabel(switched, target).orElse("variant " + (option + 1) + " of " + control.options().size())
                     + ")";
             surveyVariant(surface, variantTab, maxScrolls, tabbed, switched);
