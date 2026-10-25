@@ -267,6 +267,17 @@ public final class DealFrameReader {
     /** A printed price within this of a detected button is that button's own label or its struck-out price. */
     private static final int PRINTED_PRICE_CLEARANCE = 60;
     private static final int PRINTED_PRICE_PADDING = 18;
+    /** Words this short ("1", "II") are judged by height, not width per letter, in a title run. */
+    private static final int SHORT_TITLE_WORD = 2;
+    /**
+     * Daily Deals' Purchase All price, from the end and top of its banner words: x +64 to +144, y +23 to +47 on
+     * 2026-10-24. The box keeps clear of the struck-out price above it and the badge to its right; the banner
+     * behind it sparkles, and a looser crop read noise.
+     */
+    private static final int PURCHASE_ALL_PRICE_LEFT = 50;
+    private static final int PURCHASE_ALL_PRICE_TOP = 16;
+    private static final int PURCHASE_ALL_PRICE_WIDTH = 130;
+    private static final int PURCHASE_ALL_PRICE_HEIGHT = 40;
     /** Tiles on one row share a top within this many pixels. */
     private static final int SAME_ROW_TOLERANCE = 20;
     /** A row whose last tile ends past this x is cut off by the card edge (inner edge ~640). */
@@ -450,7 +461,7 @@ public final class DealFrameReader {
                 .filter(box -> isStorePrice(parsePrice(readPrice(image, text.whiteWords(), box))))
                 .toList();
         List<PriceButtonLocator.Box> located = Stream.concat(found.stream(), grey.stream()).toList();
-        Optional<PurchaseAll> purchaseAll = purchaseAll(text, located);
+        Optional<PurchaseAll> purchaseAll = purchaseAll(image, text, located);
         List<PriceButtonLocator.Box> buttons = Stream.of(located.stream(),
                         orphanTitleButtons(image, text, located).stream(),
                         purchaseAll.map(PurchaseAll::button).stream())
@@ -1022,17 +1033,28 @@ public final class DealFrameReader {
     /** The run of words in a crop's largest type, as one line. */
     private static Optional<TextLine> titleRun(List<TextLine> words) {
         // The title is the run of words in the largest type: a "Best Deals" ribbon beside a centred tier title
-        // read as "a a wel" on the same line, in smaller type and set apart.
+        // read as "a a wel" on the same line, in smaller type and set apart. Type is judged by width per
+        // letter, not height: art behind "Enhancement" stretched its box to 59 px against 25 for "Exclusive
+        // Gear" beside it, and the title was read as that one word (2026-10-25).
         Optional<TextLine> anchor = words.stream()
                 .filter(w -> w.text().chars().filter(Character::isLetter).count() >= 3)
-                .max(Comparator.comparingInt(TextLine::height));
+                .max(Comparator.comparingDouble(DealFrameReader::letterWidth));
         if (anchor.isEmpty()) {
             return Optional.empty();
         }
         TextLine tallest = anchor.get();
-        List<TextLine> row = words.stream()
-                .filter(w -> Math.abs(centreY(w) - centreY(tallest)) <= tallest.height() / 2
-                        && w.height() * 10 >= tallest.height() * 7)
+        List<TextLine> aligned = words.stream()
+                .filter(w -> Math.abs(centreY(w) - centreY(tallest)) <= tallest.height() / 2)
+                .toList();
+        List<TextLine> sized = aligned.stream()
+                .filter(w -> letterWidth(w) * 10 >= letterWidth(tallest) * 7)
+                .toList();
+        // A lone digit is narrow for its type ("Fire Crystal Leap Pack 1"), so short words are judged by
+        // height against the title's other words instead.
+        int lowest = sized.stream().mapToInt(TextLine::height).min().orElse(tallest.height());
+        List<TextLine> row = aligned.stream()
+                .filter(w -> sized.contains(w)
+                        || w.text().trim().length() <= SHORT_TITLE_WORD && w.height() * 10 >= lowest * 7)
                 .sorted(Comparator.comparingInt(TextLine::left))
                 .toList();
         int at = row.indexOf(tallest);
@@ -1424,7 +1446,8 @@ public final class DealFrameReader {
      * pass keeps "Purchase" "All" and the price apart; the price word right of them, on their row or the
      * wrapped one under it, is the button.
      */
-    private static Optional<PurchaseAll> purchaseAll(Text text, List<PriceButtonLocator.Box> located) {
+    private static Optional<PurchaseAll> purchaseAll(BufferedImage image, Text text,
+            List<PriceButtonLocator.Box> located) {
         List<TextLine> words = text.whiteWords();
         for (TextLine purchase : words) {
             if (!clean(purchase.text()).equalsIgnoreCase("Purchase")) {
@@ -1438,23 +1461,36 @@ public final class DealFrameReader {
                             && w.top() >= purchase.top() - SAME_ROW_TOLERANCE
                             && w.top() <= purchase.bottom() + purchase.height() + SAME_ROW_TOLERANCE)
                     .min(Comparator.comparingInt(TextLine::left));
-            if (!all || price.isEmpty() || located.stream().anyMatch(b -> contains(b, price.get()))) {
+            if (!all || price.isPresent() && located.stream().anyMatch(b -> contains(b, price.get()))) {
                 continue;
             }
-            TextLine word = price.get();
-            PriceButtonLocator.Box button = new PriceButtonLocator.Box(word.left() - PRINTED_PRICE_PADDING,
-                    word.top() - PRINTED_PRICE_PADDING, word.width() + 2 * PRINTED_PRICE_PADDING,
-                    word.height() + 2 * PRINTED_PRICE_PADDING);
-            return Optional.of(new PurchaseAll(button, purchaseAllTitle(text.whiteMask(), purchase, word)));
+            int rowRight = words.stream().filter(w -> Math.abs(w.top() - purchase.top()) <= SAME_ROW_TOLERANCE)
+                    .mapToInt(TextLine::right).max().orElse(purchase.right());
+            PriceButtonLocator.Box button;
+            if (price.isPresent()) {
+                TextLine word = price.get();
+                button = new PriceButtonLocator.Box(word.left() - PRINTED_PRICE_PADDING,
+                        word.top() - PRINTED_PRICE_PADDING, word.width() + 2 * PRINTED_PRICE_PADDING,
+                        word.height() + 2 * PRINTED_PRICE_PADDING);
+            } else {
+                // The word pass missed the price itself on every 2026-10-25 frame while it read the banner's
+                // words; the price is read where the button stands, right of them, and only a store price counts.
+                button = new PriceButtonLocator.Box(rowRight + PURCHASE_ALL_PRICE_LEFT,
+                        purchase.top() + PURCHASE_ALL_PRICE_TOP, PURCHASE_ALL_PRICE_WIDTH, PURCHASE_ALL_PRICE_HEIGHT);
+                if (!isStorePrice(parsePrice(readPrice(image, words, button)))) {
+                    continue;
+                }
+            }
+            return Optional.of(new PurchaseAll(button, purchaseAllTitle(text.whiteMask(), purchase, rowRight)));
         }
         return Optional.empty();
     }
 
     /** The banner's own words left of its price, wrapped line included: "Purchase All Discount Packs". */
-    private static String purchaseAllTitle(RawImageData whiteMask, TextLine purchase, TextLine price) {
+    private static String purchaseAllTitle(RawImageData whiteMask, TextLine purchase, int rowRight) {
         try {
             String read = OcrEngine.recognizeLines(whiteMask, new PointData(purchase.left() - 4, purchase.top() - 6),
-                            new PointData(price.left() - PRINTED_PRICE_PADDING, purchase.bottom() + 2 * purchase.height()),
+                            new PointData(rowRight + 4, purchase.bottom() + 2 * purchase.height()),
                             CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS).stream()
                     .map(TextLine::text).collect(Collectors.joining(" "));
             String title = cleanTitle(read);
@@ -1481,7 +1517,9 @@ public final class DealFrameReader {
      */
     private static List<PriceButtonLocator.Box> orphanTitleButtons(BufferedImage image, Text text,
             List<PriceButtonLocator.Box> located) {
-        if (located.size() < 2) {
+        // One button found is enough to be a page of cards: on 2026-10-25 frame 067 the colour search found
+        // only the top card's, and Pet Serum and Wild Mark below it, orange on orange, went unread.
+        if (located.isEmpty()) {
             return List.of();
         }
         List<PriceButtonLocator.Box> orphans = new ArrayList<>();
@@ -1731,12 +1769,18 @@ public final class DealFrameReader {
             DealItemLibrary.Match first = row.get(0);
             // The spacing is the closest pair of known neighbours, not the row's average: unknown tiles between
             // known ones (Hero Rally's preview: Gold Key, two unknowns, 10K Meat) double the average.
-            int pitch = (int) Math.round(first.width() * TILE_PITCH_PER_WIDTH);
+            // The width-based guess (84 px for a 73 px tile) is only a fallback: Regular Pack tiles stand 95 apart,
+            // and probes stepped by 84 drifted off their tiles, cutting a "24" to "2" (2026-10-25).
+            int guess = (int) Math.round(first.width() * TILE_PITCH_PER_WIDTH);
+            int pitch = Integer.MAX_VALUE;
             for (int i = 0; i + 1 < row.size(); i++) {
                 int gap = row.get(i + 1).x() - row.get(i).x();
-                if (gap >= first.width() && gap < pitch * 2 && (row.size() == 2 || gap < pitch)) {
+                if (gap >= first.width() && gap < guess * 2) {
                     pitch = Math.min(pitch, gap);
                 }
+            }
+            if (pitch == Integer.MAX_VALUE) {
+                pitch = guess;
             }
             if (pitch < first.width()) {
                 continue;

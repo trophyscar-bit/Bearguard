@@ -36,6 +36,8 @@ public final class DealCollection {
     private static final int SAME_TAB_MIN_RUN = 7;
     /** Shorter reads than this are too little to judge by; they only match exactly. */
     private static final int SAME_NAME_MIN_LETTERS = 8;
+    /** "Exclusive Gear", the shortest cut title measured; two short words alone could be any pack. */
+    private static final int CUT_TITLE_MIN_LETTERS = 12;
     /** Items besides gems that two reads must share, quantity and all, to be one card. */
     private static final int MIN_SHARED_ITEMS = 2;
 
@@ -109,6 +111,7 @@ public final class DealCollection {
         }
         foldFallbackTitles();
         foldNoisyTitles();
+        foldCutTitles();
         nameTabs();
         fillPurchaseAll();
     }
@@ -118,6 +121,7 @@ public final class DealCollection {
      * read with no items would make the sum short of what the banner sells, so then it is left empty and named.
      */
     private void fillPurchaseAll() {
+        foldPurchaseAll();
         for (Map.Entry<String, DealOffer> entry : List.copyOf(offers.entrySet())) {
             DealOffer bundle = entry.getValue();
             if (!isPurchaseAll(bundle) || !bundle.items().isEmpty()) {
@@ -140,6 +144,36 @@ public final class DealCollection {
             offers.put(entry.getKey(), new DealOffer(bundle.surface(), bundle.tab(), bundle.title(), bundle.priceUsd(),
                     bundle.priceText(), bundle.remaining(), bundle.purchased(), items, bundle.frame(),
                     bundle.limitPeriod(), bundle.limitCount(), bundle.timeLeft(), bundle.card()));
+        }
+    }
+
+    /**
+     * One Purchase All per tab and price, named by its most common read: its banner sparkles, and the same
+     * frames read "Purchase All Discount Packs", "Purchase All Discount acks" and "...Discount �Packs".
+     */
+    private void foldPurchaseAll() {
+        Map<String, List<Map.Entry<String, DealOffer>>> groups = new LinkedHashMap<>();
+        for (Map.Entry<String, DealOffer> entry : offers.entrySet()) {
+            DealOffer offer = entry.getValue();
+            if (isPurchaseAll(offer)) {
+                groups.computeIfAbsent(offer.surface() + "|" + offer.tab() + "|" + offer.priceUsd(),
+                        k -> new ArrayList<>()).add(entry);
+            }
+        }
+        for (List<Map.Entry<String, DealOffer>> group : groups.values()) {
+            if (group.size() < 2) {
+                continue;
+            }
+            Map<String, Long> titles = new LinkedHashMap<>();
+            group.forEach(e -> titles.merge(e.getValue().title(), 1L, Long::sum));
+            String title = titles.entrySet().stream()
+                    .max(Map.Entry.<String, Long>comparingByValue()
+                            .thenComparing(e -> e.getKey().length()))
+                    .map(Map.Entry::getKey).orElseThrow();
+            DealOffer keep = group.stream().map(Map.Entry::getValue).filter(o -> o.title().equals(title))
+                    .findFirst().orElseThrow();
+            group.forEach(e -> offers.remove(e.getKey()));
+            offers.put(key(keep, false), keep);
         }
     }
 
@@ -388,6 +422,41 @@ public final class DealCollection {
                 offers.remove(noisy.getKey());
             }
         }
+    }
+
+    /**
+     * A title cut short is the pack whose title it begins like, in the same tab at the same price: "Accessory
+     * Construction Con", "Troops Training Pac", "Exclusive Gear" and "Exclusive Gear Enhancemeitt" were each
+     * a second row of a pack on 2026-10-25. Only when exactly one such pack exists and no item they share
+     * differs in count, so "Chief Gear Enhancement" (20 plans) never joins "...Special" (35).
+     */
+    void foldCutTitles() {
+        for (Map.Entry<String, DealOffer> cut : List.copyOf(offers.entrySet())) {
+            DealOffer offer = cut.getValue();
+            String cutLetters = letters(offer.title());
+            if (!offers.containsKey(cut.getKey()) || offer.title().trim().split("\\s+").length < 2
+                    || cutLetters.length() < CUT_TITLE_MIN_LETTERS) {
+                continue;
+            }
+            List<Map.Entry<String, DealOffer>> whole = offers.entrySet().stream()
+                    .filter(e -> !e.getKey().equals(cut.getKey()))
+                    .filter(e -> Objects.equals(e.getValue().priceUsd(), offer.priceUsd())
+                            && Objects.equals(e.getValue().surface(), offer.surface())
+                            && Objects.equals(shop(e.getValue()), shop(offer)))
+                    .filter(e -> letters(e.getValue().title()).length() > cutLetters.length()
+                            && sameName(cutLetters, letters(e.getValue().title())))
+                    .filter(e -> !conflicting(offer, e.getValue()))
+                    .toList();
+            if (whole.size() == 1) {
+                offers.put(whole.get(0).getKey(), mergeReads(whole.get(0).getValue(), offer));
+                offers.remove(cut.getKey());
+            }
+        }
+    }
+
+    private static boolean conflicting(DealOffer a, DealOffer b) {
+        return a.items().stream().anyMatch(i -> b.items().stream()
+                .anyMatch(j -> j.key().equals(i.key()) && j.quantity() != i.quantity()));
     }
 
     private static long sharedItems(DealOffer a, DealOffer b) {

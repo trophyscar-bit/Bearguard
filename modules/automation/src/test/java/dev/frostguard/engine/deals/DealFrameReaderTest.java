@@ -416,6 +416,8 @@ class DealFrameReaderTest {
         assertEquals(List.of("Gems=2500", "Fire Crystal=25", "1h Speedup=15", "5min Speedup=240",
                 "100 VIP XP=25", "10K Meat=500", "10K Wood=500", "10K Coal=100", "10K Iron=25", "Alliance Gift I=1"),
                 named(offerPriced(page, 4.99)), "the bought pack's grey button still prices its card");
+        assertEquals("Fire Crystal Leap Pack 1", offerPriced(page, 4.99).title(), "its narrow \"1\" stays in the title");
+        assertEquals("Fire Crystal Leap Pack 2", offerPriced(page, 9.99).title());
         assertTrue(page.cardRowYs().isEmpty(), "Leap Pack rows are complete: " + page.cardRowYs());
         // Packs 1 and 2 were bought: their buttons are grey, and they are recorded as purchased.
         assertTrue(offerPriced(page, 4.99).purchased(), "Leap Pack 1 has a grey button");

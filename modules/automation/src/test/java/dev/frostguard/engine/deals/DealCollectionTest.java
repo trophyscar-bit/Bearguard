@@ -28,6 +28,51 @@ class DealCollectionTest {
                 bundle.items().stream().map(i -> i.key() + "=" + i.quantity()).toList());
     }
 
+    @Test
+    void keepsOnePurchaseAllNamedByItsMostCommonRead() {
+        DealCollection collection = new DealCollection();
+        collection.add(offer("Purchase All Discount Packs", 4.99, List.of()));
+        collection.add(offer("Purchase All Discount acks", 4.99, List.of()));
+        collection.add(offer("Purchase All Discount Packs", 4.99, List.of()));
+        collection.add(offer("Daily Deals - $0.99", 0.99, List.of(new DealItem("Gems", 500, "icon"))));
+        collection.add(offer("Daily Deals - $1.99", 1.99, List.of(new DealItem("Gems", 1000, "icon"))));
+
+        collection.settle();
+
+        assertEquals(List.of("Purchase All Discount Packs"), collection.offers().values().stream()
+                .map(DealOffer::title).filter(t -> t.startsWith("Purchase All")).toList());
+    }
+
+    @Test
+    void foldsATitleCutShortIntoItsPack() {
+        DealCollection collection = new DealCollection();
+        collection.add(regular("Accessory Construction Contract", List.of(new DealItem("5min Speedup", 10, "icon"))));
+        collection.add(regular("Accessory Construction Con", List.of(new DealItem("10K Coal", 100, "icon"))));
+        collection.add(regular("Pet Food Pack", List.of(new DealItem("Pet Food", 6000, "icon"))));
+
+        collection.settle();
+
+        assertEquals(List.of("Accessory Construction Contract", "Pet Food Pack"),
+                collection.offers().values().stream().map(DealOffer::title).toList());
+    }
+
+    /** A shorter title whose shared item counts differ is a different pack, not a cut read. */
+    @Test
+    void keepsAShorterTitleWhoseCountsDiffer() {
+        DealCollection collection = new DealCollection();
+        collection.add(regular("Accessory Construction Contract", List.of(new DealItem("5min Speedup", 10, "icon"))));
+        collection.add(regular("Accessory Construction Con", List.of(new DealItem("5min Speedup", 20, "icon"))));
+
+        collection.settle();
+
+        assertEquals(2, collection.offers().size());
+    }
+
+    private static DealOffer regular(String title, List<DealItem> items) {
+        return new DealOffer("Gem Shop", "Regular Pack", title, 4.99, "$4.99", null, false, items, "061.png",
+                "weekly", null, null, null);
+    }
+
     /** A tier read with nothing would leave the sum short of what the banner sells; it stays unknown. */
     @Test
     void leavesPurchaseAllUnknownWhileATierIsUnread() {
