@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<!-- Chat Capture settings -- pinned panel; the controller is injected programmatically by
+     LauncherLayoutController, same as every other panel. -->
+<StackPane maxHeight="Infinity" maxWidth="Infinity"
+           HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
+           xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
+    <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED"
+                styleClass="task-page-scroll">
+        <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+
+            <VBox maxWidth="Infinity" styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label style="-fx-font-weight: bold; -fx-text-fill: -fg-bg-app; -fx-font-size: 13px;"
+                           text="Chat Capture" />
+                </HBox>
+
+                <VBox maxWidth="Infinity" spacing="10" styleClass="task-section-inner">
+
+                    <HBox alignment="CENTER_LEFT" maxWidth="Infinity">
+                        <CheckBox fx:id="checkBoxEnableChatCapture" mnemonicParsing="false"
+                                  style="-fx-font-weight: bold;" text="Enable" />
+                    </HBox>
+                    <Label styleClass="task-card-description" wrapText="true"
+                           text="Photographs World and Alliance chat on a schedule, reads it, and saves what is new for the Discord digest. Nothing is shown here: this panel only sets how the capture runs." />
+
+                    <Separator style="-fx-opacity: 0.25;" />
+
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Check every" minWidth="140" />
+                        <ComboBox fx:id="comboBoxChatFrequency" prefWidth="150.0" />
+                    </HBox>
+
+                    <Separator style="-fx-opacity: 0.25;" />
+
+                    <HBox alignment="CENTER_LEFT" maxWidth="Infinity">
+                        <CheckBox fx:id="checkBoxChatScrollUntilOverlap" mnemonicParsing="false"
+                                  style="-fx-font-weight: bold;" text="Scroll until it reaches chat already saved" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="Instead of scrolling for a fixed two and a half minutes, each check scrolls back until the screens it has just photographed are already in the transcript, then stops. A quiet check ends in seconds; a busy one keeps going, so a heavy day loses nothing. Every screen it photographs is still read. Off goes back to the fixed two and a half minutes." />
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Longest, normal check" minWidth="140" />
+                        <ComboBox fx:id="comboBoxChatPassMax" prefWidth="150.0" />
+                    </HBox>
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Longest, after downtime" minWidth="140" />
+                        <ComboBox fx:id="comboBoxChatCatchupMax" prefWidth="150.0" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="Per channel, and only ceilings. After downtime means the first check when the bot has not photographed that channel for over an hour and a half. If a check reaches its ceiling before it finds saved chat, the log says the gap was not bridged and the next check goes back for it." />
+
+                    <Separator style="-fx-opacity: 0.25;" />
+
+                    <HBox alignment="CENTER_LEFT" maxWidth="Infinity">
+                        <CheckBox fx:id="checkBoxChatReconcile" mnemonicParsing="false"
+                                  style="-fx-font-weight: bold;" text="Nightly catch-up" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="Once a day, the first check at or after the time below scrolls back to the previous catch-up (with a margin so they overlap), reads every screen, and files whatever was missed. The game gives messages no time, so recovered ones are placed between the messages stored either side and marked as estimates. With scrolling set to stop at saved chat, the minutes below are a ceiling; otherwise it scrolls for exactly that long." />
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Run at" minWidth="140" />
+                        <TextField fx:id="textFieldChatReconcileTime" prefWidth="90.0" />
+                    </HBox>
+                    <Label fx:id="labelChatReconcileTimeError" maxWidth="Infinity" wrapText="true" />
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Longest" minWidth="140" />
+                        <ComboBox fx:id="comboBoxChatReconcileMinutes" prefWidth="150.0" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="Per channel; the emulator is held for World, then Alliance, and reading afterwards takes longer still, so pick an hour you are not using it." />
+
+                    <Separator style="-fx-opacity: 0.25;" />
+
+                    <Label styleClass="task-field-label" text="Channels" minWidth="140" />
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <CheckBox fx:id="checkBoxChatIncludeWorld" mnemonicParsing="false" text="World" />
+                    </HBox>
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <CheckBox fx:id="checkBoxChatIncludeAlliance" mnemonicParsing="false" text="Alliance" />
+                    </HBox>
+
+                    <Separator style="-fx-opacity: 0.25;" />
+
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <CheckBox fx:id="checkBoxChatFilterNoise" mnemonicParsing="false"
+                                  text="Filter out emote/sticker-only messages" />
+                    </HBox>
+
+                    <Separator style="-fx-opacity: 0.25;" />
+
+                    <HBox alignment="CENTER_LEFT" spacing="14">
+                        <Label styleClass="task-field-label" text="Keep screens" minWidth="140" />
+                        <ComboBox fx:id="comboBoxChatFrameCache" prefWidth="220.0" />
+                    </HBox>
+                    <Label styleClass="task-card-note" wrapText="true"
+                           text="Screens are read and thrown away, so nothing is written to disk unless you set a figure here. These are pictures of your chat: the oldest are deleted once the figure is reached." />
+
+                </VBox>
+            </VBox>
+
+        </VBox>
+    </ScrollPane>
+</StackPane>

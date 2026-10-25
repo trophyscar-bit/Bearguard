@@ -69,6 +69,7 @@ import dev.frostguard.app.panel.training.ResearchLayoutController;
 import dev.frostguard.app.panel.misc.CharacterLayoutController;
 import dev.frostguard.app.panel.misc.StatisticsLayoutController;
 import dev.frostguard.app.panel.deals.DealTrackerLayoutController;
+import dev.frostguard.app.panel.social.ChatCaptureLayoutController;
 import dev.frostguard.app.panel.taskbuilder.TaskBuilderLayoutController;
 import dev.frostguard.app.panel.custom.CustomTasksLayoutController;
 import javafx.application.Platform;
@@ -671,7 +672,20 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         configTabs.setMaxWidth(Double.MAX_VALUE);
         configTabs.setMaxHeight(Double.MAX_VALUE);
 
+        // Chat capture settings, pinned beneath Config. Settings only: chat is captured for the
+        // Discord digest and is not displayed in the app.
+        ChatCaptureLayoutController chatConfigCtrl = new ChatCaptureLayoutController();
+        if (chatConfigCtrl instanceof IProfileObserverInjectable) {
+            ((IProfileObserverInjectable) chatConfigCtrl).attachProfileListener(profileManagerLayoutController);
+        }
+        Parent chatConfigPane = loadNode("ChatCaptureLayout", chatConfigCtrl);
+        moduleControllers.put("Chat", chatConfigCtrl);
+        if (chatConfigCtrl instanceof IProfileLoadListener) {
+            profileManagerLayoutController.addProfileLoadListener((IProfileLoadListener) chatConfigCtrl);
+        }
+
         addPinnedButton("Config", MaterialDesignC.COG_OUTLINE, configTabs);
+        addPinnedButton("Chat", MaterialDesignC.CHAT_OUTLINE, chatConfigPane);
 
         UpcomingEventsLayoutController upcomingEventsCtrl = new UpcomingEventsLayoutController();
         Parent upcomingEventsPane = loadNode("UpcomingEventsLayout", upcomingEventsCtrl);
