@@ -741,8 +741,10 @@ public class ChatCaptureRoutine extends DelayedTask {
                     + shots.size() + " screen(s) without reaching chat from before " + coverBack
                     + ". The next reconcile starts from the last one that did.");
         }
+        Instant walkStart = ChatLeftovers.capturedAtOf(
+                shots.get(0).getParent().getFileName().toString());
         if (handOffForReading(channel, shots, reconcile)) {
-            recordPass(() -> log.photographed(channel, reconcile, shots.size(), covered));
+            recordPass(() -> log.photographed(channel, reconcile, shots.size(), covered, walkStart));
         }
         return 0;
     }
@@ -1467,7 +1469,7 @@ public class ChatCaptureRoutine extends DelayedTask {
                     : transcript.append(pass.messages());
             int screens = screensRead;
             if (log != null) {
-                recordPass(() -> log.read(channel, reconcile, screens, stored, bridged));
+                recordPass(() -> log.read(channel, reconcile, screens, stored, bridged, photographedAt));
             }
             return stored;
         } catch (IOException e) {

@@ -150,6 +150,17 @@ class ChatPassLogTest {
     }
 
     @Test
+    void aWalkAndItsReadCarryTheSameStartSoTheyCanBePaired() throws IOException {
+        ChatPassLog log = new ChatPassLog(dir);
+        Instant start = Instant.parse("2026-10-24T14:00:00Z");
+        log.photographed("alliance", false, 75, true, start);
+        log.read("alliance", false, 75, 12, true, start);
+
+        String written = Files.readString(dir.resolve(ChatPassLog.FILE));
+        assertEquals(2, written.split("\"walkStart\":\"2026-10-24T14:00:00Z\"", -1).length - 1);
+    }
+
+    @Test
     void remembersWhenAChannelWasLastPhotographedInAnyMode() {
         ChatPassLog log = new ChatPassLog(dir);
         assertEquals(Optional.empty(), log.lastPhotographed("alliance"));
