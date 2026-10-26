@@ -188,10 +188,13 @@ private static final double OCR_MIN_CONFIDENCE = 0.60;
 
 private static final int KEEP_PASS_PHOTOS_DAYS = 7;
 
-/** A short, slow drag so the list does not coast: consecutive screens share about two cards. */
+/**
+ * A short, slow drag. The list travels about 1.5x the drag (a 300px drag moved it 295 to 460px
+ * on the live passes, leaving under one card of overlap); 160px keeps about two cards shared.
+ */
 private static final int SWIPE_FROM_Y = 1000;
-private static final int SWIPE_TO_Y = 700;
-private static final int SWIPE_MS = 1200;
+private static final int SWIPE_TO_Y = 840;
+private static final int SWIPE_MS = 1500;
 
 /** Below this the list did not move, i.e. the bottom has been reached. */
 private static final int END_OF_LIST_SHIFT_PX = 8;
