@@ -21,7 +21,7 @@
 	     Build-wide property declarations
 	     ────────────────────────────────────────────── -->
 	<properties>
-		<revision>3.6.0</revision>
+		<revision>3.6.1</revision>
 		<frostguard.build.commit>unknown</frostguard.build.commit>
 		<maven.build.timestamp.format>yyyy-MM-dd'T'HH:mm:ss'Z'</maven.build.timestamp.format>
 		<frostguard.pull-request-build>false</frostguard.pull-request-build>
