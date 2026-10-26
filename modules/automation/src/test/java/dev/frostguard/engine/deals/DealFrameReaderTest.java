@@ -522,6 +522,21 @@ class DealFrameReaderTest {
         assertTrue(page.offers().stream().noneMatch(o -> o.title().startsWith("Boost")), page.offers().toString());
     }
 
+    /**
+     * Mix & Match of 2026-10-26: the gold Exquisite and red Majestic tiers have "+" slots the grey-card picture
+     * missed, so their choices were never opened; and the "Best Deals" ribbon is not part of Majestic's name.
+     */
+    @Test
+    void findsThePickSlotsOfTheGoldAndRedTiers() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-mix-match-majestic.png", "Mix & Match");
+
+        assertTrue(page.chooseYourOwn());
+        assertEquals(List.of("Exquisite Custom Chest", "Majestic Custom Chest"),
+                page.offers().stream().map(DealOffer::title).toList());
+        assertEquals(2, page.pickSlots().size(), page.pickSlots().toString());
+        page.pickSlots().values().forEach(slots -> assertEquals(3, slots.size(), slots.toString()));
+    }
+
     /** Hero Rally's header "Unlock", which the word pass missed on every frame of 2026-10-25 evening. */
     @Test
     void findsTheHeroRallyUnlockButtonAndNoneElsewhere() throws Exception {
