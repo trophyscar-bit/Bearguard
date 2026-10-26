@@ -10,6 +10,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import dev.frostguard.api.deals.DealItem;
@@ -36,6 +38,7 @@ public final class DealCollection {
     private static final int SAME_TAB_MIN_RUN = 7;
     /** Shorter reads than this are too little to judge by; they only match exactly. */
     private static final int SAME_NAME_MIN_LETTERS = 8;
+    private static final Pattern DAY_ITEM = Pattern.compile("(.+) \\(Day \\d+\\)");
     /** "Exclusive Gear", the shortest cut title measured; two short words alone could be any pack. */
     private static final int CUT_TITLE_MIN_LETTERS = 12;
     /** Items besides gems that two reads must share, quantity and all, to be one card. */
@@ -114,6 +117,37 @@ public final class DealCollection {
         foldCutTitles();
         nameTabs();
         fillPurchaseAll();
+        totalDays();
+    }
+
+    /**
+     * A day-by-day grid (Journey Treasures) pays every day's reward to the buyer, so each item's days are added
+     * into the item's plain name: Fire Crystal 50 on Day 1 and 5 on each of eight more days is Fire Crystal 90.
+     * The "(Day N)" items stay beside the totals as the breakdown; a reader of the totals must not add them again.
+     */
+    private void totalDays() {
+        for (Map.Entry<String, DealOffer> entry : List.copyOf(offers.entrySet())) {
+            DealOffer offer = entry.getValue();
+            Map<String, Long> totals = new LinkedHashMap<>();
+            for (DealItem item : offer.items()) {
+                Matcher day = DAY_ITEM.matcher(item.key());
+                if (day.matches()) {
+                    totals.merge(day.group(1), item.quantity(), Long::sum);
+                }
+            }
+            if (totals.isEmpty()) {
+                continue;
+            }
+            List<DealItem> items = new ArrayList<>();
+            for (DealItem item : offer.items()) {
+                Long days = totals.remove(item.key());
+                items.add(days == null ? item : new DealItem(item.key(), item.quantity() + days, "days"));
+            }
+            totals.forEach((key, quantity) -> items.add(new DealItem(key, quantity, "days")));
+            offers.put(entry.getKey(), new DealOffer(offer.surface(), offer.tab(), offer.title(), offer.priceUsd(),
+                    offer.priceText(), offer.remaining(), offer.purchased(), items, offer.frame(), offer.limitPeriod(),
+                    offer.limitCount(), offer.timeLeft(), offer.card()));
+        }
     }
 
     /**

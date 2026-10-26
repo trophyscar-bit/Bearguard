@@ -478,6 +478,29 @@ class DealFrameReaderTest {
                 .orElseThrow(() -> new AssertionError(title + " not in " + page.offers()));
     }
 
+    /**
+     * Journey Treasures of 2026-10-25: each whole cell of its day grid is read as that day's reward, the locked
+     * days under their veil included, and the title is the banner's, not the plain pass's "Journey jireasures)".
+     */
+    @Test
+    void readsJourneyTreasuresDayByDay() throws Exception {
+        DealFrameReader.Page page = read("deals-journey-treasures.png", "Journey Treasures");
+
+        DealOffer offer = page.offers().get(0);
+        assertEquals("Journey Treasures", offer.title());
+        assertEquals(19.99, offer.priceUsd(), 0.001);
+        List<String> days = offer.items().stream().filter(i -> i.key().contains("(Day "))
+                .map(i -> i.key() + "=" + i.quantity()).toList();
+        assertEquals(List.of("Fire Crystal (Day 1)=50", "Hero Shard (Day 1)=5", "Fire Crystal (Day 2)=5",
+                "Essence Stones (Day 3)=15", "Fire Crystal (Day 4)=5", "Fire Crystal (Day 5)=5",
+                "Hero Shard (Day 6)=2", "Fire Crystal (Day 7)=5", "100 Enhancement XP Component (Day 8)=20",
+                "Fire Crystal (Day 9)=5", "Fire Crystal (Day 10)=5", "Hero Shard (Day 11)=2",
+                "Fire Crystal (Day 12)=5", "Essence Stones (Day 13)=15", "Fire Crystal (Day 14)=5"), days);
+        assertTrue(offer.items().stream().anyMatch(i -> i.key().equals("Gems") && i.quantity() == 10000),
+                "the rewards paid on purchase, under the grid, are still read");
+        assertTrue(page.dayGrid() != null && page.dayGrid().bottom() > page.dayGrid().top());
+    }
+
     /** Hero Rally's header "Unlock", which the word pass missed on every frame of 2026-10-25 evening. */
     @Test
     void findsTheHeroRallyUnlockButtonAndNoneElsewhere() throws Exception {

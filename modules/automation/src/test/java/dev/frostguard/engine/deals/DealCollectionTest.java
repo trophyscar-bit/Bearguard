@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -71,6 +72,27 @@ class DealCollectionTest {
     private static DealOffer regular(String title, List<DealItem> items) {
         return new DealOffer("Gem Shop", "Regular Pack", title, 4.99, "$4.99", null, false, items, "061.png",
                 "weekly", null, null, null);
+    }
+
+    /** Every day of a day grid is paid to the buyer: the days add up into the item's plain name. */
+    @Test
+    void addsADayGridsDaysIntoTotals() {
+        DealCollection collection = new DealCollection();
+        collection.add(new DealOffer("Deals", "Journey Treasures", "Journey Treasures", 19.99, "$19.99", null, false,
+                List.of(new DealItem("Gems", 10000, "icon"), new DealItem("Fire Crystal (Day 1)", 50, "day"),
+                        new DealItem("Fire Crystal (Day 2)", 5, "day")), "124.png", null, null, null, null));
+        collection.add(new DealOffer("Deals", "Journey Treasures", "Journey Treasures", 19.99, "$19.99", null, false,
+                List.of(new DealItem("Fire Crystal (Day 2)", 5, "day"), new DealItem("Fire Crystal (Day 20)", 5, "day"),
+                        new DealItem("Essence Stones (Day 13)", 15, "day")), "125.png", null, null, null, null));
+
+        collection.settle();
+
+        Map<String, Long> items = collection.offers().values().iterator().next().items().stream()
+                .collect(java.util.stream.Collectors.toMap(DealItem::key, DealItem::quantity));
+        assertEquals(60L, items.get("Fire Crystal"), "50 + 5 + 5; Day 2 read on both frames counts once");
+        assertEquals(15L, items.get("Essence Stones"));
+        assertEquals(10000L, items.get("Gems"));
+        assertEquals(5L, items.get("Fire Crystal (Day 20)"));
     }
 
     /** A tier read with nothing would leave the sum short of what the banner sells; it stays unknown. */
