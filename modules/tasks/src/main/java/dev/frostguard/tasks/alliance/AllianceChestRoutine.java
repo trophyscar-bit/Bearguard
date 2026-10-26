@@ -210,7 +210,7 @@ private void logGiftList() {
 		Integer configuredScrolls = profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_MAX_SCROLLS_INT, Integer.class);
 		int maxScrolls = configuredScrolls == null || configuredScrolls < 1 ? 40 : configuredScrolls;
 		LocalDateTime started = LocalDateTime.now();
-		AllianceGiftLedger ledger = AllianceGiftLedger.forWorkspace(Paths.get(System.getProperty("user.dir")));
+		AllianceGiftLedger ledger = AllianceGiftLedger.forWorkspace(dev.frostguard.api.runtime.WorkspacePaths.current().root());
 		Path passDir = ledger.passDir(started);
 		ChatTextReader reader = null;
 		int screens = 0;
@@ -271,7 +271,7 @@ private void logGiftList() {
 					logWarning(routineLogAllianceChestLine("Alliance Spend | stopped after " + screens
 							+ " screens without reaching the bottom; raise Max scrolls if the list is longer."));
 				}
-				AllianceGiftLedger.PassResult result = ledger.recordPass(list, anonymise);
+				AllianceGiftLedger.PassResult result = ledger.recordPass(list, anonymise, reachedEnd);
 				if (!result.aligned()) {
 					logWarning(routineLogAllianceChestLine("Alliance Spend | the last pass's newest rows are not in this list;"
 							+ " nothing logged this pass, list kept as the new reference. Frames: " + passDir));

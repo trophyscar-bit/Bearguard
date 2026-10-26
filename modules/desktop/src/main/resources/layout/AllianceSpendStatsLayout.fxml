@@ -52,7 +52,7 @@
                     <TableColumn fx:id="colPack" prefWidth="230.0" text="Pack" />
                     <TableColumn fx:id="colTier" prefWidth="110.0" text="Gift" />
                     <TableColumn fx:id="colUsd" prefWidth="80.0" text="USD" />
-                    <TableColumn fx:id="colSource" prefWidth="110.0" text="Price from" />
+                    <TableColumn fx:id="colSource" prefWidth="220.0" text="Price from" />
                 </columns>
             </TableView>
         </VBox>

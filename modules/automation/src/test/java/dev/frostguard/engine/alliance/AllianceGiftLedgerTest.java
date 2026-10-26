@@ -134,6 +134,43 @@ class AllianceGiftLedgerTest {
     }
 
     @Test
+    void countsAnIdenticalRepeatPurchaseAboveTheOldList() {
+        // The review's case: three anonymous Daily Deals then one more; a three-row match lost it.
+        assertEquals(1, AllianceGiftLedger.newRowCount(List.of("a", "a", "a", "b"), List.of("a", "a", "a", "a", "b"), true));
+        assertEquals(1, AllianceGiftLedger.newRowCount(List.of("a", "a", "a", "b"), List.of("a", "a", "a", "a", "b"), false));
+        assertEquals(1, AllianceGiftLedger.newRowCount(List.of("a"), List.of("a", "a"), true));
+        assertEquals(0, AllianceGiftLedger.newRowCount(List.of("a", "b"), List.of("a"), true));
+    }
+
+    @Test
+    void toleratesOneMisreadCardOnlyOnALongOverlap() {
+        List<String> previous = List.of("a", "b", "c", "d", "e", "f", "g", "h");
+        assertEquals(1, AllianceGiftLedger.newRowCount(previous, List.of("n", "a", "b", "c", "X", "e", "f", "g", "h"), true));
+        assertEquals(-1, AllianceGiftLedger.newRowCount(List.of("a", "b", "c"), List.of("n", "a", "X", "c"), true));
+    }
+
+    @Test
+    void aMissingTierNumeralDoesNotEatTheBuyersName() {
+        List<TextLine> lines = new ArrayList<>(List.of(
+                left("Alliance Gift", 560), right("30", 570), left("Lune has purchased \"Common Lucky Chip Pack\"", 590)));
+        GiftRow row = AllianceGiftLedger.parseFrame(lines, T0, "000.png", 0).get(0);
+        assertEquals("Lune", row.buyer());
+        assertEquals("Alliance Gift I", row.tier());
+    }
+
+    @Test
+    void anUnreadableReferenceLogsNothingAndIsReplaced(@TempDir Path dir) throws Exception {
+        AllianceGiftLedger ledger = new AllianceGiftLedger(dir);
+        Files.writeString(dir.resolve("last-list.json"), "{\"reachedEnd\": tr");
+        List<GiftRow> list = AllianceGiftLedger.stitch(rows(0, List.of(
+                card(560, "Alliance Gift I", "Old man has purchased \"Daily Deals\""))));
+        AllianceGiftLedger.PassResult result = ledger.recordPass(list, false, true);
+        assertFalse(result.aligned());
+        assertFalse(Files.exists(dir.resolve("gifts.jsonl")));
+        assertTrue(Files.readString(dir.resolve("last-list.json")).contains("\"reachedEnd\":true"));
+    }
+
+    @Test
     void logsFirstPassAsBacklogThenOnlyNewPurchases(@TempDir Path dir) throws Exception {
         AllianceGiftLedger ledger = new AllianceGiftLedger(dir);
         List<GiftRow> first = AllianceGiftLedger.stitch(rows(0, List.of(
