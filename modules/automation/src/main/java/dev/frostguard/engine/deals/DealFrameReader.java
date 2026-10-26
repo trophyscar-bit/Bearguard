@@ -348,6 +348,9 @@ public final class DealFrameReader {
     /** Bounds the search for a full row when partial rows are found first. */
     private static final int MAX_SLOT_ROWS = 6;
     private static final byte[] PICK_SLOT = load(PICK_SLOT_RESOURCE);
+    private static final byte[] PICK_SLOT_GOLD = load("/deals/pick-slot-gold.png");
+    private static final byte[] PICK_SLOT_RED = load("/deals/pick-slot-red.png");
+    private static final double PICK_SLOT_COLOURED_MIN_SCORE = 95.0;
     private static final byte[] UNLOCK_BUTTON = load("/deals/unlock-button.png");
     private static final double UNLOCK_MIN_SCORE = 80.0;
     /**
@@ -788,9 +791,8 @@ public final class DealFrameReader {
         if (depth > MAX_SLOT_ROWS || clampedBottom <= clampedTop) {
             return false;
         }
-        ImageSearchResultData first = OpenCvPatternLocator.matchFromRawTemplate(capture, PICK_SLOT,
-                new PointData(0, clampedTop), new PointData(FRAME_BOTTOM_RIGHT.getX(), clampedBottom),
-                PICK_SLOT_MIN_SCORE);
+        ImageSearchResultData first = pickSlot(capture, new PointData(0, clampedTop),
+                new PointData(FRAME_BOTTOM_RIGHT.getX(), clampedBottom));
         if (!first.isFound()) {
             return false;
         }
@@ -837,8 +839,7 @@ public final class DealFrameReader {
         if (depth > PICK_SLOTS_IN_A_ROW * 2 || right - left <= 0 || bottom <= top) {
             return;
         }
-        ImageSearchResultData slot = OpenCvPatternLocator.matchFromRawTemplate(capture, PICK_SLOT,
-                new PointData(left, top), new PointData(right, bottom), PICK_SLOT_MIN_SCORE);
+        ImageSearchResultData slot = pickSlot(capture, new PointData(left, top), new PointData(right, bottom));
         if (!slot.isFound()) {
             return;
         }
@@ -856,8 +857,7 @@ public final class DealFrameReader {
         if (depth > PICK_SLOTS_IN_A_ROW * 2 || right - left <= 0) {
             return 0;
         }
-        ImageSearchResultData slot = OpenCvPatternLocator.matchFromRawTemplate(capture, PICK_SLOT,
-                new PointData(left, top), new PointData(right, bottom), PICK_SLOT_MIN_SCORE);
+        ImageSearchResultData slot = pickSlot(capture, new PointData(left, top), new PointData(right, bottom));
         if (!slot.isFound()) {
             return 0;
         }
@@ -865,6 +865,25 @@ public final class DealFrameReader {
         int slotRight = slotLeft + slot.getMatchWidth();
         return 1 + slotsInRow(capture, left, slotLeft, top, bottom, depth + 1)
                 + slotsInRow(capture, slotRight, right, top, bottom, depth + 1);
+    }
+
+    /**
+     * The best "+" slot in the box, on any tier's card colour. The grey-card slot scored 89 to 90 on the gold
+     * Exquisite and red Majestic cards (2026-10-26), under its 90, so neither tier's slots were ever opened; each
+     * colour has its own picture. The gold and red ones scored 100 on every slot of four days of scans and at
+     * most 89 elsewhere, on a "+" between two reward tiles, so they ask for 95.
+     */
+    private static ImageSearchResultData pickSlot(RawImageData capture, PointData from, PointData to) {
+        ImageSearchResultData best = OpenCvPatternLocator.matchFromRawTemplate(capture, PICK_SLOT, from, to,
+                PICK_SLOT_MIN_SCORE);
+        for (byte[] coloured : List.of(PICK_SLOT_GOLD, PICK_SLOT_RED)) {
+            ImageSearchResultData hit = OpenCvPatternLocator.matchFromRawTemplate(capture, coloured, from, to,
+                    PICK_SLOT_COLOURED_MIN_SCORE);
+            if (hit.isFound() && (!best.isFound() || hit.getMatchScore() > best.getMatchScore())) {
+                best = hit;
+            }
+        }
+        return best;
     }
 
     private static boolean bannerDiamond(Text text, TextLine number, int left, int right) {
@@ -1486,7 +1505,10 @@ public final class DealFrameReader {
      * ("Brilliant Custom Chest a", 2026-10-23).
      */
     private static boolean isTitleEnd(String token) {
-        return token.chars().filter(Character::isLetter).count() >= 3 || token.matches("\\d{1,2}")
+        // Names are in title case, so a lower-case word does not end one: the "Best Deals" ribbon across the
+        // Majestic Custom Chest's title read as "J cer" after it (2026-10-25/26).
+        return token.chars().filter(Character::isLetter).count() >= 3 && !Character.isLowerCase(token.charAt(0))
+                || token.matches("\\d{1,2}")
                 || token.matches("(?i)it|up");
     }
 
