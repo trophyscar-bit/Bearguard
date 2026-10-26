@@ -247,34 +247,67 @@ public final class AllianceGiftLedger {
      */
     public static int scrollShift(BufferedImage before, BufferedImage after) {
         int height = LIST_BOTTOM - LIST_TOP;
-        int bestShift = -1;
-        double bestScore = Double.MAX_VALUE;
-        for (int dy = 0; dy <= height - 120; dy++) {
-            long diff = 0;
+        int[][] was = greys(before);
+        int[][] now = greys(after);
+        double[] changed = new double[height - MIN_OVERLAP_PX + 1];
+        int best = 0;
+        for (int dy = 0; dy < changed.length; dy++) {
+            int differing = 0;
             int samples = 0;
-            for (int y = LIST_TOP; y + dy < LIST_BOTTOM; y += 3) {
-                for (int x = TEXT_LEFT - 140; x < TEXT_RIGHT; x += 6) {
-                    diff += Math.abs(grey(after.getRGB(x, y)) - grey(before.getRGB(x, y + dy)));
+            for (int y = 0; y + dy < height; y += 3) {
+                for (int x = 0; x < now[y].length; x++) {
+                    if (Math.abs(now[y][x] - was[y + dy][x]) > PIXEL_CHANGE) {
+                        differing++;
+                    }
                     samples++;
                 }
             }
-            double score = diff / (double) samples;
-            if (score < bestScore) {
-                bestScore = score;
-                bestShift = dy;
+            changed[dy] = differing / (double) samples;
+            if (changed[dy] < changed[best]) {
+                best = dy;
             }
         }
-        return bestScore <= MAX_ALIGNED_DIFF ? bestShift : -1;
+        double runnerUp = Double.MAX_VALUE;
+        for (int dy = 0; dy < changed.length; dy++) {
+            if (Math.abs(dy - best) > 30) {
+                runnerUp = Math.min(runnerUp, changed[dy]);
+            }
+        }
+        boolean close = changed[best] <= MAX_CHANGED_SHARE;
+        boolean unique = changed[best] <= CERTAIN_SHARE || runnerUp - changed[best] >= MIN_MARGIN;
+        return close && unique ? best : -1;
+    }
+
+    /** Grey levels of the list's text column, every 6th pixel across. */
+    private static int[][] greys(BufferedImage image) {
+        int height = LIST_BOTTOM - LIST_TOP;
+        int[][] g = new int[height][];
+        for (int y = 0; y < height; y++) {
+            g[y] = new int[(TEXT_RIGHT - TEXT_LEFT + 5) / 6];
+            for (int i = 0, x = TEXT_LEFT; x < TEXT_RIGHT; x += 6, i++) {
+                g[y][i] = grey(image.getRGB(x, LIST_TOP + y));
+            }
+        }
+        return g;
     }
 
     /**
-     * Mean grey difference at which two screens count as the same pixels shifted.
+     * How screens are lined up, measured on the saved passes of 2026-10-22 to 10-26.
      *
-     * <p>The cards repeat every ~150px, so a wrong shift still lines up card backgrounds: on the
-     * first live pass (2026-10-22, screens that shared no rows) the best wrong shift scored 6 to 7.
-     * A true overlap is the same rendering and scores near zero.</p>
+     * <p>Only the text column is compared: an unclaimed gift's icon carries a live countdown that
+     * changes between two screens of an unmoved list. The score is the share of samples that
+     * changed clearly, not the mean difference, so a few changed glyphs cannot outweigh a whole
+     * matching card. True shifts scored 0.000 to 0.046; cards repeat every ~150px, so a wrong
+     * shift can score nearly as well, and a best that does not beat every other shift by
+     * {@link #MIN_MARGIN} is refused rather than guessed.</p>
      */
-    static final double MAX_ALIGNED_DIFF = 3.0;
+    static final int PIXEL_CHANGE = 24;
+    static final double MAX_CHANGED_SHARE = 0.05;
+    static final double CERTAIN_SHARE = 0.003;
+    static final double MIN_MARGIN = 0.015;
+
+    /** Shifts that leave less than one card of overlap cannot be told apart from a wrong one. */
+    static final int MIN_OVERLAP_PX = 150;
 
     private static int grey(int rgb) {
         return (((rgb >> 16) & 0xFF) * 3 + ((rgb >> 8) & 0xFF) * 6 + (rgb & 0xFF)) / 10;
