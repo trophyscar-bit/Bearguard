@@ -1225,9 +1225,10 @@ public final class DealFrameReader {
     /** The "x1,000" at a list row's right end, read on its own; empty unless it reads as a count. */
     private static String rowCount(RawImageData capture, TextLine rowWord) {
         try {
+            // A row cut by the frame's foot would pad its box past the capture, which throws (2026-10-26).
             String read = clean(OcrEngine.recognizeText(capture,
-                    new PointData(LIST_COUNT_LEFT, rowWord.top() - LIST_ROW_TOLERANCE),
-                    new PointData(LIST_TEXT_RIGHT, rowWord.bottom() + LIST_ROW_TOLERANCE),
+                    new PointData(LIST_COUNT_LEFT, Math.max(0, rowWord.top() - LIST_ROW_TOLERANCE)),
+                    new PointData(LIST_TEXT_RIGHT, Math.min(capture.getHeight(), rowWord.bottom() + LIST_ROW_TOLERANCE)),
                     CommonOCRSettings.DEAL_ROW_COUNT_SETTINGS)).replace(" ", "");
             // The list panel's edge reads as trailing marks ("x1,000ii", "x50||"); the count is taken out of it.
             Matcher count = ROW_COUNT.matcher(read);

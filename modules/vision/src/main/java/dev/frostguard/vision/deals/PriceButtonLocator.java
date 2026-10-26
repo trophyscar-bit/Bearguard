@@ -14,7 +14,10 @@ import java.util.List;
  * pop-up. Fill separates buttons from other orange artwork: the thirteen buttons measured on eight
  * 720 x 1280 frames fill 0.71 or more of their box, every other orange shape of comparable size
  * fills 0.45 or less. The area limits only bound the size; a "Purchase All" button drawn on an
- * orange banner merges with it and is not found.</p>
+ * orange banner merges with it and is not found. A button also carries its white caption: solid gold
+ * artwork above a button (the Mark of Valor tickets on A Hero's Witness, 2026-10-26) passed every other
+ * test, and across 2,961 boxes found on saved frames such artwork had at most 0.7% white in its middle
+ * while captioned buttons had 4% or more.</p>
  */
 public final class PriceButtonLocator {
 
@@ -40,6 +43,8 @@ public final class PriceButtonLocator {
     private static final double MAX_ASPECT = 4.5;
     /** Rejects ragged gold artwork whose bounding box is mostly background. */
     private static final double MIN_FILL = 0.6;
+    private static final int CAPTION_WHITE = 225;
+    private static final double MIN_CAPTION_WHITE_SHARE = 0.03;
 
     private PriceButtonLocator() {
     }
@@ -58,7 +63,26 @@ public final class PriceButtonLocator {
             }
         }
         boolean[] closed = invert(dilate(invert(dilate(mask, width, height)), width, height));
-        return components(closed, width, height);
+        return components(closed, width, height).stream().filter(box -> hasCaption(frame, box)).toList();
+    }
+
+    /** Share of near-white pixels in the box's middle, where the caption sits, against the bare-artwork floor. */
+    private static boolean hasCaption(BufferedImage frame, Box box) {
+        int left = box.x() + box.width() / 8;
+        int right = box.x() + box.width() * 7 / 8;
+        int top = box.y() + box.height() / 5;
+        int bottom = box.y() + box.height() * 4 / 5;
+        int white = 0;
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                int rgb = frame.getRGB(x, y);
+                if (((rgb >> 16) & 0xFF) >= CAPTION_WHITE && ((rgb >> 8) & 0xFF) >= CAPTION_WHITE
+                        && (rgb & 0xFF) >= CAPTION_WHITE) {
+                    white++;
+                }
+            }
+        }
+        return white >= MIN_CAPTION_WHITE_SHARE * (right - left) * (bottom - top);
     }
 
     private static List<Box> components(boolean[] mask, int width, int height) {

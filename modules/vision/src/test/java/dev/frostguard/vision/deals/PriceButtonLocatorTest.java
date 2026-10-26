@@ -47,6 +47,14 @@ class PriceButtonLocatorTest {
     }
 
     @Test
+    void skipsUncaptionedGoldArtworkAboveAButton() throws Exception {
+        List<PriceButtonLocator.Box> boxes = locate("heros-witness-mark-of-valor.png");
+
+        assertEquals(4, boxes.size(), boxes.toString());
+        assertTrue(boxes.stream().allMatch(b -> Math.abs(b.x() - 421) <= 3 && b.width() > 170), boxes.toString());
+    }
+
+    @Test
     void findsNoButtonOnAPurchasedPack() throws Exception {
         assertTrue(locate("deals-vault-purchased.png").isEmpty());
     }

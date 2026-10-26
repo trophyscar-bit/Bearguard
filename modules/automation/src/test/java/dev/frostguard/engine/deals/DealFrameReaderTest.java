@@ -613,6 +613,20 @@ class DealFrameReaderTest {
 
     /** The Get Gems tab has no orange buttons; its six bundles still become offers, gems as the item. */
     @Test
+    void readsAMarkOfValorPackWholeDespiteTheTicketArtAboveItsButton() throws Exception {
+        // The gold tickets above the Epic tier's button were taken for a second button, which split the tier
+        // in two; its last list row also sits on the frame's foot, where the row-count crop used to throw.
+        DealFrameReader.Page page = read("popup-heros-witness-mark-of-valor.png", "A Hero's Witness");
+
+        DealOffer epic = offerPriced(page, 49.99);
+        assertEquals("Epic Mark of Valor Pack", epic.title());
+        Map<String, Long> items = quantities(epic);
+        assertEquals(25_000L, items.get("Gems"));
+        assertEquals(1_000L, items.get("Mark of Valor"));
+        assertEquals(6, items.size(), items.toString());
+    }
+
+    @Test
     void recordsEveryGetGemsBundle() throws Exception {
         DealFrameReader.Page page = read("gem-shop-get-gems.png", "Get Gems");
 
