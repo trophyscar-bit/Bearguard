@@ -404,6 +404,16 @@ public final class DealFrameReader {
             Pattern.compile("(?i)\\b(daily|weekly|monthly|lifetime)\\s*(?:limit|stock)\\W*(\\d+)");
     private static final Pattern TIMER = Pattern.compile("\\d{1,2}:\\d{2}(:\\d{2})?");
     private static final Pattern VALID_DAYS = Pattern.compile("(?i)valid\\W*(\\d{1,3})\\s*day");
+    /**
+     * A choice box's "Or" between its options: 100 on all five Hero Rally previews of 2026-10-23 to 26 and at
+     * most 75 on any other frame. Its option tiles stand from 30 px above the word to 40 px under it, and the
+     * rewards everyone gets start under the "+" 130 px below it.
+     */
+    private static final byte[] CHOICE_OR = load("/deals/choice-or.png");
+    private static final double CHOICE_OR_MIN_SCORE = 90.0;
+    private static final int CHOICE_ABOVE_OR = 45;
+    private static final int CHOICE_BELOW_OR = 100;
+    private static final int CHOICE_OR_HALF_HEIGHT = 14;
     private static final Pattern SELECT_FIRST = Pattern.compile("(?i)select\\s*rewards?\\s*first");
     private static final Pattern REMAINING_CLAIMS = Pattern.compile("(?i)remaining\\s*claims");
     private static final Pattern CARD_PERIOD = Pattern.compile("(?i)\\b(weekly|monthly)\\s+card\\b");
@@ -539,6 +549,10 @@ public final class DealFrameReader {
         String offerTab = chooseYourOwn ? headerTitle(image).orElse(tab) : tab;
         List<TextLine> allLines = Stream.concat(text.plainLines().stream(), text.whiteLines().stream()).toList();
         DayGrid dayGrid = tabbed ? dayGrid(text, image, allLines).orElse(null) : null;
+        // Hero Rally's Unlock preview offers "20 shards Or 20 shards" in a "Select rewards first" box: one is
+        // chosen, so its tiles are a choice, not two rewards (both were listed as items on 2026-10-26). The box
+        // is found by its "Or", as a picture: a chat banner covered the heading on one frame that morning.
+        Optional<Integer> choiceOr = tabbed ? Optional.empty() : choiceOr(capture);
         // The tiers' "Daily Limit: 1" sits right under the Purchase All banner; it is the tiers' limit, not its.
         List<PriceButtonLocator.Box> tierButtons = buttons.stream()
                 .filter(b -> purchaseAll.isEmpty() || purchaseAll.get().button() != b).toList();
@@ -587,6 +601,9 @@ public final class DealFrameReader {
                 if (dayGrid != null) {
                     // The grid's tiles are read cell by cell; the page's own items stand under it.
                     cardTop = Math.max(cardTop, dayGrid.bottom());
+                }
+                if (choiceOr.isPresent()) {
+                    cardTop = Math.max(cardTop, choiceOr.get() + CHOICE_BELOW_OR);
                 }
             } else {
                 TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button);
@@ -694,13 +711,19 @@ public final class DealFrameReader {
             if (buttons.size() == 1 && dayGrid != null) {
                 dayGrid.days().values().forEach(merged::addAll);
             }
+            if (buttons.size() == 1 && choiceOr.isPresent()) {
+                for (DealItem choice : merge(iconItems(text, choiceOr.get() - CHOICE_ABOVE_OR,
+                        choiceOr.get() + CHOICE_BELOW_OR, new ArrayList<>()))) {
+                    merged.add(new DealItem(choice.key() + " (slot 1 choice)", choice.quantity(), "choice"));
+                }
+            }
             if (buttons.size() == 1) {
                 merged.addAll(missionRewards(text, allLines, button));
             }
             // A grey price button is a pack already bought up to its limit: Fire Crystal Leap Pack 1 and 2 on
             // 2026-10-23 (frames 036/037) were posted as buyable when they were not.
             // Not while a choice is pending: Hero Rally's Unlock preview greys its $9.99 until a reward is picked.
-            boolean choicePending = Stream.concat(allLines.stream(), headerLines.stream())
+            boolean choicePending = choiceOr.isPresent() || Stream.concat(allLines.stream(), headerLines.stream())
                     .anyMatch(l -> SELECT_FIRST.matcher(clean(l.text())).find());
             offers.add(new DealOffer(surface, offerTab, title, priceUsd, priceText, remaining,
                     isGreyButton(image, button) && !choicePending, merged, frame,
@@ -1270,6 +1293,13 @@ public final class DealFrameReader {
         } catch (OcrException unreadable) {
             return Optional.empty();
         }
+    }
+
+    /** The top of a choice box's "Or", when the frame has one. */
+    private static Optional<Integer> choiceOr(RawImageData capture) {
+        ImageSearchResultData hit = OpenCvPatternLocator.matchFromRawTemplate(capture, CHOICE_OR, FRAME_TOP_LEFT,
+                FRAME_BOTTOM_RIGHT, CHOICE_OR_MIN_SCORE);
+        return hit.isFound() ? Optional.of(hit.getY() - CHOICE_OR_HALF_HEIGHT) : Optional.empty();
     }
 
     /** The run of words in a crop's largest type, as one line. */

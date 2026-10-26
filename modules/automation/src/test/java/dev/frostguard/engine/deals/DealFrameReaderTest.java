@@ -110,6 +110,10 @@ class DealFrameReaderTest {
         Map<String, Long> items = offer.items().stream().collect(Collectors.toMap(DealItem::key, DealItem::quantity));
         assertEquals(70L, items.get("Fire Crystal"));
         assertEquals(4800L, items.get("Gems"));
+        // "20 shards Or 20 shards": one is chosen, so both are slot choices and neither is a plain reward.
+        assertEquals(20L, items.get("Hero Shard (slot 1 choice)"));
+        assertTrue(items.keySet().stream().filter(k -> k.contains("(slot 1 choice)")).count() == 2, items.toString());
+        assertNull(items.get("Hero Shard"));
     }
 
     /** Live frame of 2026-10-23: the first "+" slot of the Shining Custom Chest, opened. */
