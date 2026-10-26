@@ -31,6 +31,7 @@ class AllianceGiftLedgerTest {
      * real-frame tests run where prod's data folder exists and are skipped elsewhere.
      */
     private static final Path LIVE_PASS = Path.of("C:/Bearguard/data/alliance-spend/passes/2026-10-22T17-48-33");
+    private static final Path REPEATS_PASS = Path.of("C:/Bearguard/data/alliance-spend/passes/2026-10-26T17-56-10");
     private static final Path OCR_MODELS = Path.of("C:/Bearguard/tools/ocr/onnx");
 
     private static TextLine left(String text, int top) {
@@ -230,6 +231,15 @@ class AllianceGiftLedgerTest {
         BufferedImage a = ImageIO.read(LIVE_PASS.resolve("000.png").toFile());
         BufferedImage b = ImageIO.read(LIVE_PASS.resolve("001.png").toFile());
         assertEquals(-1, AllianceGiftLedger.scrollShift(a, b));
+    }
+
+    @Test
+    void linesUpARunOfIdenticalPurchasesByTheirIcons() throws Exception {
+        // Three "Jong GyU has purchased Daily Deals" cards in a row: text alone could not tell 186 from 34 or 338.
+        assumeTrue(Files.exists(REPEATS_PASS.resolve("007-unaligned.png")), "live pass frames not on this machine");
+        BufferedImage a = ImageIO.read(REPEATS_PASS.resolve("006.png").toFile());
+        BufferedImage b = ImageIO.read(REPEATS_PASS.resolve("007-unaligned.png").toFile());
+        assertEquals(186, AllianceGiftLedger.scrollShift(a, b));
     }
 
     @Test
