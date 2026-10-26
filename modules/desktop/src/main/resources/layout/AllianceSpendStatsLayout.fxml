@@ -33,8 +33,9 @@
                 <columns>
                     <TableColumn fx:id="colBuyer" prefWidth="220.0" text="Buyer" />
                     <TableColumn fx:id="colBuyerCount" prefWidth="90.0" text="Purchases" />
-                    <TableColumn fx:id="colBuyerUsd" prefWidth="120.0" text="Spent (USD)" />
-                    <TableColumn fx:id="colBuyerEst" prefWidth="120.0" text="Of which estimated" />
+                    <TableColumn fx:id="colBuyerUsd" prefWidth="110.0" text="Total" />
+                    <TableColumn fx:id="colBuyerKnown" prefWidth="120.0" text="Known prices" />
+                    <TableColumn fx:id="colBuyerEst" prefWidth="140.0" text="Estimated (by tier)" />
                 </columns>
             </TableView>
         </VBox>

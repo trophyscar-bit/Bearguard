@@ -48,6 +48,7 @@ public class AllianceSpendStatsController {
     @FXML private TableColumn<BuyerTotal, String> colBuyer;
     @FXML private TableColumn<BuyerTotal, String> colBuyerCount;
     @FXML private TableColumn<BuyerTotal, String> colBuyerUsd;
+    @FXML private TableColumn<BuyerTotal, String> colBuyerKnown;
     @FXML private TableColumn<BuyerTotal, String> colBuyerEst;
     @FXML private TableView<Purchase> tablePurchases;
     @FXML private TableColumn<Purchase, String> colAt;
@@ -64,8 +65,8 @@ public class AllianceSpendStatsController {
         colBuyer.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().buyer()));
         colBuyerCount.setCellValueFactory(c -> new SimpleStringProperty(String.valueOf(c.getValue().purchases())));
         colBuyerUsd.setCellValueFactory(c -> new SimpleStringProperty(money(c.getValue().usd())));
-        colBuyerEst.setCellValueFactory(c -> new SimpleStringProperty(
-                c.getValue().estimated() == 0 ? "-" : c.getValue().estimated() + " of " + c.getValue().purchases()));
+        colBuyerKnown.setCellValueFactory(c -> new SimpleStringProperty(money(c.getValue().knownUsd())));
+        colBuyerEst.setCellValueFactory(c -> new SimpleStringProperty(money(c.getValue().estimatedUsd())));
         colAt.setCellValueFactory(c -> new SimpleStringProperty(
                 c.getValue().at().format(WHEN) + (c.getValue().backlog() ? " *" : "")));
         colWho.setCellValueFactory(c -> new SimpleStringProperty(
@@ -123,12 +124,12 @@ public class AllianceSpendStatsController {
                 + "     " + periodLine("7 days", report.since(now.minusDays(7)))
                 + "     " + periodLine("30 days", report.since(now.minusDays(30))));
 
-        long estimated = shown.stream().filter(p -> p.source() == PriceSource.TIER_ESTIMATE).count();
+        double known = AllianceSpendReport.usd(shown, false);
         long backlog = shown.stream().filter(Purchase::backlog).count();
         StringBuilder note = new StringBuilder();
-        note.append(money(AllianceSpendReport.usd(shown, false))).append(" of that is from known pack prices; ")
-                .append(estimated).append(" of ").append(shown.size())
-                .append(" purchases are priced by gift tier (Tier I = $4.99 measured; II-IV assumed).");
+        note.append("Known prices ").append(money(known)).append(" · Estimated by tier ")
+                .append(money(AllianceSpendReport.usd(shown, true) - known))
+                .append(" (packs the deal scan has not priced yet: Tier I $4.99, II $9.99, III $19.99, IV $99.99).");
         if (backlog > 0) {
             note.append(" * ").append(backlog).append(" were already in the list when logging began, so their time is when they were first seen.");
         }

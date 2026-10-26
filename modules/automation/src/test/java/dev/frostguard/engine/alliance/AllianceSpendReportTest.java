@@ -60,6 +60,37 @@ class AllianceSpendReportTest {
     }
 
     @Test
+    void foldsOneLetterMisreadsIntoTheNameSeenMostOften() throws Exception {
+        AllianceSpendReport report = AllianceSpendReport.build(List.of(
+                row("2026-10-26T10:00", "Alliance Gift I", "AthenaRyu", "Common Lucky Chip Pack"),
+                row("2026-10-26T09:00", "Alliance Gift I", "AthenaRyu", "Common Lucky Chip Pack"),
+                row("2026-10-26T08:00", "Alliance Gift I", "AthenaRyu 1", "Common Lucky y Chip Pack"),
+                row("2026-10-26T07:00", "Alliance Gift I", "Lune", "Legend 1 Transcend Pack"),
+                row("2026-10-26T06:00", "Alliance Gift I", "Lune", "Legend Transcend Pack"),
+                row("2026-10-26T05:00", "Alliance Gift I", "Braslin", "Dream Traveler Pack 3"),
+                row("2026-10-26T04:00", "Alliance Gift I", "Braslin", "Legend Transcend Pack")),
+                Map.of(), scanned("Dream Traveler Pack 2", 4.99));
+        List<Purchase> p = report.purchases();
+        assertEquals("AthenaRyu", p.get(2).buyer());
+        assertEquals("Common Lucky Chip Pack", p.get(2).pack());
+        assertEquals("Legend Transcend Pack", p.get(3).pack());
+        assertEquals("Dream Traveler Pack 3", p.get(5).pack());
+        assertEquals(PriceSource.TIER_ESTIMATE, p.get(5).source());
+    }
+
+    @Test
+    void theAliasFileFixesNamesTooShortToFoldSafely() throws Exception {
+        AllianceSpendReport report = AllianceSpendReport.build(List.of(
+                row("2026-10-26T10:00", "Alliance Gift I", "une", "Arcanel Reverie"),
+                row("2026-10-26T09:00", "Alliance Gift I", "Lune", "Arcane Reverie")),
+                Map.of(), Map.of(),
+                new AllianceSpendReport.Aliases(Map.of("une", "Lune"), Map.of("Arcanel Reverie", "Arcane Reverie")));
+        assertEquals("Lune", report.purchases().get(0).buyer());
+        assertEquals("Arcane Reverie", report.purchases().get(0).pack());
+        assertEquals(1, AllianceSpendReport.byBuyer(report.purchases()).size());
+    }
+
+    @Test
     void aTitleScannedAtSeveralPricesUsesTheOneMatchingTheTier() throws Exception {
         AllianceSpendReport report = AllianceSpendReport.build(List.of(
                 row("2026-10-26T10:00", "Alliance Gift II", "Old man", "Intel Monthly Card"),
@@ -85,7 +116,8 @@ class AllianceSpendReportTest {
         assertEquals("(anonymous)", buyers.get(0).buyer());
         assertEquals("Braslin", buyers.get(1).buyer());
         assertEquals(2, buyers.get(1).purchases());
-        assertEquals(1, buyers.get(1).estimated());
+        assertEquals(4.99, buyers.get(1).knownUsd(), 1e-9);
+        assertEquals(4.99, buyers.get(1).estimatedUsd(), 1e-9);
         assertEquals(Map.of("Daily Deals", 1, "Mia's Keenness", 1), AllianceSpendReport.unpricedPacks(report.purchases()));
         assertNull(report.purchases().get(2).buyer());
     }

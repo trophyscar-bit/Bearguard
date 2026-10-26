@@ -50,11 +50,17 @@ public final class AllianceSpendReport {
      */
     static final int FUZZY_EDITS = 1;
 
+    /** One purchase as shown, plus the spellings it was read as and the screen it came from. */
     public record Purchase(LocalDateTime at, String tier, String buyer, boolean anonymous, String pack,
-                           boolean backlog, Double usd, PriceSource source) {
+                           boolean backlog, Double usd, PriceSource source, String readBuyer, String readPack,
+                           String frame) {
     }
 
-    public record BuyerTotal(String buyer, int purchases, double usd, int estimated) {
+    /** One buyer's spend: dollars from known pack prices and dollars estimated from the gift tier. */
+    public record BuyerTotal(String buyer, int purchases, double knownUsd, double estimatedUsd) {
+        public double usd() {
+            return knownUsd + estimatedUsd;
+        }
     }
 
     private final List<Purchase> purchases;
@@ -88,17 +94,61 @@ public final class AllianceSpendReport {
             MAPPER.readValue(manual.toFile(), new TypeReference<Map<String, Double>>() { })
                     .forEach((k, v) -> operator.put(normalise(k), v));
         }
-        return build(rows, operator, scanPrices(workspaceRoot.resolve("data").resolve("deals").resolve("scans")));
+        Aliases aliases = Aliases.EMPTY;
+        Path aliasFile = spend.resolve("aliases.json");
+        if (Files.exists(aliasFile)) {
+            aliases = MAPPER.readValue(aliasFile.toFile(), Aliases.class);
+        }
+        return build(rows, operator, scanPrices(workspaceRoot.resolve("data").resolve("deals").resolve("scans")),
+                aliases);
     }
 
     static AllianceSpendReport build(List<JsonNode> rows, Map<String, Double> operator,
                                      Map<String, TreeSet<Double>> scanned) {
+        return build(rows, operator, scanned, Aliases.EMPTY);
+    }
+
+    /**
+     * Corrections for names OCR got wrong, kept in {@code data/alliance-spend/aliases.json} as
+     * {@code {"buyers": {"une": "Lune"}, "packs": {...}}}; keys are compared ignoring case and
+     * punctuation. The nightly review adds to it after checking the frames; the automatic folding
+     * below only handles misreads one letter away from a name seen more often.
+     */
+    public record Aliases(Map<String, String> buyers, Map<String, String> packs) {
+        static final Aliases EMPTY = new Aliases(Map.of(), Map.of());
+
+        String buyer(String read) {
+            return lookup(buyers, read);
+        }
+
+        String pack(String read) {
+            return lookup(packs, read);
+        }
+
+        private static String lookup(Map<String, String> map, String read) {
+            if (read == null || map == null) {
+                return read;
+            }
+            String key = normalise(read);
+            for (Map.Entry<String, String> e : map.entrySet()) {
+                if (normalise(e.getKey()).equals(key)) {
+                    return e.getValue();
+                }
+            }
+            return read;
+        }
+    }
+
+    static AllianceSpendReport build(List<JsonNode> rows, Map<String, Double> operator,
+                                     Map<String, TreeSet<Double>> scanned, Aliases aliases) {
         List<String> known = new ArrayList<>(operator.keySet());
         known.addAll(scanned.keySet());
+        Map<String, String> buyerNames = fold(rows, "buyer", aliases::buyer, List.of());
+        Map<String, String> packNames = fold(rows, "pack", aliases::pack, known);
         List<Purchase> out = new ArrayList<>();
         for (JsonNode row : rows) {
             String tier = row.path("tier").asText(null);
-            String pack = row.path("pack").asText();
+            String pack = packNames.get(row.path("pack").asText());
             String key = canonical(normalise(pack), known);
             Double usd = null;
             PriceSource source = PriceSource.NONE;
@@ -121,11 +171,111 @@ public final class AllianceSpendReport {
                 source = PriceSource.TIER_ESTIMATE;
             }
             out.add(new Purchase(LocalDateTime.parse(row.path("capturedAt").asText()), tier,
-                    row.path("buyer").asText("").isBlank() ? null : row.path("buyer").asText(),
-                    row.path("anonymous").asBoolean(false), pack, row.path("backlog").asBoolean(false), usd, source));
+                    row.path("buyer").asText("").isBlank() ? null : buyerNames.get(row.path("buyer").asText()),
+                    row.path("anonymous").asBoolean(false), pack, row.path("backlog").asBoolean(false), usd, source,
+                    row.path("buyer").asText(null), row.path("pack").asText(), row.path("frame").asText(null)));
         }
         out.sort(Comparator.comparing(Purchase::at).reversed());
         return new AllianceSpendReport(out);
+    }
+
+    /**
+     * Maps every spelling of a field to the one it should be shown as.
+     *
+     * <p>Aliases apply first. Then a spelling one edit from a more frequent one (same first three
+     * letters, numbering not in conflict) is folded into it, so "AthenaRyu 1" joins "AthenaRyu"
+     * and "Common Lucky y Chip Pack" joins "Common Lucky Chip Pack". Names shorter than four
+     * letters are never folded automatically; those go through the alias file.</p>
+     *
+     * @param anchors normalised spellings that always win, e.g. scanned pack titles
+     */
+    static Map<String, String> fold(List<JsonNode> rows, String field,
+                                    java.util.function.UnaryOperator<String> alias, List<String> anchors) {
+        Map<String, Integer> counts = new HashMap<>();
+        Map<String, String> aliased = new HashMap<>();
+        for (JsonNode row : rows) {
+            String read = row.path(field).asText("");
+            if (read.isBlank()) {
+                continue;
+            }
+            String named = alias.apply(read);
+            aliased.put(read, named);
+            counts.merge(named, 1, Integer::sum);
+        }
+        // Spellings that differ only in punctuation or spacing ("Uncommon! Lucky Chip Pack") are
+        // one name whatever their counts; the cleanest spelling (fewest odd marks) speaks for them.
+        Map<String, String> sameLetters = new HashMap<>();
+        for (String name : counts.keySet().stream().sorted(Comparator.comparingInt(AllianceSpendReport::oddMarks)
+                .thenComparing(n -> -counts.get(n)).thenComparing(n -> n)).toList()) {
+            sameLetters.putIfAbsent(normalise(name), name);
+        }
+        Map<String, Integer> merged = new HashMap<>();
+        counts.forEach((name, n) -> merged.merge(sameLetters.get(normalise(name)), n, Integer::sum));
+        aliased.replaceAll((read, named) -> sameLetters.get(normalise(named)));
+        counts.clear();
+        counts.putAll(merged);
+        List<String> byFrequency = new ArrayList<>(counts.keySet());
+        byFrequency.sort(Comparator.comparing((String n) -> -counts.get(n)).thenComparing(n -> n));
+        Map<String, String> folded = new HashMap<>();
+        for (String name : byFrequency) {
+            String target = name;
+            String norm = normalise(name);
+            // Player names only: OCR adds a lone glyph after a name ("AthenaRyu 1"). Not for packs,
+            // where "Dream Traveler Pack 2" is a real pack and not a misread of a bare title.
+            String bare = name.replaceFirst("\\s+\\S$", "");
+            if ("buyer".equals(field) && !bare.equals(name) && counts.getOrDefault(bare, 0) > counts.get(name)) {
+                folded.put(name, folded.getOrDefault(bare, bare));
+                continue;
+            }
+            if (norm.length() >= 4 && !anchors.contains(norm)) {
+                for (String other : byFrequency) {
+                    if (other.equals(name) || !folded.getOrDefault(other, other).equals(other)) {
+                        continue;
+                    }
+                    boolean moreSeen = counts.get(other) > counts.get(name) || anchors.contains(normalise(other));
+                    if (moreSeen && sameThing(norm, normalise(other))) {
+                        target = other;
+                        break;
+                    }
+                }
+            }
+            folded.put(name, target);
+        }
+        Map<String, String> out = new HashMap<>();
+        aliased.forEach((read, named) -> out.put(read, folded.getOrDefault(named, named)));
+        return out;
+    }
+
+    /** Marks OCR adds that pack and player names rarely contain. */
+    static int oddMarks(String name) {
+        return (int) name.chars().filter(c -> c == '!' || c == '|' || c == '"' || c == '\'' || c == '`').count();
+    }
+
+    /** One stray letter apart, same start, and no conflicting numbering. */
+    static boolean sameThing(String a, String b) {
+        if (a.length() < 3 || b.length() < 3 || Math.abs(a.length() - b.length()) > FUZZY_EDITS
+                || !a.substring(0, 3).equals(b.substring(0, 3)) || !numberingAgrees(a, b)) {
+            return false;
+        }
+        return edits(a, b) <= FUZZY_EDITS;
+    }
+
+    /**
+     * "Pack 2" and "Pack 3" are different packs, but a digit OCR invented mid-name ("Legend 1
+     * Transcend Pack") is not numbering. Digits must agree when both names have them, and a lone
+     * extra digit is allowed only if it is not at the end, where tier numbers sit.
+     */
+    static boolean numberingAgrees(String a, String b) {
+        String da = a.replaceAll("\\D", "");
+        String db = b.replaceAll("\\D", "");
+        if (da.equals(db)) {
+            return true;
+        }
+        if (da.isEmpty() || db.isEmpty()) {
+            String withDigit = da.isEmpty() ? b : a;
+            return !Character.isDigit(withDigit.charAt(withDigit.length() - 1));
+        }
+        return false;
     }
 
     /** Every priced title in every saved deal scan, by normalised title. */
@@ -161,11 +311,7 @@ public final class AllianceSpendReport {
         String best = read;
         int bestEdits = FUZZY_EDITS + 1;
         for (String title : known) {
-            // Numbered tiers ("Pack 2" / "Pack 3") are one edit apart but different packs.
-            if (Math.abs(title.length() - read.length()) > FUZZY_EDITS
-                    || !title.replaceAll("\\D", "").equals(read.replaceAll("\\D", ""))
-                    || title.length() < 3 || read.length() < 3
-                    || !title.substring(0, 3).equals(read.substring(0, 3))) {
+            if (!sameThing(read, title)) {
                 continue;
             }
             int edits = edits(read, title);
@@ -218,13 +364,11 @@ public final class AllianceSpendReport {
             String who = p.anonymous() || p.buyer() == null ? "(anonymous)" : p.buyer();
             double[] t = totals.computeIfAbsent(who, k -> new double[3]);
             t[0]++;
-            t[1] += p.usd() == null ? 0 : p.usd();
-            if (p.source() == PriceSource.TIER_ESTIMATE) {
-                t[2]++;
-            }
+            double usd = p.usd() == null ? 0 : p.usd();
+            t[p.source() == PriceSource.TIER_ESTIMATE ? 2 : 1] += usd;
         }
         List<BuyerTotal> out = new ArrayList<>();
-        totals.forEach((who, t) -> out.add(new BuyerTotal(who, (int) t[0], t[1], (int) t[2])));
+        totals.forEach((who, t) -> out.add(new BuyerTotal(who, (int) t[0], t[1], t[2])));
         out.sort(Comparator.comparingDouble(BuyerTotal::usd).reversed().thenComparing(BuyerTotal::buyer));
         return out;
     }
