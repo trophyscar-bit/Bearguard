@@ -24,25 +24,43 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Prices the logged Alliance Gift purchases for the Statistics view.
  *
- * <p>A purchase is priced three ways, best first: an operator entry in
- * {@code data/alliance-spend/pack-prices.json}; the deal scan's price for a pack of the same title;
- * or an estimate from the gift tier. Each priced purchase says which one it used, so the view can
- * keep measured dollars apart from estimated ones.</p>
+ * <p>A purchase is priced, best first, from an operator entry in
+ * {@code data/alliance-spend/pack-prices.json}; from the deal scan's packs of the same name or the
+ * same family ("Daily Deals - $0.99", the "Mix &amp; Match" tab), narrowed to the price band of
+ * the purchase's gift tier; or from the tier alone. Each purchase says which, so the view keeps
+ * known dollars apart from estimated ones.</p>
  */
 public final class AllianceSpendReport {
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    public enum PriceSource { OPERATOR, DEAL_SCAN, TIER_ESTIMATE, NONE }
+    /**
+     * Where a purchase's price came from. OPERATOR and DEAL_SCAN are known prices. SCAN_RANGE is a
+     * pack the scan sells at several prices inside the tier's band (the lowest is used, so it is a
+     * floor). TIER_ESTIMATE has no scanned price that fits. NONE has neither a price nor a tier.
+     */
+    public enum PriceSource {
+        OPERATOR, DEAL_SCAN, SCAN_RANGE, TIER_ESTIMATE, NONE;
+
+        public boolean known() {
+            return this == OPERATOR || this == DEAL_SCAN;
+        }
+    }
 
     /**
-     * Dollars per tier when nothing better is known. Tier I is measured: all 11 Tier I purchases
-     * that matched a scanned pack on 2026-10-26 were $4.99. II to IV are assumptions until enough
-     * matches exist to measure them, and the view labels every figure that leans on them.
+     * Each gift tier corresponds to a band of pack prices. Every priced pack family in the scans of
+     * 2026-10-22..26 steps $4.99 / $9.99 / $19.99 / $49.99 / $99.99 (Fire Crystal Leap Pack 1-5,
+     * Shining to Majestic Custom Chest) while the gift keys step 30 / 60 / 120 / 300, so the keys
+     * track the price; $0.99 to $2.99 Daily Deals also give Tier I. A tier-only estimate uses the
+     * band's top for I and its single price for II and III; IV ($49.99 and up) uses $49.99, the
+     * price whose ratio to $4.99 matches 300 keys to 30. All tier estimates are labelled as such.
      */
-    static final Map<String, Double> TIER_ESTIMATE = Map.of(
-            "Alliance Gift I", 4.99, "Alliance Gift II", 9.99, "Alliance Gift III", 19.99, "Alliance Gift IV", 99.99);
+    static final Map<String, double[]> TIER_BAND = Map.of(
+            "Alliance Gift I", new double[] {0, 4.99, 4.99},
+            "Alliance Gift II", new double[] {4.99, 9.99, 9.99},
+            "Alliance Gift III", new double[] {9.99, 19.99, 19.99},
+            "Alliance Gift IV", new double[] {19.99, Double.MAX_VALUE, 49.99});
 
     /**
      * How many edits two readings of one pack name may differ by: one stray letter ("Arcanel",
@@ -52,39 +70,58 @@ public final class AllianceSpendReport {
 
     /** One purchase as shown, plus the spellings it was read as and the screen it came from. */
     public record Purchase(LocalDateTime at, String tier, String buyer, boolean anonymous, String pack,
-                           boolean backlog, Double usd, PriceSource source, String readBuyer, String readPack,
-                           String frame) {
+                           boolean backlog, Double usd, PriceSource source, String priceNote, String readBuyer,
+                           String readPack, String frame) {
     }
 
-    /** One buyer's spend: dollars from known pack prices and dollars estimated from the gift tier. */
+    /** One buyer's spend: dollars from known pack prices and dollars estimated. */
     public record BuyerTotal(String buyer, int purchases, double knownUsd, double estimatedUsd) {
         public double usd() {
             return knownUsd + estimatedUsd;
         }
     }
 
-    private final List<Purchase> purchases;
+    /** Prices the scans have seen: by pack name, and by family (a tiered name or its tab). */
+    record ScanIndex(Map<String, TreeSet<Double>> names, Map<String, TreeSet<Double>> families) {
+        static final ScanIndex EMPTY = new ScanIndex(Map.of(), Map.of());
+    }
 
-    private AllianceSpendReport(List<Purchase> purchases) {
+    private final List<Purchase> purchases;
+    private final int unreadableLines;
+
+    private AllianceSpendReport(List<Purchase> purchases, int unreadableLines) {
         this.purchases = purchases;
+        this.unreadableLines = unreadableLines;
     }
 
     public List<Purchase> purchases() {
         return purchases;
     }
 
-    /** Loads the ledger and prices it from the workspace's deal scans and operator price file. */
+    /** Ledger lines that could not be read and were left out, so the view can say so. */
+    public int unreadableLines() {
+        return unreadableLines;
+    }
+
+    /** Loads the ledger and prices it from the workspace's deal reports and operator price file. */
     public static AllianceSpendReport load(Path workspaceRoot) throws IOException {
         Path spend = workspaceRoot.resolve("data").resolve("alliance-spend");
         Path gifts = spend.resolve("gifts.jsonl");
         List<JsonNode> rows = new ArrayList<>();
+        int unreadable = 0;
         if (Files.exists(gifts)) {
             for (String line : Files.readAllLines(gifts, StandardCharsets.UTF_8)) {
-                if (!line.isBlank()) {
+                if (line.isBlank()) {
+                    continue;
+                }
+                try {
                     JsonNode node = MAPPER.readTree(line);
                     if (node.hasNonNull("pack")) {
+                        LocalDateTime.parse(node.path("capturedAt").asText());
                         rows.add(node);
                     }
+                } catch (Exception corrupt) {
+                    unreadable++;
                 }
             }
         }
@@ -99,20 +136,15 @@ public final class AllianceSpendReport {
         if (Files.exists(aliasFile)) {
             aliases = MAPPER.readValue(aliasFile.toFile(), Aliases.class);
         }
-        return build(rows, operator, scanPrices(workspaceRoot.resolve("data").resolve("deals").resolve("scans")),
-                aliases);
-    }
-
-    static AllianceSpendReport build(List<JsonNode> rows, Map<String, Double> operator,
-                                     Map<String, TreeSet<Double>> scanned) {
-        return build(rows, operator, scanned, Aliases.EMPTY);
+        AllianceSpendReport built = build(rows, operator,
+                scanIndex(workspaceRoot.resolve("data").resolve("deals")), aliases);
+        return new AllianceSpendReport(built.purchases, unreadable);
     }
 
     /**
      * Corrections for names OCR got wrong, kept in {@code data/alliance-spend/aliases.json} as
      * {@code {"buyers": {"une": "Lune"}, "packs": {...}}}; keys are compared ignoring case and
-     * punctuation. The nightly review adds to it after checking the frames; the automatic folding
-     * below only handles misreads one letter away from a name seen more often.
+     * punctuation. The nightly review adds to it after checking the frames.
      */
     public record Aliases(Map<String, String> buyers, Map<String, String> packs) {
         static final Aliases EMPTY = new Aliases(Map.of(), Map.of());
@@ -139,58 +171,85 @@ public final class AllianceSpendReport {
         }
     }
 
-    static AllianceSpendReport build(List<JsonNode> rows, Map<String, Double> operator,
-                                     Map<String, TreeSet<Double>> scanned, Aliases aliases) {
-        List<String> known = new ArrayList<>(operator.keySet());
-        known.addAll(scanned.keySet());
+    static AllianceSpendReport build(List<JsonNode> rows, Map<String, Double> operator, ScanIndex scans,
+                                     Aliases aliases) {
+        List<String> anchors = new ArrayList<>(operator.keySet());
+        anchors.addAll(scans.names().keySet());
+        anchors.addAll(scans.families().keySet());
         Map<String, String> buyerNames = fold(rows, "buyer", aliases::buyer, List.of());
-        Map<String, String> packNames = fold(rows, "pack", aliases::pack, known);
+        Map<String, String> packNames = fold(rows, "pack", aliases::pack, anchors);
         List<Purchase> out = new ArrayList<>();
         for (JsonNode row : rows) {
             String tier = row.path("tier").asText(null);
             String pack = packNames.get(row.path("pack").asText());
-            String key = canonical(normalise(pack), known);
-            Double usd = null;
-            PriceSource source = PriceSource.NONE;
-            Double estimate = tier == null ? null : TIER_ESTIMATE.get(tier);
-            if (operator.containsKey(key)) {
-                usd = operator.get(key);
-                source = PriceSource.OPERATOR;
-            } else if (scanned.containsKey(key)) {
-                TreeSet<Double> seen = scanned.get(key);
-                if (seen.size() == 1) {
-                    usd = seen.first();
-                    source = PriceSource.DEAL_SCAN;
-                } else if (estimate != null && seen.contains(estimate)) {
-                    usd = estimate;
-                    source = PriceSource.DEAL_SCAN;
-                }
-            }
-            if (usd == null && estimate != null) {
-                usd = estimate;
-                source = PriceSource.TIER_ESTIMATE;
-            }
+            Priced priced = price(pack, tier, operator, scans);
             out.add(new Purchase(LocalDateTime.parse(row.path("capturedAt").asText()), tier,
                     row.path("buyer").asText("").isBlank() ? null : buyerNames.get(row.path("buyer").asText()),
-                    row.path("anonymous").asBoolean(false), pack, row.path("backlog").asBoolean(false), usd, source,
+                    row.path("anonymous").asBoolean(false), pack, row.path("backlog").asBoolean(false),
+                    priced.usd, priced.source, priced.note,
                     row.path("buyer").asText(null), row.path("pack").asText(), row.path("frame").asText(null)));
         }
         out.sort(Comparator.comparing(Purchase::at).reversed());
-        return new AllianceSpendReport(out);
+        return new AllianceSpendReport(out, 0);
+    }
+
+    private record Priced(Double usd, PriceSource source, String note) {
+    }
+
+    static Priced price(String pack, String tier, Map<String, Double> operator, ScanIndex scans) {
+        String norm = normalise(pack);
+        String opKey = canonical(norm, new ArrayList<>(operator.keySet()));
+        if (operator.containsKey(opKey)) {
+            return new Priced(operator.get(opKey), PriceSource.OPERATOR, null);
+        }
+        double[] band = tier == null ? null : TIER_BAND.get(tier);
+        String nameKey = canonical(norm, new ArrayList<>(scans.names().keySet()));
+        String familyKey = canonical(norm, new ArrayList<>(scans.families().keySet()));
+        TreeSet<Double> seen = scans.names().containsKey(nameKey) ? scans.names().get(nameKey)
+                : scans.families().get(familyKey);
+        if (seen != null) {
+            TreeSet<Double> fits = new TreeSet<>();
+            for (Double p : seen) {
+                if (band == null || p > band[0] && p <= band[1]) {
+                    fits.add(p);
+                }
+            }
+            if (fits.size() == 1) {
+                return new Priced(fits.first(), PriceSource.DEAL_SCAN, null);
+            }
+            if (fits.size() > 1) {
+                return new Priced(fits.first(), PriceSource.SCAN_RANGE,
+                        "lowest of " + money(fits.first()) + "-" + money(fits.last()));
+            }
+            if (band != null) {
+                return new Priced(band[2], PriceSource.TIER_ESTIMATE,
+                        "scanned " + money(seen.first()) + (seen.size() > 1 ? "+" : "") + " does not fit " + tier);
+            }
+        }
+        if (band != null) {
+            return new Priced(band[2], PriceSource.TIER_ESTIMATE, null);
+        }
+        return new Priced(null, PriceSource.NONE, "no tier and no scanned price");
+    }
+
+    private static String money(double usd) {
+        return String.format(Locale.ROOT, "$%.2f", usd);
     }
 
     /**
      * Maps every spelling of a field to the one it should be shown as.
      *
-     * <p>Aliases apply first. Then a spelling one edit from a more frequent one (same first three
-     * letters, numbering not in conflict) is folded into it, so "AthenaRyu 1" joins "AthenaRyu"
-     * and "Common Lucky y Chip Pack" joins "Common Lucky Chip Pack". Names shorter than four
-     * letters are never folded automatically; those go through the alias file.</p>
+     * <p>Aliases apply first. Spellings equal apart from punctuation or spacing are one name. A
+     * pack spelling one edit from a more frequent one or a scanned title (same first three letters,
+     * same digits) folds into it. Player names fold only across OCR's confusable glyphs (l, I, 1, |)
+     * or a lone trailing glyph ("AthenaRyu 1"), never across a real extra letter, since "Evelyn" and
+     * "Evelyne" can be two players.</p>
      *
      * @param anchors normalised spellings that always win, e.g. scanned pack titles
      */
     static Map<String, String> fold(List<JsonNode> rows, String field,
                                     java.util.function.UnaryOperator<String> alias, List<String> anchors) {
+        boolean players = "buyer".equals(field);
         Map<String, Integer> counts = new HashMap<>();
         Map<String, String> aliased = new HashMap<>();
         for (JsonNode row : rows) {
@@ -202,8 +261,6 @@ public final class AllianceSpendReport {
             aliased.put(read, named);
             counts.merge(named, 1, Integer::sum);
         }
-        // Spellings that differ only in punctuation or spacing ("Uncommon! Lucky Chip Pack") are
-        // one name whatever their counts; the cleanest spelling (fewest odd marks) speaks for them.
         Map<String, String> sameLetters = new HashMap<>();
         for (String name : counts.keySet().stream().sorted(Comparator.comparingInt(AllianceSpendReport::oddMarks)
                 .thenComparing(n -> -counts.get(n)).thenComparing(n -> n)).toList()) {
@@ -220,10 +277,8 @@ public final class AllianceSpendReport {
         for (String name : byFrequency) {
             String target = name;
             String norm = normalise(name);
-            // Player names only: OCR adds a lone glyph after a name ("AthenaRyu 1"). Not for packs,
-            // where "Dream Traveler Pack 2" is a real pack and not a misread of a bare title.
             String bare = name.replaceFirst("\\s+\\S$", "");
-            if ("buyer".equals(field) && !bare.equals(name) && counts.getOrDefault(bare, 0) > counts.get(name)) {
+            if (players && !bare.equals(name) && counts.getOrDefault(bare, 0) > counts.get(name)) {
                 folded.put(name, folded.getOrDefault(bare, bare));
                 continue;
             }
@@ -233,7 +288,8 @@ public final class AllianceSpendReport {
                         continue;
                     }
                     boolean moreSeen = counts.get(other) > counts.get(name) || anchors.contains(normalise(other));
-                    if (moreSeen && sameThing(norm, normalise(other))) {
+                    boolean close = players ? confusableOnly(norm, normalise(other)) : sameThing(norm, normalise(other));
+                    if (moreSeen && close) {
                         target = other;
                         break;
                     }
@@ -251,56 +307,115 @@ public final class AllianceSpendReport {
         return (int) name.chars().filter(c -> c == '!' || c == '|' || c == '"' || c == '\'' || c == '`').count();
     }
 
-    /** One stray letter apart, same start, and no conflicting numbering. */
+    private static final String CONFUSABLE = "il1|";
+
+    /** Same length, and every difference is one OCR glyph read as another (l / I / 1 / |). */
+    static boolean confusableOnly(String a, String b) {
+        if (a.length() != b.length() || a.equals(b)) {
+            return false;
+        }
+        for (int i = 0; i < a.length(); i++) {
+            char x = a.charAt(i);
+            char y = b.charAt(i);
+            if (x != y && (CONFUSABLE.indexOf(x) < 0 || CONFUSABLE.indexOf(y) < 0)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * One stray letter apart, same start, same digits. Digits must match exactly: "Hero Rally 2
+     * Unlock" and "Hero Rally Unlock" are different packs, and a digit OCR invented mid-name
+     * ("Legend 1 Transcend Pack") goes through the alias file instead.
+     */
     static boolean sameThing(String a, String b) {
         if (a.length() < 3 || b.length() < 3 || Math.abs(a.length() - b.length()) > FUZZY_EDITS
-                || !a.substring(0, 3).equals(b.substring(0, 3)) || !numberingAgrees(a, b)) {
+                || !a.substring(0, 3).equals(b.substring(0, 3))
+                || !a.replaceAll("\\D", "").equals(b.replaceAll("\\D", ""))) {
             return false;
         }
         return edits(a, b) <= FUZZY_EDITS;
     }
 
     /**
-     * "Pack 2" and "Pack 3" are different packs, but a digit OCR invented mid-name ("Legend 1
-     * Transcend Pack") is not numbering. Digits must agree when both names have them, and a lone
-     * extra digit is allowed only if it is not at the end, where tier numbers sit.
+     * Prices from the deal scanner. The nightly reports' {@code packs[]} is the cleaned list (store
+     * prices only); older days without a report fall back to the raw scan's priced packs. Runs
+     * superseded later the same day are skipped. A name with a price suffix ("Daily Deals - $0.99",
+     * the scanner's title for an untitled tier) also indexes its family "Daily Deals", and the tab a
+     * pack sits on ("Gem Shop &gt; Mix &amp; Match") indexes as a family too.
      */
-    static boolean numberingAgrees(String a, String b) {
-        String da = a.replaceAll("\\D", "");
-        String db = b.replaceAll("\\D", "");
-        if (da.equals(db)) {
-            return true;
+    static ScanIndex scanIndex(Path deals) throws IOException {
+        Map<String, TreeSet<Double>> names = new HashMap<>();
+        Map<String, TreeSet<Double>> families = new HashMap<>();
+        java.util.Set<String> reported = new java.util.HashSet<>();
+        for (Path report : jsonFiles(deals.resolve("reports"))) {
+            JsonNode doc = readOrNull(report);
+            if (doc == null) {
+                continue;
+            }
+            reported.add(report.getFileName().toString());
+            for (JsonNode p : doc.path("packs")) {
+                add(names, families, p.path("name").asText(""), lastSegment(p.path("where").asText("")),
+                        p.path("price").asDouble(0));
+            }
         }
-        if (da.isEmpty() || db.isEmpty()) {
-            String withDigit = da.isEmpty() ? b : a;
-            return !Character.isDigit(withDigit.charAt(withDigit.length() - 1));
-        }
-        return false;
-    }
-
-    /** Every priced title in every saved deal scan, by normalised title. */
-    static Map<String, TreeSet<Double>> scanPrices(Path scans) throws IOException {
-        Map<String, TreeSet<Double>> prices = new HashMap<>();
-        if (!Files.isDirectory(scans)) {
-            return prices;
-        }
-        try (Stream<Path> files = Files.list(scans)) {
-            for (Path file : files.filter(p -> p.toString().endsWith(".json")).toList()) {
-                JsonNode scan;
-                try {
-                    scan = MAPPER.readTree(file.toFile());
-                } catch (IOException unreadable) {
-                    continue;
-                }
-                for (JsonNode offer : scan.path("offers")) {
-                    if (offer.hasNonNull("priceUsd") && offer.path("priceUsd").asDouble() > 0) {
-                        prices.computeIfAbsent(normalise(offer.path("title").asText()), k -> new TreeSet<>())
-                                .add(offer.path("priceUsd").asDouble());
-                    }
+        for (Path scan : jsonFiles(deals.resolve("scans"))) {
+            if (reported.contains(scan.getFileName().toString())) {
+                continue;
+            }
+            JsonNode doc = readOrNull(scan);
+            if (doc == null) {
+                continue;
+            }
+            for (JsonNode o : doc.path("offers")) {
+                if (o.path("pricedPack").asBoolean(false)) {
+                    add(names, families, o.path("title").asText(""), o.path("tab").asText(""),
+                            o.path("priceUsd").asDouble(0));
                 }
             }
         }
-        return prices;
+        return new ScanIndex(names, families);
+    }
+
+    private static void add(Map<String, TreeSet<Double>> names, Map<String, TreeSet<Double>> families,
+                            String name, String tab, double price) {
+        if (price <= 0 || name.isBlank()) {
+            return;
+        }
+        String family = name.replaceFirst("\\s*-\\s*\\$[\\d.,]+\\s*$", "");
+        names.computeIfAbsent(normalise(name), k -> new TreeSet<>()).add(price);
+        if (!family.equals(name)) {
+            families.computeIfAbsent(normalise(family), k -> new TreeSet<>()).add(price);
+        }
+        if (!tab.isBlank()) {
+            families.computeIfAbsent(normalise(tab), k -> new TreeSet<>()).add(price);
+        }
+    }
+
+    private static String lastSegment(String where) {
+        int at = where.lastIndexOf('>');
+        return (at < 0 ? where : where.substring(at + 1)).strip();
+    }
+
+    private static List<Path> jsonFiles(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) {
+            return List.of();
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            return files.filter(p -> {
+                String n = p.getFileName().toString();
+                return n.endsWith(".json") && !n.contains("superseded");
+            }).sorted().toList();
+        }
+    }
+
+    private static JsonNode readOrNull(Path file) {
+        try {
+            return MAPPER.readTree(file.toFile());
+        } catch (IOException unreadable) {
+            return null;
+        }
     }
 
     /** The known title a misread is closest to, or the read itself when none is close enough. */
@@ -351,10 +466,16 @@ public final class AllianceSpendReport {
         return from == null ? purchases : purchases.stream().filter(p -> !p.at().isBefore(from)).toList();
     }
 
+    /** Known dollars only, or known plus estimated. Purchases with no price at all add nothing. */
     public static double usd(List<Purchase> list, boolean estimatesToo) {
         return list.stream()
-                .filter(p -> p.usd() != null && (estimatesToo || p.source() != PriceSource.TIER_ESTIMATE))
+                .filter(p -> p.usd() != null && (estimatesToo || p.source().known()))
                 .mapToDouble(Purchase::usd).sum();
+    }
+
+    /** Purchases that could not be priced at all (no tier read and no scanned price). */
+    public static long unpriceable(List<Purchase> list) {
+        return list.stream().filter(p -> p.usd() == null).count();
     }
 
     /** Spend per buyer, biggest first; anonymous purchases are one row. */
@@ -365,7 +486,7 @@ public final class AllianceSpendReport {
             double[] t = totals.computeIfAbsent(who, k -> new double[3]);
             t[0]++;
             double usd = p.usd() == null ? 0 : p.usd();
-            t[p.source() == PriceSource.TIER_ESTIMATE ? 2 : 1] += usd;
+            t[p.source().known() ? 1 : 2] += usd;
         }
         List<BuyerTotal> out = new ArrayList<>();
         totals.forEach((who, t) -> out.add(new BuyerTotal(who, (int) t[0], t[1], t[2])));
@@ -373,7 +494,7 @@ public final class AllianceSpendReport {
         return out;
     }
 
-    /** Pack names with no operator or scanned price, most bought first: what to price next. */
+    /** Pack names no operator entry or scan has priced, most bought first: what to price next. */
     public static Map<String, Integer> unpricedPacks(List<Purchase> list) {
         Map<String, Integer> counts = new TreeMap<>();
         for (Purchase p : list) {

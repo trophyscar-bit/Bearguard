@@ -76,7 +76,8 @@ public class AllianceSpendStatsController {
                 c.getValue().tier() == null ? "?" : c.getValue().tier().replace("Alliance Gift ", "Tier ")));
         colUsd.setCellValueFactory(c -> new SimpleStringProperty(
                 c.getValue().usd() == null ? "?" : money(c.getValue().usd())));
-        colSource.setCellValueFactory(c -> new SimpleStringProperty(sourceLabel(c.getValue().source())));
+        colSource.setCellValueFactory(c -> new SimpleStringProperty(sourceLabel(c.getValue().source())
+                + (c.getValue().priceNote() == null ? "" : " (" + c.getValue().priceNote() + ")")));
 
         comboWindow.getItems().setAll(WINDOWS.keySet());
         comboWindow.getSelectionModel().select("Last 7 days");
@@ -119,17 +120,25 @@ public class AllianceSpendStatsController {
         LocalDateTime now = LocalDateTime.now();
         List<Purchase> shown = report.since(days == 0 ? null : now.minusDays(days));
 
-        lblHeadline.setText(shown.size() + " purchases · " + money(AllianceSpendReport.usd(shown, true)));
+        double known = AllianceSpendReport.usd(shown, false);
+        double estimated = AllianceSpendReport.usd(shown, true) - known;
+        lblHeadline.setText(shown.size() + " purchases · " + money(known) + " known + ~" + money(estimated) + " estimated");
         lblPeriods.setText(periodLine("24h", report.since(now.minusDays(1)))
                 + "     " + periodLine("7 days", report.since(now.minusDays(7)))
                 + "     " + periodLine("30 days", report.since(now.minusDays(30))));
 
-        double known = AllianceSpendReport.usd(shown, false);
         long backlog = shown.stream().filter(Purchase::backlog).count();
+        long unpriceable = AllianceSpendReport.unpriceable(shown);
         StringBuilder note = new StringBuilder();
-        note.append("Known prices ").append(money(known)).append(" · Estimated by tier ")
-                .append(money(AllianceSpendReport.usd(shown, true) - known))
-                .append(" (packs the deal scan has not priced yet: Tier I $4.99, II $9.99, III $19.99, IV $99.99).");
+        note.append("Known = a price file entry or the deal scan's price for that pack. Estimated = the pack sells at"
+                + " several prices (lowest that fits its gift tier is used) or the scan has not priced it"
+                + " (tier I $4.99, II $9.99, III $19.99, IV $49.99).");
+        if (unpriceable > 0) {
+            note.append(" ").append(unpriceable).append(" purchase(s) have no tier and no scanned price and are not in the totals.");
+        }
+        if (report.unreadableLines() > 0) {
+            note.append(" ").append(report.unreadableLines()).append(" unreadable line(s) in gifts.jsonl were skipped.");
+        }
         if (backlog > 0) {
             note.append(" * ").append(backlog).append(" were already in the list when logging began, so their time is when they were first seen.");
         }
@@ -145,7 +154,7 @@ public class AllianceSpendStatsController {
     }
 
     private static String periodLine(String label, List<Purchase> list) {
-        return label + ": " + list.size() + " · " + money(AllianceSpendReport.usd(list, true));
+        return label + ": " + list.size() + " · ~" + money(AllianceSpendReport.usd(list, true));
     }
 
     private static String money(double usd) {
@@ -156,7 +165,8 @@ public class AllianceSpendStatsController {
         return switch (source) {
             case OPERATOR -> "price file";
             case DEAL_SCAN -> "deal scan";
-            case TIER_ESTIMATE -> "tier estimate";
+            case SCAN_RANGE -> "estimate: scan range";
+            case TIER_ESTIMATE -> "estimate: tier";
             case NONE -> "-";
         };
     }

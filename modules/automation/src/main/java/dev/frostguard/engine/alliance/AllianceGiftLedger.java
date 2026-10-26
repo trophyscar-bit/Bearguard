@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import dev.frostguard.vision.ocr.TextLine;
@@ -58,7 +59,13 @@ public final class AllianceGiftLedger {
     /** How many consecutive rows must match before the previous pass's list is taken to start there. */
     static final int ALIGN_RUN = 3;
 
-    private static final Pattern TIER = Pattern.compile("(?i)alliance\\W*gift\\W*([IVXl1|]+)");
+    /**
+     * "Alliance Gift" and its numeral. The numeral is optional and must end at a word boundary:
+     * when OCR drops it, "Alliance Gift Lune has purchased" must not read "L" as the numeral and
+     * leave the buyer as "une". The key value then decides the tier.
+     */
+    private static final Pattern TIER =
+            Pattern.compile("(?i)alliance\\W*gift\\b(?:\\W*([IVXl1|]{1,4})(?![\\p{L}\\p{N}]))?");
     private static final Pattern PURCHASE =
             Pattern.compile("(?i)^(.*?)\\s*has\\s*purchased\\s*[\"“”']?(.*?)[\"“”']?\\s*$");
     private static final Pattern NUMBER = Pattern.compile("^\\d{1,4}$");
@@ -148,7 +155,7 @@ public final class AllianceGiftLedger {
         if (!tierMatch.find()) {
             return null;
         }
-        String tier = romanTier(tierMatch.group(1));
+        String tier = tierMatch.group(1) == null ? null : romanTier(tierMatch.group(1));
         String rest = left.substring(tierMatch.end()).strip();
         Matcher purchase = PURCHASE.matcher(rest);
         if (!purchase.find() || purchase.group(2).isBlank() || !closesQuote(rest)) {
@@ -159,7 +166,7 @@ public final class AllianceGiftLedger {
         String keyTier = keys == null ? null : TIER_BY_KEYS.get(keys);
         if (keyTier != null) {
             tier = keyTier;
-        } else {
+        } else if (tier != null) {
             keys = KEYS_BY_TIER.get(tier);
         }
         return new GiftRow(capturedAt.truncatedTo(ChronoUnit.SECONDS).toString(), tier,
@@ -321,11 +328,21 @@ public final class AllianceGiftLedger {
         for (GiftRow row : sorted) {
             GiftRow last = list.isEmpty() ? null : list.get(list.size() - 1);
             if (last != null && Math.abs(row.listY() - last.listY()) <= SAME_ROW_PX) {
+                // Same card seen on two screens. Position is measured, so it is the same purchase;
+                // if the two reads disagree, keep the one that read more of the card.
+                if (completeness(row) > completeness(last)) {
+                    list.set(list.size() - 1, row);
+                }
                 continue;
             }
             list.add(row);
         }
         return list;
+    }
+
+    private static int completeness(GiftRow row) {
+        return (row.tier() != null ? 2 : 0) + (row.keys() != null ? 1 : 0) + (row.anonymous() || row.buyer() != null ? 1 : 0)
+                - (int) row.pack().chars().filter(c -> "!|`".indexOf(c) >= 0).count();
     }
 
     /**
@@ -336,20 +353,48 @@ public final class AllianceGiftLedger {
      * pass can see, or the list was misread -- either way the caller must not guess.</p>
      */
     static int newRowCount(List<String> previous, List<String> current) {
+        return newRowCount(previous, current, false);
+    }
+
+    /**
+     * The list is newest first: new purchases appear at the top and expired ones leave the bottom.
+     * So the current list is {@code new + previous[0..m)}. The whole overlap is compared, not a
+     * short run, because identical purchases repeat: with a three-row run, previous [a,a,a,b] and
+     * current [a,a,a,a,b] lined up at 0 and lost the new "a".
+     *
+     * @param previousReachedEnd whether the previous pass saw the bottom of the list; if it did,
+     *        everything below the overlap must have expired, so the current list may not run past
+     *        it, which is what tells [a] then [a,a] apart from an unchanged list
+     */
+    static int newRowCount(List<String> previous, List<String> current, boolean previousReachedEnd) {
         if (previous.isEmpty()) {
             return current.size();
         }
-        int run = Math.min(ALIGN_RUN, previous.size());
-        for (int k = 0; k + run <= current.size(); k++) {
-            boolean match = true;
-            for (int i = 0; i < run; i++) {
-                if (!current.get(k + i).equals(previous.get(i))) {
-                    match = false;
+        for (int tolerance = 0; tolerance <= 1; tolerance++) {
+            for (int k = 0; k < current.size(); k++) {
+                int remaining = current.size() - k;
+                if (previousReachedEnd && remaining > previous.size()) {
+                    continue;
+                }
+                int overlap = Math.min(remaining, previous.size());
+                if (overlap < Math.min(ALIGN_RUN, Math.min(previous.size(), current.size()))) {
                     break;
                 }
-            }
-            if (match) {
-                return k;
+                // A second, tolerant try allows one misread card per eight compared, but never on
+                // a short overlap, where one mismatch is all that separates two alignments.
+                int allowed = tolerance == 0 ? 0 : overlap / 8;
+                if (tolerance == 1 && allowed == 0) {
+                    continue;
+                }
+                int mismatches = 0;
+                for (int i = 0; i < overlap && mismatches <= allowed; i++) {
+                    if (!current.get(k + i).equals(previous.get(i))) {
+                        mismatches++;
+                    }
+                }
+                if (mismatches <= allowed) {
+                    return k;
+                }
             }
         }
         return -1;
@@ -388,14 +433,32 @@ public final class AllianceGiftLedger {
      * @param list the stitched list, newest first, and reaching its end
      */
     public PassResult recordPass(List<GiftRow> list, boolean anonymiseBuyers) throws IOException {
+        return recordPass(list, anonymiseBuyers, true);
+    }
+
+    /**
+     * @param reachedEnd whether this pass saw the bottom of the list; stored with the reference so
+     *        the next pass knows how to line up against it
+     */
+    public PassResult recordPass(List<GiftRow> list, boolean anonymiseBuyers, boolean reachedEnd) throws IOException {
         Files.createDirectories(root);
         Path last = root.resolve("last-list.json");
-        List<String> previous = Files.exists(last)
-                ? MAPPER.readValue(last.toFile(), new TypeReference<List<String>>() { })
-                : List.of();
-        List<String> current = list.stream().map(GiftRow::signature).toList();
         boolean firstPass = !Files.exists(last);
-        int fresh = newRowCount(previous, current);
+        List<String> previous = List.of();
+        boolean previousReachedEnd = false;
+        boolean referenceReadable = true;
+        if (!firstPass) {
+            try {
+                JsonNode ref = MAPPER.readTree(last.toFile());
+                JsonNode items = ref.isArray() ? ref : ref.path("list");
+                previous = MAPPER.convertValue(items, new TypeReference<List<String>>() { });
+                previousReachedEnd = !ref.isArray() && ref.path("reachedEnd").asBoolean(false);
+            } catch (IOException | IllegalArgumentException unreadable) {
+                referenceReadable = false;
+            }
+        }
+        List<String> current = list.stream().map(GiftRow::signature).toList();
+        int fresh = referenceReadable ? newRowCount(previous, current, previousReachedEnd) : -1;
         boolean aligned = fresh >= 0;
         if (aligned && fresh > 0) {
             StringBuilder out = new StringBuilder();
@@ -412,7 +475,13 @@ public final class AllianceGiftLedger {
             Files.writeString(root.resolve("gifts.jsonl"), out.toString(), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
-        MAPPER.writeValue(last.toFile(), current);
+        Map<String, Object> reference = new java.util.LinkedHashMap<>();
+        reference.put("reachedEnd", reachedEnd);
+        reference.put("list", current);
+        Path temp = root.resolve("last-list.json.tmp");
+        MAPPER.writeValue(temp.toFile(), reference);
+        Files.move(temp, last, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         return new PassResult(list.size(), Math.max(fresh, 0), firstPass, aligned);
     }
 
