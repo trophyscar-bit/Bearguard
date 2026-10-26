@@ -196,6 +196,15 @@ public final class DealFrameReader {
     private static final int PAGE_TITLE_BOTTOM = 330;
     /** A pop-up's title and the instruction line under it ("Select rewards first" at y 346) end above this. */
     private static final int POPUP_HEADER_BOTTOM = 420;
+    /** Login offer pop-ups of 2026-10-26: row icons end at x 185, names start at 192, counts end at 605. */
+    private static final int LIST_TEXT_LEFT = 188;
+    /** The list panel ends at x 622; its dark border beyond read as a digit ("x24" as 248). */
+    private static final int LIST_TEXT_RIGHT = 615;
+    private static final int LIST_COUNT_LEFT = 440;
+    private static final int LIST_ROW_TOLERANCE = 12;
+    /** Two lines of one wrapped name stand about 25 px apart; separate rows, 85. */
+    private static final int LIST_WRAP_GAP = 40;
+    private static final int MIN_LISTED_ROWS = 2;
     /** Tab labels on the gem shop and Deals panels end above this line. */
     private static final int TAB_STRIP_BOTTOM = 190;
     /** Card titles on stacked cards always sit below the panel's sticky header. */
@@ -415,6 +424,10 @@ public final class DealFrameReader {
      * rewards everyone gets start under the "+" 130 px below it.
      */
     private static final byte[] CHOICE_OR = load("/deals/choice-or.png");
+    /** The selected banner's corner: 100 on every pop-up frame of 2026-10-26, 59 on the splash before it. */
+    private static final byte[] LOGIN_STRIP_CORNER = load("/deals/login-strip-corner.png");
+    private static final double LOGIN_STRIP_MIN_SCORE = 90.0;
+    private static final int LOGIN_STRIP_TOP = 1050;
     private static final double CHOICE_OR_MIN_SCORE = 90.0;
     private static final int CHOICE_ABOVE_OR = 45;
     private static final int CHOICE_BELOW_OR = 100;
@@ -455,6 +468,7 @@ public final class DealFrameReader {
     private static final Pattern BUY_TO_GET = Pattern.compile("(?i)buy\\s*to\\s*get");
     /** A count printed beside an icon: "x10", "x5,000", "x1". */
     private static final Pattern SIDE_COUNT = Pattern.compile("^[xX](\\d[\\d,.]*[KkMm]?)$");
+    private static final Pattern ROW_COUNT = Pattern.compile("[xX]\\d{1,3}(,\\d{3})*([KkMm](?![a-z]))?");
     private static final Pattern PERIOD_REMAINING = Pattern.compile("(?i)\\b(daily|weekly|monthly|event)\\s*remaining\\W*(\\d+)");
     /** The count a tile read ends with, in any form {@link #QUANTITY} accepts. */
     private static final Pattern TRAILING_QUANTITY = Pattern.compile(
@@ -476,9 +490,12 @@ public final class DealFrameReader {
             Pattern.compile("^\\d{1,3}([.,]\\d{3})*$|^\\d{1,7}$|^\\d{1,4}([.,]\\d{1,2})?[KkMm]$");
     private static final Pattern SUFFIXED = Pattern.compile("^(\\d{1,4})(?:[.,](\\d{1,2}))?([KkMm])$");
     private static final Pattern SHORT_SPEEDUP = Pattern.compile("^[lIi|]([hm])$");
+    private static final Pattern FIVE_MINUTES = Pattern.compile("^[Ss]m$");
     private static final Pattern LISTED_ITEM_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9 '-]*");
     private static final List<String> NOT_A_TITLE = List.of("remaining", "purchase", "select your", "best deal",
-            "claimed", "top up", "one available", "resources", "traveling", "brilliant design", "utilize", "limit");
+            "claimed", "top up", "one available", "resources", "traveling", "brilliant design", "utilize");
+
+    private static final Pattern LIMIT_WORD = Pattern.compile("(?i)\\blimit\\b");
 
     private final DealItemLibrary library;
 
@@ -543,6 +560,18 @@ public final class DealFrameReader {
         }
         if (pageTitleLine == null) {
             pageTitleLine = pageTitle(text.plainLines(), tabbed);
+        }
+        if (pageTitleLine != null && !tabbed) {
+            // A pop-up title's own run of words: its close mark read as "93" after "Fire Crystal Limited Time
+            // Offer" (2026-10-26). Tab pages keep their line: a wrapped title is two runs.
+            TextLine line = pageTitleLine;
+            pageTitleLine = titleRun(text.whiteWords().stream()
+                            .filter(w -> centreY(w) >= line.top() && centreY(w) <= line.bottom()
+                                    && w.left() >= line.left() - SAME_ROW_TOLERANCE
+                                    && w.left() + w.width() <= line.left() + line.width() + SAME_ROW_TOLERANCE)
+                            .toList())
+                    .filter(run -> isTitleText(cleanTitle(run.text())) && run.text().length() < line.text().length())
+                    .orElse(line);
         }
         String pageTitle = pageTitleLine == null ? tab : cleanTitle(pageTitleLine.text());
         // A pick-your-own tier is still a pack with a price: each tier is read with its fixed items, and the
@@ -677,8 +706,18 @@ public final class DealFrameReader {
                         .stream()
                         .filter(i -> items.stream().noneMatch(b -> b.key().equals(i.key())))
                         .forEach(items::add);
-                items.addAll(listedItems(Stream.concat(text.whiteLines().stream(), text.plainLines().stream()).toList(),
-                        top, bottom));
+                List<DealItem> listed = listedItems(
+                        Stream.concat(text.whiteLines().stream(), text.plainLines().stream()).toList(), top, bottom);
+                if (!tabbed) {
+                    // A pop-up's list rows are read again in their text column alone: across the whole width the
+                    // icons' "10K" labels ran into the names ("SOE 10K Meat", "mame 1OK Coal") on the login
+                    // offers of 2026-10-26, and rows were lost.
+                    List<DealItem> column = listedItems(listColumnLines(capture), top, bottom);
+                    if (column.size() >= MIN_LISTED_ROWS && column.size() >= listed.size()) {
+                        listed = column;
+                    }
+                }
+                items.addAll(listed);
                 // Only a card with its title on screen is swiped: a row swiped while its title was still below the
                 // window came into view already swiped, and its left tiles -- each pack's main item, the Chief
                 // Gear Tool Pack's alloy and polish -- were never read on 2026-10-23.
@@ -1124,6 +1163,80 @@ public final class DealFrameReader {
         }
     }
 
+    /**
+     * A pop-up's list rows, read right of their icons, dark on the list's light panel, word by word and grouped
+     * into rows. Read as lines, the right-hand counts came back on no row of the login offers of 2026-10-26,
+     * and a name strip cut short of them truncated "Mythic General Hero Shard". A row whose count word is still
+     * missing ("x1,000") has its count read on its own, as one line.
+     */
+    private static List<TextLine> listColumnLines(RawImageData capture) {
+        List<TextLine> words;
+        try {
+            words = OcrEngine.recognizeWords(capture, new PointData(LIST_TEXT_LEFT, PAGE_TITLE_TOP),
+                    new PointData(LIST_TEXT_RIGHT, FRAME_BOTTOM_RIGHT.getY()), CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
+        } catch (OcrException unreadable) {
+            return List.of();
+        }
+        List<List<TextLine>> rows = new ArrayList<>();
+        for (TextLine word : words.stream().sorted(Comparator.comparingInt(DealFrameReader::centreY)).toList()) {
+            List<TextLine> last = rows.isEmpty() ? null : rows.get(rows.size() - 1);
+            if (last != null && Math.abs(centreY(last.get(0)) - centreY(word)) <= LIST_ROW_TOLERANCE) {
+                last.add(word);
+            } else {
+                rows.add(new ArrayList<>(List.of(word)));
+            }
+        }
+        // A long name wraps onto a second line with its count between the two ("Pet Advancement Materials" over
+        // "Custom Chest", x20): a line with no count joins the line under it, and the count is read across both.
+        rows.forEach(row -> row.sort(Comparator.comparingInt(TextLine::left)));
+        for (int r = 0; r + 1 < rows.size(); r++) {
+            List<TextLine> upper = rows.get(r);
+            List<TextLine> lower = rows.get(r + 1);
+            boolean counted = Stream.concat(upper.stream(), lower.stream())
+                    .anyMatch(w -> SIDE_COUNT.matcher(clean(w.text()).replace(" ", "")).matches());
+            if (!counted && centreY(lower.get(0)) - centreY(upper.get(0)) <= LIST_WRAP_GAP) {
+                upper.addAll(lower);
+                rows.remove(r + 1);
+            }
+        }
+        List<TextLine> lines = new ArrayList<>();
+        for (List<TextLine> row : rows) {
+            Optional<TextLine> countWord = row.stream()
+                    .filter(w -> SIDE_COUNT.matcher(clean(w.text()).replace(" ", "")).matches()).reduce((a, b) -> b);
+            String name = row.stream().filter(w -> countWord.isEmpty() || w != countWord.get())
+                    .map(w -> clean(w.text())).collect(Collectors.joining(" "));
+            // The row's own count read decides; a word-pass count that disagrees leaves the row unknown: the two
+            // passes read Fire Crystal's "x60" as 60 and 6 on one frame of 2026-10-26.
+            TextLine band = new TextLine("", row.get(0).left(), row.get(0).top(), 1,
+                    row.stream().mapToInt(TextLine::bottom).max().orElse(row.get(0).bottom()) - row.get(0).top(), 0);
+            String rowRead = rowCount(capture, band);
+            String wordRead = countWord.map(w -> clean(w.text()).replace(" ", "")).orElse("");
+            String count = !wordRead.isEmpty() && !rowRead.isEmpty() && !wordRead.equalsIgnoreCase(rowRead) ? ""
+                    : rowRead.isEmpty() ? wordRead : rowRead;
+            if (!name.isBlank() && !count.isEmpty()) {
+                TextLine first = row.get(0);
+                lines.add(new TextLine(name + " " + count, first.left(), first.top(),
+                        LIST_TEXT_RIGHT - first.left(), first.height(), first.confidence()));
+            }
+        }
+        return lines;
+    }
+
+    /** The "x1,000" at a list row's right end, read on its own; empty unless it reads as a count. */
+    private static String rowCount(RawImageData capture, TextLine rowWord) {
+        try {
+            String read = clean(OcrEngine.recognizeText(capture,
+                    new PointData(LIST_COUNT_LEFT, rowWord.top() - LIST_ROW_TOLERANCE),
+                    new PointData(LIST_TEXT_RIGHT, rowWord.bottom() + LIST_ROW_TOLERANCE),
+                    CommonOCRSettings.DEAL_ROW_COUNT_SETTINGS)).replace(" ", "");
+            // The list panel's edge reads as trailing marks ("x1,000ii", "x50||"); the count is taken out of it.
+            Matcher count = ROW_COUNT.matcher(read);
+            return count.find() ? count.group() : "";
+        } catch (OcrException unreadable) {
+            return "";
+        }
+    }
+
     private static List<TextLine> popupHeaderLines(RawImageData whiteMask) {
         return bandLines(whiteMask, PAGE_TITLE_TOP, POPUP_HEADER_BOTTOM);
     }
@@ -1318,6 +1431,15 @@ public final class DealFrameReader {
         }
     }
 
+    /**
+     * The game's startup offer pop-up is up: the selected banner's corner in the strip along its foot. The same
+     * corner frames other carousels, so this is only asked right after the game starts.
+     */
+    public boolean loginOfferStrip(RawImageData frame) {
+        return OpenCvPatternLocator.matchFromRawTemplate(frame, LOGIN_STRIP_CORNER,
+                new PointData(0, LOGIN_STRIP_TOP), FRAME_BOTTOM_RIGHT, LOGIN_STRIP_MIN_SCORE).isFound();
+    }
+
     /** The top of a choice box's "Or", when the frame has one. */
     private static Optional<Integer> choiceOr(RawImageData capture) {
         ImageSearchResultData hit = OpenCvPatternLocator.matchFromRawTemplate(capture, CHOICE_OR, FRAME_TOP_LEFT,
@@ -1466,6 +1588,8 @@ public final class DealFrameReader {
         return letters >= MIN_TITLE_LETTERS && named
                 && words * 10 >= tokens.length * 6L
                 && NOT_A_TITLE.stream().noneMatch(lower::contains)
+                // "Daily Limit: 1" is not a name; "Fire Crystal Limited Time Offer" is (2026-10-26).
+                && !LIMIT_WORD.matcher(text).find()
                 && !TIMER.matcher(text).find()
                 && !LISTED_ROW.matcher(text).matches();
     }
@@ -2381,6 +2505,9 @@ public final class DealFrameReader {
             Matcher speedup = SHORT_SPEEDUP.matcher(kept[0]);
             if (speedup.matches()) {
                 kept[0] = "1" + speedup.group(1);
+            } else if (FIVE_MINUTES.matcher(kept[0]).matches()) {
+                // "5m General Speedup" read as "Sm General Speedup" on the login offers of 2026-10-26.
+                kept[0] = "5m";
             }
         }
         return String.join(" ", kept).trim();
@@ -2398,6 +2525,7 @@ public final class DealFrameReader {
     /** An item name starts with an amount ("5m", "10K", "100") or a real word, never a stray glyph pair. */
     private static boolean startsItemName(String token) {
         return token.matches("\\d+[A-Za-z]{0,3}") || SHORT_SPEEDUP.matcher(token).matches()
+                || FIVE_MINUTES.matcher(token).matches()
                 || token.chars().filter(Character::isLetter).count() >= 3;
     }
 

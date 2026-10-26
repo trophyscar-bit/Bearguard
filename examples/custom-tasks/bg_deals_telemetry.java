@@ -37,6 +37,8 @@ import javax.imageio.ImageIO;
 
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
+import dev.frostguard.engine.emulator.EmulatorController;
+import dev.frostguard.tasks.lifecycle.InitializeRoutine;
 import dev.frostguard.api.deals.DealItem;
 import dev.frostguard.api.deals.DealOffer;
 import dev.frostguard.api.deals.DealScan;
@@ -117,6 +119,22 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private static final int MAX_TABS_PER_PANEL = 40;
     private static final int MAX_STRIP_SWIPES = 20;
+    private static final String LOGIN_SURFACE = "Login Offers";
+    /** The pop-up was up 12 s after a restart on 2026-10-26; a slow start is allowed four times that. */
+    private static final long LOGIN_POPUP_WAIT_MS = 45_000;
+    private static final long LOGIN_POLL_MS = 3_000;
+    private static final int MAX_LOGIN_BANNERS = 12;
+    private static final int MAX_LOGIN_LIST_SWIPES = 3;
+    /** The banner strip at the pop-up's foot, y 1120-1240; the selected banner sits mid-strip. */
+    private static final int[] LOGIN_STRIP_REGION = {30, 1100, 690, 1260};
+    private static final PointData LOGIN_STRIP_REWIND_FROM = new PointData(120, 1180);
+    private static final PointData LOGIN_STRIP_REWIND_TO = new PointData(640, 1180);
+    /** The banner to the right of the selected one; tapping it selects it and centres it. */
+    private static final PointData LOGIN_STRIP_NEXT = new PointData(595, 1180);
+    /** Inside the pop-up's item list, above its price button (y 1010-1060). */
+    private static final PointData LOGIN_LIST_SWIPE_FROM = new PointData(360, 900);
+    private static final PointData LOGIN_LIST_SWIPE_TO = new PointData(360, 640);
+    private static final int[] LOGIN_LIST_REGION = {100, 560, 620, 960};
     /** A clean page title against the strip's reads of the same tab: one capture per tab, two masked votes each. */
     private static final int PAGE_TITLE_SPELLING_VOTES = 4;
     /** Safety ceiling only: a page now ends when swiping stops finding offers, not at a fixed count. */
@@ -316,6 +334,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         }
         logInfo("bg_deals_telemetry | Starting deal scan into " + frameDir);
 
+        surveyLoginOffers();
         surveyTemplatePanel("Gem Shop", TemplatesEnum.HOME_SHOP_CART_BUTTON, GEM_SHOP_HUD_BUTTON);
         surveyTemplatePanel("Deals", TemplatesEnum.HOME_DEALS_BUTTON, null);
         surveyShortcutColumn();
@@ -1006,6 +1025,73 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
 
     private static boolean sameLetters(String a, String b) {
         return a.replaceAll("[^A-Za-z]", "").equalsIgnoreCase(b.replaceAll("[^A-Za-z]", ""));
+    }
+
+    /**
+     * The offers the game puts up when it starts: a pop-up with a strip of banners along its foot (Hero Gear
+     * Mastery, Master Tamer Pack, Legend Transcend Pack, Fire Crystal Limited Time Offer on 2026-10-26), shown
+     * on a fresh start only. The game is restarted, the strip is swiped to its first banner, and each banner is
+     * read, its list scrolled, before the next is tapped. Only the strip is tapped, never a price; the startup
+     * routine then closes the pop-up and returns to the city as it does on every start.
+     */
+    private void surveyLoginOffers() {
+        String game = EmulatorController.GAME.getPackageName();
+        RawImageData popup = null;
+        try {
+            emuManager.forceStopApp(EMULATOR_NUMBER, game);
+            emuManager.launchApp(EMULATOR_NUMBER, game);
+            for (long waited = 0; waited < LOGIN_POPUP_WAIT_MS && popup == null; waited += LOGIN_POLL_MS) {
+                sleepTask(LOGIN_POLL_MS);
+                RawImageData frame = capture();
+                if (reader.loginOfferStrip(frame)) {
+                    popup = frame;
+                }
+            }
+            if (popup == null) {
+                problems.add(LOGIN_SURFACE + ": no offer pop-up within " + LOGIN_POPUP_WAIT_MS / 1000
+                        + " s of a restart (" + saveFrame(capture()) + ").");
+                recordCoverage(LOGIN_SURFACE, false, null, null, "no offer pop-up after restart");
+                return;
+            }
+            int read = 0;
+            for (int swipe = 0; swipe < MAX_STRIP_SWIPES; swipe++) {
+                if (!scrolled(LOGIN_STRIP_REWIND_FROM, LOGIN_STRIP_REWIND_TO, LOGIN_STRIP_REWIND_FROM,
+                        LOGIN_STRIP_REWIND_TO, LOGIN_STRIP_REGION)) {
+                    break;
+                }
+            }
+            boolean ended = false;
+            for (int banner = 0; banner < MAX_LOGIN_BANNERS && !ended; banner++) {
+                RawImageData frame = capture();
+                readLoginBanner(frame);
+                read++;
+                tapNear(LOGIN_STRIP_NEXT);
+                sleepTask(POPUP_SETTLE_MS);
+                ended = meanDiff(frame, capture(), LOGIN_STRIP_REGION) < STILL_MEAN_DIFF;
+            }
+            recordCoverage(LOGIN_SURFACE, true, read, read, ended ? null : "strip end not reached");
+            logInfo("bg_deals_telemetry | " + LOGIN_SURFACE + ": " + read + " banner(s) read"
+                    + (ended ? "." : "; strip end NOT reached."));
+        } catch (RuntimeException failed) {
+            problems.add(LOGIN_SURFACE + " failed: " + failed.getMessage());
+            logWarning("bg_deals_telemetry | " + LOGIN_SURFACE + " failed: " + failed);
+        } finally {
+            new InitializeRoutine(profile, TpDailyTaskEnum.INITIALIZE).run();
+        }
+    }
+
+    /** One banner's pop-up, read as shown and again with its list scrolled to the end. */
+    private void readLoginBanner(RawImageData frame) {
+        RawImageData current = frame;
+        for (int swipe = 0; swipe <= MAX_LOGIN_LIST_SWIPES; swipe++) {
+            DealFrameReader.Page page = readPage(current, LOGIN_SURFACE, null, false);
+            collect(LOGIN_SURFACE, page.title(), page.offers(), null, false);
+            if (swipe == MAX_LOGIN_LIST_SWIPES || !scrolled(LOGIN_LIST_SWIPE_FROM, LOGIN_LIST_SWIPE_TO,
+                    LOGIN_LIST_SWIPE_FROM, LOGIN_LIST_SWIPE_TO, LOGIN_LIST_REGION)) {
+                return;
+            }
+            current = capture();
+        }
     }
 
     /** Drags the tab strip right until it stops moving twice in a row; false if it never stopped. */

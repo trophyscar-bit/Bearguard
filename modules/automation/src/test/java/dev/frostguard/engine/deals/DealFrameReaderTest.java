@@ -537,6 +537,33 @@ class DealFrameReaderTest {
         page.pickSlots().values().forEach(slots -> assertEquals(3, slots.size(), slots.toString()));
     }
 
+    /** The startup offer pop-up of 2026-10-26 is told from the splash screen before it by its banner strip. */
+    @Test
+    void recognisesTheStartupOfferPopup() throws Exception {
+        assertTrue(reader.loginOfferStrip(frame("popup-login-fire-crystal-offer.png")));
+        assertFalse(reader.loginOfferStrip(frame("login-splash.png")));
+    }
+
+    /**
+     * Startup offers of 2026-10-26: a list of "name xN" rows read in their text column, count by count, and a
+     * wrapped two-line name joined; the title ends before the close mark.
+     */
+    @Test
+    void readsTheStartupOfferLists() throws Exception {
+        DealOffer fire = read("popup-login-fire-crystal-offer.png", "").offers().get(0);
+        assertEquals("Fire Crystal Limited Time Offer", fire.title());
+        assertEquals(9.99, fire.priceUsd(), 0.001);
+        Map<String, Long> fireItems = fire.items().stream().collect(Collectors.toMap(DealItem::key, DealItem::quantity));
+        assertEquals(60L, fireItems.get("Fire Crystal"));
+        assertEquals(2L, fireItems.get("Fire Crystal Chest"));
+        assertEquals(5000L, fireItems.get("Gems"));
+
+        DealOffer tamer = read("popup-login-master-tamer.png", "").offers().get(0);
+        assertEquals("Master Tamer Pack", tamer.title());
+        assertEquals(List.of("Gems=2500", "Pet Advancement Materials Custom Chest=20", "Pet Food=20000",
+                "100 VIP XP=25", "10K Meat=500"), named(tamer));
+    }
+
     /** Hero Rally's header "Unlock", which the word pass missed on every frame of 2026-10-25 evening. */
     @Test
     void findsTheHeroRallyUnlockButtonAndNoneElsewhere() throws Exception {
