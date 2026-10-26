@@ -896,6 +896,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         int swipes = 0;
         int stillSwipes = 0;
         Set<Integer> tappedHere = new HashSet<>();
+        Map<String, Integer> labelCounts = new HashMap<>();
         while (swipes < MAX_STRIP_SWIPES && surveyed < MAX_TABS_PER_PANEL) {
             // The strip is read again after every visit: tapping a tab near the edge scrolls the strip, and
             // positions from the earlier capture then point at other tabs.
@@ -926,9 +927,13 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                         collection.noteTabSpelling(surface, masked);
                     }
                 }
+                // A label already visited is not a reason to skip: on 2026-10-25 evening Deals carried two
+                // "Hero Rally" tabs, a new 13-day track and the running one. Only when the selected tab is
+                // not found do labels stand in for the position.
                 boolean done = cell.centre() <= doneUpTo
-                        || !label.isEmpty() && visited.contains(tabKey(label))
-                        || tappedHere.contains(cell.centre());
+                        || tappedHere.contains(cell.centre())
+                        || doneUpTo == Integer.MIN_VALUE && surveyed > 0 && !label.isEmpty()
+                                && visited.contains(tabKey(label));
                 if (next == null && !done) {
                     next = cell;
                     nextLabel = label;
@@ -938,7 +943,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 tappedHere.add(next.centre());
                 tapNear(new PointData(next.centre(), TAB_TAP_Y));
                 sleepTask(TAB_SETTLE_MS);
-                String title = surveyPage(surface, nextLabel.isEmpty() ? null : nextLabel, MAX_PAGE_SCROLLS, true);
+                // A second tab with the same label is another event, named apart: "Hero Rally 2 Unlock".
+                int occurrence = nextLabel.isEmpty() ? 1 : labelCounts.merge(tabKey(nextLabel), 1, Integer::sum);
+                String tabName = nextLabel.isEmpty() ? null : occurrence == 1 ? nextLabel : nextLabel + " " + occurrence;
+                String title = surveyPage(surface, tabName, MAX_PAGE_SCROLLS, true);
                 // A page title is set in large type and reads clean where the strip's small label does not
                 // ("Custom-Pet Chest", "Tundra SupplyStation" on 2026-10-25); when it has the label's letters it
                 // is the same name, and it outweighs the strip reads.
@@ -947,7 +955,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                         collection.noteTabSpelling(surface, title);
                     }
                 }
-                String key = tabKey(nextLabel.isEmpty() && title != null ? title : nextLabel);
+                String key = tabKey(tabName == null && title != null ? title : tabName == null ? "" : tabName);
                 visited.add(key);
                 seen.add(key);
                 surveyed++;
