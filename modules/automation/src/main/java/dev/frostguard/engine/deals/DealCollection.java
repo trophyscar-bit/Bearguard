@@ -278,7 +278,7 @@ public final class DealCollection {
         return text.replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
     }
 
-    static int editDistance(String a, String b) {
+    public static int editDistance(String a, String b) {
         int[] previous = new int[b.length() + 1];
         int[] current = new int[b.length() + 1];
         for (int j = 0; j <= b.length(); j++) {

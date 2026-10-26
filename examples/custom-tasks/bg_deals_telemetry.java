@@ -170,8 +170,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     /** The close mark of a pick slot's Select Items list (live frame of 2026-10-23). */
     private static final PointData SLOT_LIST_CLOSE = new PointData(640, 224);
     private static final int POPUP_SETTLE_MS = 1500;
-    /** A paid track's header button; only a header word counts, never one in the reward list below. */
-    private static final String UNLOCK_WORD = "Unlock";
+    /** A paid track's Unlock button sits in the page header, above the reward list. */
     private static final int UNLOCK_MAX_Y = 640;
     /**
      * The row flings on past the drag: a 330 px drag moved Fire Crystal Pack's tiles 450 px on 2026-10-25,
@@ -976,7 +975,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         seen.remove("");
         Set<String> missed = new LinkedHashSet<>();
         for (String tab : seen) {
-            if (visited.stream().noneMatch(v -> DealCollection.sameTab(v, tab))) {
+            // Strip labels misread differently from capture to capture ("mikmatch" for the visited "mixmatch",
+            // "firecratelbappack" for "firecrystalleappack" on 2026-10-25); a read within a third of its letters of a
+            // visited tab is that tab, so only a tab truly passed over is reported.
+            if (visited.stream().noneMatch(v -> DealCollection.sameTab(v, tab)
+                    || DealCollection.editDistance(v, tab) * 3 <= Math.max(v.length(), tab.length()))) {
                 missed.add(tab);
             }
         }
@@ -1307,7 +1310,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      * greyed until a reward is picked anyway. Nothing opening means nothing to close.
      */
     private void readUnlockPreview(RawImageData page, String surface, String tab) {
-        Optional<PointData> unlock = reader.headerButton(page, UNLOCK_WORD, UNLOCK_MAX_Y);
+        Optional<PointData> unlock = reader.unlockButton(page, UNLOCK_MAX_Y);
         if (unlock.isEmpty()) {
             return;
         }
