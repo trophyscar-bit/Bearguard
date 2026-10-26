@@ -183,6 +183,10 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final int CARD_ROW_HALF_HEIGHT = 45;
     /** A Regular Pack row of nine or more items needs more than three swipes to reach its end. */
     private static final int MAX_CARD_ROW_SWIPES = 6;
+    /** Journey Treasures' 27 days in rows of five, two rows a swipe, with room to spare. */
+    private static final int MAX_DAY_GRID_SWIPES = 8;
+    private static final int DAY_GRID_SWIPE_X = 360;
+    private static final int DAY_GRID_SWIPE_INSET = 40;
     private static final int SWIPE_MS = 800;
 
     /** Countdown timers sit above y 450; comparing below them makes "nothing moved" measurable. */
@@ -1196,6 +1200,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             for (int rowY : page.cardRowYs()) {
                 frame = swipeCardRow(frame, surface, tab, tabbed, rowY);
             }
+            if (page.dayGrid() != null) {
+                frame = swipeDayGrid(frame, surface, tab, tabbed, page.dayGrid());
+            }
             boolean moved = tabbed
                     ? scrolled(PANEL_SWIPE_FROM, PANEL_SWIPE_TO, PANEL_SWIPE_ALT_FROM, PANEL_SWIPE_ALT_TO, CONTENT_REGION)
                     : scrolled(POPUP_SWIPE_FROM, POPUP_SWIPE_TO, POPUP_SWIPE_ALT_FROM, POPUP_SWIPE_ALT_TO,
@@ -1239,6 +1246,32 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      * Chief Gear Tool Pack shows four of its items before its button; the rest were never read. Only the
      * row's own band is compared, since one row moving barely changes the whole page.
      */
+    /**
+     * Scrolls a day-by-day grid within its own frame and reads each screen of it. Journey Treasures shows 14
+     * of its 27 days (2026-10-25), and the page swipe never moved the grid. The drag is half the grid's height,
+     * so the fling still leaves a row in common between screens; the reader names each cell by its day, so a
+     * day read twice counts once.
+     */
+    private RawImageData swipeDayGrid(RawImageData frame, String surface, String tab, boolean tabbed,
+            DealFrameReader.DayGrid grid) {
+        int[] band = {CARD_ROW_LEFT, grid.top(), CONTENT_REGION[2], grid.bottom()};
+        int from = grid.bottom() - DAY_GRID_SWIPE_INSET;
+        int to = from - (grid.bottom() - grid.top()) / 2;
+        RawImageData current = frame;
+        for (int swipes = 0; swipes < MAX_DAY_GRID_SWIPES; swipes++) {
+            if (!scrolled(new PointData(DAY_GRID_SWIPE_X, from), new PointData(DAY_GRID_SWIPE_X, to),
+                    new PointData(DAY_GRID_SWIPE_X, from), new PointData(DAY_GRID_SWIPE_X, to + DAY_GRID_SWIPE_INSET),
+                    band)) {
+                return current;
+            }
+            current = capture();
+            readAndCollect(current, surface, tab, tabbed);
+        }
+        problems.add(surface + " / " + tab + ": day grid still scrolling after " + MAX_DAY_GRID_SWIPES
+                + " swipes; later days may be unread.");
+        return current;
+    }
+
     private RawImageData swipeCardRow(RawImageData frame, String surface, String tab, boolean tabbed, int rowY) {
         int[] band = {CARD_ROW_LEFT, Math.max(0, rowY - CARD_ROW_HALF_HEIGHT), CARD_ROW_RIGHT,
                 rowY + CARD_ROW_HALF_HEIGHT};

@@ -7,6 +7,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,6 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -37,6 +39,7 @@ import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.vision.convert.GreenTextIsolator;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.WhiteTextIsolator;
+import dev.frostguard.vision.deals.DayLabelLocator;
 import dev.frostguard.vision.deals.GreyButtonLocator;
 import dev.frostguard.vision.deals.PriceButtonLocator;
 import dev.frostguard.vision.deals.SegmentedControl;
@@ -81,7 +84,14 @@ public final class DealFrameReader {
     /** @param missionsDone missions done so far by kind ("Intel" = 570), from a card's mission rows */
     public record Page(String title, List<DealOffer> offers, List<String> problems, Integer clippedTileRowY,
             boolean chooseYourOwn, List<Integer> cardRowYs, Map<Integer, List<PointData>> pickSlots,
-            Map<String, Long> missionsDone) {
+            Map<String, Long> missionsDone, DayGrid dayGrid) {
+    }
+
+    /**
+     * A day-by-day reward grid on a page (Journey Treasures), between {@code top} and {@code bottom}, which
+     * scrolls on its own; {@code days} holds what each whole cell on screen pays.
+     */
+    public record DayGrid(int top, int bottom, Map<Integer, List<DealItem>> days) {
     }
 
     /**
@@ -407,6 +417,21 @@ public final class DealFrameReader {
     private static final int MISSION_COUNT_MARGIN = 4;
     private static final int MISSION_COUNT_PADDING = 10;
     private static final int MAX_MISSION_COUNT_DIGITS = 6;
+    /** Journey Treasures' grid on 2026-10-25: 14 whole cells per screen, the word "Day" 36 x 18 px. */
+    private static final int MIN_DAY_LABELS = 3;
+    private static final int MIN_DAY_VOTES = 3;
+    /** A tile's icon at full size: 83 px wide in the item library. */
+    private static final int TILE_WIDTH_AT_FULL_SCALE = 83;
+    /** A tile whose brightest pixel is under this is veiled; open tiles' white counts reach 230 and more. */
+    private static final int VEIL_MAX_BRIGHTNESS = 180;
+    private static final int WHITE_LEVEL = 245;
+    private static final int VEIL_MARGIN = 6;
+    private static final int DAY_CELL_BELOW_LABEL = 90;
+    private static final int DAY_NUMBER_WIDTH = 32;
+    private static final int DAY_NUMBER_MARGIN = 4;
+    private static final int MAX_DAY = 60;
+    /** The line under the grid that ends it on screen: "Unlock claiming permissions to claim all rewards...". */
+    private static final Pattern DAY_GRID_FOOTER = Pattern.compile("(?i)unlock\\s*claiming");
     private static final int[] OPTION_LABEL_HEIGHTS = {24, 32, 48, 64};
     private static final int MIN_OPTION_LABEL_LETTERS = 3;
     /** The card's reward column on a mission row, right of the free reward and left of its button. */
@@ -463,7 +488,7 @@ public final class DealFrameReader {
                             b.priceUsd(), String.format(Locale.US, "$%.2f", b.priceUsd()), null, false,
                             List.of(new DealItem(DealPriceTracker.GEMS, b.gems(), "gem store")), frame, null))
                     .toList();
-            return new Page("Get Gems", bundles, problems, null, false, List.of(), Map.of(), Map.of());
+            return new Page("Get Gems", bundles, problems, null, false, List.of(), Map.of(), Map.of(), null);
         }
         BufferedImage image = ImageConverter.toBufferedImage(capture);
         Text text = readText(capture, image, surface, tab, problems)
@@ -496,13 +521,13 @@ public final class DealFrameReader {
         if (pageTitleLine == null) {
             pageTitleLine = pageTitle(text.whiteLines(), tabbed);
         }
+        if (pageTitleLine == null && tabbed) {
+            // Journey Treasures (2026-10-25) sets its title white on an orange banner the white pass missed and
+            // the plain pass read as "Journey jireasures)"; its band alone, masked, reads it right.
+            pageTitleLine = pageTitle(titleBandLines(text.whiteMask(), TAB_STRIP_BOTTOM), true);
+        }
         if (pageTitleLine == null) {
             pageTitleLine = pageTitle(text.plainLines(), tabbed);
-        }
-        if (pageTitleLine == null && tabbed) {
-            // Journey Treasures (2026-10-25) sets its title white on an orange banner that neither page-wide
-            // pass read; its band alone does, as a pop-up's header does.
-            pageTitleLine = pageTitle(titleBandLines(text.whiteMask(), TAB_STRIP_BOTTOM), true);
         }
         String pageTitle = pageTitleLine == null ? tab : cleanTitle(pageTitleLine.text());
         // A pick-your-own tier is still a pack with a price: each tier is read with its fixed items, and the
@@ -513,6 +538,7 @@ public final class DealFrameReader {
         // pass joined it to the description under it on 2026-10-23.
         String offerTab = chooseYourOwn ? headerTitle(image).orElse(tab) : tab;
         List<TextLine> allLines = Stream.concat(text.plainLines().stream(), text.whiteLines().stream()).toList();
+        DayGrid dayGrid = tabbed ? dayGrid(text, image, allLines).orElse(null) : null;
         // The tiers' "Daily Limit: 1" sits right under the Purchase All banner; it is the tiers' limit, not its.
         List<PriceButtonLocator.Box> tierButtons = buttons.stream()
                 .filter(b -> purchaseAll.isEmpty() || purchaseAll.get().button() != b).toList();
@@ -558,6 +584,10 @@ public final class DealFrameReader {
             if (buttons.size() == 1) {
                 title = pageTitle;
                 cardTop = pageTitleLine == null ? top : pageTitleLine.bottom();
+                if (dayGrid != null) {
+                    // The grid's tiles are read cell by cell; the page's own items stand under it.
+                    cardTop = Math.max(cardTop, dayGrid.bottom());
+                }
             } else {
                 TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button);
                 if (cardTitle != null) {
@@ -661,6 +691,9 @@ public final class DealFrameReader {
             Integer limitCount = limitCount(window, button, underButtonText(text, button));
             offerButtons.add(index);
             List<DealItem> merged = card != null ? items : new ArrayList<>(merge(items));
+            if (buttons.size() == 1 && dayGrid != null) {
+                dayGrid.days().values().forEach(merged::addAll);
+            }
             if (buttons.size() == 1) {
                 merged.addAll(missionRewards(text, allLines, button));
             }
@@ -680,7 +713,7 @@ public final class DealFrameReader {
         }
         return new Page(pageTitle, offers, problems, buttons.size() == 1 ? clippedRow(tiles) : null, chooseYourOwn,
                 cardRowYs, chooseYourOwn ? byOffer(pickSlots(capture, buttons), offerButtons) : Map.of(),
-                missionsDone(image, allLines, surface, tab, problems));
+                missionsDone(image, allLines, surface, tab, problems), dayGrid);
     }
 
     private static Text readText(RawImageData capture, BufferedImage image, String surface, String tab,
@@ -1090,6 +1123,153 @@ public final class DealFrameReader {
             }
         }
         return kind == null ? plain : plain.replace(" Speedup", " " + kind + " Speedup");
+    }
+
+    /**
+     * The grid's whole cells, each "Day N" over its reward tiles, named "Fire Crystal (Day 3)" so a day read on
+     * two frames of the scrolling grid counts once and DealCollection can add the days up. A cell cut by the
+     * grid's lower edge, or whose number does not read, is left for the frame that shows it whole.
+     */
+    private Optional<DayGrid> dayGrid(Text text, BufferedImage image, List<TextLine> lines) {
+        List<PriceButtonLocator.Box> labels = DayLabelLocator.locate(image);
+        if (labels.size() < MIN_DAY_LABELS) {
+            return Optional.empty();
+        }
+        int top = labels.stream().mapToInt(PriceButtonLocator.Box::y).min().orElseThrow();
+        int bottom = lines.stream().filter(l -> l.top() > top && DAY_GRID_FOOTER.matcher(clean(l.text())).find())
+                .mapToInt(TextLine::top).min().orElse(FRAME_BOTTOM_RIGHT.getY());
+        // The cells run in reading order, one day apart, so each is numbered by its place plus one offset. The
+        // printed numbers vote on the offset: read one by one they failed on 3 of 14 headers and read Day 11 as
+        // "1" (2026-10-25), while 10 of the 11 that read agreed. Without a clear majority nothing is numbered.
+        Map<Integer, Integer> votes = new HashMap<>();
+        int reads = 0;
+        for (int i = 0; i < labels.size(); i++) {
+            Optional<Integer> read = dayNumber(text.capture(), labels.get(i));
+            if (read.isPresent()) {
+                reads++;
+                votes.merge(read.get() - i, 1, Integer::sum);
+            }
+        }
+        Optional<Map.Entry<Integer, Integer>> agreed = votes.entrySet().stream().max(Map.Entry.comparingByValue());
+        if (agreed.isEmpty() || agreed.get().getValue() < MIN_DAY_VOTES || agreed.get().getValue() * 2 <= reads) {
+            return Optional.of(new DayGrid(top, bottom, Map.of()));
+        }
+        int offset = agreed.get().getKey();
+        Map<Integer, List<DealItem>> days = new TreeMap<>();
+        Map<Integer, List<DealItemLibrary.Match>> unread = new LinkedHashMap<>();
+        List<int[]> placements = new ArrayList<>();
+        for (int i = 0; i < labels.size(); i++) {
+            PriceButtonLocator.Box label = labels.get(i);
+            if (label.bottom() + DAY_CELL_BELOW_LABEL > bottom) {
+                continue;
+            }
+            int day = i + offset;
+            List<DealItem> items = new ArrayList<>();
+            List<DealItemLibrary.Match> missed = new ArrayList<>();
+            for (DealItemLibrary.Match tile : cellTiles(text, labels, label)) {
+                Optional<Long> count = tileCount(image, tile);
+                if (count.isPresent()) {
+                    items.add(new DealItem(tile.key() + " (Day " + day + ")", count.get(), "day"));
+                    if (!tile.loose()) {
+                        placements.add(new int[] {tile.x() - label.x(), tile.y() - label.y(), tile.width(), tile.height()});
+                    }
+                } else {
+                    missed.add(tile);
+                }
+            }
+            days.put(day, items);
+            if (items.isEmpty()) {
+                unread.put(i, missed);
+            }
+        }
+        // A cell whose tile was not matched as a tile is read where the other cells' tiles stand under their
+        // header: the loose Fire Crystal icon won Days 9 and 14, and Day 8's tile matched nothing (2026-10-25).
+        if (!placements.isEmpty()) {
+            int[] at = placements.get(placements.size() / 2);
+            double scale = (double) at[2] / TILE_WIDTH_AT_FULL_SCALE;
+            for (Map.Entry<Integer, List<DealItemLibrary.Match>> cell : unread.entrySet()) {
+                PriceButtonLocator.Box label = labels.get(cell.getKey());
+                int x = label.x() + at[0];
+                int y = label.y() + at[1];
+                String key = cell.getValue().isEmpty() ? UNIDENTIFIED + " " + fingerprint(image, x, y, at[2], at[3])
+                        : cell.getValue().get(0).key();
+                DealItemLibrary.Match placed = new DealItemLibrary.Match(key, x, y, at[2], at[3], 0, scale, false);
+                int day = cell.getKey() + offset;
+                tileCount(image, placed).ifPresent(q -> days.get(day).add(new DealItem(key + " (Day " + day + ")", q,
+                        key.startsWith(UNIDENTIFIED) ? "unidentified" : "day")));
+            }
+        }
+        return Optional.of(new DayGrid(top, bottom, days));
+    }
+
+    /** The tiles under one "Day" header, between it and its row neighbours' halfway marks. */
+    private List<DealItemLibrary.Match> cellTiles(Text text, List<PriceButtonLocator.Box> labels,
+            PriceButtonLocator.Box label) {
+        int centre = label.x() + label.width() / 2;
+        List<Integer> row = labels.stream().filter(b -> Math.abs(b.y() - label.y()) <= label.height())
+                .map(b -> b.x() + b.width() / 2).toList();
+        int left = row.stream().filter(c -> c < centre).mapToInt(c -> (c + centre) / 2).max().orElse(0);
+        int right = row.stream().filter(c -> c > centre).mapToInt(c -> (c + centre) / 2).min()
+                .orElse(FRAME_BOTTOM_RIGHT.getX());
+        return library.find(text.capture(), new PointData(left, label.bottom()),
+                new PointData(right, label.bottom() + DAY_CELL_BELOW_LABEL));
+    }
+
+    private static Optional<Long> tileCount(BufferedImage image, DealItemLibrary.Match tile) {
+        return TileCountReader.read(image, tile.x(), tile.y(), tile.scale()).or(() -> veiledCount(image, tile))
+                .map(DealFrameReader::parseQuantity).filter(Objects::nonNull);
+    }
+
+    /**
+     * The count of a tile under a locked cell's veil: Journey Treasures dims every day not yet reached to about
+     * half, and its white "5" peaked at grey 129 against 241 on the open Day 1 (2026-10-25). The tile is brought
+     * back to full brightness, by its own brightest pixel, before the glyphs are read.
+     */
+    private static Optional<String> veiledCount(BufferedImage image, DealItemLibrary.Match tile) {
+        int x = Math.max(0, tile.x() - VEIL_MARGIN);
+        int y = Math.max(0, tile.y() - VEIL_MARGIN);
+        int width = Math.min(image.getWidth() - x, tile.width() + 3 * VEIL_MARGIN);
+        int height = Math.min(image.getHeight() - y, tile.width() + 3 * VEIL_MARGIN);
+        BufferedImage crop = image.getSubimage(x, y, width, height);
+        int brightest = 1;
+        for (int yy = 0; yy < height; yy++) {
+            for (int xx = 0; xx < width; xx++) {
+                int rgb = crop.getRGB(xx, yy);
+                brightest = Math.max(brightest, Math.max((rgb >> 16) & 0xFF, Math.max((rgb >> 8) & 0xFF, rgb & 0xFF)));
+            }
+        }
+        if (brightest > VEIL_MAX_BRIGHTNESS) {
+            return Optional.empty();
+        }
+        double gain = WHITE_LEVEL / (double) brightest;
+        BufferedImage lifted = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        for (int yy = 0; yy < height; yy++) {
+            for (int xx = 0; xx < width; xx++) {
+                int rgb = crop.getRGB(xx, yy);
+                int r = Math.min(255, (int) (((rgb >> 16) & 0xFF) * gain));
+                int g = Math.min(255, (int) (((rgb >> 8) & 0xFF) * gain));
+                int b = Math.min(255, (int) ((rgb & 0xFF) * gain));
+                lifted.setRGB(xx, yy, (r << 16) | (g << 8) | b);
+            }
+        }
+        return TileCountReader.read(lifted, tile.x() - x, tile.y() - y, tile.scale());
+    }
+
+    /** The number after a "Day" header, dark on its gold band; empty unless it reads as a day. */
+    private static Optional<Integer> dayNumber(RawImageData capture, PriceButtonLocator.Box label) {
+        try {
+            String read = OcrEngine.recognizeText(capture, new PointData(label.right(), label.y() - DAY_NUMBER_MARGIN),
+                    new PointData(Math.min(capture.getWidth(), label.right() + DAY_NUMBER_WIDTH),
+                            label.bottom() + DAY_NUMBER_MARGIN),
+                    CommonOCRSettings.DEAL_ITEM_QUANTITY_SETTINGS).replaceAll("[^0-9]", "");
+            if (read.isEmpty() || read.length() > 2) {
+                return Optional.empty();
+            }
+            int day = Integer.parseInt(read);
+            return day >= 1 && day <= MAX_DAY ? Optional.of(day) : Optional.empty();
+        } catch (OcrException unreadable) {
+            return Optional.empty();
+        }
     }
 
     /** The run of words in a crop's largest type, as one line. */
