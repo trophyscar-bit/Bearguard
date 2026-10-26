@@ -50,6 +50,9 @@ public final class AllianceGiftLedger {
     public static final int RIGHT_COLUMN = 540;
     public static final int TEXT_RIGHT = 700;
 
+    /** Left edge of the item icon, where scroll matching starts. */
+    static final int ICON_LEFT = 40;
+
     /** Lines further apart than this belong to different cards; cards are ~150px apart with a ~65px gap. */
     static final int ROW_GAP_PX = 30;
 
@@ -285,13 +288,13 @@ public final class AllianceGiftLedger {
         return close && unique ? best : -1;
     }
 
-    /** Grey levels of the list's text column, every 6th pixel across. */
+    /** Grey levels of the list's icon and text columns, every 6th pixel across. */
     private static int[][] greys(BufferedImage image) {
         int height = LIST_BOTTOM - LIST_TOP;
         int[][] g = new int[height][];
         for (int y = 0; y < height; y++) {
-            g[y] = new int[(TEXT_RIGHT - TEXT_LEFT + 5) / 6];
-            for (int i = 0, x = TEXT_LEFT; x < TEXT_RIGHT; x += 6, i++) {
+            g[y] = new int[(TEXT_RIGHT - ICON_LEFT + 5) / 6];
+            for (int i = 0, x = ICON_LEFT; x < TEXT_RIGHT; x += 6, i++) {
                 g[y][i] = grey(image.getRGB(x, LIST_TOP + y));
             }
         }
@@ -301,12 +304,13 @@ public final class AllianceGiftLedger {
     /**
      * How screens are lined up, measured on the saved passes of 2026-10-22 to 10-26.
      *
-     * <p>Only the text column is compared: an unclaimed gift's icon carries a live countdown that
-     * changes between two screens of an unmoved list. The score is the share of samples that
-     * changed clearly, not the mean difference, so a few changed glyphs cannot outweigh a whole
-     * matching card. True shifts scored 0.000 to 0.046; cards repeat every ~150px, so a wrong
-     * shift can score nearly as well, and a best that does not beat every other shift by
-     * {@link #MIN_MARGIN} is refused rather than guessed.</p>
+     * <p>The icon is compared along with the text. Runs of the same purchase ("Jong GyU has
+     * purchased Daily Deals" three times) read alike, so text alone matched one card off as well
+     * as the true shift; the reward icons under them differ. An unclaimed gift's live countdown
+     * on its icon is a few glyphs, which the score below shrugs off: it is the share of samples
+     * that changed clearly, not the mean difference. True shifts scored 0.000 to 0.046; cards
+     * repeat every ~152px, so a wrong shift can score nearly as well, and a best that does not
+     * beat every other shift by {@link #MIN_MARGIN} is refused rather than guessed.</p>
      */
     static final int PIXEL_CHANGE = 24;
     static final double MAX_CHANGED_SHARE = 0.05;
