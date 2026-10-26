@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 
 import dev.frostguard.api.deals.DealItem;
 import dev.frostguard.api.deals.DealOffer;
+import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.deals.SegmentedControl;
@@ -475,6 +476,21 @@ class DealFrameReaderTest {
     private static DealOffer offerTitled(DealFrameReader.Page page, String title) {
         return page.offers().stream().filter(o -> o.title().equals(title)).findFirst()
                 .orElseThrow(() -> new AssertionError(title + " not in " + page.offers()));
+    }
+
+    /** Hero Rally's header "Unlock", which the word pass missed on every frame of 2026-10-25 evening. */
+    @Test
+    void findsTheHeroRallyUnlockButtonAndNoneElsewhere() throws Exception {
+        PointData unlock = reader.unlockButton(frame("deals-hero-rally-unlock.png"), 640).orElseThrow();
+        assertTrue(unlock.getX() > 500 && unlock.getX() < 680 && unlock.getY() > 370 && unlock.getY() < 450,
+                unlock.toString());
+        assertTrue(reader.unlockButton(frame("deals-journey-treasures.png"), 640).isEmpty());
+        assertTrue(reader.unlockButton(frame("deals-intel-monthly-card-mythic.png"), 640).isEmpty());
+    }
+
+    private static RawImageData frame(String name) throws Exception {
+        return rgbaFrame(ImageIO.read(Objects.requireNonNull(
+                DealFrameReaderTest.class.getResourceAsStream("/deals/" + name), name)));
     }
 
     /** The mission rows' green "(570/5)": #fire-crystals counts mission rewards already passed. */

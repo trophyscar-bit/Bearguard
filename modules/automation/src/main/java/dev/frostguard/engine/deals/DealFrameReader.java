@@ -120,16 +120,15 @@ public final class DealFrameReader {
     }
 
     /**
-     * Where a page's header shows the given button word ("Unlock" on Hero Rally), above {@code maxY}; empty when
-     * the header has none. Only a word standing alone counts, so a sentence that contains it is not a button.
+     * Where a page's header shows its "Unlock" button (Hero Rally), above {@code maxY}; empty when it has none.
+     * Matched as a picture: the page-wide word pass read the word on one frame of 2026-10-25 and on none of
+     * that evening's, and the colour search merged the button into the gold chest beside it. On all 358 frames
+     * of that day the button scored 100 where it stood and at most 59 anywhere else.
      */
-    public Optional<PointData> headerButton(RawImageData frame, String word, int maxY) {
-        BufferedImage image = ImageConverter.toBufferedImage(frame);
-        Text text = readText(frame, image, "Header", "", new ArrayList<>());
-        return text.whiteWords().stream()
-                .filter(w -> w.top() < maxY && clean(w.text()).equalsIgnoreCase(word))
-                .findFirst()
-                .map(w -> new PointData(w.left() + w.width() / 2, w.top() + w.height() / 2));
+    public Optional<PointData> unlockButton(RawImageData frame, int maxY) {
+        ImageSearchResultData hit = OpenCvPatternLocator.matchFromRawTemplate(frame, UNLOCK_BUTTON,
+                FRAME_TOP_LEFT, new PointData(FRAME_BOTTOM_RIGHT.getX(), maxY), UNLOCK_MIN_SCORE);
+        return hit.isFound() ? Optional.of(new PointData(hit.getX(), hit.getY())) : Optional.empty();
     }
 
     /** The choices one "+" slot offers, read from its Select Items pop-up; empty when the pop-up is not open. */
@@ -337,6 +336,8 @@ public final class DealFrameReader {
     /** Bounds the search for a full row when partial rows are found first. */
     private static final int MAX_SLOT_ROWS = 6;
     private static final byte[] PICK_SLOT = load(PICK_SLOT_RESOURCE);
+    private static final byte[] UNLOCK_BUTTON = load("/deals/unlock-button.png");
+    private static final double UNLOCK_MIN_SCORE = 80.0;
     /**
      * The mark in a speedup tile's lower left that makes it a construction, training or research speedup. The
      * item icons stop above it, and whole-tile templates of the marked speedups scored 92 to 97 on plain ones;
@@ -388,7 +389,9 @@ public final class DealFrameReader {
      */
     private static final Pattern PRICE = Pattern.compile("(?<!\\d)\\$?\\s?(\\d{1,4})[.°,:](\\d{2})(?!\\d)");
     private static final Pattern REMAINING = Pattern.compile("(?i)remaining\\W*(\\d+)");
-    private static final Pattern LIMIT = Pattern.compile("(?i)\\b(daily|weekly|monthly|lifetime)\\s*limit\\W*(\\d+)");
+    /** "Daily Limit: 5", and "Monthly Stock: 1" as Transfer Pass Pack prints the same thing (2026-10-25). */
+    private static final Pattern LIMIT =
+            Pattern.compile("(?i)\\b(daily|weekly|monthly|lifetime)\\s*(?:limit|stock)\\W*(\\d+)");
     private static final Pattern TIMER = Pattern.compile("\\d{1,2}:\\d{2}(:\\d{2})?");
     private static final Pattern VALID_DAYS = Pattern.compile("(?i)valid\\W*(\\d{1,3})\\s*day");
     private static final Pattern SELECT_FIRST = Pattern.compile("(?i)select\\s*rewards?\\s*first");
@@ -495,6 +498,11 @@ public final class DealFrameReader {
         }
         if (pageTitleLine == null) {
             pageTitleLine = pageTitle(text.plainLines(), tabbed);
+        }
+        if (pageTitleLine == null && tabbed) {
+            // Journey Treasures (2026-10-25) sets its title white on an orange banner that neither page-wide
+            // pass read; its band alone does, as a pop-up's header does.
+            pageTitleLine = pageTitle(titleBandLines(text.whiteMask(), TAB_STRIP_BOTTOM), true);
         }
         String pageTitle = pageTitleLine == null ? tab : cleanTitle(pageTitleLine.text());
         // A pick-your-own tier is still a pack with a price: each tier is read with its fixed items, and the
@@ -1038,9 +1046,17 @@ public final class DealFrameReader {
     }
 
     private static List<TextLine> popupHeaderLines(RawImageData whiteMask) {
+        return bandLines(whiteMask, PAGE_TITLE_TOP, POPUP_HEADER_BOTTOM);
+    }
+
+    private static List<TextLine> titleBandLines(RawImageData whiteMask, int top) {
+        return bandLines(whiteMask, top, PAGE_TITLE_BOTTOM);
+    }
+
+    private static List<TextLine> bandLines(RawImageData whiteMask, int top, int bottom) {
         try {
-            return OcrEngine.recognizeLines(whiteMask, new PointData(0, PAGE_TITLE_TOP),
-                    new PointData(FRAME_BOTTOM_RIGHT.getX(), POPUP_HEADER_BOTTOM), CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
+            return OcrEngine.recognizeLines(whiteMask, new PointData(0, top),
+                    new PointData(FRAME_BOTTOM_RIGHT.getX(), bottom), CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS);
         } catch (OcrException unreadable) {
             return List.of();
         }
