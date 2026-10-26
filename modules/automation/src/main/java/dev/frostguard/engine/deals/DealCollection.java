@@ -31,6 +31,8 @@ public final class DealCollection {
     private final List<String> shops = new ArrayList<>();
     private final Set<String> pickShops = new HashSet<>();
     private final Map<String, DealOffer> cutBelow = new HashMap<>();
+    /** The key of the card last added in each tab, for a card read again with its title scrolled away. */
+    private final Map<String, String> lastAdded = new HashMap<>();
     /** A card cut at the bottom shows its title within a frame or two: one scroll, perhaps a row swipe between. */
     private static final int MAX_CUT_BELOW_FRAMES = 3;
     private final Map<String, List<String>> tabSpellings = new LinkedHashMap<>();
@@ -69,6 +71,18 @@ public final class DealCollection {
             cutBelow.put(place, offer);
             return;
         }
+        if (DealFrameReader.CUT_ABOVE_TITLE.equals(offer.title())) {
+            // A card whose title scrolled away: the card last read in this tab at its price, a frame or two ago,
+            // is the same card. Its foot (the limit under the button) joins that read; with no such card it was
+            // never seen whole and is dropped, as before.
+            String last = lastAdded.get(place);
+            DealOffer above = last == null ? null : offers.get(last);
+            if (above != null && Objects.equals(above.priceUsd(), offer.priceUsd())
+                    && frameGap(above, offer) <= MAX_CUT_BELOW_FRAMES) {
+                offers.put(last, mergeReads(above, offer));
+            }
+            return;
+        }
         DealOffer pending = cutBelow.remove(place);
         boolean firstSight = !offers.containsKey(key(offer, perShop)) && !offers.containsKey(key(offer, true));
         if (pending != null && firstSight && Objects.equals(pending.priceUsd(), offer.priceUsd())
@@ -83,6 +97,7 @@ public final class DealCollection {
             pickShops.add(shop(offer));
         }
         offers.merge(key(offer, perShop), offer, this::mergeReads);
+        lastAdded.put(place, key(offer, perShop));
     }
 
     private static int frameGap(DealOffer earlier, DealOffer later) {
@@ -449,6 +464,7 @@ public final class DealCollection {
                     .filter(e -> Objects.equals(e.getValue().priceUsd(), offer.priceUsd())
                             && Objects.equals(e.getValue().surface(), offer.surface())
                             && Objects.equals(shop(e.getValue()), shop(offer))
+                            && offer.title() != null && e.getValue().title() != null
                             && offer.title().startsWith(e.getValue().title() + " "))
                     .toList();
             if (clean.size() == 1) {
@@ -467,6 +483,10 @@ public final class DealCollection {
     void foldCutTitles() {
         for (Map.Entry<String, DealOffer> cut : List.copyOf(offers.entrySet())) {
             DealOffer offer = cut.getValue();
+            if (offer.title() == null) {
+                // A card read with no title at all (2026-10-23 22:02 replay) is not a cut title of anything.
+                continue;
+            }
             String cutLetters = letters(offer.title());
             if (!offers.containsKey(cut.getKey()) || offer.title().trim().split("\\s+").length < 2
                     || cutLetters.length() < CUT_TITLE_MIN_LETTERS) {
@@ -477,7 +497,8 @@ public final class DealCollection {
                     .filter(e -> Objects.equals(e.getValue().priceUsd(), offer.priceUsd())
                             && Objects.equals(e.getValue().surface(), offer.surface())
                             && Objects.equals(shop(e.getValue()), shop(offer)))
-                    .filter(e -> letters(e.getValue().title()).length() > cutLetters.length()
+                    .filter(e -> e.getValue().title() != null
+                            && letters(e.getValue().title()).length() > cutLetters.length()
                             && sameName(cutLetters, letters(e.getValue().title())))
                     .filter(e -> !conflicting(offer, e.getValue()))
                     .toList();
@@ -501,7 +522,7 @@ public final class DealCollection {
     }
 
     private static boolean isFallbackTitle(DealOffer offer) {
-        return offer.priceUsd() != null
+        return offer.priceUsd() != null && offer.title() != null
                 && offer.title().endsWith(String.format(Locale.US, " - $%.2f", offer.priceUsd()));
     }
 }

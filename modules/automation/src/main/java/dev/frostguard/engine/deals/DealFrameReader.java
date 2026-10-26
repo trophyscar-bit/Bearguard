@@ -333,6 +333,8 @@ public final class DealFrameReader {
     private static final int UNKNOWN_TILE_MIN_LEFT = 20;
     /** The title of a card cut off at the bottom of the frame, read before its title is in view. */
     public static final String CUT_BELOW_TITLE = "";
+    /** The title of a card whose head has scrolled above the frame, read for what its foot shows. */
+    public static final String CUT_ABOVE_TITLE = "\u2191";
     private static final Set<Double> STORE_PRICES = Set.of(0.99, 1.99, 2.99, 4.99, 9.99, 19.99, 49.99, 99.99, 299.99,
             499.99, 699.99, 999.99);
     /** A tier's slot row starts about 80 px above its button's top (Custom Chest tiers, 2026-10-23). */
@@ -632,7 +634,7 @@ public final class DealFrameReader {
                     // title is under the sticky header, and the crop finds the header's "Custom Pet Chest".
                     cardTitle = croppedCardTitle(image, Math.max(titleTop, TAB_STRIP_BOTTOM), button)
                             .filter(l -> !cleanTitle(l.text()).equalsIgnoreCase(pageTitle))
-                            .filter(l -> startsWithCapital(cleanTitle(l.text())))
+                            .filter(l -> startsWithCapital(cleanTitle(l.text())) && isTitleCase(cleanTitle(l.text())))
                             .orElse(null);
                 }
                 title = cardTitle != null ? cleanTitle(cardTitle.text())
@@ -640,8 +642,10 @@ public final class DealFrameReader {
                                 + (priceUsd == null ? "" : " - $" + String.format(Locale.US, "%.2f", priceUsd));
                 cardTop = cardTitle == null ? Math.max(top, CARD_TITLE_MIN_TOP) : cardTitle.bottom();
                 if (titledCards && cardTitle == null && index == 0 && buttons.size() > 1) {
-                    // The page has scrolled this card's title away; the card was read whole on an earlier frame.
-                    continue;
+                    // The page has scrolled this card's title away; it is the card read above on an earlier
+                    // frame, which may not have shown its foot: Leap Pack 5's "Lifetime Limit: 1" was only ever
+                    // on screen under a hidden title (2026-10-26). Its read joins that card's (see DealCollection).
+                    title = CUT_ABOVE_TITLE;
                 }
                 if (titledCards && cardTitle == null && index == buttons.size() - 1) {
                     // A card entering at the bottom edge: its title is still below the window. It is the next
@@ -675,7 +679,7 @@ public final class DealFrameReader {
                 // Only a card with its title on screen is swiped: a row swiped while its title was still below the
                 // window came into view already swiped, and its left tiles -- each pack's main item, the Chief
                 // Gear Tool Pack's alloy and polish -- were never read on 2026-10-23.
-                if (buttons.size() > 1 && !CUT_BELOW_TITLE.equals(title)) {
+                if (buttons.size() > 1 && !CUT_BELOW_TITLE.equals(title) && !CUT_ABOVE_TITLE.equals(title)) {
                     cardRowYs.addAll(rowsWithRoomForMore(tiles.subList(firstTile, tiles.size()), button));
                 }
             }
@@ -1387,6 +1391,13 @@ public final class DealFrameReader {
         return copy;
     }
 
+    /** Every word of four letters or more capitalised, as card names are; sentences are not. */
+    private static boolean isTitleCase(String name) {
+        return Arrays.stream(name.split(" "))
+                .filter(word -> word.chars().filter(Character::isLetter).count() >= 4)
+                .allMatch(word -> Character.isUpperCase(word.charAt(0)));
+    }
+
     private static TextLine cardTitle(List<TextLine> lines, int windowTop, PriceButtonLocator.Box button) {
         // A weekly or monthly card is taller than the usual reach above its button; its title is the line just
         // above its "Buy to get:".
@@ -1410,8 +1421,12 @@ public final class DealFrameReader {
                 // A card's own terms are never its name: "Login daily to obtain:" titled three cards on
                 // 2026-10-23 when the real title had scrolled above the window. Nor is a page description,
                 // which starts in lower case ("customize your own Chest" named a Custom Pet Chest tier).
+                // Nor is the page's own sentence under its header: with Leap Pack 5's title scrolled under the
+                // header, "Boost your Power and breathe new life into your town!" named its card (2026-10-26).
+                // Card names are in title case.
                 .filter(l -> !LOGIN_DAILY.matcher(l.text()).find() && !BUY_TO_GET.matcher(l.text()).find()
-                        && !VALID_DAYS.matcher(l.text()).find() && startsWithCapital(cleanTitle(l.text())))
+                        && !VALID_DAYS.matcher(l.text()).find() && startsWithCapital(cleanTitle(l.text()))
+                        && isTitleCase(cleanTitle(l.text())))
                 .max(Comparator.comparingInt(TextLine::height))
                 .orElse(null);
     }
@@ -1798,9 +1813,7 @@ public final class DealFrameReader {
         for (TextLine title : text.whiteLines()) {
             String name = cleanTitle(title.text());
             // A card's name is in title case; "Purchase all packs daily" on Daily Deals is not a card.
-            boolean titleCase = Arrays.stream(name.split(" "))
-                    .filter(word -> word.chars().filter(Character::isLetter).count() >= 4)
-                    .allMatch(word -> Character.isUpperCase(word.charAt(0)));
+            boolean titleCase = isTitleCase(name);
             if (title.left() > ORPHAN_TITLE_MAX_LEFT || title.height() < ORPHAN_TITLE_MIN_HEIGHT
                     || title.top() < TAB_STRIP_BOTTOM || !isTitleText(name) || !titleCase) {
                 continue;

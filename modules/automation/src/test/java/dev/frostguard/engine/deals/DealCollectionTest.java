@@ -95,6 +95,41 @@ class DealCollectionTest {
         assertEquals(5L, items.get("Fire Crystal (Day 20)"));
     }
 
+    /** A card read again with its title scrolled away gives its foot to the card last read at its price. */
+    @Test
+    void joinsACardCutAboveToTheCardReadBeforeIt() {
+        DealCollection collection = new DealCollection();
+        collection.add(leap("Fire Crystal Leap Pack 5", "027.png", null, List.of(new DealItem("Fire Crystal", 500, "icon"))));
+        collection.add(leap(DealFrameReader.CUT_ABOVE_TITLE, "028.png", "lifetime",
+                List.of(new DealItem("10K Meat", 1000, "icon"))));
+
+        collection.settle();
+
+        assertEquals(1, collection.offers().size(), collection.offers().toString());
+        DealOffer pack = collection.offers().values().iterator().next();
+        assertEquals("Fire Crystal Leap Pack 5", pack.title());
+        assertEquals("lifetime", pack.limitPeriod());
+        assertEquals(2, pack.items().size());
+    }
+
+    private static DealOffer leap(String title, String frame, String limit, List<DealItem> items) {
+        return new DealOffer("Gem Shop", "Fire Crystal Leap Pack", title, 99.99, "$99.99", null, false, items, frame,
+                limit, limit == null ? null : 1, null, null);
+    }
+
+    /** An offer read with no title takes no part in folding cut titles, and does not stop the settle. */
+    @Test
+    void settlesWithAnUntitledOffer() {
+        DealCollection collection = new DealCollection();
+        collection.add(regular("Accessory Construction Contract", List.of(new DealItem("5min Speedup", 10, "icon"))));
+        collection.add(new DealOffer("Gem Shop", "Regular Pack", null, 4.99, "$4.99", null, false, List.of(),
+                "062.png", null, null, null, null));
+
+        collection.settle();
+
+        assertEquals(2, collection.offers().size());
+    }
+
     /** A tier read with nothing would leave the sum short of what the banner sells; it stays unknown. */
     @Test
     void leavesPurchaseAllUnknownWhileATierIsUnread() {

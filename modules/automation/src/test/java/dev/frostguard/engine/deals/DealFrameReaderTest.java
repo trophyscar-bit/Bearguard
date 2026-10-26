@@ -66,9 +66,11 @@ class DealFrameReaderTest {
             assertTrue(page.chooseYourOwn(), frame);
             assertFalse(page.offers().isEmpty(), frame);
             // A tier whose title is under the sticky header is named after its tab and price, never the header.
+            // A tier whose title has scrolled away entirely is marked to join the tier read above it.
             assertTrue(page.offers().stream().allMatch(o -> o.priceUsd() != null
                     && (o.title().matches("(Shining|Brilliant|Dazzling|Exquisite|Majestic) Custom Chest.*")
-                            || o.title().startsWith("Mix & Match - $"))), frame + " -> " + page.offers());
+                            || o.title().startsWith("Mix & Match - $")
+                            || o.title().equals(DealFrameReader.CUT_ABOVE_TITLE))), frame + " -> " + page.offers());
         }
     }
 
@@ -503,6 +505,21 @@ class DealFrameReaderTest {
         assertTrue(offer.items().stream().anyMatch(i -> i.key().equals("Gems") && i.quantity() == 10000),
                 "the rewards paid on purchase, under the grid, are still read");
         assertTrue(page.dayGrid() != null && page.dayGrid().bottom() > page.dayGrid().top());
+    }
+
+    /**
+     * 2026-10-26 frame 028: Leap Pack 5's title has scrolled under the page header. Its foot, with the only
+     * "Lifetime Limit: 1" it shows, is read as a card cut above, never under the page's own sentence.
+     */
+    @Test
+    void readsACardWhoseTitleScrolledAwayForItsFoot() throws Exception {
+        DealFrameReader.Page page = read("gem-shop-leap-pack-5-foot.png", "Fire Crystal Leap Pack");
+
+        DealOffer top = page.offers().get(0);
+        assertEquals(DealFrameReader.CUT_ABOVE_TITLE, top.title());
+        assertEquals(99.99, top.priceUsd(), 0.001);
+        assertEquals("lifetime", top.limitPeriod());
+        assertTrue(page.offers().stream().noneMatch(o -> o.title().startsWith("Boost")), page.offers().toString());
     }
 
     /** Hero Rally's header "Unlock", which the word pass missed on every frame of 2026-10-25 evening. */
