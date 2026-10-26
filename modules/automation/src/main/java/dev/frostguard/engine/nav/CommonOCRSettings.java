@@ -43,6 +43,13 @@ public final class CommonOCRSettings {
                     .allowedGlyphs("$0123456789.")
                     .build();
 
+    // A pop-up list row's right-hand count, dark on the light list panel: "x1,000".
+    public static final OcrSettingsData DEAL_ROW_COUNT_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .allowedGlyphs("x0123456789,K")
+                    .build();
+
     // Quantity in the bottom-right corner of an item tile, read from a WhiteTextIsolator mask.
     public static final OcrSettingsData DEAL_ITEM_QUANTITY_SETTINGS =
             OcrSettingsData.builder()
