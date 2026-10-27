@@ -12,6 +12,7 @@ import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.engine.alliance.AllianceGiftLedger;
 import dev.frostguard.engine.alliance.AllianceGiftLedger.GiftRow;
+import dev.frostguard.engine.alliance.PackLinks;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.vision.convert.GameTimeUtils;
 import dev.frostguard.vision.convert.ImageConverter;
@@ -37,12 +38,16 @@ private static final int CLAIM_WAIT_TIME_MS = 1500;
 
 private static final int SHORT_WAIT_TIME_MS = 300;
 
+/** Set when Back from a followed pack link did not bring the gift list back; nothing more is tapped blind. */
+private boolean lostTheList;
+
 public AllianceChestRoutine(AccountDescriptor profile, TpDailyTaskEnum tpDailyTask) {
 		super(profile, tpDailyTask);
 	}
 
 @Override
 	protected void execute() {
+		lostTheList = false;
 
 		if (!reachAllianceScreen()) {
 			deferAndExit("Failed to navigate to alliance screen");
@@ -58,7 +63,9 @@ public AllianceChestRoutine(AccountDescriptor profile, TpDailyTaskEnum tpDailyTa
 		int allianceGiftsCollected = 0;
 		allianceGiftsCollected += gatherLootChests();
 		allianceGiftsCollected += gatherAllianceGifts();
-		allianceGiftsCollected += gatherHonorChest();
+		if (!lostTheList) {
+			allianceGiftsCollected += gatherHonorChest();
+		}
 
 		// Count what was actually collected this pass, not a per-run +1. The
 		// per-row individual-gift loop reports a true claimed count; the loot claim and (config-
@@ -181,6 +188,9 @@ private int gatherAllianceGifts() {
 			giftsCollected = gatherIndividualGifts();
 		}
 		sleepTask(SHORT_WAIT_TIME_MS);
+		if (Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ENABLED_BOOL, Boolean.class))) {
+			followPackLinks();
+		}
 		return giftsCollected;
 	}
 
@@ -292,6 +302,74 @@ private void logGiftList() {
 			swipe(new PointData(360, 600), new PointData(360, 1080), 250);
 		}
 		sleepTask(SHORT_WAIT_TIME_MS);
+	}
+
+/** New packs whose links are followed per pass; the rest wait for the next one, an hour later. */
+private static final int MAX_LINKS_PER_PASS = 3;
+
+private static final int LINK_PAGE_WAIT_MS = 2500;
+
+/**
+ * Follows the pack-name link of up to {@link #MAX_LINKS_PER_PASS} packs on the top screen that
+ * have never been followed, saving and reading the page each opens, then presses Back. Nothing on
+ * the opened page is tapped. Stops, and sets {@link #lostTheList}, if Back does not bring the
+ * gift list back.
+ */
+private void followPackLinks() {
+		ChatTextReader reader = null;
+		try {
+			PackLinks links = new PackLinks(AllianceGiftLedger.forWorkspace(
+					dev.frostguard.api.runtime.WorkspacePaths.current().root()).root());
+			BufferedImage list = screenNow();
+			if (list == null) {
+				return;
+			}
+			List<PackLinks.Target> targets = PackLinks.find(list);
+			if (targets.isEmpty()) {
+				return;
+			}
+			reader = openReader();
+			if (reader == null) {
+				return;
+			}
+			List<GiftRow> rows = AllianceGiftLedger.parseFrame(reader.read(list, AllianceGiftLedger.TEXT_LEFT,
+					AllianceGiftLedger.LIST_TOP, AllianceGiftLedger.TEXT_RIGHT, AllianceGiftLedger.LIST_BOTTOM, "en",
+					OCR_MIN_CONFIDENCE), LocalDateTime.now(), "links", 0);
+			int followed = 0;
+			for (GiftRow row : rows) {
+				if (followed >= MAX_LINKS_PER_PASS) {
+					break;
+				}
+				PackLinks.Target target = PackLinks.inCard(targets, row.listY());
+				if (target == null || links.followed(row.pack())) {
+					continue;
+				}
+				tapInside(new PointData(target.x() - 4, target.y() - 2), new PointData(target.x() + 4, target.y() + 2));
+				sleepTask(LINK_PAGE_WAIT_MS);
+				BufferedImage page = screenNow();
+				List<TextLine> pageLines = page == null ? List.of()
+						: reader.read(page, 0, 0, page.getWidth(), page.getHeight(), "en", OCR_MIN_CONFIDENCE);
+				PackLinks.Page seen = links.record(row.pack(), page, pageLines, LocalDateTime.now());
+				followed++;
+				logInfo(routineLogAllianceChestLine("Alliance Spend | followed the link of \"" + row.pack() + "\": prices "
+						+ seen.prices() + ", page saved to " + seen.frame()));
+				pressBack();
+				sleepTask(1500);
+				BufferedImage back = screenNow();
+				if (back == null || !PackLinks.sameHeader(list, back)) {
+					lostTheList = true;
+					logWarning(routineLogAllianceChestLine("Alliance Spend | Back from \"" + row.pack()
+							+ "\" did not return to the gift list; stopping here."));
+					return;
+				}
+			}
+		} catch (RuntimeException | java.io.IOException e) {
+			logWarning(routineLogAllianceChestLine("Alliance Spend | following pack links failed: " + e));
+		} finally {
+			if (reader instanceof OnnxOcrReader onnx) {
+				onnx.close();
+			}
+		}
 	}
 
 private ChatTextReader openReader() {
