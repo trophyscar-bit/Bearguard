@@ -42,9 +42,21 @@ public final class PackLinks {
     public record Target(int x, int y) {
     }
 
-    /** What a followed link showed: the page's top text and every dollar price on it. */
-    public record Page(String pack, String seenAt, String frame, List<String> text, List<Double> prices) {
+    /**
+     * What following a pack's link showed: the page's text and every dollar price on it. {@code link}
+     * is false when the pack's name was not a link (the pack is not on sale); {@code tries} counts
+     * attempts, so a pack whose page showed no price is retried a few times and then left to the
+     * nightly review.
+     */
+    public record Page(String pack, String seenAt, String frame, List<String> text, List<Double> prices,
+                       boolean link, int tries) {
     }
+
+    /** A pack not on sale, or whose page showed no price, is tried again after this long. */
+    static final long RETRY_HOURS = 24;
+
+    /** Attempts before a priceless page is left to the nightly review. */
+    static final int MAX_TRIES = 3;
 
     private static final Pattern DOLLARS = Pattern.compile("\\$\\s?(\\d{1,3}(?:[.,]\\d{2}))");
 
@@ -70,6 +82,24 @@ public final class PackLinks {
 
     public boolean followed(String pack) {
         return pack == null || pages.containsKey(AllianceGiftLedger.normalise(pack));
+    }
+
+    /**
+     * Whether a pack's link should be followed now: never followed, or last seen not on sale or
+     * with no price at least {@link #RETRY_HOURS} ago and fewer than {@link #MAX_TRIES} times.
+     */
+    public boolean due(String pack, LocalDateTime now) {
+        if (pack == null || pack.isBlank()) {
+            return false;
+        }
+        Page last = pages.get(AllianceGiftLedger.normalise(pack));
+        if (last == null) {
+            return true;
+        }
+        if (last.link() && !last.prices().isEmpty() || last.tries() >= MAX_TRIES) {
+            return false;
+        }
+        return !LocalDateTime.parse(last.seenAt()).plusHours(RETRY_HOURS).isAfter(now);
     }
 
     public Map<String, Page> pages() {
@@ -150,10 +180,10 @@ public final class PackLinks {
         return found;
     }
 
-    /** Saves what a followed link opened and remembers the pack, so it is followed only once. */
+    /** Saves what a followed link opened, so a pack with a price on its page is not followed again. */
     public Page record(String pack, BufferedImage page, List<TextLine> lines, LocalDateTime seenAt) throws IOException {
         String key = AllianceGiftLedger.normalise(pack);
-        Path dir = Files.createDirectories(root.resolve("pack-links"));
+        Files.createDirectories(root.resolve("pack-links"));
         String frame = null;
         if (page != null) {
             frame = "pack-links/" + key + ".png";
@@ -165,9 +195,26 @@ public final class PackLinks {
         for (TextLine line : ordered) {
             text.add(line.text());
         }
-        Page seen = new Page(pack, seenAt.truncatedTo(ChronoUnit.SECONDS).toString(), frame, text, prices(ordered));
+        return save(key, new Page(pack, seenAt.truncatedTo(ChronoUnit.SECONDS).toString(), frame, text,
+                prices(ordered), true, tries(key) + 1));
+    }
+
+    /** Remembers that a pack's name was not a link, i.e. it is not on sale right now. */
+    public Page recordNotALink(String pack, LocalDateTime seenAt) throws IOException {
+        String key = AllianceGiftLedger.normalise(pack);
+        return save(key, new Page(pack, seenAt.truncatedTo(ChronoUnit.SECONDS).toString(), null, List.of(),
+                List.of(), false, tries(key) + 1));
+    }
+
+    private int tries(String key) {
+        Page last = pages.get(key);
+        return last == null ? 0 : last.tries();
+    }
+
+    private Page save(String key, Page seen) throws IOException {
         pages.put(key, seen);
-        Path tmp = dir.resolve("pack-links.json.tmp");
+        Files.createDirectories(root);
+        Path tmp = root.resolve("pack-links.json.tmp");
         MAPPER.writeValue(tmp.toFile(), pages);
         Files.move(tmp, root.resolve("pack-links.json"), StandardCopyOption.REPLACE_EXISTING,
                 StandardCopyOption.ATOMIC_MOVE);

@@ -69,4 +69,30 @@ class PackLinksTest {
         assertTrue(Files.exists(dir.resolve("pack-links/scarletcount.png")));
         assertEquals(9.99, PackLinks.pricesByPack(dir).get("scarletcount").first());
     }
+
+    @Test
+    void retriesAPackNotOnSaleOrWithoutAPriceADayLaterAndStopsAfterThreeTries(@TempDir Path dir) throws Exception {
+        PackLinks links = new PackLinks(dir);
+        LocalDateTime noon = LocalDateTime.parse("2026-10-27T12:00");
+        assertTrue(links.due("Ghoul Baron", noon));
+        links.recordNotALink("Ghoul Baron", noon);
+        assertFalse(links.due("Ghoul Baron", noon.plusHours(23)));
+        assertTrue(links.due("Ghoul Baron", noon.plusHours(24)));
+        links.record("Ghoul Baron", null, List.of(), noon.plusHours(24));
+        links.record("Ghoul Baron", null, List.of(), noon.plusHours(48));
+        assertFalse(links.due("Ghoul Baron", noon.plusDays(5)), "three tries, then the nightly review takes it");
+        links.record("Scarlet Count", null, List.of(new TextLine("$9.99", 300, 1000, 80, 30, 0.9f)), noon);
+        assertFalse(links.due("Scarlet Count", noon.plusDays(5)), "a page with a price is never followed again");
+    }
+
+    @Test
+    void aFollowedLinksPriceMakesThePackKnown(@TempDir Path ws) throws Exception {
+        Path spend = Files.createDirectories(ws.resolve("data/alliance-spend"));
+        var known = AllianceSpendReport.knownPrice(ws);
+        assertFalse(known.test("Scarlet Count", "Alliance Gift II"));
+        new PackLinks(spend).record("Scarlet Count", null, List.of(new TextLine("$9.99", 300, 1000, 80, 30, 0.9f)),
+                LocalDateTime.parse("2026-10-27T12:00"));
+        assertTrue(AllianceSpendReport.knownPrice(ws).test("Scarlet Count", "Alliance Gift II"));
+        assertFalse(AllianceSpendReport.knownPrice(ws).test("Scarlet Count", "Alliance Gift IV"), "$9.99 does not fit tier IV");
+    }
 }

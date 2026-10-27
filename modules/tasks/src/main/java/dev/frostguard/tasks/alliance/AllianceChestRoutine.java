@@ -12,6 +12,7 @@ import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.engine.alliance.AllianceGiftLedger;
 import dev.frostguard.engine.alliance.AllianceGiftLedger.GiftRow;
+import dev.frostguard.engine.alliance.AllianceSpendReport;
 import dev.frostguard.engine.alliance.PackLinks;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -25,9 +26,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.BiPredicate;
 import javax.imageio.ImageIO;
 
 public class AllianceChestRoutine extends DelayedTask {
@@ -304,64 +309,102 @@ private void logGiftList() {
 		sleepTask(SHORT_WAIT_TIME_MS);
 	}
 
-/** New packs whose links are followed per pass; the rest wait for the next one, an hour later. */
-private static final int MAX_LINKS_PER_PASS = 3;
+/** Links followed per pass; any further unknown packs wait for the next pass, an hour later. */
+private static final int MAX_LINKS_PER_PASS = 5;
 
 private static final int LINK_PAGE_WAIT_MS = 2500;
 
+/** A card whose text ends this far above the list's bottom edge is whole, so a missing link is real. */
+private static final int WHOLE_CARD_PX = 110;
+
 /**
- * Follows the pack-name link of up to {@link #MAX_LINKS_PER_PASS} packs on the top screen that
- * have never been followed, saving and reading the page each opens, then presses Back. Nothing on
- * the opened page is tapped. Stops, and sets {@link #lostTheList}, if Back does not bring the
+ * For every pack on the gift list whose price is not known, follows the pack name's link, saves
+ * and reads the page it opens, and presses Back; nothing on that page is tapped. Walks the whole
+ * list screen by screen, up to {@link #MAX_LINKS_PER_PASS} links a pass. A pack whose name is not
+ * a link is recorded as not on sale; both that and a page with no price are retried a day later
+ * (see {@link PackLinks#due}). Stops, and sets {@link #lostTheList}, if Back does not bring the
  * gift list back.
  */
 private void followPackLinks() {
 		ChatTextReader reader = null;
+		int scrolls = 0;
 		try {
-			PackLinks links = new PackLinks(AllianceGiftLedger.forWorkspace(
-					dev.frostguard.api.runtime.WorkspacePaths.current().root()).root());
-			BufferedImage list = screenNow();
-			if (list == null) {
-				return;
-			}
-			List<PackLinks.Target> targets = PackLinks.find(list);
-			if (targets.isEmpty()) {
-				return;
-			}
+			Path workspace = dev.frostguard.api.runtime.WorkspacePaths.current().root();
+			PackLinks links = new PackLinks(AllianceGiftLedger.forWorkspace(workspace).root());
+			BiPredicate<String, String> known = AllianceSpendReport.knownPrice(workspace);
 			reader = openReader();
 			if (reader == null) {
 				return;
 			}
-			List<GiftRow> rows = AllianceGiftLedger.parseFrame(reader.read(list, AllianceGiftLedger.TEXT_LEFT,
-					AllianceGiftLedger.LIST_TOP, AllianceGiftLedger.TEXT_RIGHT, AllianceGiftLedger.LIST_BOTTOM, "en",
-					OCR_MIN_CONFIDENCE), LocalDateTime.now(), "links", 0);
+			Integer configuredScrolls = profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_MAX_SCROLLS_INT, Integer.class);
+			int maxScrolls = configuredScrolls == null || configuredScrolls < 1 ? 40 : configuredScrolls;
+			Set<String> handled = new HashSet<>();
 			int followed = 0;
-			for (GiftRow row : rows) {
-				if (followed >= MAX_LINKS_PER_PASS) {
+			BufferedImage screen = screenNow();
+			while (screen != null && followed < MAX_LINKS_PER_PASS && scrolls <= maxScrolls) {
+				List<GiftRow> rows = AllianceGiftLedger.parseFrame(reader.read(screen, AllianceGiftLedger.TEXT_LEFT,
+						AllianceGiftLedger.LIST_TOP, AllianceGiftLedger.TEXT_RIGHT, AllianceGiftLedger.LIST_BOTTOM, "en",
+						OCR_MIN_CONFIDENCE), LocalDateTime.now(), "links", 0);
+				List<PackLinks.Target> targets = PackLinks.find(screen);
+				BufferedImage backOnList = null;
+				for (GiftRow row : rows) {
+					String pack = row.pack();
+					if (pack == null || !handled.add(packKey(pack))) {
+						continue;
+					}
+					LocalDateTime now = LocalDateTime.now();
+					if (known.test(pack, row.tier()) || !links.due(pack, now)) {
+						continue;
+					}
+					PackLinks.Target target = PackLinks.inCard(targets, row.listY());
+					if (target == null) {
+						if (row.listY() + WHOLE_CARD_PX < AllianceGiftLedger.LIST_BOTTOM) {
+							links.recordNotALink(pack, now);
+							logInfo(routineLogAllianceChestLine("Alliance Spend | \"" + pack
+									+ "\" is not a link (not on sale now); will look again tomorrow."));
+						} else {
+							handled.remove(packKey(pack));
+						}
+						continue;
+					}
+					tapInside(new PointData(target.x() - 4, target.y() - 2), new PointData(target.x() + 4, target.y() + 2));
+					sleepTask(LINK_PAGE_WAIT_MS);
+					BufferedImage page = screenNow();
+					List<TextLine> pageLines = page == null ? List.of()
+							: reader.read(page, 0, 0, page.getWidth(), page.getHeight(), "en", OCR_MIN_CONFIDENCE);
+					PackLinks.Page seen = links.record(pack, page, pageLines, now);
+					followed++;
+					logInfo(routineLogAllianceChestLine("Alliance Spend | followed the link of \"" + pack + "\": prices "
+							+ seen.prices() + ", page saved to " + seen.frame()));
+					pressBack();
+					sleepTask(1500);
+					BufferedImage back = screenNow();
+					if (back == null || !PackLinks.sameHeader(screen, back)) {
+						lostTheList = true;
+						logWarning(routineLogAllianceChestLine("Alliance Spend | Back from \"" + pack
+								+ "\" did not return to the gift list; stopping here."));
+						return;
+					}
+					// Back may leave the list scrolled elsewhere; read it again where it is.
+					backOnList = back;
 					break;
 				}
-				PackLinks.Target target = PackLinks.inCard(targets, row.listY());
-				if (target == null || links.followed(row.pack())) {
+				if (backOnList != null) {
+					screen = backOnList;
 					continue;
 				}
-				tapInside(new PointData(target.x() - 4, target.y() - 2), new PointData(target.x() + 4, target.y() + 2));
-				sleepTask(LINK_PAGE_WAIT_MS);
-				BufferedImage page = screenNow();
-				List<TextLine> pageLines = page == null ? List.of()
-						: reader.read(page, 0, 0, page.getWidth(), page.getHeight(), "en", OCR_MIN_CONFIDENCE);
-				PackLinks.Page seen = links.record(row.pack(), page, pageLines, LocalDateTime.now());
-				followed++;
-				logInfo(routineLogAllianceChestLine("Alliance Spend | followed the link of \"" + row.pack() + "\": prices "
-						+ seen.prices() + ", page saved to " + seen.frame()));
-				pressBack();
-				sleepTask(1500);
-				BufferedImage back = screenNow();
-				if (back == null || !PackLinks.sameHeader(list, back)) {
-					lostTheList = true;
-					logWarning(routineLogAllianceChestLine("Alliance Spend | Back from \"" + row.pack()
-							+ "\" did not return to the gift list; stopping here."));
-					return;
+				swipe(new PointData(360, SWIPE_FROM_Y), new PointData(360, SWIPE_TO_Y), SWIPE_MS);
+				sleepTask(700);
+				scrolls++;
+				BufferedImage next = screenNow();
+				if (next == null) {
+					break;
 				}
+				int shift = AllianceGiftLedger.scrollShift(screen, next);
+				if (shift >= 0 && shift <= END_OF_LIST_SHIFT_PX) {
+					break;
+				}
+				screen = next;
 			}
 		} catch (RuntimeException | java.io.IOException e) {
 			logWarning(routineLogAllianceChestLine("Alliance Spend | following pack links failed: " + e));
@@ -370,6 +413,17 @@ private void followPackLinks() {
 				onnx.close();
 			}
 		}
+		if (!lostTheList) {
+			for (int i = 0; i < scrolls / 2 + 2; i++) {
+				swipe(new PointData(360, 600), new PointData(360, 1080), 250);
+			}
+			sleepTask(SHORT_WAIT_TIME_MS);
+		}
+	}
+
+/** A pack name with case, spacing and punctuation dropped, so two reads of one pack match. */
+private static String packKey(String pack) {
+		return pack.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "");
 	}
 
 private ChatTextReader openReader() {
