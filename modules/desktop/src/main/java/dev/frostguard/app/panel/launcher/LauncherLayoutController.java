@@ -24,6 +24,7 @@ import dev.frostguard.app.panel.combat.BearTrapLayoutController;
 import dev.frostguard.app.panel.combat.BeastHuntingLayoutController;
 import dev.frostguard.app.panel.dailies.ChiefOrderLayoutController;
 import dev.frostguard.app.panel.city.CityEventsExtraLayoutController;
+import dev.frostguard.app.panel.city.DawnAcademyLayoutController;
 import dev.frostguard.app.panel.city.CityEventsLayoutController;
 import dev.frostguard.app.panel.city.CityUpgradesLayoutController;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
@@ -808,6 +809,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 new ModuleDefinition("CityUpgradesLayout",        "City Upgrades",        MaterialDesignC.CITY_VARIANT_OUTLINE,       CityUpgradesLayoutController::new),
                 new ModuleDefinition("CityEventsLayout",         "City Events",          MaterialDesignC.CALENDAR_OUTLINE,           CityEventsLayoutController::new),
                 new ModuleDefinition("CityEventsExtraLayout",    "Extra City Events",    MaterialDesignC.CALENDAR_PLUS,              CityEventsExtraLayoutController::new),
+                new ModuleDefinition("DawnAcademyLayout",        "Dawn Academy",         MaterialDesignS.SCHOOL_OUTLINE,             DawnAcademyLayoutController::new),
                 new ModuleDefinition("PolarTerrorLayout",        "Rally",                MaterialDesignF.FLAG_OUTLINE,               PolarTerrorLayoutController::new),
                 new ModuleDefinition("ShopLayout",               "General Shop",         MaterialDesignS.STORE_OUTLINE,              ShopLayoutController::new),
                 new ModuleDefinition("GemShopLayout",            "Gem Shop",             MaterialDesignS.STORE_OUTLINE,              GemShopLayoutController::new),
@@ -856,7 +858,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         java.util.List<String> eventOrder = java.util.List.of(
                 "Events", "Alliance Championship", "Alliance Mobilization", "Bear Trap", "Fishing Tournament", "Labyrinth");
         java.util.List<String> cityOrder = java.util.List.of(
-                "City Upgrades", "City Events", "Extra City Events", "Research");
+                "City Upgrades", "City Events", "Extra City Events", "Dawn Academy", "Research");
         java.util.List<String> allianceOrder = java.util.List.of(
                 "Alliance", "Alliance Championship", "Alliance Mobilization", "Alliance Shop", "Alliance Spend");
         java.util.List<String> economyOrder = java.util.List.of(

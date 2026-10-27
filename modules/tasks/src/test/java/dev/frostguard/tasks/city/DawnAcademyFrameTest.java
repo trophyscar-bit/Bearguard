@@ -1,0 +1,208 @@
+package dev.frostguard.tasks.city;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.Duration;
+import java.util.Objects;
+
+import javax.imageio.ImageIO;
+
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import dev.frostguard.api.configs.TemplatesEnum;
+import dev.frostguard.api.domain.ImageSearchResultData;
+import dev.frostguard.api.domain.OcrSettingsData;
+import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.vision.convert.GameTimeUtils;
+import dev.frostguard.vision.match.OpenCvPatternLocator;
+import dev.frostguard.vision.ocr.OcrEngine;
+
+/**
+ * Dawn Academy screens from live 720x1280 captures taken on 27 Oct 2026: Cyrille's skill card
+ * before and after an upgrade, the learning dialog, the City sidebar Expert row, the Trek
+ * landing, both trek routes, the free supply panel and Endless Wayfarer.
+ */
+class DawnAcademyFrameTest {
+
+    private static final String DIR = "/dawnacademy/";
+
+    @BeforeAll
+    static void loadOpenCv() throws IOException {
+        try {
+            OpenCvPatternLocator.loadNativeLibrary();
+        } catch (UnsatisfiedLinkError ignored) {
+            // Another saved-frame test may already have loaded OpenCV in this JVM.
+        }
+    }
+
+    @Test
+    void theShortestLearningTimeThatFillsTheBarIsPicked() {
+        // 4,200/7,200 needs 3,000 XP: 10m gives 600, 2h gives 7,200.
+        assertEquals(Duration.ofHours(2), DawnAcademyRoutine.pickLearningOption(4_200, 7_200).duration());
+        assertEquals(Duration.ofMinutes(10), DawnAcademyRoutine.pickLearningOption(7_000, 7_200).duration());
+        assertEquals(Duration.ofHours(10), DawnAcademyRoutine.pickLearningOption(0, 30_000).duration());
+        assertEquals(Duration.ofHours(23), DawnAcademyRoutine.pickLearningOption(0, 50_000).duration());
+        // More than a 23h session can give: still 23h, the longest unlocked option.
+        assertEquals(Duration.ofHours(23), DawnAcademyRoutine.pickLearningOption(0, 200_000).duration());
+    }
+
+    @Test
+    void fractionsAndCountsParse() {
+        assertArrayEquals(new long[]{4_200, 7_200}, DawnAcademyRoutine.parseFraction("4,200/7,200"));
+        assertArrayEquals(new long[]{4_200, 7_200}, DawnAcademyRoutine.parseFraction("4,200+7,200/7,200"));
+        assertNull(DawnAcademyRoutine.parseFraction("Learning XP"));
+        assertEquals(9, DawnAcademyRoutine.parseCount("9/100"));
+        assertEquals(10, DawnAcademyRoutine.parseCount("10"));
+        assertNull(DawnAcademyRoutine.parseCount("/"));
+    }
+
+    @Test
+    void theSkillCardShowsLearningXpBesideTheLearnButton() throws Exception {
+        // With the Upgrade Skill button the card sits 40px higher; the XP read follows the button.
+        assertArrayEquals(new long[]{7_800, 3_600}, xpBesideLearn("skill-card-upgradable.png"));
+        assertArrayEquals(new long[]{4_200, 7_200}, xpBesideLearn("skill-card-lv2.png"));
+        assertTrue(find("skill-card-upgradable.png", TemplatesEnum.DAWN_ACADEMY_UPGRADE_SKILL_BUTTON).isFound());
+        assertFalse(find("skill-card-lv2.png", TemplatesEnum.DAWN_ACADEMY_UPGRADE_SKILL_BUTTON).isFound());
+    }
+
+    @Test
+    void aLearningSkillShowsItsTimerUnderTheSpeedupIcon() throws Exception {
+        ImageSearchResultData speedup = find("skill-card-learning.png", TemplatesEnum.EXPERT_TRAINING_SPEEDUP_ICON);
+        assertTrue(speedup.isFound());
+        int top = speedup.getMatchedArea().topLeft().getY();
+        Duration left = plainDuration("skill-card-learning.png", new PointData(535, top + 64), new PointData(660, top + 94));
+        assertTrue(left != null && left.toMinutes() >= 119 && left.toMinutes() <= 120, "timer " + left);
+        assertFalse(find("skill-card-learning.png", TemplatesEnum.EXPERT_TRAINING_LEARN_BUTTON).isFound());
+    }
+
+    @Test
+    void aLockedSkillShowsUnlockInsteadOfLearn() throws Exception {
+        assertTrue(find("skill-locked.png", TemplatesEnum.DAWN_ACADEMY_SKILL_UNLOCK_BUTTON).isFound());
+        assertFalse(find("skill-locked.png", TemplatesEnum.EXPERT_TRAINING_LEARN_BUTTON).isFound());
+    }
+
+    @Test
+    void theLearnDialogShowsThePickedDurationOnItsButton() throws Exception {
+        assertTrue(find("learn-dialog-2h.png", TemplatesEnum.DAWN_ACADEMY_LEARN_SKILLS_TITLE).isFound());
+        assertTrue(find("learn-dialog-2h.png", TemplatesEnum.DAWN_ACADEMY_LEARN_CONFIRM_BUTTON).isFound());
+        assertEquals(Duration.ofHours(2),
+                duration("learn-dialog-2h.png", new PointData(440, 928), new PointData(640, 962)));
+    }
+
+    @Test
+    void theSidebarExpertRowCarriesTheLearningTimer() throws Exception {
+        ImageSearchResultData row = find("sidebar-expert-row.png", TemplatesEnum.LEFT_MENU_EXPERT_TRAINING_BUTTON);
+        assertTrue(row.isFound());
+        int top = row.getMatchedArea().topLeft().getY();
+        Duration left = plainDuration("sidebar-expert-row.png", new PointData(120, top + 10), new PointData(330, top + 42));
+        assertTrue(left != null && left.toMinutes() == 107, "timer " + left);
+    }
+
+    @Test
+    void theTrekLandingShowsBothRoutesAndBothCounters() throws Exception {
+        assertTrue(find("trek-landing.png", TemplatesEnum.DAWN_ACADEMY_TUNDRA_TREK_SIGN).isFound());
+        assertTrue(find("trek-landing.png", TemplatesEnum.DAWN_ACADEMY_FRONTIER_TREK_SIGN).isFound());
+        assertEquals(0, count("trek-landing.png", new PointData(512, 22), new PointData(615, 60)));
+        // The Frontier counter's lone 0 reads as 8 with the white-text preset, so the plain read is used.
+        assertEquals(0, plainCount("trek-landing.png", new PointData(350, 22), new PointData(420, 60)));
+        assertTrue(find("academy.png", TemplatesEnum.DAWN_ACADEMY_TREK_BUTTON).isFound());
+    }
+
+    @Test
+    void theTrekRoutesShowTheirSuppliesAndAutoButton() throws Exception {
+        assertEquals(10, count("tundra-route.png", new PointData(512, 22), new PointData(615, 60)));
+        assertEquals(10, count("frontier-route.png", new PointData(512, 22), new PointData(615, 60)));
+        assertTrue(find("tundra-route.png", TemplatesEnum.TUNDRA_TREK_AUTO_BUTTON).isFound());
+        assertTrue(find("tundra-route.png", TemplatesEnum.DAWN_ACADEMY_NEXT_STOP_BUTTON).isFound());
+    }
+
+    @Test
+    void theAutoTrekDialogShowsTheAutoManageTick() throws Exception {
+        assertTrue(find("auto-trek-unticked.png", TemplatesEnum.DAWN_ACADEMY_AUTO_TREK_TITLE).isFound());
+        assertTrue(find("auto-trek-unticked.png", TemplatesEnum.TUNDRA_TREK_CHECK_INACTIVE).isFound());
+        assertTrue(find("auto-trek-ticked.png", TemplatesEnum.TUNDRA_TREK_CHECK_ACTIVE).isFound());
+    }
+
+    @Test
+    void theSupplyPanelHasNoClaimWhileItsTimerRuns() throws Exception {
+        assertTrue(find("supply-panel.png", TemplatesEnum.DAWN_ACADEMY_CLAIM_FOR_FREE_TITLE).isFound());
+        Duration next = duration("supply-panel.png", new PointData(505, 585), new PointData(650, 625));
+        assertTrue(next != null && next.toMinutes() == 402, "next supply " + next);
+    }
+
+    @Test
+    void theGiftScreenOpensFromStatsAndShowsTheChosenCount() throws Exception {
+        assertTrue(find("expert-stats.png", TemplatesEnum.DAWN_ACADEMY_GIFT_OPEN_BUTTON).isFound());
+        assertTrue(find("gift-screen.png", TemplatesEnum.DAWN_ACADEMY_SELECT_GIFT_TITLE).isFound());
+        assertEquals(0, count("gift-screen.png", new PointData(470, 1068), new PointData(590, 1108)));
+    }
+
+    @Test
+    void wayfarerShowsClaimAll() throws Exception {
+        assertTrue(find("wayfarer.png", TemplatesEnum.DAWN_ACADEMY_WAYFARER_CLAIM_ALL).isFound());
+    }
+
+    private long[] xpBesideLearn(String name) throws Exception {
+        ImageSearchResultData learn = find(name, TemplatesEnum.EXPERT_TRAINING_LEARN_BUTTON);
+        assertTrue(learn.isFound(), name + " learn button");
+        int top = learn.getMatchedArea().topLeft().getY();
+        String text = OcrEngine.recognizeText(frame(name), new PointData(115, top + 8), new PointData(535, top + 44),
+                OcrSettingsData.forWhiteTextOnDark());
+        return DawnAcademyRoutine.parseFraction(text);
+    }
+
+    private Duration duration(String name, PointData topLeft, PointData bottomRight) throws Exception {
+        String text = OcrEngine.recognizeText(frame(name), topLeft, bottomRight, OcrSettingsData.forWhiteTextOnDark());
+        return text != null && GameTimeUtils.isAcceptedFormat(text) ? GameTimeUtils.parseDuration(text) : null;
+    }
+
+    private Duration plainDuration(String name, PointData topLeft, PointData bottomRight) throws Exception {
+        String text = OcrEngine.recognizeText(frame(name), topLeft, bottomRight, "eng");
+        return text != null && GameTimeUtils.isAcceptedFormat(text) ? GameTimeUtils.parseDuration(text) : null;
+    }
+
+    private Integer count(String name, PointData topLeft, PointData bottomRight) throws Exception {
+        return DawnAcademyRoutine.parseCount(OcrEngine.recognizeText(frame(name), topLeft, bottomRight,
+                OcrSettingsData.forWhiteTextOnDark()));
+    }
+
+    private Integer plainCount(String name, PointData topLeft, PointData bottomRight) throws Exception {
+        return DawnAcademyRoutine.parseCount(OcrEngine.recognizeText(frame(name), topLeft, bottomRight, "eng"));
+    }
+
+    private ImageSearchResultData find(String name, TemplatesEnum template) throws IOException {
+        return OpenCvPatternLocator.locatePattern(bytes(name), template.getTemplate(),
+                new PointData(0, 0), new PointData(719, 1279), 90);
+    }
+
+    private byte[] bytes(String name) throws IOException {
+        try (InputStream in = Objects.requireNonNull(getClass().getResourceAsStream(DIR + name), name)) {
+            return in.readAllBytes();
+        }
+    }
+
+    private RawImageData frame(String name) throws IOException {
+        BufferedImage image = ImageIO.read(Objects.requireNonNull(getClass().getResourceAsStream(DIR + name), name));
+        byte[] rgba = new byte[image.getWidth() * image.getHeight() * 4];
+        int o = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int rgb = image.getRGB(x, y);
+                rgba[o++] = (byte) ((rgb >> 16) & 0xFF);
+                rgba[o++] = (byte) ((rgb >> 8) & 0xFF);
+                rgba[o++] = (byte) (rgb & 0xFF);
+                rgba[o++] = (byte) 0xFF;
+            }
+        }
+        return RawImageData.capture(rgba, image.getWidth(), image.getHeight(), 32);
+    }
+}
