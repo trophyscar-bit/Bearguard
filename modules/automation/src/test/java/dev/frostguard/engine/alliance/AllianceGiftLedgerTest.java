@@ -266,4 +266,31 @@ class AllianceGiftLedgerTest {
             assertEquals("Common Lucky Chip Pack", rows.get(3).pack());
         }
     }
+
+    @Test
+    void aReferenceThatHasLeftTheListLogsTheWholeListAfterAGap(@TempDir Path dir) throws Exception {
+        AllianceGiftLedger ledger = new AllianceGiftLedger(dir);
+        List<GiftRow> yesterday = AllianceGiftLedger.stitch(rows(0, List.of(
+                card(560, "Alliance Gift I", "Lune has purchased \"Daily Deals\""),
+                card(712, "Alliance Gift II", "Braslin has purchased \"Path of Honor\""))));
+        java.time.Instant then = java.time.Instant.parse("2026-10-26T15:23:00Z");
+        ledger.recordPass(yesterday, false, true, then);
+        List<GiftRow> today = AllianceGiftLedger.stitch(rows(0, List.of(
+                card(560, "Alliance Gift II", "Your ally has purchased \"Scarlet Count\""),
+                card(712, "Alliance Gift I", "Your ally has purchased \"Ghoul Baron\""))));
+        AllianceGiftLedger.PassResult result = ledger.recordPass(today, false, true, then.plus(java.time.Duration.ofHours(26)));
+        assertTrue(result.afterGap());
+        assertEquals(2, result.fresh());
+        assertTrue(Files.readString(dir.resolve("gifts.jsonl")).contains("\"afterGap\":true"));
+    }
+
+    @Test
+    void aFreshMisalignedReferenceStillLogsNothing() {
+        java.time.Instant then = java.time.Instant.parse("2026-10-27T15:00:00Z");
+        // Same UTC day and under 24h: a misread, not a gone list.
+        assertFalse(AllianceGiftLedger.stale(then, then.plusSeconds(3600), List.of("a"), List.of("b")));
+        assertTrue(AllianceGiftLedger.stale(then, then.plusSeconds(10 * 3600), List.of("a"), List.of("b")),
+                "crossed 00:00 UTC and nothing of the old list remains");
+        assertFalse(AllianceGiftLedger.stale(then, then.plusSeconds(10 * 3600), List.of("a"), List.of("a", "b")));
+    }
 }

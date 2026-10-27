@@ -95,4 +95,14 @@ class PackLinksTest {
         assertTrue(AllianceSpendReport.knownPrice(ws).test("Scarlet Count", "Alliance Gift II"));
         assertFalse(AllianceSpendReport.knownPrice(ws).test("Scarlet Count", "Alliance Gift IV"), "$9.99 does not fit tier IV");
     }
+
+    @Test
+    void takesThePacksOwnPriceNotTheNextCardsOnADealsTab() {
+        List<TextLine> page = List.of(new TextLine("$19.99", 500, 120, 80, 30, 0.9f),
+                new TextLine("Mastery Forging", 50, 240, 250, 30, 0.9f), new TextLine("$4.99", 520, 455, 80, 30, 0.9f),
+                new TextLine("Gear Empowerment", 50, 580, 250, 30, 0.9f), new TextLine("$9.99", 520, 790, 80, 30, 0.9f));
+        assertEquals(4.99, PackLinks.ownPrice("Mastery Forging", page));
+        assertEquals(19.99, PackLinks.ownPrice("Unlisted Pack", page), "no title on the page: the first price");
+        assertNull(PackLinks.ownPrice("Scarlet Count", List.of(new TextLine("Spooky Gathering", 40, 230, 300, 40, 0.9f))));
+    }
 }
