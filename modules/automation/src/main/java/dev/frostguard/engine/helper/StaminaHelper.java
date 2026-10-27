@@ -2,6 +2,8 @@ package dev.frostguard.engine.helper;
 
 import dev.frostguard.api.configs.TpMessageSeverityEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.engine.emulator.EmulatorController;
 import dev.frostguard.engine.input.TapInteractionService;
 import dev.frostguard.engine.input.TapJitterPolicy;
@@ -11,10 +13,12 @@ import dev.frostguard.engine.schedule.StaminaWaitScheduler;
 import dev.frostguard.engine.service.LoggingService;
 import dev.frostguard.engine.service.StaminaService;
 import dev.frostguard.vision.convert.GameTimeUtils;
+import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.RegexNumberParser;
 import dev.frostguard.vision.logging.ProfileContextLogger;
 import dev.frostguard.vision.ocr.ResilientOcrExecutor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 // Orchestrates stamina tracking: OCR reads, regen delay computation,
@@ -96,8 +100,10 @@ public class StaminaHelper {
         try {
             Integer reading = hudStaminaUi.readStamina(STAMINA_OCR_ATTEMPTS, STAMINA_OCR_RETRY_MS);
             if (reading == null) {
-                emitWarn("HUD stamina unreadable (elapsed " + (System.currentTimeMillis() - startMs)
-                        + "ms); is the City or World map on screen?");
+                String snapshot = retainStaminaOcrFailureSnapshot();
+                emitWarn("HUD stamina unreadable after " + STAMINA_OCR_ATTEMPTS + " attempts (elapsed "
+                        + (System.currentTimeMillis() - startMs) + "ms); is the City or World map on screen? "
+                        + snapshot);
             } else {
                 emitInfo("Stamina read: " + reading);
                 persistence.setStamina(accountKey, reading);
@@ -133,6 +139,37 @@ public class StaminaHelper {
         taps.tapNear(CommonGameAreas.STAMINA_DIALOG_CLOSE, TapJitterPolicy.DEFAULT_POINT_JITTER_RADIUS);
         pause(800);
         return result;
+    }
+
+    RawImageData captureStaminaDiagnosticFrame() {
+        return device.captureScreen(deviceSlot);
+    }
+
+    DiagnosticSnapshotStore diagnosticSnapshotStore() {
+        return DiagnosticSnapshotStore.forCurrentWorkspace();
+    }
+
+    boolean diagnosticSnapshotsEnabled() {
+        return diagnosticSnapshotStore().isEnabled();
+    }
+
+    String retainStaminaOcrFailureSnapshot() {
+        if (!diagnosticSnapshotsEnabled()) {
+            return "snapshot=disabled";
+        }
+        try {
+            RawImageData frame = captureStaminaDiagnosticFrame();
+            try {
+                ImageConverter.toBufferedImage(frame);
+            } catch (RuntimeException failure) {
+                return "snapshot=unavailable; reason=capture-returned-no-valid-frame";
+            }
+            return diagnosticSnapshotStore().write(frame, "stamina", "ocr-failed", Instant.now())
+                    .map(path -> "snapshot=" + path)
+                    .orElse("snapshot=unavailable; reason=write-failed");
+        } catch (RuntimeException failure) {
+            return "snapshot=unavailable; reason=" + failure.getClass().getSimpleName();
+        }
     }
 
     /** Same, but for the dialog the game opens itself when a red deploy cost is pressed. */
