@@ -9,9 +9,11 @@ moved into this panel. The skill priority list is the existing
 
 Entry is the City sidebar Expert row (the book icon). Its second line is the
 learning timer, read with the plain OCR path relative to the icon. The row's
-arrow opens the learning Expert's skill card while a skill is learning. The
-idle-row case is not yet captured. The task then expects the Expert screen or
-Dawn Academy, and otherwise reschedules in 30 minutes.
+arrow opens the learning Expert's skill card while a skill is learning. When
+idle, the row reads "Learn Skills / Idle" and the arrow opens Dawn Academy
+with a guide hand pointing at an Expert in their room. The Academy's Learn
+icon only re-shows that hand. The task taps the fingertip, offset (-20,-5)
+from the hand template, to open the Expert.
 
 Learning picks the shortest of 10m, 2h, 10h and 23h whose XP covers what the
 bar still needs. Learning XP accrues at one point per second, so 2h gives
