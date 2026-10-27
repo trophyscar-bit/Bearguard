@@ -190,6 +190,7 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final int POPUP_SETTLE_MS = 1500;
     /** A paid track's Unlock button sits in the page header, above the reward list. */
     private static final int UNLOCK_MAX_Y = 640;
+    private static final int SUB_PAGE_BACK_PRESSES = 2;
     /**
      * The row flings on past the drag: a 330 px drag moved Fire Crystal Pack's tiles 450 px on 2026-10-25,
      * more than the 430 px of row that shows, and its 10K Meat was never whole in any frame. A 220 px drag
@@ -235,6 +236,8 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      * x 580-715, y 45-95 on every city frame captured. A tap there is only trusted once a tabbed panel opens.
      */
     private static final PointData GEM_SHOP_HUD_BUTTON = new PointData(648, 70);
+    private static final PointData VIP_HUD_BUTTON = new PointData(480, 66);
+    private static final Pattern VIP_HEADER = Pattern.compile("^VIP\\b");
     /** Panel headers such as "Deals" sit at the top left, beside the back arrow. */
     private static final PointData HEADER_TOP_LEFT = new PointData(90, 12);
     private static final PointData HEADER_BOTTOM_RIGHT = new PointData(420, 70);
@@ -337,6 +340,9 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
         surveyLoginOffers();
         surveyTemplatePanel("Gem Shop", TemplatesEnum.HOME_SHOP_CART_BUTTON, GEM_SHOP_HUD_BUTTON);
         surveyTemplatePanel("Deals", TemplatesEnum.HOME_DEALS_BUTTON, null);
+        // Event tabs sell packs behind their "+" buttons (Mobilization Booster Pack, 2026-10-26).
+        surveyTemplatePanel("Events", TemplatesEnum.HOME_EVENTS_BUTTON, null);
+        surveyVipPage();
         surveyShortcutColumn();
         if (!returnToCity()) {
             problems.add("Scan ended without confirming the city view.");
@@ -761,6 +767,35 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                             + PANEL_OPEN_ATTEMPTS + " taps (last screen " + evidence + "); skipping it.");
                 }
             }
+        } catch (RuntimeException failed) {
+            recordFailure(surface, failed);
+        }
+    }
+
+    /**
+     * The VIP page sells the player's own level's Special Pack ($49.99 for VIP 8, 2026-10-26), on no other
+     * surface. It opens from the top bar's VIP badge and has no tabs; its header must say VIP before it is read.
+     */
+    private void surveyVipPage() {
+        String surface = "VIP";
+        try {
+            if (!returnToCity()) {
+                problems.add(surface + ": skipped because the city view could not be confirmed first.");
+                recordCoverage(surface, false, null, null, "city view not confirmed");
+                return;
+            }
+            tapNear(VIP_HUD_BUTTON);
+            sleepTask(PANEL_SETTLE_MS);
+            RawImageData frame = capture();
+            String header = panelHeader(frame);
+            if (!VIP_HEADER.matcher(header).find()) {
+                problems.add(surface + ": the VIP badge opened \"" + header + "\" (" + saveFrame(frame)
+                        + "); page skipped.");
+                recordCoverage(surface, false, null, null, "VIP page not confirmed");
+                return;
+            }
+            surveyVariant(surface, surface, MAX_POPUP_SCROLLS, false, frame);
+            recordCoverage(surface, true, null, null, null);
         } catch (RuntimeException failed) {
             recordFailure(surface, failed);
         }
@@ -1202,10 +1237,11 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
             // first tier above the screen, and the Shining tier was never read.
             scrollToTop();
         }
-        RawImageData frame = capture();
+        RawImageData opened = capture();
         if (tabbed) {
-            readUnlockPreview(frame, surface, tab);
+            readUnlockPreview(opened, surface, tab);
         }
+        RawImageData frame = tabbed && readSubPages(opened, surface, tab) ? capture() : opened;
         Optional<SegmentedControl.Control> variants = tabbed
                 ? SegmentedControl.locate(ImageConverter.toBufferedImage(frame))
                 : Optional.empty();
@@ -1449,6 +1485,54 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
                 + read.offers().size() + " offer(s)");
         pressBack();
         sleepTask(POPUP_SETTLE_MS);
+    }
+
+    /**
+     * Opens each button on a tab page that leads to a paid page of its own, reads that page like a pop-up and
+     * comes back with Back. The hand crawl of 2026-10-26 found five such packs nowhere else: Mark of Valor
+     * behind Hall of Heroes' "+", Value Hero Pack and Battle Stars on Hero Ascension Training, the Benefits
+     * Card list behind "Select Pack", the Mobilization Booster behind a green "+". Only openers are tapped;
+     * a price button, Select or Confirm never is. Returns whether anything opened.
+     */
+    private boolean readSubPages(RawImageData page, String surface, String tab) {
+        Map<DealFrameReader.SubPageOpener, PointData> openers = reader.subPageOpeners(page);
+        String where = surface + " / " + (tab == null ? "opening tab" : tab);
+        boolean opened = false;
+        for (Map.Entry<DealFrameReader.SubPageOpener, PointData> opener : openers.entrySet()) {
+            tapNear(opener.getValue());
+            sleepTask(POPUP_SETTLE_MS);
+            RawImageData sub = capture();
+            if (meanDiff(page, sub, WHOLE_FRAME) < OPENED_MEAN_DIFF) {
+                problems.add(where + ": " + opener.getKey() + " opened nothing (" + saveFrame(sub) + ").");
+                continue;
+            }
+            opened = true;
+            String header = panelHeader(sub);
+            String name = (tab == null ? surface : tab) + " > "
+                    + (header.chars().filter(Character::isLetter).count() >= MIN_HEADER_LETTERS ? header
+                            : opener.getKey().label());
+            logInfo("bg_deals_telemetry | " + where + ": " + opener.getKey() + " opened " + name + ".");
+            surveyVariant(surface, name, MAX_POPUP_SCROLLS, false, sub);
+            closeSubPage(where, opener.getKey());
+        }
+        return opened;
+    }
+
+    /** Back until the panel's tab strip shows again; a page that stays open is reported, not left behind. */
+    private void closeSubPage(String where, DealFrameReader.SubPageOpener opener) {
+        for (int press = 0; press < SUB_PAGE_BACK_PRESSES; press++) {
+            pressBack();
+            // Checked several times before pressing again: a second Back while the page is still sliding
+            // away would close the panel itself.
+            for (int check = 0; check < PANEL_OPEN_CHECKS; check++) {
+                sleepTask(POPUP_SETTLE_MS);
+                if (TabStripCells.locate(ImageConverter.toBufferedImage(capture())).size() >= MIN_TABS_FOR_STRIP) {
+                    return;
+                }
+            }
+        }
+        throw new IllegalStateException(where + ": the page " + opener + " opened did not close after "
+                + SUB_PAGE_BACK_PRESSES + " Back presses (" + saveFrame(capture()) + ").");
     }
 
     private DealFrameReader.Page readAndCollect(RawImageData frame, String surface, String tab, boolean tabbed) {

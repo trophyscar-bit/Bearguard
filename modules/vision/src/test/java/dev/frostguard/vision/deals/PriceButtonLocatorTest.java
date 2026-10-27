@@ -37,13 +37,23 @@ class PriceButtonLocatorTest {
     }
 
     @Test
-    void findsTheSmallDailyDealsCardButtonsButNotTheBannerMergedPurchaseAll() throws Exception {
+    void findsTheSmallDailyDealsCardButtonsAndTheBannerMergedPurchaseAll() throws Exception {
         List<PriceButtonLocator.Box> boxes = locate("tab-strip-scrolled-one.png");
 
-        assertEquals(3, boxes.size(), boxes.toString());
-        assertNear(boxes.get(0), 521, 734, 137, 53);
-        assertNear(boxes.get(1), 521, 920, 137, 54);
-        assertNear(boxes.get(2), 521, 1105, 137, 56);
+        assertEquals(4, boxes.size(), boxes.toString());
+        assertNear(boxes.get(0), 500, 503, 148, 56);
+        assertNear(boxes.get(1), 521, 734, 137, 53);
+        assertNear(boxes.get(2), 521, 920, 137, 54);
+        assertNear(boxes.get(3), 521, 1105, 137, 56);
+    }
+
+    @Test
+    void separatesButtonsFromTheOrangeCardsTheySitOn() throws Exception {
+        List<PriceButtonLocator.Box> boxes = locate("value-hero-pack-orange-cards.png");
+
+        assertEquals(2, boxes.size(), boxes.toString());
+        assertNear(boxes.get(0), 422, 501, 175, 56);
+        assertNear(boxes.get(1), 422, 1178, 175, 56);
     }
 
     @Test

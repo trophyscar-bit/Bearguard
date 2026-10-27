@@ -7,6 +7,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -139,6 +140,52 @@ public final class DealFrameReader {
         ImageSearchResultData hit = OpenCvPatternLocator.matchFromRawTemplate(frame, UNLOCK_BUTTON,
                 FRAME_TOP_LEFT, new PointData(FRAME_BOTTOM_RIGHT.getX(), maxY), UNLOCK_MIN_SCORE);
         return hit.isFound() ? Optional.of(new PointData(hit.getX(), hit.getY())) : Optional.empty();
+    }
+
+    /**
+     * Buttons on a tab page that open a paid page of their own, found during the hand crawl of 2026-10-26. Each
+     * template's score was measured on that day's 159 scan frames and the crawl's frames: where it stood, then
+     * the best score anywhere else. Searched below the top bar, whose gem "+" is a green plus too.
+     */
+    public enum SubPageOpener {
+        /** Hall of Heroes' Mark of Valor "+" opens A Hero's Witness: 86-100 against 71. */
+        PLUS_BLUE("/deals/opener-plus-blue.png", 80.0, "+ pack"),
+        /** Alliance Mobilization's voucher "+" opens the Mobilization Booster Pack: 100 against 76. */
+        PLUS_GREEN("/deals/opener-plus-green.png", 90.0, "+ pack"),
+        /** Hero Ascension Training's "Hero Pack" chest opens Value Hero Pack: 88-100 against 37. */
+        HERO_PACK("/deals/opener-hero-pack.png", 70.0, "Hero Pack"),
+        /** The locked "Battle Stars" track opens Unlock Battle Stars: 87-100 against 55. */
+        BATTLE_STARS("/deals/opener-battle-stars.png", 75.0, "Battle Stars"),
+        /** Weekly Benefits Card's "Select Pack" opens the list of cards; Select itself is never tapped: 100 against 63. */
+        SELECT_PACK("/deals/opener-select-pack.png", 85.0, "Select Pack");
+
+        private final byte[] template;
+        private final double minScore;
+        private final String label;
+
+        SubPageOpener(String resource, double minScore, String label) {
+            this.template = load(resource);
+            this.minScore = minScore;
+            this.label = label;
+        }
+
+        /** What the button says, naming the page it opens when that page's own header does not read. */
+        public String label() {
+            return label;
+        }
+    }
+
+    /** Where each sub-page opener stands on a tab page, best match only; absent openers are left out. */
+    public Map<SubPageOpener, PointData> subPageOpeners(RawImageData frame) {
+        Map<SubPageOpener, PointData> found = new EnumMap<>(SubPageOpener.class);
+        for (SubPageOpener opener : SubPageOpener.values()) {
+            ImageSearchResultData hit = OpenCvPatternLocator.matchFromRawTemplate(frame, opener.template,
+                    new PointData(0, OPENER_MIN_Y), FRAME_BOTTOM_RIGHT, opener.minScore);
+            if (hit.isFound()) {
+                found.put(opener, new PointData(hit.getX(), hit.getY()));
+            }
+        }
+        return found;
     }
 
     /** The choices one "+" slot offers, read from its Select Items pop-up; empty when the pop-up is not open. */
@@ -344,8 +391,9 @@ public final class DealFrameReader {
     public static final String CUT_BELOW_TITLE = "";
     /** The title of a card whose head has scrolled above the frame, read for what its foot shows. */
     public static final String CUT_ABOVE_TITLE = "\u2191";
+    /** Tundra Supply Station's top tier is US$999.90, not .99 (2026-10-26). */
     private static final Set<Double> STORE_PRICES = Set.of(0.99, 1.99, 2.99, 4.99, 9.99, 19.99, 49.99, 99.99, 299.99,
-            499.99, 699.99, 999.99);
+            499.99, 699.99, 999.90, 999.99);
     /** A tier's slot row starts about 80 px above its button's top (Custom Chest tiers, 2026-10-23). */
     private static final int SLOT_ROW_ABOVE_BUTTON = 130;
     private static final Pattern SELECT_ITEMS = Pattern.compile("(?i)select\\s*items");
@@ -362,6 +410,28 @@ public final class DealFrameReader {
     private static final double PICK_SLOT_COLOURED_MIN_SCORE = 95.0;
     private static final byte[] UNLOCK_BUTTON = load("/deals/unlock-button.png");
     private static final double UNLOCK_MIN_SCORE = 80.0;
+    private static final int OPENER_MIN_Y = 200;
+    private static final int CARD_TITLE_UPPER_HEIGHT = 100;
+    private static final int CARD_TITLE_INSET_LEFT = 140;
+    private static final int CARD_TITLE_INSET_RIGHT = 580;
+    private static final int POPUP_TITLE_FLOOR = 90;
+    private static final int BUTTON_BESIDE_TILES_MIN_X = 300;
+    private static final Pattern POINTS_TARGET = Pattern.compile("(?i)after\s*hitting\s*points");
+    private static final int OWN_CARD_TITLE_MIN_HEIGHT = 27;
+    /** The paid column's "Epic" heading on a sign-in track: 100 where it stands, at most 65 elsewhere (2026-10-26). */
+    private static final byte[] SIGN_IN_PAID_HEADER = load("/deals/signin-epic.png");
+    private static final double SIGN_IN_HEADER_MIN_SCORE = 85.0;
+    private static final int SIGN_IN_HEADER_BELOW = 45;
+    private static final int SIGN_IN_DAY_LEFT = 262;
+    private static final int SIGN_IN_DAY_RIGHT = 338;
+    private static final int SIGN_IN_PAID_LEFT = 380;
+    private static final int SIGN_IN_ROW_HALF = 75;
+    private static final int SIGN_IN_DIGIT_WHITE = 230;
+    private static final int SIGN_IN_DIGIT_MIN_PIXELS = 2;
+    private static final int SIGN_IN_DIGIT_GAP = 20;
+    private static final int SIGN_IN_DIGIT_MIN_HEIGHT = 12;
+    private static final int SIGN_IN_DIGIT_MAX_HEIGHT = 50;
+    private static final int SIGN_IN_DIGIT_MARGIN = 8;
     /**
      * The mark in a speedup tile's lower left that makes it a construction, training or research speedup. The
      * item icons stop above it, and whole-tile templates of the marked speedups scored 92 to 97 on plain ones;
@@ -466,6 +536,7 @@ public final class DealFrameReader {
     private static final int MISSION_REWARD_LEFT = 220;
     private static final int MISSION_REWARD_RIGHT = 470;
     private static final Pattern BUY_TO_GET = Pattern.compile("(?i)buy\\s*to\\s*get");
+    private static final Pattern TERMS_UNDER_TITLE = Pattern.compile("(?i)buy\\s*to\\s*get|obtain\\s*straight\\s*after");
     /** A count printed beside an icon: "x10", "x5,000", "x1". */
     private static final Pattern SIDE_COUNT = Pattern.compile("^[xX](\\d[\\d,.]*[KkMm]?)$");
     private static final Pattern ROW_COUNT = Pattern.compile("[xX]\\d{1,3}(,\\d{3})*([KkMm](?![a-z]))?");
@@ -540,7 +611,7 @@ public final class DealFrameReader {
         Optional<PurchaseAll> purchaseAll = purchaseAll(image, text, located);
         List<PriceButtonLocator.Box> buttons = Stream.of(located.stream(),
                         orphanTitleButtons(image, text, located).stream(),
-                        purchaseAll.map(PurchaseAll::button).stream())
+                        purchaseAll.map(PurchaseAll::button).filter(b -> !located.contains(b)).stream())
                 .flatMap(s -> s)
                 .sorted(Comparator.comparingInt(PriceButtonLocator.Box::y).thenComparingInt(PriceButtonLocator.Box::x))
                 .toList();
@@ -582,7 +653,8 @@ public final class DealFrameReader {
         // pass joined it to the description under it on 2026-10-23.
         String offerTab = chooseYourOwn ? headerTitle(image).orElse(tab) : tab;
         List<TextLine> allLines = Stream.concat(text.plainLines().stream(), text.whiteLines().stream()).toList();
-        DayGrid dayGrid = tabbed ? dayGrid(text, image, allLines).orElse(null) : null;
+        DayGrid dayGrid = tabbed ? dayGrid(text, image, allLines).or(() -> signInTrack(text, image)).orElse(null)
+                : null;
         // Hero Rally's Unlock preview offers "20 shards Or 20 shards" in a "Select rewards first" box: one is
         // chosen, so its tiles are a choice, not two rewards (both were listed as items on 2026-10-26). The box
         // is found by its "Or", as a picture: a chat banner covered the heading on one frame that morning.
@@ -598,12 +670,15 @@ public final class DealFrameReader {
 
         int windowTop = FRAME_TOP_LEFT.getY();
         int previousButtonBottom = FRAME_TOP_LEFT.getY();
+        // A pop-up has no tab strip over its first card: the Benefits Card list's first title stands at y 135
+        // under the pop-up's own header (2026-10-26).
+        int titleFloor = tabbed ? TAB_STRIP_BOTTOM : POPUP_TITLE_FLOOR;
         // Cards with no title of their own (Daily Deals) are named after their tab; only on pages of titled
         // cards does a missing title mean the card is cut off by the frame.
         boolean titledCards = false;
         int scanTop = purchaseAll.map(p -> p.button().bottom()).orElse(FRAME_TOP_LEFT.getY());
         for (PriceButtonLocator.Box button : tierButtons) {
-            titledCards |= cardTitle(text.whiteLines(), scanTop, button) != null;
+            titledCards |= cardTitle(text.whiteLines(), scanTop, button, titleFloor) != null;
             scanTop = button.bottom();
         }
         for (int index = 0; index < buttons.size(); index++) {
@@ -639,8 +714,21 @@ public final class DealFrameReader {
                 if (choiceOr.isPresent()) {
                     cardTop = Math.max(cardTop, choiceOr.get() + CHOICE_BELOW_OR);
                 }
+                if (!tabbed && pageTitleLine != null) {
+                    // A page can hold one priced card under free ones: the VIP page's Daily Free Bundle stands
+                    // above its Special Pack (2026-10-26), whose tiles were read into the pack and whose page
+                    // header ("Current Level: VIP 8") named it. A large-type title of the card's own, below the
+                    // header, names the pack and starts its card.
+                    int below = cardTop;
+                    TextLine own = cardTitle(text.whiteLines(), below, button, titleFloor);
+                    if (own != null && own.height() >= OWN_CARD_TITLE_MIN_HEIGHT
+                            && own.top() > pageTitleLine.bottom()) {
+                        title = cleanTitle(own.text());
+                        cardTop = Math.max(cardTop, own.bottom());
+                    }
+                }
             } else {
-                TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button);
+                TextLine cardTitle = cardTitle(text.whiteLines(), titleTop, button, titleFloor);
                 if (cardTitle != null) {
                     // A card title wraps too: "Exclusive Gear" over "Enhancement Special" on Regular Pack, where
                     // each line alone became a pack of its own on 2026-10-23.
@@ -702,10 +790,24 @@ public final class DealFrameReader {
             } else {
                 bannerGems(text, cardTop, bottom).ifPresent(items::add);
                 int firstTile = tiles.size();
-                iconItems(text, cardTop, bottom, tiles, 0, buttons.size() > 1 ? button.x() : FRAME_BOTTOM_RIGHT.getX())
+                // Tiles stand left of a button beside them; a Benefits Card's button stands under its tiles, and
+                // bounding by it lost all but the first two (2026-10-26).
+                int tilesRight = buttons.size() > 1 && button.x() >= BUTTON_BESIDE_TILES_MIN_X ? button.x()
+                        : FRAME_BOTTOM_RIGHT.getX();
+                // A Benefits Card's lower row is paid only once a spending target is reached, not on purchase:
+                // it is kept, named apart, like the Intel card's mission rewards.
+                int finalCardTop = cardTop;
+                Optional<TextLine> pointsTarget = allLines.stream()
+                        .filter(l -> l.top() > finalCardTop && l.bottom() < bottom
+                                && POINTS_TARGET.matcher(clean(l.text())).find())
+                        .findFirst();
+                int purchaseBottom = pointsTarget.map(TextLine::top).orElse(bottom);
+                iconItems(text, cardTop, purchaseBottom, tiles, 0, tilesRight)
                         .stream()
                         .filter(i -> items.stream().noneMatch(b -> b.key().equals(i.key())))
                         .forEach(items::add);
+                pointsTarget.ifPresent(line -> iconItems(text, line.bottom(), bottom, tiles, 0, tilesRight)
+                        .forEach(i -> items.add(new DealItem(i.key() + " (points target)", i.quantity(), i.source()))));
                 List<DealItem> listed = listedItems(
                         Stream.concat(text.whiteLines().stream(), text.plainLines().stream()).toList(), top, bottom);
                 if (!tabbed) {
@@ -1121,9 +1223,18 @@ public final class DealFrameReader {
         if (bottom - top < BANNER_MIN_HEIGHT) {
             return Optional.empty();
         }
-        RawImageData crop = WhiteTextIsolator.isolate(withoutRibbon(image.getSubimage(CARD_TITLE_CROP_LEFT, top,
-                CARD_TITLE_CROP_RIGHT - CARD_TITLE_CROP_LEFT, bottom - top)), 0, 0,
-                CARD_TITLE_CROP_RIGHT - CARD_TITLE_CROP_LEFT, bottom - top, 8);
+        // The whole crop first, then its upper part between the corner badges: on Value Hero Pack the snow edge
+        // and the HOT and 1700% badges along a card's top made the whole crop return the counts under the title
+        // and never the title, and the full-width upper part return nothing (2026-10-26).
+        Optional<TextLine> whole = croppedTitleIn(image, CARD_TITLE_CROP_LEFT, CARD_TITLE_CROP_RIGHT, top, bottom);
+        return whole.isPresent() || bottom - top < 2 * CARD_TITLE_UPPER_HEIGHT ? whole
+                : croppedTitleIn(image, CARD_TITLE_INSET_LEFT, CARD_TITLE_INSET_RIGHT, top,
+                        top + CARD_TITLE_UPPER_HEIGHT);
+    }
+
+    private static Optional<TextLine> croppedTitleIn(BufferedImage image, int left, int right, int top, int bottom) {
+        RawImageData crop = WhiteTextIsolator.isolate(withoutRibbon(image.getSubimage(left, top, right - left,
+                bottom - top)), 0, 0, right - left, bottom - top, 8);
         List<TextLine> words;
         List<TextLine> lines;
         try {
@@ -1139,7 +1250,7 @@ public final class DealFrameReader {
                 .filter(l -> isTitleText(cleanTitle(l.text())))
                 .filter(l -> !LOGIN_DAILY.matcher(l.text()).find() && !BUY_TO_GET.matcher(l.text()).find())
                 .max(Comparator.comparingInt(TextLine::height));
-        return found.map(l -> new TextLine(l.text(), l.left() + CARD_TITLE_CROP_LEFT - 8, l.top() + top - 8,
+        return found.map(l -> new TextLine(l.text(), l.left() + left - 8, l.top() + top - 8,
                 l.width(), l.height(), l.confidence()));
     }
 
@@ -1362,6 +1473,92 @@ public final class DealFrameReader {
         return Optional.of(new DayGrid(top, bottom, days));
     }
 
+    /**
+     * A sign-in pass's track (Sign-in & Earn It, 2026-10-26): one row per day, the day's number in a hexagon down
+     * the middle, the free reward left of it and the paid pass's rewards right of it. Only the paid column is
+     * what the price buys, so only it is read, each tile named by its row's day like a day grid's. A row cut by
+     * the header or the frame's foot is left for the frame that shows it whole.
+     */
+    private Optional<DayGrid> signInTrack(Text text, BufferedImage image) {
+        ImageSearchResultData header = OpenCvPatternLocator.matchFromRawTemplate(text.capture(), SIGN_IN_PAID_HEADER,
+                FRAME_TOP_LEFT, FRAME_BOTTOM_RIGHT, SIGN_IN_HEADER_MIN_SCORE);
+        if (!header.isFound()) {
+            return Optional.empty();
+        }
+        int top = header.getY() + SIGN_IN_HEADER_BELOW;
+        int bottom = FRAME_BOTTOM_RIGHT.getY();
+        Map<Integer, List<DealItem>> days = new TreeMap<>();
+        for (int[] band : signInDayBands(image, top, bottom)) {
+            int centre = (band[0] + band[1]) / 2;
+            if (centre - SIGN_IN_ROW_HALF < top || centre + SIGN_IN_ROW_HALF > bottom) {
+                continue;
+            }
+            Optional<Integer> day = signInDay(image, band);
+            if (day.isEmpty()) {
+                continue;
+            }
+            List<DealItem> items = new ArrayList<>();
+            for (DealItemLibrary.Match tile : library.find(text.capture(), new PointData(SIGN_IN_PAID_LEFT,
+                    centre - SIGN_IN_ROW_HALF), new PointData(FRAME_BOTTOM_RIGHT.getX(), centre + SIGN_IN_ROW_HALF))) {
+                String key = tile.key().endsWith(" Speedup") ? speedupKind(text.capture(), tile) : tile.key();
+                tileCount(image, tile).ifPresent(q -> items.add(new DealItem(key + " (Day " + day.get() + ")",
+                        q, key.startsWith(UNIDENTIFIED) ? "unidentified" : "day")));
+            }
+            days.put(day.get(), items);
+        }
+        return Optional.of(new DayGrid(top, bottom, days));
+    }
+
+    /**
+     * The rows of white digits down the track's middle, one per day's hexagon. Read as one tall column, the
+     * single-line OCR returned nothing; each number is read on its own.
+     */
+    private static List<int[]> signInDayBands(BufferedImage image, int top, int bottom) {
+        List<int[]> bands = new ArrayList<>();
+        int start = -1;
+        int last = -1;
+        for (int y = top; y < bottom; y++) {
+            int white = 0;
+            for (int x = SIGN_IN_DAY_LEFT; x < SIGN_IN_DAY_RIGHT; x++) {
+                int rgb = image.getRGB(x, y);
+                if (Math.min(Math.min((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF), rgb & 0xFF) >= SIGN_IN_DIGIT_WHITE) {
+                    white++;
+                }
+            }
+            if (white >= SIGN_IN_DIGIT_MIN_PIXELS) {
+                if (start < 0 || y - last > SIGN_IN_DIGIT_GAP) {
+                    if (start >= 0) {
+                        bands.add(new int[] {start, last});
+                    }
+                    start = y;
+                }
+                last = y;
+            }
+        }
+        if (start >= 0) {
+            bands.add(new int[] {start, last});
+        }
+        bands.removeIf(b -> b[1] - b[0] < SIGN_IN_DIGIT_MIN_HEIGHT || b[1] - b[0] > SIGN_IN_DIGIT_MAX_HEIGHT);
+        return bands;
+    }
+
+    private static Optional<Integer> signInDay(BufferedImage image, int[] band) {
+        RawImageData mask = WhiteTextIsolator.isolate(image, SIGN_IN_DAY_LEFT, band[0] - SIGN_IN_DIGIT_MARGIN,
+                SIGN_IN_DAY_RIGHT - SIGN_IN_DAY_LEFT, band[1] - band[0] + 2 * SIGN_IN_DIGIT_MARGIN, 8);
+        try {
+            String digits = OcrEngine.recognizeText(mask, new PointData(0, 0),
+                    new PointData(mask.getWidth(), mask.getHeight()), CommonOCRSettings.DEAL_ITEM_QUANTITY_SETTINGS)
+                    .replaceAll("[^0-9]", "");
+            if (digits.isEmpty() || digits.length() > 2) {
+                return Optional.empty();
+            }
+            int day = Integer.parseInt(digits);
+            return day >= 1 && day <= MAX_DAY ? Optional.of(day) : Optional.empty();
+        } catch (OcrException unreadable) {
+            return Optional.empty();
+        }
+    }
+
     /** The tiles under one "Day" header, between it and its row neighbours' halfway marks. */
     private List<DealItemLibrary.Match> cellTiles(Text text, List<PriceButtonLocator.Box> labels,
             PriceButtonLocator.Box label) {
@@ -1540,15 +1737,17 @@ public final class DealFrameReader {
                 .allMatch(word -> Character.isUpperCase(word.charAt(0)));
     }
 
-    private static TextLine cardTitle(List<TextLine> lines, int windowTop, PriceButtonLocator.Box button) {
+    private static TextLine cardTitle(List<TextLine> lines, int windowTop, PriceButtonLocator.Box button,
+            int floor) {
         // A weekly or monthly card is taller than the usual reach above its button; its title is the line just
-        // above its "Buy to get:".
+        // above its "Buy to get:", or a Benefits Card's above its "Obtain straight after purchasing" (2026-10-26).
         Optional<TextLine> aboveTerms = lines.stream()
-                .filter(l -> l.top() >= windowTop && l.bottom() <= button.y() && BUY_TO_GET.matcher(l.text()).find())
+                .filter(l -> l.top() >= windowTop && l.bottom() <= button.y()
+                        && TERMS_UNDER_TITLE.matcher(l.text()).find())
                 .findFirst()
                 .flatMap(terms -> lines.stream()
                         .filter(l -> l.bottom() <= terms.top() && terms.top() - l.bottom() <= TITLE_ABOVE_TERMS
-                                && l.top() >= Math.max(windowTop, TAB_STRIP_BOTTOM))
+                                && l.top() >= Math.max(windowTop, floor))
                         .filter(l -> isTitleText(cleanTitle(l.text())))
                         .max(Comparator.comparingInt(TextLine::height)));
         if (aboveTerms.isPresent()) {
@@ -1557,7 +1756,7 @@ public final class DealFrameReader {
         // The floor is the tab strip, not the sticky header of other panels: on Regular Pack and the weekly
         // cards the first card's title sits right under the strip. A page header is kept out by the reach.
         return lines.stream()
-                .filter(l -> l.top() >= Math.max(windowTop, TAB_STRIP_BOTTOM) && l.bottom() <= button.y()
+                .filter(l -> l.top() >= Math.max(windowTop, floor) && l.bottom() <= button.y()
                         && button.y() - l.bottom() <= CARD_TITLE_MAX_ABOVE_BUTTON)
                 .filter(l -> isTitleText(cleanTitle(l.text())))
                 // A card's own terms are never its name: "Login daily to obtain:" titled three cards on
@@ -1566,7 +1765,8 @@ public final class DealFrameReader {
                 // Nor is the page's own sentence under its header: with Leap Pack 5's title scrolled under the
                 // header, "Boost your Power and breathe new life into your town!" named its card (2026-10-26).
                 // Card names are in title case.
-                .filter(l -> !LOGIN_DAILY.matcher(l.text()).find() && !BUY_TO_GET.matcher(l.text()).find()
+                .filter(l -> !LOGIN_DAILY.matcher(l.text()).find() && !TERMS_UNDER_TITLE.matcher(l.text()).find()
+                        && !POINTS_TARGET.matcher(l.text()).find() && !REMAINING.matcher(l.text()).find()
                         && !VALID_DAYS.matcher(l.text()).find() && startsWithCapital(cleanTitle(l.text()))
                         && isTitleCase(cleanTitle(l.text())))
                 .max(Comparator.comparingInt(TextLine::height))
@@ -1895,13 +2095,20 @@ public final class DealFrameReader {
                             && w.top() >= purchase.top() - SAME_ROW_TOLERANCE
                             && w.top() <= purchase.bottom() + purchase.height() + SAME_ROW_TOLERANCE)
                     .min(Comparator.comparingInt(TextLine::left));
-            if (!all || price.isPresent() && located.stream().anyMatch(b -> contains(b, price.get()))) {
+            if (!all) {
                 continue;
             }
             int rowRight = words.stream().filter(w -> Math.abs(w.top() - purchase.top()) <= SAME_ROW_TOLERANCE)
                     .mapToInt(TextLine::right).max().orElse(purchase.right());
+            // The locator's saturated pass finds the banner's own button (2026-10-26); that box is the banner's.
+            Optional<PriceButtonLocator.Box> found = located.stream()
+                    .filter(b -> b.x() >= purchase.right() && b.y() <= purchase.bottom() + purchase.height()
+                            && b.bottom() >= purchase.top())
+                    .findFirst();
             PriceButtonLocator.Box button;
-            if (price.isPresent()) {
+            if (found.isPresent()) {
+                button = found.get();
+            } else if (price.isPresent()) {
                 TextLine word = price.get();
                 button = new PriceButtonLocator.Box(word.left() - PRINTED_PRICE_PADDING,
                         word.top() - PRINTED_PRICE_PADDING, word.width() + 2 * PRINTED_PRICE_PADDING,
