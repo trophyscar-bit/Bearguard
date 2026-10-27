@@ -79,8 +79,12 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData GIFT_COUNT_BOTTOM_RIGHT = new PointData(590, 1108);
     private static final PointData GIFT_SEND_BUTTON = new PointData(530, 1208);
 
-    // Dawn Academy screen.
+    // Dawn Academy screen. With the queue idle, Learn only shows a guide hand pointing at an
+    // Expert in their room; the Expert opens from a tap where the finger points.
     private static final PointData ACADEMY_LEARN_ICON = new PointData(57, 150);
+    static final AreaData GUIDE_HAND_AREA = new AreaData(new PointData(0, 250), new PointData(719, 1100));
+    static final int FINGERTIP_DX = -20;
+    static final int FINGERTIP_DY = -5;
 
     // Trek landing (the screen with the Frontier Trek and Tundra Trek signposts).
     // The supply counter sits in the same place on the landing and on either route.
@@ -206,6 +210,27 @@ public class DawnAcademyRoutine extends DelayedTask {
         return isOnAcademy();
     }
 
+    private boolean openExpertFromAcademy() {
+        tapNear(ACADEMY_LEARN_ICON, 6);
+        sleepTask(1500);
+        ImageSearchResultData hand = templateSearchHelper.locatePattern(TemplatesEnum.DAWN_ACADEMY_GUIDE_HAND,
+                SearchConfig.builder()
+                        .withCoordinates(GUIDE_HAND_AREA.topLeft(), GUIDE_HAND_AREA.bottomRight())
+                        .withMaxAttempts(3)
+                        .withDelay(500)
+                        .build());
+        if (!hand.isFound()) {
+            return false;
+        }
+        tapNear(fingertip(hand.getMatchedArea()), 4);
+        sleepTask(2500);
+        return isOnExpertScreen();
+    }
+
+    static PointData fingertip(AreaData hand) {
+        return new PointData(hand.topLeft().getX() + FINGERTIP_DX, hand.topLeft().getY() + FINGERTIP_DY);
+    }
+
     private boolean isOnAcademy() {
         return found(TemplatesEnum.DAWN_ACADEMY_TREK_BUTTON, 2);
     }
@@ -229,9 +254,7 @@ public class DawnAcademyRoutine extends DelayedTask {
 
     private void runLearning() {
         if (!isOnExpertScreen()) {
-            tapNear(ACADEMY_LEARN_ICON, 6);
-            sleepTask(2500);
-            if (!isOnExpertScreen()) {
+            if (!openExpertFromAcademy()) {
                 logWarning("Learn did not open an Expert; learning skipped this pass.");
                 considerNextRun(LocalDateTime.now().plusMinutes(30));
                 return;
@@ -435,9 +458,8 @@ public class DawnAcademyRoutine extends DelayedTask {
             if (!isOnAcademy() && !returnToAcademy()) {
                 return;
             }
-            tapNear(ACADEMY_LEARN_ICON, 6);
-            sleepTask(2500);
-            if (!isOnExpertScreen()) {
+            if (!openExpertFromAcademy()) {
+                logWarning("No Expert could be opened from the Academy; gifting skipped this pass.");
                 return;
             }
         }

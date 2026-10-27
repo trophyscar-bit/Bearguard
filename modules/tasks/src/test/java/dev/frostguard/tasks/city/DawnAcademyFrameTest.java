@@ -147,6 +147,22 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void anIdleQueueLeadsToTheGuideHandAndItsFingertipIsTheExpert() throws Exception {
+        // Live 27 Oct: the idle Expert row opened the Academy with this hand on Cyrille, and a
+        // tap at (395,850) opened her screen.
+        ImageSearchResultData hand = OpenCvPatternLocator.locatePattern(bytes("academy-idle-guide.png"),
+                TemplatesEnum.DAWN_ACADEMY_GUIDE_HAND.getTemplate(),
+                DawnAcademyRoutine.GUIDE_HAND_AREA.topLeft(), DawnAcademyRoutine.GUIDE_HAND_AREA.bottomRight(), 90);
+        assertTrue(hand.isFound());
+        PointData tip = DawnAcademyRoutine.fingertip(hand.getMatchedArea());
+        assertTrue(Math.abs(tip.getX() - 395) <= 10 && Math.abs(tip.getY() - 850) <= 10, tip.getX() + "," + tip.getY());
+        assertFalse(OpenCvPatternLocator.locatePattern(bytes("academy.png"),
+                TemplatesEnum.DAWN_ACADEMY_GUIDE_HAND.getTemplate(),
+                DawnAcademyRoutine.GUIDE_HAND_AREA.topLeft(), DawnAcademyRoutine.GUIDE_HAND_AREA.bottomRight(), 90)
+                .isFound());
+    }
+
+    @Test
     void wayfarerShowsClaimAll() throws Exception {
         assertTrue(find("wayfarer.png", TemplatesEnum.DAWN_ACADEMY_WAYFARER_CLAIM_ALL).isFound());
     }
