@@ -54,7 +54,7 @@ import java.util.function.BooleanSupplier;
  * <ul>
  * <li>Game not installed: Throws StopExecutionException (stops queue)</li>
  * <li>Reconnect state detected: Throws ProfileInReconnectStateException</li>
- * <li>Home screen not found: Tries one bounded in-game Back action, then pauses the profile</li>
+ * <li>Home screen not found: Tries a few bounded in-game Back actions, then pauses the profile</li>
  * <li>Verified Google Play redirect: Requires operator action and releases the
  * emulator slot during a profile cooldown</li>
  * </ul>
@@ -106,7 +106,7 @@ public class InitializeRoutine extends DelayedTask {
 	private int closeableOverlayDismissals = 0;
 	private String lastVerifiedStartupState = "initialization started";
 	private RawImageData lastStartupFrame;
-	private final DiagnosticSnapshotStore startupSnapshots = DiagnosticSnapshotStore.forCurrentWorkspace();
+	private final DiagnosticSnapshotStore startupSnapshots = DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace();
 
 	/**
 	 * Helper for character switching operations.
@@ -758,14 +758,16 @@ public class InitializeRoutine extends DelayedTask {
 	 * Strategy after known startup-state checks and passive waiting are exhausted:
 	 * <ol>
 	 * <li>Verify that Whiteout Survival owns the foreground window</li>
-	 * <li>Send Android Back at most once</li>
+	 * <li>Send Android Back, up to MAX_UNKNOWN_BLOCKER_BACK_ATTEMPTS times</li>
 	 * <li>Re-run only verified startup handlers while waiting for home/world</li>
 	 * <li>Otherwise enter a cooldown that stops only the game and releases the slot</li>
 	 * </ol>
 	 */
 	private boolean recoverUnknownStartupBlocker() {
 		boolean gameForeground = isGameForeground();
-		if (StartupRecoveryPolicy.forUnknownBlocker(gameForeground, unknownBlockerBackAttempts)
+		// One Back is not enough when a restart lands the game several screens deep
+		// (e.g. inside a ranking list); each Back is followed by a home check.
+		while (StartupRecoveryPolicy.forUnknownBlocker(gameForeground, unknownBlockerBackAttempts)
 				== StartupRecoveryPolicy.UnknownBlockerAction.TRY_GAME_BACK) {
 			unknownBlockerBackAttempts++;
 			lastVerifiedStartupState = "unknown startup screen with Whiteout Survival foreground";
@@ -780,7 +782,9 @@ public class InitializeRoutine extends DelayedTask {
 				sleepTask(UNKNOWN_BLOCKER_BACK_SETTLE_MS);
 				if (searchForHomeScreen()) {
 					lastVerifiedStartupState = "home/world screen after bounded Android Back";
-					logInfo("Home screen found after one bounded Android Back recovery.");
+					logInfo("Home screen found after bounded Android Back recovery "
+							+ unknownBlockerBackAttempts + "/"
+							+ StartupRecoveryPolicy.MAX_UNKNOWN_BLOCKER_BACK_ATTEMPTS + ".");
 					return true;
 				}
 
@@ -793,6 +797,7 @@ public class InitializeRoutine extends DelayedTask {
 					logInfo("Verified closeable startup overlay dismissed after bounded Android Back recovery.");
 				}
 			}
+			gameForeground = isGameForeground();
 		}
 
 		deferUnknownStartupBlocker(gameForeground);
@@ -824,7 +829,7 @@ public class InitializeRoutine extends DelayedTask {
 				"home/world",
 				"unsupported startup screen",
 				gameForeground
-						? "One bounded Android Back sent only while Whiteout Survival owned the foreground window"
+						? unknownBlockerBackAttempts + " bounded Android Back(s) sent only while Whiteout Survival owned the foreground window"
 						: "No input sent because Whiteout Survival did not own the foreground window",
 				"Stop the game, release the slot, and retry initialization after fifteen minutes"))
 				.withEvidencePath(snapshot.saved() ? snapshot.relativePath() : "");
