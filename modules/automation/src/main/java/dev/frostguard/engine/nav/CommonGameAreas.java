@@ -9,6 +9,25 @@ import dev.frostguard.api.domain.PointData;
  */
 public final class CommonGameAreas {
 
+    // Event shortcuts sit in two bands: the inset city art and the right-hand
+    // column. Sign-in/Deals push the column slot down; keep the top edge under
+    // the HUD bar and the bottom above the pet/mail buttons.
+    public static final AreaData FISHING_HOME_ENTRY = AreaData.of(475, 115, 720, 580);
+    public static final AreaData FISHING_TOURNAMENT_TAB = AreaData.of(45, 105, 225, 175);
+    public static final AreaData FISHING_ICE_CAST_BUTTON = AreaData.of(370, 1140, 670, 1240);
+    public static final AreaData FISHING_FREE_BAIT = AreaData.of(497, 1095, 579, 1129);
+    public static final AreaData FISHING_DEPTH = AreaData.of(20, 20, 140, 93);
+    public static final AreaData FISHING_DEPTH_HUD = AreaData.of(0, 0, 175, 100);
+    public static final AreaData FISHING_CAPACITY_HUD = AreaData.of(0, 108, 175, 157);
+    public static final AreaData FISHING_PROTECTION_HUD = AreaData.of(0, 167, 175, 215);
+    public static final AreaData FISHING_CURRENT_DEPTH = AreaData.of(20, 20, 150, 63);
+    // Keep the lower/right HUD border outside the text region.
+    public static final AreaData FISHING_MAXIMUM_DEPTH = AreaData.of(35, 64, 125, 91);
+    public static final AreaData FISHING_LINE_LENGTH = AreaData.of(145, 870, 225, 905);
+    public static final AreaData FISHING_HAUL_HEADING = AreaData.of(265, 193, 455, 264);
+    public static final AreaData FISHING_HAUL_EXIT_LABEL = AreaData.of(170, 1090, 275, 1147);
+    public static final AreaData FISHING_HAUL_EXIT_BUTTON = AreaData.of(100, 1090, 325, 1155);
+
     private CommonGameAreas() {}
 
     // ── micro-factories ──────────────────────────────────────────────
@@ -34,8 +53,13 @@ public final class CommonGameAreas {
     // Tapping that bar opens the same Obtain-more dialog the profile button used to, so the dialog
     // reads and the Use button below are unchanged.
     public static final AreaData HUD_STAMINA_BAR       = region(30, 100, 80, 113);
+    // The can and stamina value remain in this HUD band in both City and World.
+    public static final AreaData HUD_STAMINA_ENTRY     = region(8, 101, 105, 126);
     public static final AreaData STAMINA_OCR_AREA      = region(324, 255, 477, 289);
     public static final AreaData SPENT_STAMINA_OCR_AREA = region(540, 1215, 590, 1245);
+    // English "Tap anywhere to exit" hints are rendered in this lower strip on result overlays.
+    public static final AreaData STARTUP_EXIT_HINT_OCR_AREA = region(0, 1160, 719, 1279);
+    public static final AreaData STARTUP_EXIT_HINT_TAP_AREA = region(180, 1160, 540, 1279);
 
     // The cooldown stays in the top banner while Intel markers remain, then moves to the center
     // after every completed Intel reward has been claimed.

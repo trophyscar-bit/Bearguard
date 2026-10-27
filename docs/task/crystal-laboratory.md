@@ -6,6 +6,20 @@ read regions are fixed to the established 720x1280 game layout; no saved
 refined-FC panel fixture is available yet, so OCR accuracy on other layouts is
 not established.
 
+Crystal Laboratory entry belongs to navigation. After its Daily-sidebar Go
+action, navigation makes one neutral tap at `(470,890)..(490,910)`, then looks
+for the static building anchor only in `(330,600)..(500,780)`. It makes at
+most two passes, each requiring the Crystal Lab interface to appear. Missing
+anchors and missing interfaces retain a local `crystallaboratory` diagnostic
+frame. The coordinates are measured for the 720x1280 post-sidebar city view.
+
+The daily Super Refine offer uses the complete white-outline `-50%` badge and
+is searched monochromatically only in `(25,775)..(210,1000)`. One detected
+Super Refine x1 tap is considered successful only when the weekly refinement
+count increases by one and that badge disappears. Any unreadable or conflicting
+postcondition is unknown and retries in five minutes rather than scheduling a
+daily reset.
+
 Null, blank, or unparseable readings are treated as failed OCR. After exhausting
 the bounded retries, the routine saves a local full-screen diagnostic frame to
 `logs/snapshot/` and logs its workspace-relative path when possible. Unexpected

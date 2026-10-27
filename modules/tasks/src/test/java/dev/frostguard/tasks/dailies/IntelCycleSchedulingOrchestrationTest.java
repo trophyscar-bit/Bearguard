@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.UUID;
@@ -50,22 +51,21 @@ class IntelCycleSchedulingOrchestrationTest {
         assertEquals(2, task.executionCount);
         assertEquals(IntelCyclePolicy.Action.RESUME_ACTIVE_CYCLE, task.lastAction);
 
-        // A completed cycle parks on the next Intel refresh, and those are 00:00, 08:00 and 16:00
-        // UTC, so the park is minutes away during the hour before one. Assert against the policy
-        // instead of a fixed horizon. reschedule() only ever delays, so the stored time cannot
-        // precede the refresh resolved before the tick; the second of slack absorbs the
-        // millisecond truncation reschedule() applies to its own gap.
-        LocalDateTime earliestPark = IntelCyclePolicy
-                .nextRefresh(beforeResume, ZoneId.systemDefault())
-                .minusSeconds(1);
-        assertFalse(task.getScheduled().isBefore(earliestPark),
-                "the resumed cycle must park on the next Intel refresh");
+        // A completed cycle parks on the next Intel refresh (00:00, 08:00 or 16:00 UTC), which may be
+        // seconds away. reschedule() only ever delays, so the stored time cannot precede the refresh
+        // resolved at completion; the second of slack absorbs the millisecond truncation
+        // reschedule() applies to its own gap.
+        LocalDateTime expectedRefresh = IntelCyclePolicy.nextRefresh(task.completedAt, ZoneId.systemDefault());
+        assertFalse(task.getScheduled().isBefore(expectedRefresh.minusSeconds(1)),
+                () -> "the resumed cycle must park on the next Intel refresh " + expectedRefresh
+                        + " but was " + task.getScheduled());
+        assertTrue(task.getScheduled().isAfter(task.completedAt),
+                "the next UTC refresh may be seconds away, but must be after cycle completion");
 
         TaskStateData persisted = TaskManagementService.shared().lookupTaskState(
                 profile.getId(), TpDailyTaskEnum.INTEL.getId());
         assertNotNull(persisted);
-        assertFalse(persisted.getNextExecutionTime().isBefore(earliestPark),
-                "the persisted schedule must carry the same parked refresh time");
+        assertCloseTo(task.getScheduled(), persisted.getNextExecutionTime());
         assertEquals(0, queue.gameStopCount);
         assertEquals(0, queue.slotReleaseCount);
 
@@ -73,6 +73,12 @@ class IntelCycleSchedulingOrchestrationTest {
         runSchedulerTick(queue);
         assertEquals(completedExecutions, task.executionCount,
                 "the completed cycle must remain parked until its persisted refresh time");
+    }
+
+    private static void assertCloseTo(LocalDateTime expected, LocalDateTime actual) {
+        // DelayedTask.reschedule reconstructs wall time from a millisecond duration.
+        assertTrue(Duration.between(expected, actual).abs().compareTo(Duration.ofSeconds(1)) < 0,
+                () -> "expected refresh " + expected + " but was " + actual);
     }
 
     private static void runSchedulerTick(TaskQueue queue) {
@@ -92,6 +98,7 @@ class IntelCycleSchedulingOrchestrationTest {
         private final IntelCyclePolicy policy = new IntelCyclePolicy();
         private int executionCount;
         private IntelCyclePolicy.Action lastAction;
+        private LocalDateTime completedAt;
 
         private PolicyDrivenIntelTask(AccountDescriptor profile) {
             super(profile, TpDailyTaskEnum.INTEL);
@@ -115,7 +122,8 @@ class IntelCycleSchedulingOrchestrationTest {
             }
 
             policy.completeCycle();
-            reschedule(IntelCyclePolicy.nextRefresh(LocalDateTime.now(), ZoneId.systemDefault()));
+            completedAt = LocalDateTime.now();
+            reschedule(IntelCyclePolicy.nextRefresh(completedAt, ZoneId.systemDefault()));
         }
     }
 

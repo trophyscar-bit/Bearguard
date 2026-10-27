@@ -6,6 +6,8 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.engine.emulator.EmulatorController;
 import dev.frostguard.engine.error.HomeNotFoundException;
 import dev.frostguard.engine.error.ProfileInReconnectStateException;
@@ -20,12 +22,22 @@ import dev.frostguard.engine.nav.ShopTab;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.LoggingService;
 import dev.frostguard.vision.logging.ProfileContextLogger;
+import dev.frostguard.vision.convert.ImageConverter;
+
+import java.time.Instant;
 
 // Screen location verification and cross-screen navigation for
 // primary game views and auxiliary menus.
 public class NavigationHelper {
 
     private static final int MAX_INTEL_NAV_PASSES = 3;
+    private static final int BANK_NAVIGATION_ATTEMPTS = 2;
+    private static final long DEALS_CAROUSEL_SETTLE_MS = 1000L;
+    private static final long BANK_INTERFACE_SETTLE_MS = 1500L;
+    private static final PointData DEALS_SWIPE_START = new PointData(630, 143);
+    private static final PointData DEALS_SWIPE_END = new PointData(2, 128);
+    private static final PointData DEALS_TAB_BAR_TOP_LEFT = new PointData(0, 80);
+    private static final PointData DEALS_TAB_BAR_BOTTOM_RIGHT = new PointData(720, 190);
     static final AreaData WORLD_INTEL_BUTTON_AREA = area(615, 800, 715, 1000);
     private static final TemplateSearchHelper.SearchConfig WORLD_INTEL_BUTTON_SEARCH =
             TemplateSearchHelper.SearchConfig.builder()
@@ -52,6 +64,13 @@ public class NavigationHelper {
     private static final int ALLIANCE_POWER_RANKING_SCROLLS = 23;
     private static final int ALLIANCE_POWER_RANKING_SCROLL_DURATION_MS = 250;
     private static final long ALLIANCE_POWER_ROW_LOAD_MS = 500;
+    static final AreaData CRYSTAL_LAB_TUTORIAL_DISMISSAL = AreaData.of(470, 890, 490, 910);
+    static final AreaData CRYSTAL_LAB_BUILDING_ANCHOR = AreaData.of(330, 600, 500, 780);
+    private static final int CRYSTAL_LAB_NAVIGATION_ATTEMPTS = 2;
+    private static final int CRYSTAL_LAB_ANCHOR_CHECKS = 3;
+    private static final int CRYSTAL_LAB_UI_CHECKS = 3;
+    private static final long CRYSTAL_LAB_CHECK_DELAY_MS = 500L;
+    private static final long CRYSTAL_LAB_CITY_SETTLE_MS = 1_000L;
 
     private final TemplateSearchHelper searcher;
     private final EmulatorController emu;
@@ -116,6 +135,109 @@ public class NavigationHelper {
         return navigateToSidebarDestination(SidebarDestination.LAND_OF_HEROES);
     }
 
+    /** Completes the Crystal Laboratory city transition after its Daily sidebar destination is selected. */
+    private boolean navigateToCrystalLaboratory() {
+        String finalFailure = null;
+        for (int attempt = 1; attempt <= CRYSTAL_LAB_NAVIGATION_ATTEMPTS; attempt++) {
+            if (!navigateToDirectSidebarDestination(SidebarDestination.CRYSTAL_LABORATORY)) {
+                finalFailure = "sidebar-navigation-failed";
+            } else {
+                tapCrystalLabTutorialDismissal();
+                waitForCrystalLabTransition(CRYSTAL_LAB_CITY_SETTLE_MS);
+
+                ImageSearchResultData anchor = locateCrystalLabBuildingAnchor();
+                if (anchor == null || !anchor.isFound()) {
+                    finalFailure = "building-anchor-missing";
+                } else {
+                    tapCrystalLabBuildingAnchor(anchor);
+                    waitForCrystalLabTransition(CRYSTAL_LAB_CITY_SETTLE_MS);
+                    if (isCrystalLabInterfaceVisible()) {
+                        broadcastInfo("Crystal Laboratory destination verified");
+                        return true;
+                    }
+                    finalFailure = "screen-validation-failed";
+                }
+            }
+
+            if (attempt < CRYSTAL_LAB_NAVIGATION_ATTEMPTS) {
+                broadcastWarn("Crystal Laboratory navigation attempt " + attempt + "/"
+                        + CRYSTAL_LAB_NAVIGATION_ATTEMPTS + " was not confirmed; recovering Home");
+                ensureCorrectScreenLocation(LaunchPoint.HOME);
+            }
+        }
+
+        String snapshot = finalFailure == null || "sidebar-navigation-failed".equals(finalFailure)
+                ? "snapshot=not-applicable"
+                : retainCrystalLabDiagnosticSnapshot(finalFailure);
+        broadcastWarn("Crystal Laboratory navigation failed after " + CRYSTAL_LAB_NAVIGATION_ATTEMPTS
+                + " bounded attempts; reason=" + finalFailure + "; " + snapshot);
+        return false;
+    }
+
+    ImageSearchResultData locateCrystalLabBuildingAnchor() {
+        return searcher.locatePatternMono(TemplatesEnum.CRYSTAL_LAB_BUILDING_ANCHOR,
+                TemplateSearchHelper.SearchConfig.builder()
+                        .withArea(CRYSTAL_LAB_BUILDING_ANCHOR)
+                        .withMaxAttempts(CRYSTAL_LAB_ANCHOR_CHECKS)
+                        .withDelay(CRYSTAL_LAB_CHECK_DELAY_MS)
+                        .withThreshold(90)
+                        .build());
+    }
+
+    boolean isCrystalLabInterfaceVisible() {
+        for (int check = 1; check <= CRYSTAL_LAB_UI_CHECKS; check++) {
+            ImageSearchResultData result = locateCrystalLabInterface();
+            if (result != null && result.isFound()) {
+                return true;
+            }
+            if (check < CRYSTAL_LAB_UI_CHECKS) {
+                waitForCrystalLabTransition(CRYSTAL_LAB_CHECK_DELAY_MS);
+            }
+        }
+        return false;
+    }
+
+    ImageSearchResultData locateCrystalLabInterface() {
+        return searcher.locatePattern(TemplatesEnum.VALIDATION_CRYSTAL_LAB_UI,
+                TemplateSearchHelper.SearchConfig.builder().withThreshold(90).build());
+    }
+
+    void tapCrystalLabTutorialDismissal() {
+        taps.tapInside(CRYSTAL_LAB_TUTORIAL_DISMISSAL);
+    }
+
+    void tapCrystalLabBuildingAnchor(ImageSearchResultData anchor) {
+        taps.tapInside(anchor);
+    }
+
+    void waitForCrystalLabTransition(long milliseconds) {
+        interruptibleWait(milliseconds);
+    }
+
+    RawImageData captureCrystalLabDiagnosticFrame() {
+        return emu.captureScreen(device);
+    }
+
+    DiagnosticSnapshotStore diagnosticSnapshotStore() {
+        return DiagnosticSnapshotStore.forCurrentWorkspace();
+    }
+
+    String retainCrystalLabDiagnosticSnapshot(String type) {
+        try {
+            RawImageData frame = captureCrystalLabDiagnosticFrame();
+            try {
+                ImageConverter.toBufferedImage(frame);
+            } catch (RuntimeException failure) {
+                return "snapshot=unavailable; reason=capture-returned-no-valid-frame";
+            }
+            return diagnosticSnapshotStore().write(frame, "crystallaboratory", type, Instant.now())
+                    .map(path -> "snapshot=" + path)
+                    .orElse("snapshot=unavailable; reason=write-failed");
+        } catch (RuntimeException failure) {
+            return "snapshot=unavailable; reason=" + failure.getClass().getSimpleName();
+        }
+    }
+
     public boolean openSidebarSection(SidebarSection section) {
         return sidebar.openSection(section);
     }
@@ -124,11 +246,15 @@ public class NavigationHelper {
         ensureCorrectScreenLocation(LaunchPoint.ANY);
         broadcastInfo("Navigating through sidebar to " + destination);
 
+        boolean reached;
         if (destination.openingPolicy() == SidebarDestination.OpeningPolicy.WILDERNESS_INTEL) {
-            return navigateToWildernessIntel(destination);
+            reached = navigateToWildernessIntel(destination);
+        } else if (destination == SidebarDestination.CRYSTAL_LABORATORY) {
+            reached = navigateToCrystalLaboratory();
+        } else {
+            reached = navigateToDirectSidebarDestination(destination);
         }
 
-        boolean reached = navigateToDirectSidebarDestination(destination);
         if (!reached) {
             broadcastWarn("Sidebar navigation failed: " + destination);
         }
@@ -312,6 +438,103 @@ public class NavigationHelper {
 
     private static AreaData area(int x1, int y1, int x2, int y2) {
         return new AreaData(new PointData(x1, y1), new PointData(x2, y2));
+    }
+
+    // ── Deals destinations ────────────────────────────────────────────
+
+    /** Opens and verifies one of the supported destinations inside Deals. */
+    public boolean navigateToDeals(DealsTarget target) {
+        return switch (target) {
+            case BANK -> navigateToBankDealsTab();
+            case JOURNEY_OF_LIGHT -> navigateToJourneyOfLight();
+        };
+    }
+
+    private boolean navigateToBankDealsTab() {
+        broadcastInfo("Navigating to Bank through Deals");
+        for (int attempt = 1; attempt <= BANK_NAVIGATION_ATTEMPTS; attempt++) {
+            if (attempt > 1) {
+                broadcastInfo("Retrying Bank navigation after the destination was not verified");
+                ensureCorrectScreenLocation(LaunchPoint.HOME);
+            }
+            if (!openDealsPanel(2000L)) {
+                broadcastWarn("Bank navigation attempt " + attempt + "/" + BANK_NAVIGATION_ATTEMPTS
+                        + " could not open Deals");
+                continue;
+            }
+            emu.swipeScreen(device, DEALS_SWIPE_START, DEALS_SWIPE_END);
+            interruptibleWait(400L);
+            emu.swipeScreen(device, DEALS_SWIPE_START, DEALS_SWIPE_END);
+            interruptibleWait(DEALS_CAROUSEL_SETTLE_MS);
+            ImageSearchResultData bank = searcher.locatePattern(
+                    TemplatesEnum.EVENTS_DEALS_BANK,
+                    TemplateSearchHelper.SearchConfig.builder().withMaxAttempts(1).withThreshold(90)
+                            .withDelay(300L).withCoordinates(DEALS_TAB_BAR_TOP_LEFT, DEALS_TAB_BAR_BOTTOM_RIGHT)
+                            .build());
+            if (!bank.isFound()) {
+                broadcastWarn("Bank tab not found in Deals on attempt " + attempt + "/"
+                        + BANK_NAVIGATION_ATTEMPTS);
+                continue;
+            }
+            taps.tapInside(bank);
+            interruptibleWait(BANK_INTERFACE_SETTLE_MS);
+            String evidence = findBankInterfaceEvidence();
+            if (evidence != null) {
+                broadcastInfo("Reached Bank in Deals; verified by " + evidence);
+                return true;
+            }
+            broadcastWarn("Bank candidate was tapped, but bank controls were not detected on attempt "
+                    + attempt + "/" + BANK_NAVIGATION_ATTEMPTS);
+        }
+        broadcastWarn("Bank navigation failed after " + BANK_NAVIGATION_ATTEMPTS + " attempts");
+        return false;
+    }
+
+    private String findBankInterfaceEvidence() {
+        if (searcher.locatePattern(TemplatesEnum.EVENTS_DEALS_BANK_WITHDRAW,
+                SearchConfigConstants.DEFAULT_SINGLE).isFound()) return "withdraw control";
+        if (searcher.locatePattern(TemplatesEnum.EVENTS_DEALS_BANK_INDEPOSIT,
+                SearchConfigConstants.DEFAULT_SINGLE).isFound()) return "active-deposit control";
+        if (searcher.locatePattern(TemplatesEnum.EVENTS_DEALS_BANK_DEPOSIT,
+                SearchConfigConstants.DEFAULT_SINGLE).isFound()) return "deposit control";
+        return null;
+    }
+
+    private boolean navigateToJourneyOfLight() {
+        broadcastInfo("Navigating to Journey of Light through Deals");
+        if (!openDealsPanel(1500L)) {
+            broadcastWarn("Journey of Light navigation could not open Deals");
+            return false;
+        }
+        for (int attempt = 1; attempt <= 4; attempt++) {
+            if (attempt > 1) {
+                broadcastDebug("Retrying Journey of Light tab detection, attempt " + attempt + "/4");
+                interruptibleWait(1000L);
+            }
+            taps.tapInside(new AreaData(new PointData(529, 27), new PointData(635, 63)), 5, 300);
+            ImageSearchResultData selected = searcher.locatePattern(
+                    TemplatesEnum.JOURNEY_OF_LIGHT_TAB, SearchConfigConstants.DEFAULT_SINGLE);
+            ImageSearchResultData unselected = searcher.locatePattern(
+                    TemplatesEnum.JOURNEY_OF_LIGHT_UNSELECTED_TAB, SearchConfigConstants.DEFAULT_SINGLE);
+            if (!selected.isFound() && !unselected.isFound()) continue;
+            taps.tapInside(selected.isFound() ? selected : unselected);
+            interruptibleWait(500L);
+            taps.tapInside(new AreaData(new PointData(50, 220), new PointData(350, 260)));
+            interruptibleWait(500L);
+            broadcastInfo("Reached Journey of Light and selected its main tab");
+            return true;
+        }
+        broadcastWarn("Journey of Light tab was not detected after 4 attempts");
+        return false;
+    }
+
+    private boolean openDealsPanel(long settleMs) {
+        ImageSearchResultData deals = searcher.locatePattern(
+                TemplatesEnum.HOME_DEALS_BUTTON, SearchConfigConstants.DEFAULT_SINGLE);
+        if (!deals.isFound()) return false;
+        taps.tapInside(deals);
+        interruptibleWait(settleMs);
+        return true;
     }
 
     // ── event menu ───────────────────────────────────────────────────
@@ -512,6 +735,7 @@ public class NavigationHelper {
     private enum ScreenState { HOME, WORLD, RECONNECT, UNKNOWN }
     public enum AllianceMenu { WAR, CHESTS, TERRITORY, SHOP, TECH, HELP, TRIUMPH, BATTLE }
     public enum EventMenu { HERO_MISSION, MERCENARY, ALLIANCE_CHAMPIONSHIP, ALLIANCE_MOBILIZATION, TUNDRA_TRUCK, ENDLESS_TRIAL }
+    public enum DealsTarget { BANK, JOURNEY_OF_LIGHT }
 
     public enum EventMenuOpenResult { REACHED, PANEL_CLOSED, TAB_ABSENT }
 }
