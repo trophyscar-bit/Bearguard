@@ -336,6 +336,15 @@ public enum ConfigurationKeyEnum {
     EXPERT_ROMULUS_TROOPS_TYPE_STRING           ("Infantry",    String.class,  ConfigCategory.EXPERTS),
     EXPERT_SKILL_TRAINING_ENABLED_BOOL         ("false",       Boolean.class, ConfigCategory.EXPERTS),
     EXPERT_SKILL_TRAINING_PRIORITIES_STRING     ("",            String.class,  ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_ENABLED_BOOL                   ("false",       Boolean.class, ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_LEARNING_BOOL                  ("true",        Boolean.class, ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_UPGRADE_SKILLS_BOOL            ("true",        Boolean.class, ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_CLAIM_SUPPLIES_BOOL            ("true",        Boolean.class, ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_TUNDRA_TREK_BOOL               ("true",        Boolean.class, ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_FRONTIER_TREK_BOOL             ("true",        Boolean.class, ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_WAYFARER_BOOL                  ("true",        Boolean.class, ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_GIFT_COMPASSES_BOOL            ("false",       Boolean.class, ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_GIFT_EXPERT_STRING             ("AGNES",       String.class,  ConfigCategory.EXPERTS),
 
     /* ─────────── gathering ─────────── */
 

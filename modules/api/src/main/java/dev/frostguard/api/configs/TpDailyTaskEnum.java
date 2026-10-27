@@ -62,6 +62,7 @@ public enum TpDailyTaskEnum {
     EXPERT_ROMULUS_TAG     (35,  "Expert Romulus Tag",           ConfigurationKeyEnum.EXPERT_ROMULUS_TAG_BOOL,                 RoutineCategory.DAILY_OBJECTIVE),
     EXPERT_ROMULUS_TROOPS  (36,  "Expert Romulus Troops",        ConfigurationKeyEnum.EXPERT_ROMULUS_TROOPS_BOOL,              RoutineCategory.DAILY_OBJECTIVE),
     EXPERT_SKILL_TRAINING  (37,  "Expert Skill Training",       ConfigurationKeyEnum.EXPERT_SKILL_TRAINING_ENABLED_BOOL,      RoutineCategory.DAILY_OBJECTIVE),
+    DAWN_ACADEMY           (918, "Dawn Academy",                ConfigurationKeyEnum.DAWN_ACADEMY_ENABLED_BOOL,              RoutineCategory.RESOURCE),
     INTEL                  (33,  "Intel",                        ConfigurationKeyEnum.INTEL_BOOL,                              RoutineCategory.DAILY_OBJECTIVE),
     MAIL_REWARDS           (30,  "Mail Rewards",                 ConfigurationKeyEnum.MAIL_REWARDS_BOOL,                      RoutineCategory.DAILY_OBJECTIVE),
     STOREHOUSE_CHEST       (32,  "Storehouse Chest",             ConfigurationKeyEnum.STOREHOUSE_CHEST_BOOL,                  RoutineCategory.DAILY_OBJECTIVE),

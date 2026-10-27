@@ -39,6 +39,7 @@ public class TaskRegistrations {
             case EXPERT_ROMULUS_TAG -> new ExpertsRomulusTagRoutine(profile, type);
             case EXPERT_ROMULUS_TROOPS -> new ExpertsRomulusTroopsRoutine(profile, type);
             case EXPERT_SKILL_TRAINING -> new ExpertSkillTrainingRoutine(profile, type);
+            case DAWN_ACADEMY -> new DawnAcademyRoutine(profile, type);
 
             // Economy
             case NOMADIC_MERCHANT -> new NomadicMerchantRoutine(profile, type);

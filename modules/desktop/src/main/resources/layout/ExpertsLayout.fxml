@@ -41,28 +41,10 @@
                             <ComboBox fx:id="troopTypeComboBox" prefWidth="160.0" />
                         </HBox>
                         
-                        <Separator style="-fx-opacity: 0.25;" />
-                        
-                        <CheckBox fx:id="enableExpertSkillTrainingCheckBox" mnemonicParsing="false"
-                                  text="Enable Expert Skill Training" />
                     </VBox>
                 </VBox>
             </VBox>
             
-            <!-- Expert Skill Training (conditionally visible) -->
-            <VBox fx:id="expertSkillTrainingVBox" styleClass="content-card">
-                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                    <Label text="Expert Skill Training Priorities" />
-                </HBox>
-                <VBox spacing="10" styleClass="task-section-inner">
-                    <Label styleClass="task-card-description"
-                           text="Drag to reorder skill training priorities"
-                           wrapText="true" />
-                    <Separator style="-fx-opacity: 0.25;" />
-                    
-                    <dev.frostguard.app.shared.PriorityListView fx:id="expertSkillPriorities" prefHeight="220" maxWidth="Infinity" />
-                </VBox>
-            </VBox>
 
         </VBox>
     </ScrollPane>
