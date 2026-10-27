@@ -85,10 +85,11 @@ import dev.frostguard.vision.ocr.TextLine;
 public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigurable {
 
     /**
-     * Two hours after the 00:00 UTC daily reset: 22:00 Eastern daylight time, 21:00 standard. Kept in UTC
-     * so it follows the reset, not the clock change.
+     * Six hours after the 00:00 UTC daily reset: 02:00 Eastern daylight time, 01:00 standard. A scan runs
+     * 45 minutes or more and holds the game the whole time, so it runs while nobody is playing (matt,
+     * 2026-10-27). Kept in UTC so it follows the reset, not the clock change.
      */
-    private static final LocalTime RUN_AT_UTC = LocalTime.of(2, 0);
+    private static final LocalTime RUN_AT_UTC = LocalTime.of(6, 0);
     private static final int RUN_JITTER_MINUTES = 10;
     private static final int FRAME_RETENTION_DAYS = 7;
     /** History the nightly report scores against; the verdict bands compare a week. */
