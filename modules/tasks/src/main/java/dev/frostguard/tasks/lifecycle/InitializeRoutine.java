@@ -23,6 +23,7 @@ import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.detection.CloseCrossDetector;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
 import dev.frostguard.vision.ocr.OcrException;
+import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -98,6 +99,10 @@ public class InitializeRoutine extends DelayedTask {
 	private static final int MAX_CLOSEABLE_OVERLAY_DISMISSALS = 3;
 	private static final int MAX_TREK_EXIT_HINT_DISMISSALS = 3;
 	private static final int UNKNOWN_BLOCKER_BACK_SETTLE_MS = 2000;
+	// The arrow scores 0.94-1.00 on full screens and about 0.8 on the darker Dawn Academy view;
+	// dimmed dialogs over it score about 0.7 and the city home screen 0.3.
+	static final AreaData GAME_BACK_ARROW_AREA = new AreaData(new PointData(0, 0), new PointData(130, 110));
+	static final int GAME_BACK_ARROW_THRESHOLD = 75;
 	private static final int MAX_UNKNOWN_BLOCKER_POSTCONDITION_ATTEMPTS = 3;
 	private static final int STARTUP_PATTERN_THRESHOLD = 90;
 
@@ -840,8 +845,14 @@ public class InitializeRoutine extends DelayedTask {
 					+ " passive checks. Whiteout Survival owns the foreground window; sending bounded Android Back recovery "
 					+ unknownBlockerBackAttempts + "/"
 					+ StartupRecoveryPolicy.MAX_UNKNOWN_BLOCKER_BACK_ATTEMPTS + ".");
-			pressBack();
-			lastVerifiedStartupState = "bounded Android Back sent to foreground game";
+			// Trek, Dawn Academy, Expert and Deals screens ignore Android Back (seen 27 Oct on the
+			// Trek landing: three Backs, no change); their own top-left arrow is the way out.
+			if (tapGameBackArrowIfShown()) {
+				lastVerifiedStartupState = "in-game back arrow tapped on foreground game";
+			} else {
+				pressBack();
+				lastVerifiedStartupState = "bounded Android Back sent to foreground game";
+			}
 
 			for (int attempt = 1; attempt <= MAX_UNKNOWN_BLOCKER_POSTCONDITION_ATTEMPTS; attempt++) {
 				sleepTask(UNKNOWN_BLOCKER_BACK_SETTLE_MS);
@@ -870,6 +881,20 @@ public class InitializeRoutine extends DelayedTask {
 
 		deferUnknownStartupBlocker(gameForeground);
 		return false;
+	}
+
+	private boolean tapGameBackArrowIfShown() {
+		ImageSearchResultData arrow = templateSearchHelper.locatePattern(TemplatesEnum.GAME_BACK_ARROW,
+				SearchConfig.builder()
+						.withCoordinates(GAME_BACK_ARROW_AREA.topLeft(), GAME_BACK_ARROW_AREA.bottomRight())
+						.withThreshold(GAME_BACK_ARROW_THRESHOLD)
+						.build());
+		if (!arrow.isFound()) {
+			return false;
+		}
+		logInfo("In-game back arrow is showing; tapping it instead of Android Back.");
+		tapInside(arrow);
+		return true;
 	}
 
 	private boolean isGameForeground() {
