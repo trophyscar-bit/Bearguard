@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -22,6 +23,12 @@ import java.util.concurrent.Future;
 import java.util.stream.Stream;
 
 import javax.imageio.ImageIO;
+
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
+import org.opencv.core.Size;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
 
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
@@ -60,6 +67,12 @@ public final class DealItemLibrary {
     /** Icons common enough on paid packs to measure a frame's tile size from. */
     private static final List<String> SCALE_ANCHORS = List.of("Gems", "5min Speedup", "100 VIP XP", "Fire Crystal",
             "1h Speedup");
+    /**
+     * Half-size score below which an icon cannot be on the frame. Measured on 46,558 searches over 32 frames of the
+     * 2026-10-26 scan: the 1,882 that scored {@link #MIN_SCORE} or more at full size all scored 75 or more at half
+     * size, the largest drop of any search scoring 70 or more was 11 points, and 85% of searches scored under 60.
+     */
+    private static final double COARSE_MIN_SCORE = 60.0;
     /** Candidates overlapping more than this share of the smaller box are one tile. */
     private static final double MAX_OVERLAP = 0.3;
     /** Template matching is CPU-bound; a handful of threads covers the 110 searches without starving the app. */
@@ -76,7 +89,11 @@ public final class DealItemLibrary {
     public record Match(String key, int x, int y, int width, int height, double score, double scale, boolean loose) {
     }
 
-    private record Variant(String key, byte[] png, int width, int height, double scale, boolean loose) {
+    /** @param template decoded once and only read by searches, which share it across threads */
+    private record Variant(String key, Mat template, Mat coarse, int width, int height, double scale, boolean loose) {
+        static Variant of(String key, Mat template, double scale, boolean loose) {
+            return new Variant(key, template, half(template), template.cols(), template.rows(), scale, loose);
+        }
     }
 
     /** @param drawnAt the tile size the icon was cut at; 1.0 unless its file name says {@code @0.775} */
@@ -124,8 +141,8 @@ public final class DealItemLibrary {
                 originals.add(new Original(key, image, drawnAt, loose));
                 for (double scale : TILE_SCALES) {
                     BufferedImage scaled = scale == drawnAt ? image : scale(image, scale / drawnAt);
-                    byte[] bytes = scale == drawnAt ? png : encode(scaled);
-                    variants.add(new Variant(key, bytes, scaled.getWidth(), scaled.getHeight(), scale, loose));
+                    Mat template = decode(scale == drawnAt ? png : encode(scaled));
+                    variants.add(Variant.of(key, template, scale, loose));
                 }
             }
         }
@@ -136,7 +153,48 @@ public final class DealItemLibrary {
         return icons;
     }
 
-    /** Best location of every icon inside the region, at whichever tile size fits best, keeping one icon per tile. */
+    /**
+     * Best score of each variant inside the region, in variant order. Each variant is first matched on the frame
+     * at half size, where it costs about a quarter as much, and searched at full size only if it scores at least
+     * {@link #COARSE_MIN_SCORE} there.
+     */
+    private static List<ImageSearchResultData> match(RawImageData capture, PointData topLeft, PointData bottomRight,
+            List<Variant> variants) {
+        Mat frame = OpenCvPatternLocator.decodePixelsToMat(capture.getData(), capture.getWidth(), capture.getHeight(),
+                capture.getBpp());
+        PointData from = new PointData(Math.max(0, topLeft.getX()), Math.max(0, topLeft.getY()));
+        Mat coarseFrame = half(frame);
+        PointData coarseFrom = new PointData(from.getX() / 2, from.getY() / 2);
+        PointData coarseTo = new PointData(bottomRight.getX() / 2, bottomRight.getY() / 2);
+        CountDownLatch finished = new CountDownLatch(variants.size());
+        List<Future<ImageSearchResultData>> searches = new ArrayList<>();
+        for (Variant variant : variants) {
+            searches.add(SEARCHES.submit(() -> {
+                try {
+                    if (fitsCoarse(variant, coarseFrom, coarseTo) && OpenCvPatternLocator.matchDirect(coarseFrame,
+                            variant.coarse(), coarseFrom, coarseTo, COARSE_MIN_SCORE).getMatchScore() < COARSE_MIN_SCORE) {
+                        return new ImageSearchResultData(false, null, 0.0);
+                    }
+                    return OpenCvPatternLocator.matchDirect(frame, variant.template(), from, bottomRight, MIN_SCORE);
+                } finally {
+                    finished.countDown();
+                }
+            }));
+        }
+        try {
+            List<ImageSearchResultData> results = new ArrayList<>();
+            for (Future<ImageSearchResultData> search : searches) {
+                results.add(await(search));
+            }
+            return results;
+        } finally {
+            // Every search reads the shared native frame; releasing it under a running one would crash the JVM.
+            awaitUninterruptibly(finished);
+            frame.release();
+            coarseFrame.release();
+        }
+    }
+
     private static ImageSearchResultData await(Future<ImageSearchResultData> search) {
         try {
             return search.get();
@@ -145,6 +203,21 @@ public final class DealItemLibrary {
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Item icon search interrupted", interrupted);
+        }
+    }
+
+    private static void awaitUninterruptibly(CountDownLatch latch) {
+        boolean interrupted = Thread.interrupted();
+        while (true) {
+            try {
+                latch.await();
+                break;
+            } catch (InterruptedException again) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -162,15 +235,11 @@ public final class DealItemLibrary {
                 ladder.add(variant(original, scale));
             }
         }
-        List<Future<ImageSearchResultData>> searches = new ArrayList<>();
-        for (Variant variant : ladder) {
-            searches.add(SEARCHES.submit(() -> OpenCvPatternLocator.matchFromRawTemplate(
-                    capture, variant.png(), topLeft, bottomRight, MIN_SCORE)));
-        }
+        List<ImageSearchResultData> results = match(capture, topLeft, bottomRight, ladder);
         double bestScore = 0;
         double bestScale = Double.NaN;
         for (int i = 0; i < ladder.size(); i++) {
-            ImageSearchResultData result = await(searches.get(i));
+            ImageSearchResultData result = results.get(i);
             if (result.isFound() && result.getMatchScore() > bestScore) {
                 bestScore = result.getMatchScore();
                 bestScale = ladder.get(i).scale();
@@ -200,8 +269,7 @@ public final class DealItemLibrary {
         return scaledCache.computeIfAbsent(cacheKey, k -> {
             BufferedImage scaled = scale(original.image(), rounded / original.drawnAt());
             try {
-                return new Variant(original.key(), encode(scaled), scaled.getWidth(), scaled.getHeight(), rounded,
-                        original.loose());
+                return Variant.of(original.key(), decode(encode(scaled)), rounded, original.loose());
             } catch (IOException unencodable) {
                 throw new UncheckedIOException(unencodable);
             }
@@ -212,20 +280,17 @@ public final class DealItemLibrary {
         return search(capture, topLeft, bottomRight, variants);
     }
 
+    /** Best location of every icon inside the region, at whichever tile size fits best, keeping one icon per tile. */
     private static List<Match> search(RawImageData capture, PointData topLeft, PointData bottomRight,
             List<Variant> variants) {
         // One full-page search per icon and scale: 110 of them took 3.8 s of a 5.2 s page read in sequence
         // on 2026-09-18 frames. Each search is independent; results are gathered in variant order so ties
         // resolve exactly as a sequential pass would.
-        List<Future<ImageSearchResultData>> searches = new ArrayList<>();
-        for (Variant variant : variants) {
-            searches.add(SEARCHES.submit(() -> OpenCvPatternLocator.matchFromRawTemplate(
-                    capture, variant.png(), topLeft, bottomRight, MIN_SCORE)));
-        }
+        List<ImageSearchResultData> results = match(capture, topLeft, bottomRight, variants);
         List<Match> candidates = new ArrayList<>();
         for (int i = 0; i < variants.size(); i++) {
             Variant variant = variants.get(i);
-            ImageSearchResultData result = await(searches.get(i));
+            ImageSearchResultData result = results.get(i);
             if (result.isFound()) {
                 candidates.add(new Match(variant.key(), result.getX() - variant.width() / 2,
                         result.getY() - variant.height() / 2, variant.width(), variant.height(),
@@ -279,6 +344,25 @@ public final class DealItemLibrary {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageIO.write(image, "png", out);
         return out.toByteArray();
+    }
+
+    /** A region too tight for the half-size icon is searched at full size only, as before the half-size pass. */
+    private static boolean fitsCoarse(Variant variant, PointData from, PointData to) {
+        return to.getX() - from.getX() > variant.coarse().cols() && to.getY() - from.getY() > variant.coarse().rows();
+    }
+
+    private static Mat half(Mat image) {
+        Mat out = new Mat();
+        Imgproc.resize(image, out, new Size(image.cols() / 2, image.rows() / 2), 0, 0, Imgproc.INTER_AREA);
+        return out;
+    }
+
+    private static Mat decode(byte[] png) throws IOException {
+        Mat template = Imgcodecs.imdecode(new MatOfByte(png), Imgcodecs.IMREAD_COLOR);
+        if (template.empty()) {
+            throw new IOException("Not a decodable item icon");
+        }
+        return template;
     }
 
     private static double overlap(Match a, Match b) {
