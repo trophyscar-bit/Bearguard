@@ -136,8 +136,11 @@ public final class AllianceSpendReport {
         if (Files.exists(aliasFile)) {
             aliases = MAPPER.readValue(aliasFile.toFile(), Aliases.class);
         }
-        AllianceSpendReport built = build(rows, operator,
-                scanIndex(workspaceRoot.resolve("data").resolve("deals")), aliases);
+        ScanIndex scans = scanIndex(workspaceRoot.resolve("data").resolve("deals"));
+        Map<String, TreeSet<Double>> names = new HashMap<>(scans.names());
+        // A followed gift link shows the pack's own page, so its prices count as scanned under that name.
+        PackLinks.pricesByPack(spend).forEach((k, v) -> names.computeIfAbsent(k, x -> new TreeSet<>()).addAll(v));
+        AllianceSpendReport built = build(rows, operator, new ScanIndex(names, scans.families()), aliases);
         return new AllianceSpendReport(built.purchases, unreadable);
     }
 
