@@ -13,8 +13,8 @@ import java.util.List;
  * measured sizes run from 137 x 53 px on Daily Deals cards to 301 x 75 px on the timed pack
  * pop-up. Fill separates buttons from other orange artwork: the thirteen buttons measured on eight
  * 720 x 1280 frames fill 0.71 or more of their box, every other orange shape of comparable size
- * fills 0.45 or less. The area limits only bound the size; a "Purchase All" button drawn on an
- * orange banner merges with it and is not found. A button also carries its white caption: solid gold
+ * fills 0.45 or less. The area limits only bound the size; a button drawn on an orange banner or card
+ * merges with it at the normal saturation floor and is found by a stricter second pass. A button also carries its white caption: solid gold
  * artwork above a button (the Mark of Valor tickets on A Hero's Witness, 2026-10-26) passed every other
  * test, and across 2,961 boxes found on saved frames such artwork had at most 0.7% white in its middle
  * while captioned buttons had 4% or more.</p>
@@ -34,6 +34,7 @@ public final class PriceButtonLocator {
     private static final float MIN_HUE = 30f / 360f;
     private static final float MAX_HUE = 64f / 360f;
     private static final float MIN_SATURATION = 150f / 255f;
+    private static final float STRICT_MIN_SATURATION = 210f / 255f;
     private static final float MIN_BRIGHTNESS = 200f / 255f;
     /** Closing radius. Bridges the white price glyphs so the button reads as one component. */
     private static final int CLOSE_RADIUS = 4;
@@ -53,6 +54,7 @@ public final class PriceButtonLocator {
         int width = frame.getWidth();
         int height = frame.getHeight();
         boolean[] mask = new boolean[width * height];
+        boolean[] strict = new boolean[width * height];
         float[] hsb = new float[3];
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
@@ -60,10 +62,30 @@ public final class PriceButtonLocator {
                 Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, hsb);
                 mask[y * width + x] = hsb[0] >= MIN_HUE && hsb[0] <= MAX_HUE
                         && hsb[1] >= MIN_SATURATION && hsb[2] >= MIN_BRIGHTNESS;
+                strict[y * width + x] = mask[y * width + x] && hsb[1] >= STRICT_MIN_SATURATION;
             }
         }
+        List<Box> boxes = new ArrayList<>(captioned(frame, mask, width, height));
+        // A button on an orange card merges with the card at the normal saturation floor and the merged shape
+        // is too big to pass: Value Hero Pack's three $4.99 buttons and Regular Pack's were never found
+        // (2026-10-26). The button's own fill is far more saturated (240 against the card's 140-165), so a
+        // second pass at a stricter floor separates it. It only adds boxes where the first pass found none.
+        for (Box box : captioned(frame, strict, width, height)) {
+            if (boxes.stream().noneMatch(b -> overlaps(b, box))) {
+                boxes.add(box);
+            }
+        }
+        boxes.sort(Comparator.comparingInt(Box::y).thenComparingInt(Box::x));
+        return boxes;
+    }
+
+    private static List<Box> captioned(BufferedImage frame, boolean[] mask, int width, int height) {
         boolean[] closed = invert(dilate(invert(dilate(mask, width, height)), width, height));
         return components(closed, width, height).stream().filter(box -> hasCaption(frame, box)).toList();
+    }
+
+    private static boolean overlaps(Box a, Box b) {
+        return a.x() < b.right() && b.x() < a.right() && a.y() < b.bottom() && b.y() < a.bottom();
     }
 
     /** Share of near-white pixels in the box's middle, where the caption sits, against the bare-artwork floor. */

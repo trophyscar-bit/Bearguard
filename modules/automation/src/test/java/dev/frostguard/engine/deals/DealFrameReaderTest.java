@@ -627,6 +627,68 @@ class DealFrameReaderTest {
     }
 
     @Test
+    void findsTheButtonsThatOpenPaidPagesOfTheirOwn() throws Exception {
+        assertTrue(reader.subPageOpeners(frame("opener-hall-of-heroes.png"))
+                .containsKey(DealFrameReader.SubPageOpener.PLUS_BLUE));
+        assertTrue(reader.subPageOpeners(frame("opener-alliance-mobilization.png"))
+                .containsKey(DealFrameReader.SubPageOpener.PLUS_GREEN));
+        Map<DealFrameReader.SubPageOpener, ?> training = reader.subPageOpeners(frame("opener-hero-ascension-training.png"));
+        assertTrue(training.containsKey(DealFrameReader.SubPageOpener.HERO_PACK), training.toString());
+        assertTrue(training.containsKey(DealFrameReader.SubPageOpener.BATTLE_STARS), training.toString());
+        assertTrue(reader.subPageOpeners(frame("opener-weekly-benefits-card.png"))
+                .containsKey(DealFrameReader.SubPageOpener.SELECT_PACK));
+        assertTrue(reader.subPageOpeners(frame("gem-shop-get-gems.png")).isEmpty());
+    }
+
+    @Test
+    void readsOnlyTheSignInPassColumnDayByDay() throws Exception {
+        DealFrameReader.Page page = read("sign-in-track-days-4-7.png", "Sign-in & Earn It");
+
+        Map<String, Long> items = quantities(offerPriced(page, 0.99));
+        assertEquals(5L, items.get("Fire Crystal (Day 6)"));
+        assertEquals(2L, items.get("Design Plans (Day 7)"));
+        assertEquals(2L, items.get("Charm Guide (Day 5)"));
+        // The free column's Steel and 5-minute speedups are not what the pass sells.
+        assertTrue(items.keySet().stream().noneMatch(k -> k.contains("Steel") || k.contains("5min")), items.toString());
+    }
+
+    @Test
+    void keepsABenefitsCardsPointsTargetRewardsApartFromWhatThePurchaseGives() throws Exception {
+        DealFrameReader.Page page = read("popup-benefits-card-list-epic.png", "Select a Weekly Benefits Card");
+
+        DealOffer hero = page.offers().stream().filter(o -> "Hero Gear Benefits Card".equals(o.title())).findFirst()
+                .orElseThrow(() -> new AssertionError(page.offers().toString()));
+        Map<String, Long> items = quantities(hero);
+        assertEquals(15L, items.get("Essence Stones"));
+        assertEquals(8L, items.get("Lucky Hero Gear Chest"));
+        assertEquals(3L, items.get("Essence Stones (points target)"));
+    }
+
+    @Test
+    void namesEachValueHeroPackByItsOwnRibbon() throws Exception {
+        DealFrameReader.Page page = read("popup-value-hero-pack.png", "Value Hero Pack");
+
+        assertEquals(List.of("Logan's Fortitude", "Mia's Keenness", "Greg's Precision"),
+                page.offers().stream().map(DealOffer::title).toList());
+    }
+
+    @Test
+    void readsTheVipSpecialPackWithoutTheFreeBundleAboveIt() throws Exception {
+        DealOffer pack = offerPriced(read("popup-vip-special-pack.png", "VIP"), 49.99);
+
+        assertTrue(pack.title().endsWith("Special Pack"), pack.title());
+        Map<String, Long> items = quantities(pack);
+        assertEquals(25_000L, items.get("Gems"));
+        assertEquals(150L, items.get("Jeronimo Shard"));
+        assertNull(items.get("Mythic Exploration Manual"), items.toString());
+    }
+
+    @Test
+    void acceptsTundraSupplyStationsTopTierPrice() throws Exception {
+        offerPriced(read("gem-shop-tundra-supply-station.png", "Tundra Supply Station"), 999.90);
+    }
+
+    @Test
     void recordsEveryGetGemsBundle() throws Exception {
         DealFrameReader.Page page = read("gem-shop-get-gems.png", "Get Gems");
 
