@@ -423,8 +423,14 @@ public final class AllianceGiftLedger {
     }
 
     /** What one pass added to the ledger. */
-    public record PassResult(int listed, int fresh, boolean firstPass, boolean aligned) {
+    public record PassResult(int listed, int fresh, boolean firstPass, boolean aligned, boolean afterGap) {
     }
+
+    /**
+     * A reference this old has left the gift list entirely. On 2026-10-27 a pass 26h after the last
+     * logged one found 7 cards and none of the 36 it had seen, so the list keeps about a day or less.
+     */
+    static final long STALE_REFERENCE_HOURS = 24;
 
     /**
      * Appends the purchases that arrived since the last pass.
@@ -432,39 +438,54 @@ public final class AllianceGiftLedger {
      * <p>The first pass logs the whole list, marked as a backlog since those purchases happened
      * before logging began. If the previous list cannot be found in this one, nothing is logged
      * and the list is kept as the new reference, so one bad read costs one pass rather than
-     * double-counting a whole list.</p>
+     * double-counting a whole list. The exception is a stale reference: one older than
+     * {@link #STALE_REFERENCE_HOURS}, or taken before the game's daily reset (00:00 UTC) with not one
+     * of its purchases still listed. Its purchases have left the list, so every row now listed is
+     * newer and is logged, marked {@code afterGap}: purchases may be missing in between.</p>
      *
      * @param list the stitched list, newest first, and reaching its end
      */
     public PassResult recordPass(List<GiftRow> list, boolean anonymiseBuyers) throws IOException {
-        return recordPass(list, anonymiseBuyers, true);
+        return recordPass(list, anonymiseBuyers, true, java.time.Instant.now());
+    }
+
+    public PassResult recordPass(List<GiftRow> list, boolean anonymiseBuyers, boolean reachedEnd) throws IOException {
+        return recordPass(list, anonymiseBuyers, reachedEnd, java.time.Instant.now());
     }
 
     /**
      * @param reachedEnd whether this pass saw the bottom of the list; stored with the reference so
      *        the next pass knows how to line up against it
      */
-    public PassResult recordPass(List<GiftRow> list, boolean anonymiseBuyers, boolean reachedEnd) throws IOException {
+    public PassResult recordPass(List<GiftRow> list, boolean anonymiseBuyers, boolean reachedEnd,
+                                 java.time.Instant now) throws IOException {
         Files.createDirectories(root);
         Path last = root.resolve("last-list.json");
         boolean firstPass = !Files.exists(last);
         List<String> previous = List.of();
         boolean previousReachedEnd = false;
         boolean referenceReadable = true;
+        java.time.Instant savedAt = null;
         if (!firstPass) {
             try {
                 JsonNode ref = MAPPER.readTree(last.toFile());
                 JsonNode items = ref.isArray() ? ref : ref.path("list");
                 previous = MAPPER.convertValue(items, new TypeReference<List<String>>() { });
                 previousReachedEnd = !ref.isArray() && ref.path("reachedEnd").asBoolean(false);
-            } catch (IOException | IllegalArgumentException unreadable) {
+                savedAt = ref.hasNonNull("savedAt") ? java.time.Instant.parse(ref.path("savedAt").asText())
+                        : Files.getLastModifiedTime(last).toInstant();
+            } catch (IOException | IllegalArgumentException | java.time.DateTimeException unreadable) {
                 referenceReadable = false;
             }
         }
         List<String> current = list.stream().map(GiftRow::signature).toList();
         int fresh = referenceReadable ? newRowCount(previous, current, previousReachedEnd) : -1;
         boolean aligned = fresh >= 0;
-        if (aligned && fresh > 0) {
+        boolean afterGap = !aligned && referenceReadable && reachedEnd && stale(savedAt, now, previous, current);
+        if (afterGap) {
+            fresh = current.size();
+        }
+        if (fresh > 0) {
             StringBuilder out = new StringBuilder();
             for (GiftRow row : list.subList(0, fresh)) {
                 GiftRow logged = anonymiseBuyers && row.buyer() != null
@@ -474,6 +495,9 @@ public final class AllianceGiftLedger {
                         : row;
                 Map<String, Object> json = MAPPER.convertValue(logged, new TypeReference<Map<String, Object>>() { });
                 json.put("backlog", firstPass);
+                if (afterGap) {
+                    json.put("afterGap", true);
+                }
                 out.append(MAPPER.writeValueAsString(json)).append('\n');
             }
             Files.writeString(root.resolve("gifts.jsonl"), out.toString(), StandardCharsets.UTF_8,
@@ -481,12 +505,25 @@ public final class AllianceGiftLedger {
         }
         Map<String, Object> reference = new java.util.LinkedHashMap<>();
         reference.put("reachedEnd", reachedEnd);
+        reference.put("savedAt", now.toString());
         reference.put("list", current);
         Path temp = root.resolve("last-list.json.tmp");
         MAPPER.writeValue(temp.toFile(), reference);
         Files.move(temp, last, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
                 java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-        return new PassResult(list.size(), Math.max(fresh, 0), firstPass, aligned);
+        return new PassResult(list.size(), Math.max(fresh, 0), firstPass, aligned, afterGap);
+    }
+
+    static boolean stale(java.time.Instant savedAt, java.time.Instant now, List<String> previous, List<String> current) {
+        if (savedAt == null) {
+            return false;
+        }
+        if (!savedAt.plus(java.time.Duration.ofHours(STALE_REFERENCE_HOURS)).isAfter(now)) {
+            return true;
+        }
+        boolean resetBetween = !savedAt.atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                .equals(now.atZone(java.time.ZoneOffset.UTC).toLocalDate());
+        return resetBetween && java.util.Collections.disjoint(previous, current);
     }
 
     /** Raw OCR and the stitched list of a pass, kept beside its photographs. */

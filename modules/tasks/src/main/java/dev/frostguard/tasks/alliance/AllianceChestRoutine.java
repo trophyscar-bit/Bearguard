@@ -287,7 +287,10 @@ private void logGiftList() {
 							+ " screens without reaching the bottom; raise Max scrolls if the list is longer."));
 				}
 				AllianceGiftLedger.PassResult result = ledger.recordPass(list, anonymise, reachedEnd);
-				if (!result.aligned()) {
+				if (result.afterGap()) {
+					logWarning(routineLogAllianceChestLine("Alliance Spend | the last logged list has left the gift list;"
+							+ " logging all " + result.fresh() + " listed purchases as new, marked afterGap. Frames: " + passDir));
+				} else if (!result.aligned()) {
 					logWarning(routineLogAllianceChestLine("Alliance Spend | the last pass's newest rows are not in this list;"
 							+ " nothing logged this pass, list kept as the new reference. Frames: " + passDir));
 				}
@@ -313,6 +316,9 @@ private void logGiftList() {
 private static final int MAX_LINKS_PER_PASS = 5;
 
 private static final int LINK_PAGE_WAIT_MS = 2500;
+
+/** Backs tried to get from a followed link back to the gift list. */
+private static final int MAX_BACKS = 3;
 
 /** A card whose text ends this far above the list's bottom edge is whole, so a missing link is real. */
 private static final int WHOLE_CARD_PX = 110;
@@ -374,15 +380,24 @@ private void followPackLinks() {
 							: reader.read(page, 0, 0, page.getWidth(), page.getHeight(), "en", OCR_MIN_CONFIDENCE);
 					PackLinks.Page seen = links.record(pack, page, pageLines, now);
 					followed++;
-					logInfo(routineLogAllianceChestLine("Alliance Spend | followed the link of \"" + pack + "\": prices "
-							+ seen.prices() + ", page saved to " + seen.frame()));
-					pressBack();
-					sleepTask(1500);
-					BufferedImage back = screenNow();
-					if (back == null || !PackLinks.sameHeader(screen, back)) {
+					logInfo(routineLogAllianceChestLine("Alliance Spend | followed the link of \"" + pack + "\": price "
+							+ seen.price() + " (all on page " + seen.prices() + "), page saved to " + seen.frame()));
+					// An event page can sit a level or two deeper than a pack card; allow up to three Backs.
+					BufferedImage back = null;
+					for (int backs = 1; backs <= MAX_BACKS; backs++) {
+						pressBack();
+						sleepTask(1500);
+						back = screenNow();
+						if (back != null && PackLinks.sameHeader(screen, back)) {
+							break;
+						}
+						links.saveLostScreen(pack, back, backs);
+						back = null;
+					}
+					if (back == null) {
 						lostTheList = true;
-						logWarning(routineLogAllianceChestLine("Alliance Spend | Back from \"" + pack
-								+ "\" did not return to the gift list; stopping here."));
+						logWarning(routineLogAllianceChestLine("Alliance Spend | " + MAX_BACKS + " Backs from \"" + pack
+								+ "\" did not return to the gift list; stopping here. Screens: pack-links/"));
 						return;
 					}
 					// Back may leave the list scrolled elsewhere; read it again where it is.

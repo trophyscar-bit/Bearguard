@@ -43,13 +43,20 @@ public final class PackLinks {
     }
 
     /**
-     * What following a pack's link showed: the page's text and every dollar price on it. {@code link}
+     * What following a pack's link showed: the page's text, every dollar price on it, and the pack's
+     * own price ({@code price}: the first one after its title, since a Deals tab lists other packs
+     * below it; null when the page shows none, e.g. an event page). {@code link}
      * is false when the pack's name was not a link (the pack is not on sale); {@code tries} counts
      * attempts, so a pack whose page showed no price is retried a few times and then left to the
      * nightly review.
      */
     public record Page(String pack, String seenAt, String frame, List<String> text, List<Double> prices,
-                       boolean link, int tries) {
+                       Double price, boolean link, int tries) {
+
+        /** Pages saved by 3.8.1 carry no link flag; a saved frame means the link opened. */
+        boolean opened() {
+            return link || frame != null;
+        }
     }
 
     /** A pack not on sale, or whose page showed no price, is tried again after this long. */
@@ -78,6 +85,10 @@ public final class PackLinks {
         this.pages = Files.exists(file)
                 ? MAPPER.readValue(file.toFile(), new TypeReference<LinkedHashMap<String, Page>>() { })
                 : new LinkedHashMap<>();
+        // 3.8.1 saved every price on the page and no own price; its first price is the pack's own.
+        pages.replaceAll((k, p) -> p.price() == null && p.frame() != null && p.prices() != null && !p.prices().isEmpty()
+                ? new Page(p.pack(), p.seenAt(), p.frame(), p.text(), p.prices(), p.prices().get(0), true, Math.max(1, p.tries()))
+                : p);
     }
 
     public boolean followed(String pack) {
@@ -96,7 +107,7 @@ public final class PackLinks {
         if (last == null) {
             return true;
         }
-        if (last.link() && !last.prices().isEmpty() || last.tries() >= MAX_TRIES) {
+        if (last.opened() && last.price() != null || last.tries() >= MAX_TRIES) {
             return false;
         }
         return !LocalDateTime.parse(last.seenAt()).plusHours(RETRY_HOURS).isAfter(now);
@@ -168,6 +179,31 @@ public final class PackLinks {
         return null;
     }
 
+    /**
+     * The pack's own price on its page: the first price at or below the line carrying its name,
+     * else the first price on the page. Lines must be in reading order.
+     */
+    static Double ownPrice(String pack, List<TextLine> lines) {
+        String name = AllianceGiftLedger.normalise(pack);
+        int titleTop = Integer.MIN_VALUE;
+        for (TextLine line : lines) {
+            String text = AllianceGiftLedger.normalise(line.text());
+            if (!name.isEmpty() && text.length() >= 4 && (text.contains(name) || name.contains(text) && text.length() * 2 >= name.length())) {
+                titleTop = line.top();
+                break;
+            }
+        }
+        for (TextLine line : lines) {
+            if (line.top() >= titleTop) {
+                List<Double> found = prices(List.of(line));
+                if (!found.isEmpty()) {
+                    return found.get(0);
+                }
+            }
+        }
+        return null;
+    }
+
     /** Every dollar price written on a page, in reading order. */
     static List<Double> prices(List<TextLine> lines) {
         List<Double> found = new ArrayList<>();
@@ -196,14 +232,14 @@ public final class PackLinks {
             text.add(line.text());
         }
         return save(key, new Page(pack, seenAt.truncatedTo(ChronoUnit.SECONDS).toString(), frame, text,
-                prices(ordered), true, tries(key) + 1));
+                prices(ordered), ownPrice(pack, ordered), true, tries(key) + 1));
     }
 
     /** Remembers that a pack's name was not a link, i.e. it is not on sale right now. */
     public Page recordNotALink(String pack, LocalDateTime seenAt) throws IOException {
         String key = AllianceGiftLedger.normalise(pack);
         return save(key, new Page(pack, seenAt.truncatedTo(ChronoUnit.SECONDS).toString(), null, List.of(),
-                List.of(), false, tries(key) + 1));
+                List.of(), null, false, tries(key) + 1));
     }
 
     private int tries(String key) {
@@ -221,15 +257,24 @@ public final class PackLinks {
         return seen;
     }
 
-    /** Prices each followed pack's page showed, by normalised pack name, for the spend report. */
+    /** Each followed pack's own price, by normalised pack name, for the spend report. */
     public static Map<String, TreeSet<Double>> pricesByPack(Path root) throws IOException {
         Map<String, TreeSet<Double>> out = new LinkedHashMap<>();
         for (Map.Entry<String, Page> e : new PackLinks(root).pages.entrySet()) {
-            if (!e.getValue().prices().isEmpty()) {
-                out.put(e.getKey(), new TreeSet<>(e.getValue().prices()));
+            if (e.getValue().price() != null) {
+                out.put(e.getKey(), new TreeSet<>(List.of(e.getValue().price())));
             }
         }
         return out;
+    }
+
+    /** Keeps the screen Back led to when it was not the gift list, to see where links lead. */
+    public void saveLostScreen(String pack, BufferedImage screen, int backs) throws IOException {
+        if (screen != null) {
+            Files.createDirectories(root.resolve("pack-links"));
+            ImageIO.write(screen, "png", root.resolve("pack-links")
+                    .resolve(AllianceGiftLedger.normalise(pack) + "-back" + backs + ".png").toFile());
+        }
     }
 
     /**
