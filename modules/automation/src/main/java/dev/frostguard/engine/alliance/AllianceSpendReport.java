@@ -125,23 +125,44 @@ public final class AllianceSpendReport {
                 }
             }
         }
+        Aliases aliases = Aliases.EMPTY;
+        Path aliasFile = spend.resolve("aliases.json");
+        if (Files.exists(aliasFile)) {
+            aliases = MAPPER.readValue(aliasFile.toFile(), Aliases.class);
+        }
+        AllianceSpendReport built = build(rows, operatorPrices(spend), allScans(workspaceRoot), aliases);
+        return new AllianceSpendReport(built.purchases, unreadable);
+    }
+
+    /**
+     * Whether a pack bought at a tier already has a known price (operator entry, a single scanned
+     * price in the tier's band, or a followed gift link). The chest pass follows the links of the
+     * packs this says no to.
+     */
+    public static java.util.function.BiPredicate<String, String> knownPrice(Path workspaceRoot) throws IOException {
+        Path spend = workspaceRoot.resolve("data").resolve("alliance-spend");
+        Map<String, Double> operator = operatorPrices(spend);
+        ScanIndex scans = allScans(workspaceRoot);
+        return (pack, tier) -> price(pack, tier, operator, scans).source.known();
+    }
+
+    private static Map<String, Double> operatorPrices(Path spend) throws IOException {
         Map<String, Double> operator = new HashMap<>();
         Path manual = spend.resolve("pack-prices.json");
         if (Files.exists(manual)) {
             MAPPER.readValue(manual.toFile(), new TypeReference<Map<String, Double>>() { })
                     .forEach((k, v) -> operator.put(normalise(k), v));
         }
-        Aliases aliases = Aliases.EMPTY;
-        Path aliasFile = spend.resolve("aliases.json");
-        if (Files.exists(aliasFile)) {
-            aliases = MAPPER.readValue(aliasFile.toFile(), Aliases.class);
-        }
+        return operator;
+    }
+
+    /** The deal scans' prices, plus each followed gift link's prices under its pack's name. */
+    private static ScanIndex allScans(Path workspaceRoot) throws IOException {
         ScanIndex scans = scanIndex(workspaceRoot.resolve("data").resolve("deals"));
         Map<String, TreeSet<Double>> names = new HashMap<>(scans.names());
-        // A followed gift link shows the pack's own page, so its prices count as scanned under that name.
-        PackLinks.pricesByPack(spend).forEach((k, v) -> names.computeIfAbsent(k, x -> new TreeSet<>()).addAll(v));
-        AllianceSpendReport built = build(rows, operator, new ScanIndex(names, scans.families()), aliases);
-        return new AllianceSpendReport(built.purchases, unreadable);
+        PackLinks.pricesByPack(workspaceRoot.resolve("data").resolve("alliance-spend"))
+                .forEach((k, v) -> names.computeIfAbsent(k, x -> new TreeSet<>()).addAll(v));
+        return new ScanIndex(names, scans.families());
     }
 
     /**
