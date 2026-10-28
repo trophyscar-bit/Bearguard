@@ -283,11 +283,32 @@ public class MonumentRoutine extends DelayedTask {
     private static final int CLAIM_GREEN_MIN_PIXELS = 800;
     private static final PointData MY_REQUESTS_CLAIM_BTN = new PointData(574, 356);
 
-    private static final PointData ALLY_FIRST_ROW_SEND_BTN = new PointData(583, 712);
-    private static final PointData ALLY_FIRST_ROW_OWNED_TL = new PointData(580, 665);
-    private static final PointData ALLY_FIRST_ROW_OWNED_BR = new PointData(700, 695);
-    private static final int ALLY_ROW_SPACING = 237;
-    private static final int ALLY_MAX_VISIBLE_ROWS = 3;
+    // ========== Ally Requests (sending spare pieces) ==========
+    // Measured live 2026-10-28 on the panel as it opens, list at its top. Rows run highest Owned
+    // first (Owned 1 rows above Owned 0 rows, whose Send is grey), so the first row is the only
+    // one that can hold a spare. Owned 1 is the player's only copy and is never sent. Each Send
+    // raises a "Confirmation" dialog that repeats the Owned count; it has Confirm and an X, no Cancel.
+    static final PointData TRADES_LEFT_TL = new PointData(195, 505);
+    static final PointData TRADES_LEFT_BR = new PointData(575, 545);
+    private static final PointData ALLY_FIRST_ROW_SEND_BTN = new PointData(583, 710);
+    static final PointData ALLY_FIRST_ROW_OWNED_TL = new PointData(520, 642);
+    static final PointData ALLY_FIRST_ROW_OWNED_BR = new PointData(655, 678);
+    /** Blue Send slab: 5286 blue px when active, 0 when grey or covered by the dialog. */
+    private static final PointData ALLY_FIRST_ROW_SEND_BOX_TL = new PointData(515, 685);
+    private static final PointData ALLY_FIRST_ROW_SEND_BOX_BR = new PointData(655, 735);
+    private static final int SEND_BLUE_MIN_PIXELS = 2000;
+    private static final PointData SEND_CONFIRM_TITLE_TL = new PointData(150, 412);
+    private static final PointData SEND_CONFIRM_TITLE_BR = new PointData(570, 455);
+    static final PointData SEND_CONFIRM_OWNED_TL = new PointData(105, 603);
+    static final PointData SEND_CONFIRM_OWNED_BR = new PointData(250, 642);
+    private static final PointData SEND_CONFIRM_BTN = new PointData(360, 760);
+    /** Blue Confirm slab: 17271 blue px on the dialog, 0 on the trade panel. */
+    private static final PointData SEND_CONFIRM_BOX_TL = new PointData(215, 725);
+    private static final PointData SEND_CONFIRM_BOX_BR = new PointData(505, 795);
+    private static final int SEND_CONFIRM_BLUE_MIN_PIXELS = 6000;
+    private static final PointData SEND_CONFIRM_CLOSE_X = new PointData(662, 440);
+    private static final int MIN_OWNED_TO_SEND = 2;
+    private static final int MAX_SENDS_PER_PASS = 5;
 
     /**
      * Left edge of the right-hand featured-event icon rail (Events / Deals / Snowbusters and
@@ -320,7 +341,7 @@ public class MonumentRoutine extends DelayedTask {
      * matter how many requests were actually available. Give the counter a whitelist that can
      * actually spell what's on screen.
      */
-    private static final OcrSettingsData REQUESTS_LEFT_OCR_SETTINGS = OcrSettingsData.assembler()
+    static final OcrSettingsData REQUESTS_LEFT_OCR_SETTINGS = OcrSettingsData.assembler()
             .stripBackground(true)
             .charWhitelist("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789()/ ")
             .textLayout(OcrSettingsData.TextLayout.SINGLE_LINE)
@@ -328,7 +349,7 @@ public class MonumentRoutine extends DelayedTask {
 
     private static final Pattern OWNED_COUNT_PATTERN = Pattern.compile("\\d+");
 
-    private static final OcrSettingsData OWNED_COUNT_OCR_SETTINGS = OcrSettingsData.assembler()
+    static final OcrSettingsData OWNED_COUNT_OCR_SETTINGS = OcrSettingsData.assembler()
             .stripBackground(true)
             .charWhitelist("OwnedOWNED:0123456789 ")
             .textLayout(OcrSettingsData.TextLayout.SINGLE_LINE)
@@ -1455,6 +1476,9 @@ public class MonumentRoutine extends DelayedTask {
         }
         processAllianceTradeRequests();
         if (isOnTradePanel()) {
+            processAllianceTradeSends();
+        }
+        if (isOnTradePanel()) {
             tapNear(TRADE_CLOSE_X);
             sleepTask(ACTION_SETTLE_MS);
         }
@@ -2097,29 +2121,103 @@ public class MonumentRoutine extends DelayedTask {
         return blue * 20 < samples && grey * 2 > samples;
     }
 
+    /**
+     * Sends spare pieces to the top Ally Request while daily trades remain. Only a first row reading
+     * Owned 2 or more, both on the list and again on the Confirmation dialog, is ever sent; a send
+     * counts only once Trades Left has dropped.
+     */
     private void processAllianceTradeSends() {
-        for (int row = 0; row < ALLY_MAX_VISIBLE_ROWS; row++) {
-            int rowOffset = row * ALLY_ROW_SPACING;
-            PointData sendBtn = new PointData(ALLY_FIRST_ROW_SEND_BTN.getX(),
-                    ALLY_FIRST_ROW_SEND_BTN.getY() + rowOffset);
-            PointData ownedTl = new PointData(ALLY_FIRST_ROW_OWNED_TL.getX(),
-                    ALLY_FIRST_ROW_OWNED_TL.getY() + rowOffset);
-            PointData ownedBr = new PointData(ALLY_FIRST_ROW_OWNED_BR.getX(),
-                    ALLY_FIRST_ROW_OWNED_BR.getY() + rowOffset);
-
-            String ownedText = readStringValueSafe(ownedTl, ownedBr);
-            Integer owned = ownedCountFrom(ownedText);
-
-            // Only send when a duplicate is actually owned (>=2) --
-            // "Owned: 1" means it's their only copy, leave it alone.
-            if (owned != null && owned >= 2) {
-                logInfo(logLine("Ally Requests row " + row + ": owned " + owned + ", sending."));
-                tapNear(sendBtn);
-                sleepTask(ACTION_SETTLE_MS);
-            } else {
-                logInfo(logLine("Ally Requests row " + row + ": owned " + owned + ", skipping."));
+        int sent = 0;
+        while (sent < MAX_SENDS_PER_PASS) {
+            Integer tradesLeft = readTradesLeft();
+            if (tradesLeft == null) {
+                logWarning(logLine("Ally Requests: Trades Left counter did not read -- not sending. "
+                        + dumpDiagnosticFrame("ally-trades-left-unread")));
+                return;
             }
+            if (tradesLeft <= 0) {
+                logInfo(logLine("Ally Requests: no trades left today. Sent " + sent + " this pass."));
+                return;
+            }
+            Integer owned = readOwnedAgreed(ALLY_FIRST_ROW_OWNED_TL, ALLY_FIRST_ROW_OWNED_BR);
+            if (owned == null || owned < MIN_OWNED_TO_SEND) {
+                logInfo(logLine("Ally Requests: top row reads Owned " + owned + " -- no spare piece to send "
+                        + "(rows run highest Owned first). Sent " + sent + " this pass."));
+                return;
+            }
+            BufferedImage rowFrame = captureFrame();
+            if (rowFrame == null || !showsActiveSendButton(rowFrame)) {
+                logWarning(logLine("Ally Requests: top row reads Owned " + owned + " but its Send button is not "
+                        + "blue -- not sending. " + dumpDiagnosticFrame("ally-send-not-active")));
+                return;
+            }
+
+            tapNear(ALLY_FIRST_ROW_SEND_BTN);
+            sleepTask(ACTION_SETTLE_MS);
+            String title = readButtonLabel(SEND_CONFIRM_TITLE_TL, SEND_CONFIRM_TITLE_BR);
+            boolean onDialog = title != null && title.contains("confirm");
+            BufferedImage dialogFrame = captureFrame();
+            Integer dialogOwned = readOwnedAgreed(SEND_CONFIRM_OWNED_TL, SEND_CONFIRM_OWNED_BR);
+            if (!onDialog || dialogFrame == null || !showsSendConfirmation(dialogFrame)
+                    || dialogOwned == null || dialogOwned < MIN_OWNED_TO_SEND) {
+                logWarning(logLine("Ally Requests: send not confirmed (dialog title '" + title + "', dialog Owned "
+                        + dialogOwned + ") -- closing without sending. " + dumpDiagnosticFrame("ally-send-dialog-unknown")));
+                if (onDialog) {
+                    tapNear(SEND_CONFIRM_CLOSE_X);
+                } else {
+                    pressBack();
+                }
+                sleepTask(ACTION_SETTLE_MS);
+                return;
+            }
+
+            tapNear(SEND_CONFIRM_BTN);
+            sleepTask(ACTION_SETTLE_MS);
+            if (!returnToTradePanel()) {
+                logWarning(logLine("Ally Requests: Alliance Trade did not come back after Confirm. "
+                        + dumpDiagnosticFrame("ally-after-send-no-trade-panel")));
+                return;
+            }
+            Integer after = readTradesLeft();
+            if (after == null || after >= tradesLeft) {
+                logWarning(logLine("Ally Requests: Trades Left read " + after + " after a send from " + tradesLeft
+                        + " -- not counting it and not sending again. " + dumpDiagnosticFrame("ally-send-not-counted")));
+                return;
+            }
+            sent++;
+            StatisticsService.obtain().addToCounter(profile, "Monument Pieces Sent", 1);
+            logInfo(logLine("Ally Requests: sent a spare piece (Owned " + owned + "); Trades Left " + tradesLeft
+                    + " -> " + after + "."));
         }
+        logInfo(logLine("Ally Requests: hit the per-pass cap of " + MAX_SENDS_PER_PASS + " sends."));
+    }
+
+    private Integer readTradesLeft() {
+        String text = stringHelper.attemptRecognition(
+                TRADES_LEFT_TL, TRADES_LEFT_BR,
+                2, 150L, REQUESTS_LEFT_OCR_SETTINGS,
+                s -> s != null && !s.isBlank(),
+                s -> s);
+        return text == null ? null : RegexNumberParser.numerator(text);
+    }
+
+    /** Two separate reads that must agree, so one misread digit cannot turn an only copy into a spare. */
+    private Integer readOwnedAgreed(PointData tl, PointData br) {
+        Integer first = ownedCountFrom(readStringValueSafe(tl, br));
+        Integer second = ownedCountFrom(readStringValueSafe(tl, br));
+        return first != null && first.equals(second) ? first : null;
+    }
+
+    /** The first Ally Request row's blue (active) Send button. */
+    static boolean showsActiveSendButton(BufferedImage img) {
+        return countPixels(img, ALLY_FIRST_ROW_SEND_BOX_TL, ALLY_FIRST_ROW_SEND_BOX_BR, (r, g, b) ->
+                b >= 200 && b - r >= 100 && b - g >= 40) >= SEND_BLUE_MIN_PIXELS;
+    }
+
+    /** The send Confirmation dialog's blue Confirm button. */
+    static boolean showsSendConfirmation(BufferedImage img) {
+        return countPixels(img, SEND_CONFIRM_BOX_TL, SEND_CONFIRM_BOX_BR, (r, g, b) ->
+                b >= 200 && b - r >= 100 && b - g >= 40) >= SEND_CONFIRM_BLUE_MIN_PIXELS;
     }
 
     private String readStringValueSafe(PointData tl, PointData br) {

@@ -159,15 +159,17 @@ saturated green over (515, 345)-(655, 392) — the existing `CLAIM_BTN_BOX`:
 0.733 when a claim is waiting, 0.000 otherwise. Claim first, because claiming
 frees the single request slot and lets a new request go out in the same pass.
 
-- `Request` (358, 368), first-row ally `Send` (583, 710) — both already correct
-  in `MonumentRoutine`.
-- The ally list re-flows after each send, so first-row Send is always the next
-  one to act on.
+- `Request` (358, 368), first-row ally `Send` (583, 710), `Owned: n` (520, 642)-(655, 678).
+- Ally rows run highest Owned first (Owned 1 rows, then Owned 0 rows with a grey
+  Send), so only the first row can hold a spare. Owned 1 is the only copy and is
+  never sent; Owned 2+ is. Ordering is seen on one list with no 2+ row yet.
 - Send buttons remain visible after the daily cap is reached. The stop condition
-  is the `Trades Left Today (n/5)` counter, not the presence of a button.
-- Each send raises a confirmation. Its "Don't show this again today" checkbox did
-  not suppress subsequent dialogs in testing, so the confirmation must be handled
-  every time rather than assumed away.
+  is the `Trades Left Today (n/5)` counter (195, 505)-(575, 545), and a send only
+  counts once it drops.
+- Each send raises `Confirmation`: the piece with `Owned: n` again (105, 603)-(250, 642),
+  blue `Confirm` (360, 760), and an X (662, 440) — no Cancel. The X closes it with
+  nothing sent. Its "Don't show this again today" checkbox did not suppress later
+  dialogs in testing, so it is handled every time.
 
 ### The piece picker is where the gem risk actually is
 
