@@ -1,6 +1,10 @@
 package dev.frostguard.tasks.city;
 
+import java.awt.image.BufferedImage;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.regex.Pattern;
 
 import dev.frostguard.api.configs.TemplatesEnum;
@@ -16,6 +20,7 @@ import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.RegexNumberParser;
 
 /**
@@ -133,7 +138,7 @@ public class MonumentRoutine extends DelayedTask {
     // ========== Tundra Albums hub ==========
     private static final PointData ALBUMS_BACK_ARROW = new PointData(41, 52);
     private static final PointData ALBUMS_FRAGMENT_BACKPACK_BTN = new PointData(626, 1197);
-    private static final PointData ALBUMS_ALLIANCE_TRADE_BTN = new PointData(448, 1197);
+    private static final PointData ALBUMS_ALLIANCE_TRADE_BTN = new PointData(445, 1193);
 
     // ========== Fragment Backpack panel (shared across all Atlas categories) ==========
     private static final PointData BACKPACK_CLOSE_X = new PointData(662, 138);
@@ -235,8 +240,38 @@ public class MonumentRoutine extends DelayedTask {
     private static final PointData MY_REQUESTS_LEFT_TL = new PointData(195, 256);
     private static final PointData MY_REQUESTS_LEFT_BR = new PointData(575, 298);
     private static final PointData PIECE_PICKER_REQUEST_BTN = new PointData(543, 891);
-    private static final PointData PIECE_PICKER_TIPS_CONFIRM = new PointData(358, 789);
     private static final int MAX_REQUEST_LOOPS = 5;
+
+    // ========== Piece picker (opened by My Requests' Request button) ==========
+    // Request does not open a piece card. It opens a scene's piece grid with an animated hand
+    // pointing at a missing piece; a card only appears once a cell is tapped. Missing cards are
+    // flat grey and owned cards saturated blue, so the scan keys on colour, never on the hand
+    // (it animates). Measured on two live scenes, 2026-10-28: missing rows blue <= 0.00, owned
+    // cards blue >= 0.36. Grid rows shift between scenes (row centres 410/590/778/965 in one,
+    // 450/635/820/1000 in the other), so cards are found by scanning each column, not by fixed y.
+    /** "Complete this Scene to obtain." on the picker's own header card. */
+    private static final PointData PIECE_PICKER_HEADER_TL = new PointData(280, 100);
+    private static final PointData PIECE_PICKER_HEADER_BR = new PointData(630, 140);
+    private static final PointData PIECE_PICKER_CLOSE_X = new PointData(680, 40);
+    private static final int[] PIECE_GRID_COLUMN_X = {162, 361, 560};
+    private static final int PIECE_GRID_HALF_WIDTH = 60;
+    /** Below the header card, which covers a partly scrolled top row, and above the scene strip. */
+    private static final int PIECE_GRID_TOP_Y = 350;
+    private static final int PIECE_GRID_BOTTOM_Y = 1064;
+    /** A card interior is ~150px tall; anything shorter is a sliver at the grid edge. */
+    private static final int PIECE_GRID_MIN_RUN = 80;
+    /** The gem-spending "Obtain more" sits left of Request on the same card; its label proves the card. */
+    private static final PointData PIECE_CARD_OBTAIN_LABEL_TL = new PointData(40, 865);
+    private static final PointData PIECE_CARD_OBTAIN_LABEL_BR = new PointData(320, 915);
+    /** First request raises a one-button Tips dialog; a second open request a Cancel/Confirm pair. */
+    private static final PointData REQUEST_TIPS_CONFIRM_BTN = new PointData(358, 788);
+    private static final PointData REQUEST_TIPS_CONFIRM_LABEL_TL = new PointData(250, 765);
+    private static final PointData REQUEST_TIPS_CONFIRM_LABEL_BR = new PointData(466, 812);
+    private static final PointData REQUEST_REPLACE_CANCEL_BTN = new PointData(208, 788);
+    private static final PointData REQUEST_REPLACE_CANCEL_LABEL_TL = new PointData(110, 765);
+    private static final PointData REQUEST_REPLACE_CANCEL_LABEL_BR = new PointData(306, 812);
+    /** Taps of "Tap anywhere to close" before giving up on getting back to the trade panel. */
+    private static final int TRADE_PANEL_RETURN_ATTEMPTS = 4;
 
     // My Requests row has THREE distinct states, not the single "Request"
     // state the code above originally assumed -- live-verified hand-driven the same day:
@@ -271,24 +306,6 @@ public class MonumentRoutine extends DelayedTask {
     /** The real button fills ~3400 px of that box; 800 is a wide margin under it. */
     private static final int CLAIM_GREEN_MIN_PIXELS = 800;
     private static final PointData MY_REQUESTS_CLAIM_BTN = new PointData(574, 356);
-    /** Live-verified today: a center-body tap closes the post-Claim reward reveal
-     *  ("Tap anywhere to close", avatars + reward icon) back to the Alliance Trade panel. */
-    private static final PointData CLAIM_REWARD_TAP_ANYWHERE = new PointData(344, 895);
-
-    // Caught live -- tapping "Request" doesn't always land directly on the
-    // piece-detail popup PIECE_PICKER_REQUEST_BTN below assumes. It can first open the target
-    // puzzle's own overview GRID with an animated hand/glove graphic pointing at whichever
-    // empty slot the game auto-selected -- "this hand could be anywhere on this board... a
-    // three column by four row grid" (the reported symptom). Tapping the pointed-at cell is what opens
-    // the actual detail popup. No real template exists yet for that hand graphic (the puzzle
-    // that showed it live today, "Friend of Nature", already had its request in flight by the
-    // time this was written, so there's nothing left to crop a native frame from -- same
-    // constraint as the Assemble Now button in the puzzle-ready chain above). Rather than guess
-    // a grid-cell coordinate, processAllianceTradeRequests() below OCR-confirms the detail
-    // popup's own Request button is actually present before tapping it, and stops safely (logs
-    // + backs out) if it isn't, instead of risking one of the 3 daily requests on a blind tap.
-    // Wire up a real ALLIANCE_TRADE_HAND_POINTER template + multi-scale search next time this
-    // is caught live.
 
     private static final PointData ALLY_FIRST_ROW_SEND_BTN = new PointData(583, 712);
     private static final PointData ALLY_FIRST_ROW_OWNED_TL = new PointData(580, 665);
@@ -400,71 +417,6 @@ public class MonumentRoutine extends DelayedTask {
         // all get handled.
         logInfo(logLine("On Tundra Albums. Running the hub sweep."));
         sweepAlbumsHub();
-
-        // Alliance Trade Sends (giving pieces TO allies) deliberately not run
-        // automatically -- by design, confirmed live: "there's a whole other part of
-        // this where you could give other alliance members pieces, but it's extremely
-        // complicated... not really appropriate at this time." processAllianceTradeSends() is
-        // left in place, live-verified working, just not called here.
-        //
-        // My Requests (Claim + Request -- asking the alliance FOR a piece) is
-        // now wired in, by design, a direct "build this whole thing" the same day he walked the
-        // real Claim/Request/piece-picker flow live tap-by-tap. Entered via the Tundra Albums
-        // hub's own always-present Alliance Trade button (not the floating city badge that led
-        // here today -- that badge reverted back to the normal MONUMENT_REWARD_BADGE state the
-        // moment its one pending trade got consumed, so there's no stable template for it to
-        // gate on; the hub button needs no badge at all).
-        // Observed live: this gate was OCR'ing BACKPACK_TITLE_TL/BR -- the
-        // Fragment Backpack panel's own title box, a completely different panel -- to "confirm"
-        // the Alliance Trade panel opened. Copy-paste bug: that region always reads blank here
-        // ('null' every single run), so this pass never once actually proceeded past the gate.
-        // No dedicated Alliance Trade title box was ever measured. Per the direct instruction
-        // ("keep it simple -- worst case is a false positive and it exits out anyway, who cares"):
-        // drop the broken OCR gate entirely and just proceed. ALBUMS_ALLIANCE_TRADE_BTN is a
-        // reliable always-present hub button (not a floating badge that can be absent), so a tap
-        // there is already good evidence -- if it somehow lands wrong, processAllianceTradeRequests
-        // simply fails to find its own buttons and falls through harmlessly.
-        // The gate came back, because "worst case is a harmless false positive"
-        // turned out to be false. A live frame of what this tap ACTUALLY opens is now captured
-        // (ocr-debug/monument-my-requests-label-unrecognized-2026-08-20T01-22-33): it is the
-        // "Obtain more" GOLD KEY PURCHASE dialog, not Alliance Trade. That also finally explains the
-        // string from the original report -- 'd to perform i epic pbuyy' is that panel's own line
-        // "Can be used to perform 1 Epic Recruitment." plus its Buy button, sitting inside the label
-        // region. ALBUMS_ALLIANCE_TRADE_BTN at (448,1197) is simply the wrong coordinate on this hub.
-        //
-        // And this is NOT harmless: MY_REQUESTS_CLAIM_BTN is (574,356), while that dialog's
-        // "Buy 1,500 gems" button sits at about (578,391). A blind Claim tap lands within ~35px of
-        // spending 1,500 gems. Nothing was spent only because the colour check happened to see 0
-        // green pixels (the Buy button is gold) -- luck, not design. So gate it properly on the
-        // panel's own title before any tapping happens, and dump the hub frame when the gate fails
-        // so the real button coordinate can be measured instead of guessed.
-        //
-        // Note this path only matters in the scroll/quill badge state; the puzzle/swap badge opens
-        // Alliance Trade directly and is already handled in processMonumentBadge().
-        logInfo(logLine("Opening Alliance Trade for My Requests (Claim/Request only)."));
-        String hubFrame = dumpDiagnosticFrame("albums-hub-before-alliance-trade-tap");
-        tapNear(ALBUMS_ALLIANCE_TRADE_BTN);
-        sleepTask(PANEL_SETTLE_MS);
-
-        String tradeTitle = stringHelper.attemptRecognition(
-                TRADE_PANEL_TITLE_TL, TRADE_PANEL_TITLE_BR,
-                2, 150L, PANEL_TITLE_OCR_SETTINGS,
-                s -> s != null && !s.isBlank(),
-                s -> s.toLowerCase());
-        if (tradeTitle != null && (tradeTitle.contains("alliance") || tradeTitle.contains("trade"))) {
-            processAllianceTradeRequests();
-            tapNear(TRADE_CLOSE_X);
-            sleepTask(ACTION_SETTLE_MS);
-        } else {
-            logWarning(logLine("Tapping " + ALBUMS_ALLIANCE_TRADE_BTN + " on the Tundra Albums hub did NOT "
-                    + "open Alliance Trade -- panel title read as '" + tradeTitle + "'. Live evidence says "
-                    + "this coordinate opens the 'Obtain more' Gold Key purchase dialog, whose Buy button "
-                    + "sits ~35px from where a blind Claim tap would land. Not touching it. Closing out. "
-                    + "Hub frame before the tap: " + hubFrame + " | after: "
-                    + dumpDiagnosticFrame("albums-alliance-trade-tap-wrong-panel")));
-            tapNear(TRADE_CLOSE_X);
-            sleepTask(ACTION_SETTLE_MS);
-        }
 
         tapNear(ALBUMS_BACK_ARROW);
         sleepTask(ACTION_SETTLE_MS);
@@ -1159,6 +1111,18 @@ public class MonumentRoutine extends DelayedTask {
         tapNear(building.getPoint());
         sleepTask(PANEL_SETTLE_MS);
 
+        // The building no longer opens the hub directly: it raises a two-option chooser
+        // (Monument / Tundra Albums) beside the tower. Every hourly pass on 2026-10-28 read that
+        // chooser as "not the hub" and turned back. The option template scores 98.6-99.4 on the
+        // chooser against at most 45.5 on the city view and the hub.
+        ImageSearchResultData albumsOption = templateSearchHelper.locatePattern(
+                TemplatesEnum.MONUMENT_TUNDRA_ALBUMS_OPTION, SearchConfigConstants.SINGLE_WITH_2_RETRIES);
+        if (albumsOption.isFound()) {
+            logInfo(logLine("Building chooser open -- tapping Tundra Albums at " + albumsOption.getPoint() + "."));
+            tapNear(albumsOption.getPoint());
+            sleepTask(PANEL_SETTLE_MS);
+        }
+
         // Confirm the hub before touching anything on it. The first live run of this path tapped
         // the building anchor and landed on HERO RECRUITMENT, then swept anyway: the album-book
         // detector duly fired on that screen's glowing Points Chest (7076 px) and the chain opened a
@@ -1505,6 +1469,39 @@ public class MonumentRoutine extends DelayedTask {
 
         logInfo(logLine("Processing the shared Fragment Backpack."));
         processFragmentBackpack();
+
+        runAllianceTradePass();
+    }
+
+    /**
+     * Opens Alliance Trade from the hub and runs My Requests: claim a filled request, then file a
+     * new one. Until 2026-10-28 this only ran when a city badge happened to open the trade panel
+     * directly, so the ordinary hub path never asked the alliance for a piece at all.
+     */
+    private void runAllianceTradePass() {
+        if (!isOnAlbumsHub()) {
+            logInfo(logLine("Not on the Albums hub after the backpack -- skipping Alliance Trade this "
+                    + "pass rather than tapping an unidentified screen."));
+            return;
+        }
+        logInfo(logLine("Opening Alliance Trade for My Requests."));
+        tapNear(ALBUMS_ALLIANCE_TRADE_BTN);
+        sleepTask(PANEL_SETTLE_MS);
+        if (!isOnTradePanel()) {
+            logWarning(logLine("Tapping " + ALBUMS_ALLIANCE_TRADE_BTN + " did not open Alliance Trade -- "
+                    + "not touching an unidentified panel. " + dumpDiagnosticFrame("alliance-trade-not-opened")));
+            return;
+        }
+        processAllianceTradeRequests();
+        if (isOnTradePanel()) {
+            tapNear(TRADE_CLOSE_X);
+            sleepTask(ACTION_SETTLE_MS);
+        }
+    }
+
+    private boolean isOnTradePanel() {
+        String title = readButtonLabel(TRADE_PANEL_TITLE_TL, TRADE_PANEL_TITLE_BR);
+        return title != null && (title.contains("alliance") || title.contains("trade"));
     }
 
     /**
@@ -1764,14 +1761,20 @@ public class MonumentRoutine extends DelayedTask {
     private void processAllianceTradeRequests() {
         for (int i = 0; i < MAX_REQUEST_LOOPS; i++) {
             // Claim is decided by colour, not OCR -- see isClaimButtonPresent(). It's checked first
-            // because it's the state that has something to collect.
+            // because claiming frees the single request slot for a new request in the same pass.
             if (isClaimButtonPresent()) {
                 logInfo(logLine("My Requests row is claimable -- tapping Claim."));
                 tapNear(MY_REQUESTS_CLAIM_BTN);
                 sleepTask(ACTION_SETTLE_MS);
-                tapNear(CLAIM_REWARD_TAP_ANYWHERE);
-                sleepTask(ACTION_SETTLE_MS);
-                continue; // re-read the row -- a fresh Request button should be there now.
+                // The claim raises a reward reveal and then a "Like and thanks" card, each closed by
+                // a tap. One fixed tap left the second card over the panel and the label read blank.
+                if (!returnToTradePanel()) {
+                    logWarning(logLine("Claimed, but the trade panel did not come back after "
+                            + TRADE_PANEL_RETURN_ATTEMPTS + " taps -- stopping here. "
+                            + dumpDiagnosticFrame("after-claim-no-trade-panel")));
+                    return;
+                }
+                continue;
             }
 
             // No Claim slab, so the row is in the centred Request / Requesting... state. That
@@ -1802,20 +1805,13 @@ public class MonumentRoutine extends DelayedTask {
                     2, 150L, REQUESTS_LEFT_OCR_SETTINGS,
                     s -> s != null && !s.isBlank(),
                     s -> s);
-            // extractByPattern() anchors with Matcher.matches(), so a pattern that
-            // describes only the FRAGMENT it wants can never fire. "\\((\\d+)\\s*/" describes "(3/",
-            // but the OCR text is the whole line "Requests Left Today (3/3)", so this returned null
-            // on every pass while the counter itself was being read perfectly -- logged verbatim
-            // 2026-08-30 22:20: "counter parsed as null from raw text 'Requests Left Today (3/3)'".
-            // Every other extractByPattern caller in this codebase anchors with ".*?(\\d+).*".
-            // numerator() already reads the left side of a fraction through a full-line-anchored
-            // FRACTION_PATTERN, so reuse that instead of hand-rolling a second anchored regex.
+            // extractByPattern() anchors with Matcher.matches(), so a fragment pattern such as
+            // "\\((\\d+)\\s*/" never fires on the whole line "Requests Left Today (3/3)".
+            // numerator() reads the left side of a fraction through a full-line-anchored pattern.
             Integer requestsLeft = leftText == null ? null : RegexNumberParser.numerator(leftText);
             if (requestsLeft == null || requestsLeft <= 0) {
-                // Same discipline as everywhere else tonight -- report the raw text
-                // and the screen, never just "couldn't read it". A null here is ambiguous between a
-                // genuinely exhausted counter, an OCR miss, and the post-Claim reward reveal not
-                // having closed back to the panel yet, and those need different fixes.
+                // A null is ambiguous between an exhausted counter and an OCR miss, so report the
+                // raw text and the screen rather than just "couldn't read it".
                 logInfo(logLine("Not filing a new request: counter parsed as " + requestsLeft
                         + " from raw text '" + (leftText == null ? "<null>" : leftText.replace("\n", " ").trim())
                         + "' (region " + MY_REQUESTS_LEFT_TL + "->" + MY_REQUESTS_LEFT_BR + "). "
@@ -1823,37 +1819,177 @@ public class MonumentRoutine extends DelayedTask {
                 return;
             }
 
-            tapNear(MY_REQUESTS_REQUEST_BTN);
-            sleepTask(PANEL_SETTLE_MS);
-
-            // Live-verified that this can land on the target puzzle's own grid
-            // with an animated hand pointing at an arbitrary cell, instead of going straight to
-            // the detail popup PIECE_PICKER_REQUEST_BTN below assumes -- see the class-level
-            // comment above these constants. No real template exists yet for that hand graphic,
-            // so rather than guess a grid-cell coordinate, confirm the detail popup's own
-            // Request/Obtain button text is actually present before tapping it.
-            String detailLabel = stringHelper.attemptRecognition(
-                    PIECE_PICKER_REQUEST_BTN_LABEL_TL, PIECE_PICKER_REQUEST_BTN_LABEL_BR,
-                    2, 150L, PANEL_TITLE_OCR_SETTINGS,
-                    s -> s != null && !s.isBlank(),
-                    s -> s.toLowerCase());
-            if (detailLabel == null || !detailLabel.contains("request")) {
-                logWarning(logLine("Tapped My Requests' Request button but the piece-detail popup's own "
-                        + "Request button wasn't confirmed via OCR (read: '" + detailLabel + "') -- likely "
-                        + "landed on the hand-pointer grid screen instead (known gap, no template yet). "
-                        + "Not tapping a guessed grid cell. Backing out instead of spending a daily request blind."));
-                recoverTowardHome();
-                return;
-            }
-
-            tapNear(PIECE_PICKER_REQUEST_BTN);
-            sleepTask(ACTION_SETTLE_MS);
-            // The "Confirm daily requests remaining" Tips dialog only appears the first
-            // time per session -- harmless no-op tap if it's not there.
-            tapNear(PIECE_PICKER_TIPS_CONFIRM);
-            sleepTask(ACTION_SETTLE_MS);
+            fileOnePieceRequest(requestsLeft);
+            return;
         }
         logWarning(logLine("Hit the request-loop safety cap (" + MAX_REQUEST_LOOPS + ")."));
+    }
+
+    /**
+     * Requests one missing piece: Request opens the piece grid, a missing (grey) card is tapped to
+     * open its card, and the card's own Request is tapped only once both of the card's buttons are
+     * read. Success is the My Requests row reading "Requesting" afterwards, not the taps.
+     */
+    private void fileOnePieceRequest(int requestsLeft) {
+        tapNear(MY_REQUESTS_REQUEST_BTN);
+        sleepTask(PANEL_SETTLE_MS);
+
+        String header = readButtonLabel(PIECE_PICKER_HEADER_TL, PIECE_PICKER_HEADER_BR);
+        if (header == null || !header.contains("scene")) {
+            logWarning(logLine("Tapped Request but the piece grid's header did not read (read: '" + header
+                    + "') -- not tapping an unidentified screen. " + dumpDiagnosticFrame("piece-grid-not-open")));
+            recoverTowardHome();
+            return;
+        }
+
+        RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+        List<PointData> missing = frame == null || frame.getBpp() != 32
+                ? List.of()
+                : findMissingPieceCells(ImageConverter.toBufferedImage(frame));
+        if (missing.isEmpty()) {
+            logWarning(logLine("Piece grid open but no missing (grey) card is visible -- not requesting. "
+                    + dumpDiagnosticFrame("piece-grid-no-missing-card")));
+            tapNear(PIECE_PICKER_CLOSE_X);
+            sleepTask(ACTION_SETTLE_MS);
+            return;
+        }
+
+        PointData cell = missing.get(0);
+        logInfo(logLine("Piece grid shows " + missing.size() + " missing card(s) " + missing
+                + " -- opening " + cell + "."));
+        tapNear(cell);
+        sleepTask(ACTION_SETTLE_MS);
+
+        String requestLabel = readButtonLabel(PIECE_PICKER_REQUEST_BTN_LABEL_TL, PIECE_PICKER_REQUEST_BTN_LABEL_BR);
+        String obtainLabel = readButtonLabel(PIECE_CARD_OBTAIN_LABEL_TL, PIECE_CARD_OBTAIN_LABEL_BR);
+        if (requestLabel == null || !requestLabel.contains("request")
+                || obtainLabel == null || !obtainLabel.contains("obtain")) {
+            logWarning(logLine("Piece card did not show both of its buttons (Request read '" + requestLabel
+                    + "', Obtain more read '" + obtainLabel + "') -- not tapping beside the gem button blind. "
+                    + dumpDiagnosticFrame("piece-card-unconfirmed")));
+            recoverTowardHome();
+            return;
+        }
+
+        tapNear(PIECE_PICKER_REQUEST_BTN);
+        sleepTask(ACTION_SETTLE_MS);
+
+        String cancelLabel = readButtonLabel(REQUEST_REPLACE_CANCEL_LABEL_TL, REQUEST_REPLACE_CANCEL_LABEL_BR);
+        if (cancelLabel != null && cancelLabel.contains("cancel")) {
+            // Only raised when a request is already open, which the Requesting check should rule out.
+            logWarning(logLine("Request raised the replace-open-request dialog -- cancelling so the open "
+                    + "request stands. " + dumpDiagnosticFrame("request-replace-dialog")));
+            tapNear(REQUEST_REPLACE_CANCEL_BTN);
+            sleepTask(ACTION_SETTLE_MS);
+        } else {
+            String confirmLabel = readButtonLabel(REQUEST_TIPS_CONFIRM_LABEL_TL, REQUEST_TIPS_CONFIRM_LABEL_BR);
+            if (confirmLabel != null && confirmLabel.contains("confirm")) {
+                logInfo(logLine("Request raised the Tips dialog -- confirming."));
+                tapNear(REQUEST_TIPS_CONFIRM_BTN);
+                sleepTask(ACTION_SETTLE_MS);
+            }
+        }
+
+        if (!isOnTradePanel()) {
+            String pickerHeader = readButtonLabel(PIECE_PICKER_HEADER_TL, PIECE_PICKER_HEADER_BR);
+            if (pickerHeader != null && pickerHeader.contains("scene")) {
+                tapNear(PIECE_PICKER_CLOSE_X);
+                sleepTask(ACTION_SETTLE_MS);
+            }
+        }
+        if (!returnToTradePanel()) {
+            logWarning(logLine("Request tapped but the trade panel did not come back -- outcome unknown, "
+                    + "not counting it. " + dumpDiagnosticFrame("after-request-no-trade-panel")));
+            return;
+        }
+
+        String after = readButtonLabel(MY_REQUESTS_REQUEST_LABEL_TL, MY_REQUESTS_REQUEST_LABEL_BR);
+        if (after != null && after.contains("requesting")) {
+            StatisticsService.obtain().addToCounter(profile, "Monument Pieces Requested", 1);
+            logInfo(logLine("Piece request filed and confirmed: My Requests now reads '" + after
+                    + "' (" + (requestsLeft - 1) + " of today's requests left)."));
+        } else {
+            logWarning(logLine("Request tapped but My Requests reads '" + after + "', not Requesting -- "
+                    + "not counting it as filed. " + dumpDiagnosticFrame("request-not-confirmed")));
+        }
+    }
+
+    /**
+     * Taps "Tap anywhere to close" until the Alliance Trade title reads again. The title is read
+     * before every tap, so the panel itself is never tapped below its frame (which would close it).
+     */
+    private boolean returnToTradePanel() {
+        for (int i = 0; i < TRADE_PANEL_RETURN_ATTEMPTS; i++) {
+            if (isOnTradePanel()) {
+                return true;
+            }
+            tapNear(REWARD_REVEAL_TAP_ANYWHERE);
+            sleepTask(ACTION_SETTLE_MS);
+        }
+        return isOnTradePanel();
+    }
+
+    /**
+     * Centres of the missing (grey) piece cards visible on the piece grid, top to bottom.
+     *
+     * <p>Each grid column is scanned in horizontal strips; a strip with almost no saturated blue
+     * and mostly flat grey belongs to a missing card, and a long enough run of such strips is one
+     * card. The hand pointer may cover the top of a card, which only shortens its run.
+     *
+     * @param img a 720x1280 RGB frame of the piece grid; any other size yields no cells
+     * @return the missing card centres, possibly empty
+     */
+    static List<PointData> findMissingPieceCells(BufferedImage img) {
+        List<PointData> cells = new ArrayList<>();
+        if (img.getWidth() != 720 || img.getHeight() != 1280) {
+            return cells;
+        }
+        for (int x : PIECE_GRID_COLUMN_X) {
+            int runStart = -1;
+            int runEnd = -1;
+            for (int y = PIECE_GRID_TOP_Y; y <= PIECE_GRID_BOTTOM_Y; y += 2) {
+                if (isMissingCardStrip(img, x, y)) {
+                    if (runStart < 0) {
+                        runStart = y;
+                    }
+                    runEnd = y;
+                } else {
+                    addRunIfCard(cells, x, runStart, runEnd);
+                    runStart = -1;
+                }
+            }
+            addRunIfCard(cells, x, runStart, runEnd);
+        }
+        cells.sort(Comparator.comparingInt(PointData::getY).thenComparingInt(PointData::getX));
+        return cells;
+    }
+
+    private static void addRunIfCard(List<PointData> cells, int x, int runStart, int runEnd) {
+        if (runStart >= 0 && runEnd - runStart >= PIECE_GRID_MIN_RUN) {
+            cells.add(new PointData(x, (runStart + runEnd) / 2));
+        }
+    }
+
+    private static boolean isMissingCardStrip(BufferedImage img, int cx, int y) {
+        int samples = 0;
+        int grey = 0;
+        int blue = 0;
+        for (int x = cx - PIECE_GRID_HALF_WIDTH; x <= cx + PIECE_GRID_HALF_WIDTH; x += 3) {
+            int rgb = img.getRGB(x, y);
+            int r = (rgb >> 16) & 0xFF;
+            int g = (rgb >> 8) & 0xFF;
+            int b = rgb & 0xFF;
+            int max = Math.max(r, Math.max(g, b));
+            int min = Math.min(r, Math.min(g, b));
+            samples++;
+            if (max - min < 40 && max > 90 && max < 200) {
+                grey++;
+            }
+            if (b > 150 && b - r > 60) {
+                blue++;
+            }
+        }
+        return blue * 20 < samples && grey * 2 > samples;
     }
 
     private void processAllianceTradeSends() {
