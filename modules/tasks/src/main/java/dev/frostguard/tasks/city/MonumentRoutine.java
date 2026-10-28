@@ -1307,6 +1307,7 @@ public class MonumentRoutine extends DelayedTask {
      *  0.07 once the bottom is reached. */
     private static final double BACKPACK_LIST_END_MAX_DIFF = 3.0;
     private static final int BACKPACK_MAX_TOTAL_OPENS = 40;
+    private static final int BACKPACK_REVEAL_DISMISS_TAPS = 6;
 
     // Observed live: the earlier fixed-slot finder false-positived on candidate (360,587) --
     // the OCR "owned count" read at that offset actually landed on the unrelated Labyrinth hub's own
@@ -1611,15 +1612,16 @@ public class MonumentRoutine extends DelayedTask {
             tapNear(PACK_DETAIL_ENABLE_BTN);
             sleepTask(PACK_OPEN_SETTLE_MS);
 
-            // The reward-reveal screen has two visual variants -- a quick single-icon
-            // flash for small stacks, and a slower multi-piece grid intro for bigger ones -- and the
-            // grid variant is still mid-animation (not yet tappable) right when a single "tap anywhere"
-            // would have landed before. Tap twice with a settle between; harmless no-op on the fast
-            // variant since it's already closed by the second tap, required for the slow one.
-            tapNear(REWARD_REVEAL_TAP_ANYWHERE);
-            sleepTask(PACK_OPEN_SETTLE_MS);
-            tapNear(REWARD_REVEAL_TAP_ANYWHERE);
-            sleepTask(PACK_OPEN_SETTLE_MS);
+            // The reveal has a quick single-icon variant and a slower multi-piece grid that ignores
+            // taps mid-animation, and a 6-fragment Mythic General pack on 2026-10-28 was still not
+            // back on the list after two fixed taps. Tap until the list title reads again.
+            if (!dismissRevealToFragmentBackpack()) {
+                logWarning(logLine("Fragment Backpack list did not come back after opening pack " + opened
+                        + " -- recovering instead of tapping an unidentified screen. "
+                        + dumpDiagnosticFrame("backpack-after-open-unknown")));
+                recoverTowardHome();
+                return;
+            }
         }
 
         if (opened >= BACKPACK_MAX_TOTAL_OPENS) {
@@ -1748,6 +1750,18 @@ public class MonumentRoutine extends DelayedTask {
 
     private static int grey(int rgb) {
         return (((rgb >> 16) & 0xFF) * 299 + ((rgb >> 8) & 0xFF) * 587 + (rgb & 0xFF) * 114) / 1000;
+    }
+
+    private boolean dismissRevealToFragmentBackpack() {
+        for (int i = 0; i < BACKPACK_REVEAL_DISMISS_TAPS; i++) {
+            tapNear(REWARD_REVEAL_TAP_ANYWHERE);
+            sleepTask(PACK_OPEN_SETTLE_MS);
+            String title = readButtonLabel(BACKPACK_TITLE_TL, BACKPACK_TITLE_BR);
+            if (title != null && title.contains("fragment")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Waits (with extra retries) for the Fragment Backpack title to actually be back
