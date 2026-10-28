@@ -191,5 +191,12 @@ is never matched. Grid rows shift by scene (centres 410/590/778/965 in one,
 read blue 0.00, owned cards blue >= 0.36. Green `+n` tags on owned cards are the
 spare duplicates that can be sent to allies. The grid closes with the X at (680, 40).
 
+An open request shows `Requesting...` with an orange `Cancel` at (583, 367) and no
+Request button. Read the state by colour, not OCR: the blue Request slab
+(230, 340)-(490, 395) holds 11350 blue px when free and 0 when open; the Cancel slab
+(515, 345)-(655, 392) holds 4464 orange px when open and 0 when free. An OCR box over
+the label read `Requesting...` as `Request`. The game stays on the piece grid after
+the Tips confirm; close it with its X.
+
 Claiming a filled request shows a reward reveal and then a `Like and thanks`
 card, each closed by a tap; re-read the trade title before every tap.
