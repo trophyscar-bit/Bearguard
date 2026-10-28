@@ -684,6 +684,16 @@ class DealFrameReaderTest {
     }
 
     @Test
+    void neverNamesAPopUpPackAfterOneOfItsOwnListRows() throws Exception {
+        DealOffer pack = offerPriced(read("popup-night-of-wonders-pack-3.png", "City icon"), 9.99);
+
+        assertTrue(pack.title().startsWith("Night of") && pack.title().endsWith("Pack 3"), pack.title());
+        Map<String, Long> items = quantities(pack);
+        assertEquals(5_000L, items.get("Gems"));
+        assertEquals(48L, items.get("Fire Crystal"));
+    }
+
+    @Test
     void acceptsTundraSupplyStationsTopTierPrice() throws Exception {
         offerPriced(read("gem-shop-tundra-supply-station.png", "Tundra Supply Station"), 999.90);
     }
