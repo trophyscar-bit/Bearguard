@@ -92,7 +92,7 @@ public final class PackLinks {
     }
 
     public boolean followed(String pack) {
-        return pack == null || pages.containsKey(AllianceGiftLedger.normalise(pack));
+        return pack == null || seen(pack) != null;
     }
 
     /**
@@ -103,7 +103,7 @@ public final class PackLinks {
         if (pack == null || pack.isBlank()) {
             return false;
         }
-        Page last = pages.get(AllianceGiftLedger.normalise(pack));
+        Page last = seen(pack);
         if (last == null) {
             return true;
         }
@@ -240,6 +240,20 @@ public final class PackLinks {
         String key = AllianceGiftLedger.normalise(pack);
         return save(key, new Page(pack, seenAt.truncatedTo(ChronoUnit.SECONDS).toString(), null, List.of(),
                 List.of(), null, false, tries(key) + 1));
+    }
+
+    /** The page saved for this pack under any OCR spelling of its name ("WVishful" is "Wishful"). */
+    private Page seen(String pack) {
+        Page exact = pages.get(AllianceGiftLedger.normalise(pack));
+        if (exact != null) {
+            return exact;
+        }
+        for (Page p : pages.values()) {
+            if (AllianceGiftLedger.sameName(p.pack(), pack)) {
+                return p;
+            }
+        }
+        return null;
     }
 
     private int tries(String key) {

@@ -211,6 +211,15 @@ private static final int SWIPE_FROM_Y = 1000;
 private static final int SWIPE_TO_Y = 840;
 private static final int SWIPE_MS = 1500;
 
+/**
+ * Screens a pass may read. The list ran past 41 screens (55 cards) three times on 2026-10-27,
+ * when the setting was 40, so a lower saved setting is raised to this.
+ */
+private static final int MIN_SCROLLS = 80;
+
+/** Tries at one pass; the list redraws at the top when a gift arrives mid-pass. */
+private static final int MAX_PASS_ATTEMPTS = 3;
+
 /** Below this the list did not move, i.e. the bottom has been reached. */
 private static final int END_OF_LIST_SHIFT_PX = 8;
 
@@ -223,7 +232,7 @@ private void logGiftList() {
 		boolean anonymise = Boolean.TRUE.equals(
 				profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ANONYMIZE_BOOL, Boolean.class));
 		Integer configuredScrolls = profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_MAX_SCROLLS_INT, Integer.class);
-		int maxScrolls = configuredScrolls == null || configuredScrolls < 1 ? 40 : configuredScrolls;
+		int maxScrolls = Math.max(MIN_SCROLLS, configuredScrolls == null ? 0 : configuredScrolls);
 		LocalDateTime started = LocalDateTime.now();
 		AllianceGiftLedger ledger = AllianceGiftLedger.forWorkspace(dev.frostguard.api.runtime.WorkspacePaths.current().root());
 		Path passDir = ledger.passDir(started);
@@ -237,44 +246,84 @@ private void logGiftList() {
 			java.nio.file.Files.createDirectories(passDir);
 			Map<String, List<TextLine>> linesByFrame = new LinkedHashMap<>();
 			List<GiftRow> rows = new ArrayList<>();
-			BufferedImage previous = null;
-			int scrolledBy = 0;
 			boolean reachedEnd = false;
 			boolean lostTrack = false;
-			for (int i = 0; i <= maxScrolls; i++) {
-				BufferedImage image = screenNow();
-				if (image == null) {
-					logWarning(routineLogAllianceChestLine("Alliance Spend | screen capture failed at screen " + i + "."));
-					lostTrack = true;
-					break;
-				}
-				if (previous != null) {
-					int shift = AllianceGiftLedger.scrollShift(previous, image);
-					if (shift < 0) {
-						logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i
-								+ " does not line up with the one before; this pass will not be logged."));
-						ImageIO.write(image, "png", passDir.resolve(String.format("%03d-unaligned.png", i)).toFile());
+			for (int attempt = 0; attempt < MAX_PASS_ATTEMPTS; attempt++) {
+				linesByFrame.clear();
+				rows.clear();
+				reachedEnd = false;
+				lostTrack = false;
+				boolean redrawn = false;
+				String prefix = attempt == 0 ? "" : "r" + attempt + "-";
+				BufferedImage previous = null;
+				int scrolledBy = 0;
+				int screensThisTry = 0;
+				for (int i = 0; i <= maxScrolls; i++) {
+					BufferedImage image = screenNow();
+					if (image == null) {
+						logWarning(routineLogAllianceChestLine("Alliance Spend | screen capture failed at screen " + i + "."));
 						lostTrack = true;
 						break;
 					}
-					if (shift <= END_OF_LIST_SHIFT_PX) {
-						reachedEnd = true;
-						break;
+					if (previous != null) {
+						AllianceGiftLedger.ShiftMatch match = AllianceGiftLedger.scrollMatch(previous, image,
+								AllianceGiftLedger.EXPECTED_TRAVEL_PX);
+						if (match.shift() < 0) {
+							ImageIO.write(image, "png", passDir.resolve(prefix + String.format("%03d-unaligned.png", i)).toFile());
+							lostTrack = true;
+							redrawn = match.redrawn();
+							logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i + " does not line up with the one before"
+									+ (redrawn ? " (the list was redrawn, e.g. a new gift arrived)" : "") + "."));
+							break;
+						}
+						if (match.shift() <= END_OF_LIST_SHIFT_PX) {
+							// One drag in the middle of the list was once ignored (2026-10-27 13:49, 7 of 50
+							// cards); only a second drag that also does not move it is the bottom.
+							swipe(new PointData(330, SWIPE_FROM_Y), new PointData(330, SWIPE_TO_Y), SWIPE_MS);
+							sleepTask(700);
+							BufferedImage again = screenNow();
+							AllianceGiftLedger.ShiftMatch retry = again == null ? match
+									: AllianceGiftLedger.scrollMatch(previous, again, AllianceGiftLedger.EXPECTED_TRAVEL_PX);
+							if (retry.shift() >= 0 && retry.shift() <= END_OF_LIST_SHIFT_PX) {
+								reachedEnd = true;
+								break;
+							}
+							if (retry.shift() < 0) {
+								ImageIO.write(again, "png", passDir.resolve(prefix + String.format("%03d-unaligned.png", i)).toFile());
+								lostTrack = true;
+								redrawn = retry.redrawn();
+								logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i
+										+ " does not line up after a second drag."));
+								break;
+							}
+							image = again;
+							match = retry;
+						}
+						scrolledBy += match.shift();
 					}
-					scrolledBy += shift;
+					String name = prefix + String.format("%03d.png", i);
+					ImageIO.write(image, "png", passDir.resolve(name).toFile());
+					screens++;
+					screensThisTry++;
+					if (reader != null) {
+						List<TextLine> lines = reader.read(image, AllianceGiftLedger.TEXT_LEFT, AllianceGiftLedger.LIST_TOP,
+								AllianceGiftLedger.TEXT_RIGHT, AllianceGiftLedger.LIST_BOTTOM, "en", OCR_MIN_CONFIDENCE);
+						linesByFrame.put(name, lines);
+						rows.addAll(AllianceGiftLedger.parseFrame(lines, LocalDateTime.now(), name, scrolledBy));
+					}
+					previous = image;
+					swipe(new PointData(360, SWIPE_FROM_Y), new PointData(360, SWIPE_TO_Y), SWIPE_MS);
+					sleepTask(700);
 				}
-				String name = String.format("%03d.png", i);
-				ImageIO.write(image, "png", passDir.resolve(name).toFile());
-				screens++;
-				if (reader != null) {
-					List<TextLine> lines = reader.read(image, AllianceGiftLedger.TEXT_LEFT, AllianceGiftLedger.LIST_TOP,
-							AllianceGiftLedger.TEXT_RIGHT, AllianceGiftLedger.LIST_BOTTOM, "en", OCR_MIN_CONFIDENCE);
-					linesByFrame.put(name, lines);
-					rows.addAll(AllianceGiftLedger.parseFrame(lines, LocalDateTime.now(), name, scrolledBy));
+				if (!redrawn || attempt + 1 >= MAX_PASS_ATTEMPTS) {
+					break;
 				}
-				previous = image;
-				swipe(new PointData(360, SWIPE_FROM_Y), new PointData(360, SWIPE_TO_Y), SWIPE_MS);
-				sleepTask(700);
+				// A redrawn list starts again from the top; so does the pass.
+				logInfo(routineLogAllianceChestLine("Alliance Spend | starting the pass again from the top."));
+				for (int k = 0; k < screensThisTry / 2 + 3; k++) {
+					swipe(new PointData(360, 600), new PointData(360, 1080), 250);
+				}
+				sleepTask(1000);
 			}
 			List<GiftRow> list = AllianceGiftLedger.stitch(rows);
 			ledger.writePassEvidence(passDir, linesByFrame, list);
@@ -343,7 +392,7 @@ private void followPackLinks() {
 				return;
 			}
 			Integer configuredScrolls = profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_MAX_SCROLLS_INT, Integer.class);
-			int maxScrolls = configuredScrolls == null || configuredScrolls < 1 ? 40 : configuredScrolls;
+			int maxScrolls = Math.max(MIN_SCROLLS, configuredScrolls == null ? 0 : configuredScrolls);
 			Set<String> handled = new HashSet<>();
 			int followed = 0;
 			BufferedImage screen = screenNow();
