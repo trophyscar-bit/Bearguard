@@ -144,13 +144,6 @@ public class MonumentRoutine extends DelayedTask {
     private static final PointData BACKPACK_CLOSE_X = new PointData(662, 138);
     private static final PointData BACKPACK_TITLE_TL = new PointData(215, 105);
     private static final PointData BACKPACK_TITLE_BR = new PointData(505, 145);
-    /** First pack row icon tap point. Rows below repeat at ~ROW_SPACING. */
-    private static final PointData BACKPACK_FIRST_ROW_ICON = new PointData(358, 284);
-    private static final PointData BACKPACK_FIRST_ROW_OWNED_TL = new PointData(320, 315);
-    private static final PointData BACKPACK_FIRST_ROW_OWNED_BR = new PointData(400, 345);
-    private static final int BACKPACK_ROW_SPACING = 227;
-    private static final int BACKPACK_MAX_ROWS = 4;
-    private static final int BACKPACK_MAX_OPENS_PER_ROW = 20;
 
     // ========== Puzzle-ready chain (Assemble Now -> congrats -> lore card) ==========
     // Real chain, hand-driven tap-by-tap on a genuine live 15/15
@@ -211,15 +204,10 @@ public class MonumentRoutine extends DelayedTask {
     /** Quantity defaults to the full owned count already -- one Enable tap consumes
      *  all of them (confirmed live twice: stacks of 2 fully consumed in one tap). */
     private static final PointData PACK_DETAIL_ENABLE_BTN = new PointData(358, 905);
-    /**
-     * The "Obtain more" Gold Key purchase dialog -- what a no-packs-left album's Obtain button opens.
-     * Title box and close X both measured off the live capture at
-     * ocr-debug/monument-my-requests-label-unrecognized-2026-08-20T01-22-33 (title reads
-     * "Obtain more"; the X sits at 620-697 x 153-184).
-     */
-    private static final PointData OBTAIN_DIALOG_TITLE_TL = new PointData(150, 122);
-    private static final PointData OBTAIN_DIALOG_TITLE_BR = new PointData(580, 180);
-    private static final PointData OBTAIN_DIALOG_CLOSE_X = new PointData(658, 168);
+    /** Pack detail title, e.g. "Mythic General Scene Fragment Pack" (live 2026-10-28). It is the
+     *  positive anchor for the Enable tap; the "Obtain more" purchase dialog has no such title here. */
+    private static final PointData PACK_DETAIL_TITLE_TL = new PointData(130, 268);
+    private static final PointData PACK_DETAIL_TITLE_BR = new PointData(590, 312);
     /** "Tap anywhere to close" reward-reveal screen -- tap near the text, not dead-center. */
     private static final PointData REWARD_REVEAL_TAP_ANYWHERE = new PointData(358, 1198);
 
@@ -1295,48 +1283,32 @@ public class MonumentRoutine extends DelayedTask {
     // this now genuinely runs on the Tundra Albums hub, where ALBUMS_FRAGMENT_BACKPACK_BTN is
     // the real button -- live-verified hand-driven, screenshot-confirmed.
 
-    // Live-verified by hand, full real clear-out (General Album -> Daybreak Island
-    // x3 -> The Labyrinth, 5 packs total): the fixed-row model above was wrong on two counts.
-    // (1) A row with multiple pack types side by side (e.g. Daybreak Island showing 3 colors at
-    // once) RE-CENTERS its remaining icons after each one is opened -- tapping a fixed per-slot X
-    // stops matching reality after the first tap in that row. (2) Once every pack in a row is gone,
-    // that row collapses to an empty "No such Scene Fragment Pack owned" placeholder and the NEXT
-    // category compacts upward into where the row above used to be -- so a fixed per-row Y doesn't
-    // hold either, and previously-hidden categories (Rekindled Flames, Song of Heroes) can scroll
-    // into view that BACKPACK_MAX_ROWS never accounted for. Real fix: don't trust any fixed slot.
-    // Read the owned-count badge under each of the positions actually observed live across that
-    // clear-out, tap whichever one genuinely shows a count, and rescan from scratch after every
-    // single open (since everything can reflow) instead of marching through fixed rows.
-    // Real live log evidence, not a guess -- the 3-across row below
-    // (220/360/490, 548) assumed an old side-by-side icon layout. A live screenshot showed the
-    // actual current layout is single-column (General Album stacked directly above Tundra
-    // Alliance, both centered around x=360), and the run log confirmed the failure mode exactly:
-    // OCR read a bogus "2" at the wrong (220, 548) candidate -- empty wood panel, nothing there --
-    // tapped it, and the Fragment Backpack panel never came back because nothing was actually hit.
-    // Observed live: a real run reported "No more owned packs found. Opened 0
-    // total." while the Fragment Backpack icon itself was showing a real "15" badge -- General
-    // Album was genuinely empty ("No such Scene Fragment Pack owned") that pass, and its own
-    // placeholder block pushed Rekindled Flames and Divine Weapons further down than any existing
-    // candidate reached (confirmed live: real icon centers at (355,590) and (355,800), owned-count
-    // badges at (355,635) and (355,880) -- none of the 4 candidates below land close enough for
-    // either). Added two more candidates at the real measured positions, and widened the badge
-    // read box (18 -> 32 half-height) so it isn't relying on hitting the exact pixel again next
-    // time this panel reflows by a slightly different amount.
-    private static final PointData[] BACKPACK_ICON_CANDIDATES = {
-            new PointData(360, 280),  // row 1 icon (General Album, confirmed by live screenshot)
-            new PointData(360, 545),  // row 2 icon (Tundra Alliance, confirmed by live screenshot)
-            new PointData(360, 587),  // legacy candidate, kept for a placeholder-shifted layout
-            new PointData(360, 765),  // 3rd visual row, single icon
-            new PointData(355, 590),  // General-Album-empty-shifted row 2 (Rekindled Flames), live-verified
-            new PointData(355, 800),  // General-Album-empty-shifted row 3 (Divine Weapons), live-verified
-    };
-    /** Owned-count badge sits just under each candidate icon; read box is centered on that offset. */
-    private static final int BACKPACK_BADGE_Y_OFFSET = 62;
-    private static final int BACKPACK_BADGE_HALF_WIDTH = 45;
-    private static final int BACKPACK_BADGE_HALF_HEIGHT = 32;
+    // Every album has its own shelf: owned packs sit as icons above the shelf banner with a small
+    // count box under them, and an album with none shows a "Complete Album Missions ... Obtain"
+    // panel instead. The list runs about four screens. Fixed icon slots with an OCR'd count never
+    // worked here: on 2026-10-28 a lone "1" under the General Album pack never read as a number,
+    // and nothing below the first screen was ever looked at. Packs are found by colour instead --
+    // saturated gold/red/purple art, the only icon-sized blob of it on the panel. Banners and
+    // planks of the same colours are list-wide and the Obtain buttons are blue, so neither passes
+    // the size and hue gates (saved frames: packs 100-120px square; nothing else 80-200px both ways).
+    private static final int BACKPACK_LIST_LEFT_X = 40;
+    private static final int BACKPACK_LIST_RIGHT_X = 680;
+    private static final int BACKPACK_LIST_TOP_Y = 170;
+    private static final int BACKPACK_LIST_BOTTOM_Y = 1120;
+    private static final int PACK_SCAN_CELL = 20;
+    private static final int PACK_ICON_MIN_SIZE = 80;
+    private static final int PACK_ICON_MAX_SIZE = 200;
+    private static final PointData BACKPACK_SCROLL_FROM = new PointData(360, 950);
+    private static final PointData BACKPACK_SCROLL_TO = new PointData(360, 350);
+    private static final int BACKPACK_SCROLL_MS = 600;
+    /** Four swipes reach the bottom today; the cap only bounds a list that never stops moving. */
+    private static final int BACKPACK_MAX_SCROLLS = 10;
+    /** Mean grey difference between list frames before and after a swipe: 31-43 while it moves,
+     *  0.07 once the bottom is reached. */
+    private static final double BACKPACK_LIST_END_MAX_DIFF = 3.0;
     private static final int BACKPACK_MAX_TOTAL_OPENS = 40;
 
-    // Observed live: findAnyOwnedPackIcon() false-positived on candidate (360,587) --
+    // Observed live: the earlier fixed-slot finder false-positived on candidate (360,587) --
     // the OCR "owned count" read at that offset actually landed on the unrelated Labyrinth hub's own
     // milestone-chest track digits, not a real pack. The bot tapped it, tapped where Enable should be,
     // tapped where a reward-reveal close should be -- all blind, all on the wrong screen -- and ended
@@ -1573,6 +1545,7 @@ public class MonumentRoutine extends DelayedTask {
         backpackSweptThisRun = true;
 
         int opened = 0;
+        int scrolls = 0;
         while (opened < BACKPACK_MAX_TOTAL_OPENS) {
             if (System.currentTimeMillis() > deadline) {
                 logWarning(logLine("Fragment Backpack pass exceeded its " + (BACKPACK_PASS_TIME_BUDGET_MS / 1000)
@@ -1590,45 +1563,50 @@ public class MonumentRoutine extends DelayedTask {
                 return;
             }
 
-            PointData target = findAnyOwnedPackIcon();
-            if (target == null) {
-                logInfo(logLine("No more owned packs found. Opened " + opened + " total."));
+            BufferedImage listFrame = captureFrame();
+            if (listFrame == null) {
+                logWarning(logLine("Fragment Backpack frame could not be captured -- ending the backpack "
+                        + "pass. Opened " + opened + " total."));
                 break;
             }
+            List<PointData> packs = findPackIcons(listFrame);
+            if (packs.isEmpty()) {
+                if (scrolls >= BACKPACK_MAX_SCROLLS) {
+                    logWarning(logLine("Fragment Backpack list still moving after " + scrolls
+                            + " swipes -- ending the backpack pass. Opened " + opened + " total. "
+                            + dumpDiagnosticFrame("backpack-scroll-cap")));
+                    break;
+                }
+                swipe(BACKPACK_SCROLL_FROM, BACKPACK_SCROLL_TO, BACKPACK_SCROLL_MS);
+                sleepTask(ACTION_SETTLE_MS);
+                scrolls++;
+                BufferedImage afterSwipe = captureFrame();
+                if (afterSwipe == null || listUnchanged(listFrame, afterSwipe)) {
+                    logInfo(logLine("No more owned packs found (list end after " + scrolls + " swipe(s)). Opened "
+                            + opened + " total."));
+                    break;
+                }
+                continue;
+            }
 
-            opened++;
-            logInfo(logLine("Opening pack " + opened + " at " + target + "."));
+            PointData target = packs.get(0);
             tapNear(target);
             sleepTask(ACTION_SETTLE_MS);
 
-            // FindAnyOwnedPackIcon() reads an owned-count badge under each candidate
-            // icon, but when an album has no packs the panel shows "No such Scene Fragment Pack owned"
-            // with an OBTAIN button roughly where that badge would be (see
-            // labyrinth-debug/monument/state_current.png). The badge whitelist is
-            // "OwnedOWNED:0123456789 ", so an Obtain button can read as a number and the candidate
-            // gets returned as if it were a real pack. Tapping it opens the "Obtain more" GOLD KEY
-            // PURCHASE dialog -- confirmed live at 01:22, and that stray dialog is what the Alliance
-            // Trade step then landed on and OCR'd as 'd to perform i epic pbuyy'.
-            //
-            // Nothing could be spent (the Buy button needs its own confirm, and PACK_DETAIL_ENABLE_BTN
-            // at (358,905) is well clear of it), but prodding a purchase screen once per pass is not
-            // acceptable behaviour. Check the panel title before the Enable tap: the real pack detail
-            // sits under "Fragment Backpack", the purchase dialog announces itself as "Obtain more".
-            String detailTitle = stringHelper.attemptRecognition(
-                    OBTAIN_DIALOG_TITLE_TL, OBTAIN_DIALOG_TITLE_BR,
-                    2, 150L, PANEL_TITLE_OCR_SETTINGS,
-                    s -> s != null && !s.isBlank(),
-                    s -> s.toLowerCase());
-            if (detailTitle != null && detailTitle.contains("obtain")) {
-                logInfo(logLine("Candidate " + target + " was not a pack -- it opened the '" + detailTitle.trim()
-                        + "' purchase dialog, so that album has no packs left and its Obtain button was "
-                        + "misread as an owned count. Closing it and ending the backpack pass. Opened "
-                        + (opened - 1) + " real pack(s)."));
-                tapNear(OBTAIN_DIALOG_CLOSE_X);
-                sleepTask(ACTION_SETTLE_MS);
-                opened--;
-                break;
+            // The pack detail names itself ("... Scene Fragment Pack"). Anything else -- the "Obtain
+            // more" gold-key purchase dialog above all -- gets no Enable tap.
+            String detailTitle = readButtonLabel(PACK_DETAIL_TITLE_TL, PACK_DETAIL_TITLE_BR);
+            if (detailTitle == null || !detailTitle.contains("pack") || detailTitle.contains("obtain")) {
+                logWarning(logLine("Tapped the pack icon at " + target + " but the pack detail title did not read "
+                        + "(read: '" + detailTitle + "') -- not tapping Enable on an unidentified screen. Opened "
+                        + opened + " total. " + dumpDiagnosticFrame("backpack-pack-detail-unknown")));
+                recoverTowardHome();
+                return;
             }
+
+            opened++;
+            scrolls = 0;
+            logInfo(logLine("Opening pack " + opened + " ('" + detailTitle.trim() + "') at " + target + "."));
 
             tapNear(PACK_DETAIL_ENABLE_BTN);
             sleepTask(PACK_OPEN_SETTLE_MS);
@@ -1663,20 +1641,113 @@ public class MonumentRoutine extends DelayedTask {
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
     }
 
-    /** Scans every known icon position for a real owned-count badge and returns the first one found,
-     *  or null if nothing owned is visible anywhere on the current panel state. */
-    private PointData findAnyOwnedPackIcon() {
-        for (PointData candidate : BACKPACK_ICON_CANDIDATES) {
-            PointData badgeTl = new PointData(candidate.getX() - BACKPACK_BADGE_HALF_WIDTH,
-                    candidate.getY() + BACKPACK_BADGE_Y_OFFSET - BACKPACK_BADGE_HALF_HEIGHT);
-            PointData badgeBr = new PointData(candidate.getX() + BACKPACK_BADGE_HALF_WIDTH,
-                    candidate.getY() + BACKPACK_BADGE_Y_OFFSET + BACKPACK_BADGE_HALF_HEIGHT);
-            Integer owned = readNumberValue(badgeTl, badgeBr, OWNED_COUNT_OCR_SETTINGS);
-            if (owned != null && owned > 0) {
-                return candidate;
+    private BufferedImage captureFrame() {
+        RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+        return frame == null ? null : ImageConverter.toBufferedImage(frame);
+    }
+
+    /**
+     * Pack icons on the Fragment Backpack list, top to bottom. Cells of {@link #PACK_SCAN_CELL} px
+     * that are at least 30% pack-art colour are joined into blobs; a blob 80-200px both ways is a
+     * pack. Native 720x1280 only, so any other frame size returns nothing.
+     */
+    static List<PointData> findPackIcons(BufferedImage img) {
+        List<PointData> packs = new ArrayList<>();
+        if (img.getWidth() != 720 || img.getHeight() != 1280) {
+            return packs;
+        }
+        int cols = (BACKPACK_LIST_RIGHT_X - BACKPACK_LIST_LEFT_X) / PACK_SCAN_CELL;
+        int rows = (BACKPACK_LIST_BOTTOM_Y - BACKPACK_LIST_TOP_Y) / PACK_SCAN_CELL;
+        boolean[][] art = new boolean[rows][cols];
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                int x0 = BACKPACK_LIST_LEFT_X + c * PACK_SCAN_CELL;
+                int y0 = BACKPACK_LIST_TOP_Y + r * PACK_SCAN_CELL;
+                int samples = 0;
+                int hits = 0;
+                for (int y = y0; y < y0 + PACK_SCAN_CELL; y += 2) {
+                    for (int x = x0; x < x0 + PACK_SCAN_CELL; x += 2) {
+                        int rgb = img.getRGB(x, y);
+                        samples++;
+                        if (isPackArt((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF)) {
+                            hits++;
+                        }
+                    }
+                }
+                art[r][c] = hits * 10 >= samples * 3;
             }
         }
-        return null;
+        boolean[][] seen = new boolean[rows][cols];
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                if (!art[r][c] || seen[r][c]) {
+                    continue;
+                }
+                int minR = r, maxR = r, minC = c, maxC = c;
+                List<int[]> stack = new ArrayList<>();
+                stack.add(new int[] {r, c});
+                seen[r][c] = true;
+                while (!stack.isEmpty()) {
+                    int[] cell = stack.remove(stack.size() - 1);
+                    minR = Math.min(minR, cell[0]);
+                    maxR = Math.max(maxR, cell[0]);
+                    minC = Math.min(minC, cell[1]);
+                    maxC = Math.max(maxC, cell[1]);
+                    int[][] next = {{cell[0] + 1, cell[1]}, {cell[0] - 1, cell[1]},
+                            {cell[0], cell[1] + 1}, {cell[0], cell[1] - 1}};
+                    for (int[] n : next) {
+                        if (n[0] >= 0 && n[0] < rows && n[1] >= 0 && n[1] < cols
+                                && art[n[0]][n[1]] && !seen[n[0]][n[1]]) {
+                            seen[n[0]][n[1]] = true;
+                            stack.add(n);
+                        }
+                    }
+                }
+                int w = (maxC - minC + 1) * PACK_SCAN_CELL;
+                int h = (maxR - minR + 1) * PACK_SCAN_CELL;
+                if (w >= PACK_ICON_MIN_SIZE && w <= PACK_ICON_MAX_SIZE
+                        && h >= PACK_ICON_MIN_SIZE && h <= PACK_ICON_MAX_SIZE) {
+                    packs.add(new PointData(BACKPACK_LIST_LEFT_X + (minC + maxC + 1) * PACK_SCAN_CELL / 2,
+                            BACKPACK_LIST_TOP_Y + (minR + maxR + 1) * PACK_SCAN_CELL / 2));
+                }
+            }
+        }
+        packs.sort(Comparator.comparingInt(PointData::getY).thenComparingInt(PointData::getX));
+        return packs;
+    }
+
+    /** Pack art: bright saturated gold/red, or the purple packs. Wood is too dull, the Obtain button
+     *  is blue (green above red), and the dark panels are neither. */
+    private static boolean isPackArt(int r, int g, int b) {
+        if (b > g + 50 && r > g + 30 && Math.max(r, b) > 140) {
+            return true;
+        }
+        int max = Math.max(r, Math.max(g, b));
+        int min = Math.min(r, Math.min(g, b));
+        if (max < 200 || max - min < 120) {
+            return false;
+        }
+        return !(b >= r && g > r);
+    }
+
+    /** True once a swipe no longer moves the list, i.e. its bottom has been reached. */
+    static boolean listUnchanged(BufferedImage before, BufferedImage after) {
+        if (before.getWidth() != after.getWidth() || before.getHeight() != after.getHeight()) {
+            return false;
+        }
+        long total = 0;
+        int samples = 0;
+        for (int y = BACKPACK_LIST_TOP_Y; y < BACKPACK_LIST_BOTTOM_Y; y += 4) {
+            for (int x = BACKPACK_LIST_LEFT_X; x < BACKPACK_LIST_RIGHT_X; x += 4) {
+                total += Math.abs(grey(before.getRGB(x, y)) - grey(after.getRGB(x, y)));
+                samples++;
+            }
+        }
+        return (double) total / samples <= BACKPACK_LIST_END_MAX_DIFF;
+    }
+
+    private static int grey(int rgb) {
+        return (((rgb >> 16) & 0xFF) * 299 + ((rgb >> 8) & 0xFF) * 587 + (rgb & 0xFF) * 114) / 1000;
     }
 
     /** Waits (with extra retries) for the Fragment Backpack title to actually be back
