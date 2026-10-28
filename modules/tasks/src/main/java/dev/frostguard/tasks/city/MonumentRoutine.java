@@ -273,29 +273,17 @@ public class MonumentRoutine extends DelayedTask {
     /** Taps of "Tap anywhere to close" before giving up on getting back to the trade panel. */
     private static final int TRADE_PANEL_RETURN_ATTEMPTS = 4;
 
-    // My Requests row has THREE distinct states, not the single "Request"
-    // state the code above originally assumed -- live-verified hand-driven the same day:
-    //   1. "Request" (centered button) -- no active request, free to ask.
-    //   2. "Claim" (right-aligned, inside the row once an ally has fulfilled it) -- a real
-    //      request/reward reveal ("Tap anywhere to close", then back to the panel).
-    //   3. "Requesting..." (disabled-look, paired with a "Cancel" button) -- already pending,
-    //      nothing to do this pass.
-    // The button's own X position DIFFERS between "Request" (centered, ~358) and "Claim"
-    // (right-aligned, ~574) -- so the state must be read via OCR first, then the matching
-    // point tapped, rather than assuming one fixed position for both.
-    // One wide region spanning both button positions cannot work, and the bundled
-    // tesseract proves it on the real captured panel:
-    //     (280,340)-(670,400)  wide, covers both states -> reads NOTHING
-    //     (500,340)-(670,400)  the Claim button alone   -> reads "Claim"
-    // Between the two button positions sit the ally avatar, the green progress chevrons and the
-    // fulfilled puzzle-piece artwork; that imagery swamps a single-line OCR pass and the text is
-    // lost entirely. (The earlier 620 right edge additionally sliced the Claim button in half.)
-    // So read the two button positions as two separate tight regions instead, Claim first.
-    private static final PointData MY_REQUESTS_CLAIM_LABEL_TL = new PointData(500, 340);
-    private static final PointData MY_REQUESTS_CLAIM_LABEL_BR = new PointData(670, 400);
-    /** The "Request" / "Requesting..." button renders centred (~358) rather than right-aligned. */
-    private static final PointData MY_REQUESTS_REQUEST_LABEL_TL = new PointData(268, 335);
-    private static final PointData MY_REQUESTS_REQUEST_LABEL_BR = new PointData(452, 405);
+    // My Requests row has three states, each told apart by a solid button colour:
+    //   1. Request -- blue slab centred at ~358: no open request, free to ask.
+    //   2. Claim -- green slab at ~583: an ally filled the request (see isClaimButtonPresent()).
+    //   3. Requesting... -- grey-green text with an orange Cancel slab at ~583: one is open.
+    // Measured 2026-10-28: Request state 11350 blue px in REQUEST_BTN_BOX and 0 orange in
+    // CLAIM_BTN_BOX; open-request state 0 blue and 4464 orange. An OCR box over the label read
+    // "Requesting..." as "Request", so the label is not read.
+    private static final PointData REQUEST_BTN_BOX_TL = new PointData(230, 340);
+    private static final PointData REQUEST_BTN_BOX_BR = new PointData(490, 395);
+    private static final int REQUEST_BLUE_MIN_PIXELS = 3000;
+    private static final int CANCEL_ORANGE_MIN_PIXELS = 1500;
 
     /** The Claim button's own slab, measured live; used for the colour check, not for OCR. */
     private static final PointData CLAIM_BTN_BOX_TL = new PointData(515, 345);
@@ -1777,26 +1765,19 @@ public class MonumentRoutine extends DelayedTask {
                 continue;
             }
 
-            // No Claim slab, so the row is in the centred Request / Requesting... state. That
-            // button sits on flat tan, which the OCR pipeline handles fine.
-            String label = readButtonLabel(MY_REQUESTS_REQUEST_LABEL_TL, MY_REQUESTS_REQUEST_LABEL_BR);
-
-            if (label == null || label.isBlank()) {
-                logInfo(logLine("No Claim button, and the centred Request button was unreadable -- "
-                        + "moving on rather than guessing. "
-                        + dumpDiagnosticFrame("my-requests-label-null")));
+            // No Claim slab, so the row is either the blue Request button or an open request with
+            // its orange Cancel. Decided by colour: an OCR box over the label read "Requesting..."
+            // as "Request" and re-opened the picker with a request already open.
+            RawImageData rowFrame = emuManager.captureScreen(EMULATOR_NUMBER);
+            BufferedImage row = rowFrame == null || rowFrame.getBpp() != 32
+                    ? null : ImageConverter.toBufferedImage(rowFrame);
+            if (row != null && showsOpenRequest(row)) {
+                logInfo(logLine("My Requests already has an open request (orange Cancel) -- nothing to do."));
                 return;
             }
-
-            if (label.contains("requesting")) {
-                logInfo(logLine("My Requests already has a pending Requesting... row -- nothing to do."));
-                return;
-            }
-
-            if (!label.contains("request")) {
-                logInfo(logLine("My Requests button label read as '" + label
-                        + "' -- not a recognized state. Moving on rather than guessing. "
-                        + dumpDiagnosticFrame("my-requests-label-unrecognized")));
+            if (row == null || !showsRequestButton(row)) {
+                logInfo(logLine("My Requests shows neither the blue Request button nor an open request -- "
+                        + "moving on rather than guessing. " + dumpDiagnosticFrame("my-requests-state-unknown")));
                 return;
             }
 
@@ -1899,15 +1880,45 @@ public class MonumentRoutine extends DelayedTask {
             return;
         }
 
-        String after = readButtonLabel(MY_REQUESTS_REQUEST_LABEL_TL, MY_REQUESTS_REQUEST_LABEL_BR);
-        if (after != null && after.contains("requesting")) {
+        RawImageData afterFrame = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (afterFrame != null && afterFrame.getBpp() == 32
+                && showsOpenRequest(ImageConverter.toBufferedImage(afterFrame))) {
             StatisticsService.obtain().addToCounter(profile, "Monument Pieces Requested", 1);
-            logInfo(logLine("Piece request filed and confirmed: My Requests now reads '" + after
-                    + "' (" + (requestsLeft - 1) + " of today's requests left)."));
+            logInfo(logLine("Piece request filed and confirmed: My Requests shows the open request's "
+                    + "Cancel (" + (requestsLeft - 1) + " of today's requests left)."));
         } else {
-            logWarning(logLine("Request tapped but My Requests reads '" + after + "', not Requesting -- "
-                    + "not counting it as filed. " + dumpDiagnosticFrame("request-not-confirmed")));
+            logWarning(logLine("Request tapped but My Requests shows no open request -- not counting it "
+                    + "as filed. " + dumpDiagnosticFrame("request-not-confirmed")));
         }
+    }
+
+    /** The blue Request button: My Requests has no open request. */
+    static boolean showsRequestButton(BufferedImage img) {
+        return countPixels(img, REQUEST_BTN_BOX_TL, REQUEST_BTN_BOX_BR, (r, g, b) ->
+                b >= 200 && b - r >= 100 && b - g >= 40) >= REQUEST_BLUE_MIN_PIXELS;
+    }
+
+    /** The orange Cancel button beside "Requesting...": a request is open. */
+    static boolean showsOpenRequest(BufferedImage img) {
+        return countPixels(img, CLAIM_BTN_BOX_TL, CLAIM_BTN_BOX_BR, (r, g, b) ->
+                r >= 200 && r - b >= 150 && r - g >= 80) >= CANCEL_ORANGE_MIN_PIXELS;
+    }
+
+    private interface RgbTest {
+        boolean matches(int r, int g, int b);
+    }
+
+    private static int countPixels(BufferedImage img, PointData tl, PointData br, RgbTest test) {
+        int count = 0;
+        for (int y = tl.getY(); y < br.getY() && y < img.getHeight(); y++) {
+            for (int x = tl.getX(); x < br.getX() && x < img.getWidth(); x++) {
+                int rgb = img.getRGB(x, y);
+                if (test.matches((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF)) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     /** Closes the piece grid by its X, or a dialog over it by a tap, until the trade title reads. */
