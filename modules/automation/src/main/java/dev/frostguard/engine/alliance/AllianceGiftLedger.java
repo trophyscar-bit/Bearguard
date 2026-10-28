@@ -256,6 +256,37 @@ public final class AllianceGiftLedger {
      * list's travel differ by however much it coasts.</p>
      */
     public static int scrollShift(BufferedImage before, BufferedImage after) {
+        return scrollMatch(before, after, 0).shift();
+    }
+
+    /** How far the list moved ({@code -1} when unknown) and how well the best shift matched. */
+    public record ShiftMatch(int shift, double score) {
+
+        /** Nothing lines up at all: the list was redrawn (it reloads when a gift arrives), not scrolled. */
+        public boolean redrawn() {
+            return shift < 0 && score > REDRAWN_SHARE;
+        }
+    }
+
+    /**
+     * How far one 160px drag moves the list: 184 to 188px on every pass of 2026-10-26 to 10-28 that
+     * lined up, so 185.
+     */
+    public static final int EXPECTED_TRAVEL_PX = 185;
+
+    /** A shift this far from the expected travel is a different card; cards sit ~152px apart. */
+    static final int TRAVEL_WINDOW_PX = 45;
+
+    /** Best scores of real redraws were 0.09 to 0.19; true shifts never passed 0.05. */
+    static final double REDRAWN_SHARE = 0.08;
+
+    /**
+     * Like {@link #scrollShift}, but when two shifts a card apart match about equally well (a run of
+     * identical cards, icons and all), takes the one within {@link #TRAVEL_WINDOW_PX} of
+     * {@code expected}, the distance a drag is known to move the list. {@code expected <= 0} means no
+     * expectation.
+     */
+    public static ShiftMatch scrollMatch(BufferedImage before, BufferedImage after, int expected) {
         int height = LIST_BOTTOM - LIST_TOP;
         int[][] was = greys(before);
         int[][] now = greys(after);
@@ -285,7 +316,23 @@ public final class AllianceGiftLedger {
         }
         boolean close = changed[best] <= MAX_CHANGED_SHARE;
         boolean unique = changed[best] <= CERTAIN_SHARE || runnerUp - changed[best] >= MIN_MARGIN;
-        return close && unique ? best : -1;
+        if (close && unique) {
+            return new ShiftMatch(best, changed[best]);
+        }
+        if (close && expected > 0) {
+            int pick = -1;
+            int from = Math.max(0, expected - TRAVEL_WINDOW_PX);
+            int to = Math.min(changed.length - 1, expected + TRAVEL_WINDOW_PX);
+            for (int dy = from; dy <= to; dy++) {
+                if (pick < 0 || changed[dy] < changed[pick]) {
+                    pick = dy;
+                }
+            }
+            if (pick >= 0 && changed[pick] <= MAX_CHANGED_SHARE && changed[pick] - changed[best] < MIN_MARGIN) {
+                return new ShiftMatch(pick, changed[pick]);
+            }
+        }
+        return new ShiftMatch(-1, changed[best]);
     }
 
     /** Grey levels of the list's icon and text columns, every 6th pixel across. */
@@ -374,10 +421,11 @@ public final class AllianceGiftLedger {
         if (previous.isEmpty()) {
             return current.size();
         }
+        boolean bounded = previousReachedEnd;
         for (int tolerance = 0; tolerance <= 1; tolerance++) {
             for (int k = 0; k < current.size(); k++) {
                 int remaining = current.size() - k;
-                if (previousReachedEnd && remaining > previous.size()) {
+                if (bounded && remaining > previous.size()) {
                     continue;
                 }
                 int overlap = Math.min(remaining, previous.size());
@@ -392,7 +440,7 @@ public final class AllianceGiftLedger {
                 }
                 int mismatches = 0;
                 for (int i = 0; i < overlap && mismatches <= allowed; i++) {
-                    if (!current.get(k + i).equals(previous.get(i))) {
+                    if (!sameCard(current.get(k + i), previous.get(i))) {
                         mismatches++;
                     }
                 }
@@ -401,11 +449,92 @@ public final class AllianceGiftLedger {
                 }
             }
         }
+        return looseRowCount(previous, current);
+    }
+
+    /**
+     * The fallback when cards do not line up one for one: a pass drops or adds a card now and then
+     * (the 2026-10-26 11:22 pass read one "Mia's Keenness" more than the 12:27 one), which shifts
+     * every later row. Takes the first k at which the current list's remainder is, but for one card
+     * in eight, a common subsequence of the previous list's head, starting at its first or second
+     * card. Only reached after the one-for-one match fails, so identical repeats still count.
+     */
+    static int looseRowCount(List<String> previous, List<String> current) {
+        for (int k = 0; k < current.size(); k++) {
+            int remaining = current.size() - k;
+            if (remaining < LOOSE_MIN_OVERLAP || previous.size() < LOOSE_MIN_OVERLAP) {
+                break;
+            }
+            if (!sameCard(current.get(k), previous.get(0))
+                    && !(previous.size() > 1 && sameCard(current.get(k), previous.get(1)))) {
+                continue;
+            }
+            int slack = 1 + remaining / 8;
+            List<String> tail = current.subList(k, current.size());
+            List<String> head = previous.subList(0, Math.min(previous.size(), remaining + slack));
+            if (commonRun(tail, head) >= Math.min(tail.size(), head.size()) - slack) {
+                return k;
+            }
+        }
         return -1;
+    }
+
+    /** Below this many cards a loose match is too easy to make by chance. */
+    static final int LOOSE_MIN_OVERLAP = 6;
+
+    /** Length of the longest common subsequence of two card lists. */
+    private static int commonRun(List<String> a, List<String> b) {
+        int[][] t = new int[a.size() + 1][b.size() + 1];
+        for (int i = 1; i <= a.size(); i++) {
+            for (int j = 1; j <= b.size(); j++) {
+                t[i][j] = sameCard(a.get(i - 1), b.get(j - 1)) ? t[i - 1][j - 1] + 1 : Math.max(t[i - 1][j], t[i][j - 1]);
+            }
+        }
+        return t[a.size()][b.size()];
     }
 
     static String normalise(String text) {
         return text == null ? "" : text.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "");
+    }
+
+    /**
+     * Whether two signatures ({@code tier|buyer|pack}) are one card read twice. OCR reads the same
+     * card differently from pass to pass ("fishina"/"fishing", "oldman1"/"oldmanl", "wvishful"/
+     * "wishful"), so names match on their letters with lookalikes folded and a small edit allowance;
+     * tiers must agree and digits must match exactly ("pack2" is never "pack3").
+     */
+    static boolean sameCard(String a, String b) {
+        if (a.equals(b)) {
+            return true;
+        }
+        String[] x = a.split("\\|", -1);
+        String[] y = b.split("\\|", -1);
+        if (x.length != 3 || y.length != 3 || !x[0].equals(y[0])) {
+            return false;
+        }
+        return sameName(x[1], y[1]) && sameName(x[2], y[2]);
+    }
+
+    /** Two reads of one name: the same digits, and letters within one edit per eight once lookalikes fold. */
+    public static boolean sameName(String a, String b) {
+        String p = normalise(a);
+        String q = normalise(b);
+        if (p.equals(q)) {
+            return true;
+        }
+        // 1, l and I are one glyph to OCR ("oldman1" / "oldmanl"), so they fold before digits compare.
+        String fp = foldLookalikes(p);
+        String fq = foldLookalikes(q);
+        if (p.isEmpty() || q.isEmpty() || !fp.replaceAll("\\D", "").equals(fq.replaceAll("\\D", ""))) {
+            return false;
+        }
+        fp = fp.replaceAll("\\d", "");
+        fq = fq.replaceAll("\\d", "");
+        return AllianceSpendReport.edits(fp, fq) <= 1 + Math.min(fp.length(), fq.length()) / 8;
+    }
+
+    private static String foldLookalikes(String s) {
+        return s.replace('1', 'i').replace('l', 'i').replace("vv", "w").replace("rn", "m");
     }
 
     /** Stable stand-in for a name, so one buyer's purchases still group together. */
@@ -427,10 +556,11 @@ public final class AllianceGiftLedger {
     }
 
     /**
-     * A reference this old has left the gift list entirely. On 2026-10-27 a pass 26h after the last
-     * logged one found 7 cards and none of the 36 it had seen, so the list keeps about a day or less.
+     * A reference at least this old, none of whose cards are still listed, has scrolled off the
+     * bottom of the gift list: everything listed now came after it. The list keeps more than a day
+     * (50 cards on 2026-10-28), so age alone proves nothing; the cards must be gone too.
      */
-    static final long STALE_REFERENCE_HOURS = 24;
+    static final long STALE_REFERENCE_HOURS = 6;
 
     /**
      * Appends the purchases that arrived since the last pass.
@@ -438,10 +568,10 @@ public final class AllianceGiftLedger {
      * <p>The first pass logs the whole list, marked as a backlog since those purchases happened
      * before logging began. If the previous list cannot be found in this one, nothing is logged
      * and the list is kept as the new reference, so one bad read costs one pass rather than
-     * double-counting a whole list. The exception is a stale reference: one older than
-     * {@link #STALE_REFERENCE_HOURS}, or taken before the game's daily reset (00:00 UTC) with not one
-     * of its purchases still listed. Its purchases have left the list, so every row now listed is
-     * newer and is logged, marked {@code afterGap}: purchases may be missing in between.</p>
+     * double-counting a whole list. The exception is a stale reference: at least
+     * {@link #STALE_REFERENCE_HOURS} old with not one of its cards still listed. Its purchases have
+     * left the list, so every row now listed is newer and is logged, marked {@code afterGap}:
+     * purchases may be missing in between.</p>
      *
      * @param list the stitched list, newest first, and reaching its end
      */
@@ -503,6 +633,11 @@ public final class AllianceGiftLedger {
             Files.writeString(root.resolve("gifts.jsonl"), out.toString(), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
+        if (!aligned && !afterGap && !reachedEnd && referenceReadable && !firstPass) {
+            // A partial list that did not line up says nothing about where it sits; keep the old
+            // reference so the next pass can still line up against it.
+            return new PassResult(list.size(), 0, false, false, false);
+        }
         Map<String, Object> reference = new java.util.LinkedHashMap<>();
         reference.put("reachedEnd", reachedEnd);
         reference.put("savedAt", now.toString());
@@ -518,12 +653,17 @@ public final class AllianceGiftLedger {
         if (savedAt == null) {
             return false;
         }
-        if (!savedAt.plus(java.time.Duration.ofHours(STALE_REFERENCE_HOURS)).isAfter(now)) {
-            return true;
+        if (savedAt.plus(java.time.Duration.ofHours(STALE_REFERENCE_HOURS)).isAfter(now)) {
+            return false;
         }
-        boolean resetBetween = !savedAt.atZone(java.time.ZoneOffset.UTC).toLocalDate()
-                .equals(now.atZone(java.time.ZoneOffset.UTC).toLocalDate());
-        return resetBetween && java.util.Collections.disjoint(previous, current);
+        for (String was : previous) {
+            for (String is : current) {
+                if (sameCard(was, is)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /** Raw OCR and the stitched list of a pass, kept beside its photographs. */

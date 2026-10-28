@@ -293,4 +293,48 @@ class AllianceGiftLedgerTest {
                 "crossed 00:00 UTC and nothing of the old list remains");
         assertFalse(AllianceGiftLedger.stale(then, then.plusSeconds(10 * 3600), List.of("a"), List.of("a", "b")));
     }
+
+    @Test
+    void identicalUnclaimedCardsLineUpByTheDragsKnownTravel() throws Exception {
+        // Three "Daily Deals" with the same icon and countdown: a card's shift and two cards' score alike.
+        Path pass = Path.of("C:/Bearguard/data/alliance-spend/passes/2026-10-28T02-05-49");
+        assumeTrue(Files.exists(pass.resolve("018-unaligned.png")), "live pass frames not on this machine");
+        BufferedImage a = ImageIO.read(pass.resolve("017.png").toFile());
+        BufferedImage b = ImageIO.read(pass.resolve("018-unaligned.png").toFile());
+        assertEquals(-1, AllianceGiftLedger.scrollShift(a, b));
+        int shift = AllianceGiftLedger.scrollMatch(a, b, AllianceGiftLedger.EXPECTED_TRAVEL_PX).shift();
+        assertTrue(Math.abs(shift - 185) <= 5, "shift " + shift);
+    }
+
+    @Test
+    void aRedrawnListIsToldApartFromAnAmbiguousScroll() throws Exception {
+        Path pass = Path.of("C:/Bearguard/data/alliance-spend/passes/2026-10-27T20-22-46");
+        assumeTrue(Files.exists(pass.resolve("006-unaligned.png")), "live pass frames not on this machine");
+        AllianceGiftLedger.ShiftMatch m = AllianceGiftLedger.scrollMatch(ImageIO.read(pass.resolve("005.png").toFile()),
+                ImageIO.read(pass.resolve("006-unaligned.png").toFile()), AllianceGiftLedger.EXPECTED_TRAVEL_PX);
+        assertTrue(m.redrawn(), m.toString());
+    }
+
+    @Test
+    void oneCardReadTwoWaysIsOneCardButNeighbouringPacksAreNot() {
+        assertTrue(AllianceGiftLedger.sameCard("alliancegifti||fishinaproset", "alliancegifti||fishingproset"));
+        assertTrue(AllianceGiftLedger.sameCard("alliancegifti|oldman1|epicsigninpass", "alliancegifti|oldmanl|epicsigninpass"));
+        assertFalse(AllianceGiftLedger.sameCard("alliancegifti||wishfulpack1", "alliancegifti||wishfulpack2"));
+        assertTrue(AllianceGiftLedger.sameCard("alliancegifti|ata|wvishfulpack1", "alliancegifti|ata|wishfulpack1"));
+        assertFalse(AllianceGiftLedger.sameCard("alliancegifti||nightofwonderspack2", "alliancegifti||nightofwonderspack3"));
+        assertFalse(AllianceGiftLedger.sameCard("alliancegiftii||fishingproset", "alliancegifti||fishingproset"));
+        assertFalse(AllianceGiftLedger.sameCard("alliancegifti||fishingpro", "alliancegifti||fishingproset"));
+    }
+
+    @Test
+    void linesUpThePreviousListDespiteMisreadNames() {
+        List<String> previous = List.of("alliancegifti|ata|wvishfulpack1", "alliancegifti|oldman|ridersofthetundra",
+                "alliancegiftii||nightofwonderspack3", "alliancegifti||fishinaproset", "alliancegifti|oldman1|epicsigninpass",
+                "alliancegifti|crisdeuslucifer|marchqueuepack");
+        List<String> current = List.of("alliancegiftiii||nightofwonderspack4", "alliancegifti||wvishfulpack1",
+                "alliancegiftii|ata|wvishfulpack2", "alliancegifti|ata|wishfulpack1", "alliancegifti|oldman|ridersofthetundra",
+                "alliancegiftii||nightofwonderspack3", "alliancegifti||fishingproset", "alliancegifti|oldmanl|epicsigninpass",
+                "alliancegifti|crisdeuslucifer|marchqueuepack");
+        assertEquals(3, AllianceGiftLedger.newRowCount(previous, current, true));
+    }
 }

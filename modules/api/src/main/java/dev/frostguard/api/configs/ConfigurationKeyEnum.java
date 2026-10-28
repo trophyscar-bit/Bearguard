@@ -683,7 +683,7 @@ public enum ConfigurationKeyEnum {
     // each sender name, so who-bought-what can still be counted without keeping the names.
     ALLIANCE_SPEND_ENABLED_BOOL         ("false",           Boolean.class,  ConfigCategory.ALLIANCE),
     ALLIANCE_SPEND_ANONYMIZE_BOOL       ("false",           Boolean.class,  ConfigCategory.ALLIANCE),
-    ALLIANCE_SPEND_MAX_SCROLLS_INT      ("40",              Integer.class,  ConfigCategory.ALLIANCE);
+    ALLIANCE_SPEND_MAX_SCROLLS_INT      ("80",              Integer.class,  ConfigCategory.ALLIANCE);
 
     /* ================================================================
      *  Functional groupings surfaced in the operator panel.
