@@ -135,13 +135,18 @@ on the button art.
 
 ### Fragment Backpack rows re-flow
 
-Slots stay in place but shift vertically as packs are consumed and completed
-albums drop out of the list: the Labyrinth row moved 808 -> 558 within a single
-pass. Positions must be re-read after every use, never cached. The list also
-scrolls; there are more album slots below the fold than fit on one screen.
+Every album has a shelf. Owned packs sit as icons above the shelf banner with a
+count box under them; an album with none shows a `Complete Album Missions ...
+Obtain` panel instead. Rows shift as packs are consumed, and the list runs about
+four screens, so packs are found by colour on every frame and the list is swiped
+until a swipe no longer moves it (mean grey diff 31-43 while moving, 0.07 at the
+end). Pack art is the only 80-200px blob of saturated gold/red/purple; banners and
+planks are list-wide and Obtain is blue. Do not OCR the count: a lone `1` never
+read, which left a Mythic General pack unopened on 2026-10-28.
 
-Pack detail dialog geometry is stable across pack types: max-quantity (647, 811),
-`Enable` (358, 903).
+Pack detail dialog geometry is stable across pack types: title (130, 268)-(590, 312)
+reads `... Scene Fragment Pack` and anchors the tap, quantity defaults to the full
+stack, `Enable` (358, 903).
 
 ### Alliance Trade
 
