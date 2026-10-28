@@ -719,10 +719,15 @@ public final class DealFrameReader {
                     // above its Special Pack (2026-10-26), whose tiles were read into the pack and whose page
                     // header ("Current Level: VIP 8") named it. A large-type title of the card's own, below the
                     // header, names the pack and starts its card.
+                    // A pack is never named after one of its own list rows: Night of Wonders Pack 3's last row,
+                    // "Fire Crystal x48", read as one tall line with its icon and took the title (2026-10-27).
                     int below = cardTop;
                     TextLine own = cardTitle(text.whiteLines(), below, button, titleFloor);
                     if (own != null && own.height() >= OWN_CARD_TITLE_MIN_HEIGHT
-                            && own.top() > pageTitleLine.bottom()) {
+                            && own.top() > pageTitleLine.bottom()
+                            && Stream.of(text.whiteLines(), text.plainLines(), listColumnLines(capture))
+                                    .flatMap(lines -> listedItems(lines, below, button.y()).stream())
+                                    .noneMatch(i -> i.key().equalsIgnoreCase(cleanTitle(own.text())))) {
                         title = cleanTitle(own.text());
                         cardTop = Math.max(cardTop, own.bottom());
                     }
