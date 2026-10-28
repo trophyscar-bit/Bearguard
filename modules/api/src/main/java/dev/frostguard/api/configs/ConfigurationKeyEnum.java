@@ -340,6 +340,7 @@ public enum ConfigurationKeyEnum {
     DAWN_ACADEMY_LEARNING_BOOL                  ("true",        Boolean.class, ConfigCategory.EXPERTS),
     DAWN_ACADEMY_UPGRADE_SKILLS_BOOL            ("true",        Boolean.class, ConfigCategory.EXPERTS),
     DAWN_ACADEMY_CLAIM_SUPPLIES_BOOL            ("true",        Boolean.class, ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_BUY_SUPPLIES_BOOL              ("false",       Boolean.class, ConfigCategory.EXPERTS),
     DAWN_ACADEMY_TUNDRA_TREK_BOOL               ("true",        Boolean.class, ConfigCategory.EXPERTS),
     DAWN_ACADEMY_FRONTIER_TREK_BOOL             ("true",        Boolean.class, ConfigCategory.EXPERTS),
     DAWN_ACADEMY_WAYFARER_BOOL                  ("true",        Boolean.class, ConfigCategory.EXPERTS),

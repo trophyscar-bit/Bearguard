@@ -29,7 +29,8 @@ import dev.frostguard.vision.ocr.OcrEngine;
 /**
  * Dawn Academy screens from live 720x1280 captures taken on 27 Oct 2026: Cyrille's skill card
  * before and after an upgrade, the learning dialog, the City sidebar Expert row, the Trek
- * landing, both trek routes, the free supply panel and Endless Wayfarer.
+ * landing, both trek routes, the free supply panel and Endless Wayfarer. The gem supply buy
+ * frames (buyable panel, Purchase dialog, panel after the buy) are from 28 Oct 2026.
  */
 class DawnAcademyFrameTest {
 
@@ -140,6 +141,30 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void theDailyLimitCountsGemBuysLeftAndThePurchaseDialogShowsThePrice() throws Exception {
+        // Live 28 Oct: 1/4 with a 1,000-gem button; after one buy the panel stayed open at 0/4.
+        assertEquals(1, buysLeft("supply-panel-buyable.png"));
+        assertEquals(0, buysLeft("supply-panel-bought.png"));
+        assertEquals(0, buysLeft("supply-panel.png"));
+        assertTrue(find("supply-panel-bought.png", TemplatesEnum.DAWN_ACADEMY_CLAIM_FOR_FREE_TITLE).isFound());
+        assertTrue(find("supply-purchase-dialog.png", TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE).isFound());
+        assertFalse(find("supply-panel-buyable.png", TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE).isFound());
+        assertEquals(1_000, DawnAcademyRoutine.parsePrice(OcrEngine.recognizeText(frame("supply-purchase-dialog.png"),
+                DawnAcademyRoutine.PURCHASE_PRICE_TOP_LEFT, DawnAcademyRoutine.PURCHASE_PRICE_BOTTOM_RIGHT, "eng")));
+    }
+
+    @Test
+    void buysLeftAndPricesParse() {
+        assertEquals(1, DawnAcademyRoutine.parseBuysLeft("Daily Limit: 1/4"));
+        assertEquals(0, DawnAcademyRoutine.parseBuysLeft("Daily Limit: 0/4"));
+        assertNull(DawnAcademyRoutine.parseBuysLeft("Daily Limit:"));
+        assertNull(DawnAcademyRoutine.parseBuysLeft("Daily Limit: 7/4"));
+        assertEquals(1_000, DawnAcademyRoutine.parsePrice("Confirm to spend 1,000 Gems?"));
+        assertEquals(1_500, DawnAcademyRoutine.parsePrice("Confirm to spend 1.500 Gems?"));
+        assertNull(DawnAcademyRoutine.parsePrice("Confirm to spend Gems?"));
+    }
+
+    @Test
     void theGiftScreenOpensFromStatsAndShowsTheChosenCount() throws Exception {
         assertTrue(find("expert-stats.png", TemplatesEnum.DAWN_ACADEMY_GIFT_OPEN_BUTTON).isFound());
         assertTrue(find("gift-screen.png", TemplatesEnum.DAWN_ACADEMY_SELECT_GIFT_TITLE).isFound());
@@ -189,6 +214,11 @@ class DawnAcademyFrameTest {
     private Integer count(String name, PointData topLeft, PointData bottomRight) throws Exception {
         return DawnAcademyRoutine.parseCount(OcrEngine.recognizeText(frame(name), topLeft, bottomRight,
                 OcrSettingsData.forWhiteTextOnDark()));
+    }
+
+    private Integer buysLeft(String name) throws Exception {
+        return DawnAcademyRoutine.parseBuysLeft(OcrEngine.recognizeText(frame(name),
+                DawnAcademyRoutine.BUYS_LEFT_TOP_LEFT, DawnAcademyRoutine.BUYS_LEFT_BOTTOM_RIGHT, "eng"));
     }
 
     private Integer plainCount(String name, PointData topLeft, PointData bottomRight) throws Exception {

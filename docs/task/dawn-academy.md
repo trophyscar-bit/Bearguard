@@ -26,8 +26,19 @@ start a skill whose XP read fails or whose bar is already full without an
 upgrade (out of Books). It checks the duration shown on the Learn button
 before confirming.
 
-Finish (gems), the gem Trek Supply row, the Frontier Supply shop and the paid
-Wayfarer column are never tapped.
+Gem Trek Supply buys are off by default (`DAWN_ACADEMY_BUY_SUPPLIES_BOOL`).
+When ticked, the task uses every buy left today, 4 a day at 1,000 gems for 5
+supplies, in the same supply-panel visit as the free claim. "Daily Limit: 1/4"
+at `(500,696)..(662,724)` counts the buys left. At 0/4 the button becomes a
+timer to the 00:00 UTC reset, so later passes that day read 0 and tap nothing.
+Each buy opens the shared Purchase dialog ("Confirm to spend 1,000 Gems?"). Its
+price is read, and the task closes the dialog without buying above 1,000 gems.
+"Don't show this again today" is left unticked, so every buy shows its price.
+The panel stays open after a buy, with no reward popup. The counter dropping
+by one is the proof the buy went through; if it doesn't drop, the task stops.
+
+Finish (gems), the Frontier Supply shop and the paid Wayfarer column are never
+tapped.
 
 Auto Trek runs with "Auto-manage options and mini-games" ticked. The task
 refuses to start without that tick, so the game answers every encounter.
@@ -50,5 +61,7 @@ The next run is the earliest of: learning end + 1 min, next free supply
 5 min .. 12 h.
 
 Evidence: saved-frame tests in `DawnAcademyFrameTest` (`dawnacademy/` frames
-from 27 Oct 2026) cover every template and OCR region the task uses. Live runs
-are not yet observed.
+from 27 Oct 2026, gem-buy frames from 28 Oct 2026) cover every template and OCR
+region the task uses. The gem-buy flow (tap, confirm, counter 1/4 -> 0/4, gems
+-1,000, supplies +5) was walked live by hand over ADB on 28 Oct 2026; the
+task's own buy loop has not run live yet.

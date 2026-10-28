@@ -29,13 +29,15 @@ import java.util.regex.Pattern;
  * <ol>
  * <li>Learning: keep the learning queue busy on the highest-priority unlocked skill, upgrading
  * any skill whose Learning XP bar is full first.</li>
- * <li>Trek: claim the free Trek Supplies (08:00 and 20:00 UTC), spend them on an Auto Trek with
- * "Auto-manage options and mini-games" ticked, then do the same with any Frontier Supplies.</li>
+ * <li>Trek: claim the free Trek Supplies (08:00 and 20:00 UTC) and, when ticked, the day's gem
+ * buys, spend them on an Auto Trek with "Auto-manage options and mini-games" ticked, then do the
+ * same with any Frontier Supplies.</li>
  * <li>Gifts: give every Compass to the chosen Expert once that Expert lives in the Academy.</li>
  * <li>Endless Wayfarer: claim the free reward track.</li>
  * </ol>
- * Gem buttons are never tapped: not Finish on the learning dialog, not the gem supply row, not
- * the paid Wayfarer track.
+ * The only gem button tapped is the daily Trek Supply buy, when ticked, and only at
+ * {@value #MAX_SUPPLY_PRICE} gems or less. Finish on the learning dialog and the paid Wayfarer
+ * track are never tapped.
  */
 public class DawnAcademyRoutine extends DelayedTask {
 
@@ -50,6 +52,8 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final Pattern FRACTION = Pattern.compile("(\\d[\\d,.]*)(?:\\+[\\d,.]+)?/(\\d[\\d,.]*)");
     /** The game's white digits on dark or coloured bars read cleanly only with this preset. */
     private static final OcrSettingsData WHITE_TEXT = OcrSettingsData.forWhiteTextOnDark();
+    static final int MAX_SUPPLY_PRICE = 1_000;
+    private static final int DAILY_SUPPLY_BUYS = 4;
     private static final Pattern FIRST_NUMBER = Pattern.compile("(\\d+)");
 
     // City sidebar, Expert row: offsets from the row's book icon.
@@ -98,6 +102,16 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData CLAIM_BOTTOM_RIGHT = new PointData(660, 650);
     private static final PointData NEXT_SUPPLY_TOP_LEFT = new PointData(505, 585);
     private static final PointData NEXT_SUPPLY_BOTTOM_RIGHT = new PointData(650, 625);
+    // "Daily Limit: 1/4" counts the gem buys left today; at 0/4 the button becomes a reset timer.
+    static final PointData BUYS_LEFT_TOP_LEFT = new PointData(500, 696);
+    static final PointData BUYS_LEFT_BOTTOM_RIGHT = new PointData(662, 724);
+    private static final PointData BUY_SUPPLIES_BUTTON = new PointData(575, 756);
+    // The shared Purchase dialog: "Confirm to spend 1,000 Gems?". "Don't show again" stays unticked
+    // so every buy shows its price.
+    static final PointData PURCHASE_PRICE_TOP_LEFT = new PointData(160, 568);
+    static final PointData PURCHASE_PRICE_BOTTOM_RIGHT = new PointData(560, 610);
+    private static final PointData PURCHASE_CONFIRM_BUTTON = new PointData(360, 789);
+    private static final PointData PURCHASE_CLOSE = new PointData(635, 447);
     private static final PointData BLANK_LOWER_SCREEN = new PointData(360, 1110);
 
     // Auto Trek dialog.
@@ -506,6 +520,7 @@ public class DawnAcademyRoutine extends DelayedTask {
 
     private boolean anyTrekWorkEnabled() {
         return enabled(ConfigurationKeyEnum.DAWN_ACADEMY_CLAIM_SUPPLIES_BOOL)
+                || enabled(ConfigurationKeyEnum.DAWN_ACADEMY_BUY_SUPPLIES_BOOL)
                 || enabled(ConfigurationKeyEnum.DAWN_ACADEMY_TUNDRA_TREK_BOOL)
                 || enabled(ConfigurationKeyEnum.DAWN_ACADEMY_FRONTIER_TREK_BOOL)
                 || enabled(ConfigurationKeyEnum.DAWN_ACADEMY_WAYFARER_BOOL);
@@ -524,8 +539,9 @@ public class DawnAcademyRoutine extends DelayedTask {
             return;
         }
 
-        if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_CLAIM_SUPPLIES_BOOL)) {
-            claimFreeSupplies();
+        if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_CLAIM_SUPPLIES_BOOL)
+                || enabled(ConfigurationKeyEnum.DAWN_ACADEMY_BUY_SUPPLIES_BOOL)) {
+            collectSupplies();
         }
         if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_TUNDRA_TREK_BOOL)) {
             Integer supplies = readCount(TREK_COUNTER_TOP_LEFT, TREK_COUNTER_BOTTOM_RIGHT, WHITE_TEXT);
@@ -554,13 +570,32 @@ public class DawnAcademyRoutine extends DelayedTask {
         return found(TemplatesEnum.DAWN_ACADEMY_TUNDRA_TREK_SIGN, 3);
     }
 
-    private void claimFreeSupplies() {
+    /** Opens the supply panel, claims and buys as ticked, reads the next free claim and closes it. */
+    private void collectSupplies() {
         tapNear(TREK_SUPPLY_COUNTER, 4);
         sleepTask(1500);
         if (!found(TemplatesEnum.DAWN_ACADEMY_CLAIM_FOR_FREE_TITLE, 2)) {
             logWarning("Trek Supplies panel did not open.");
             return;
         }
+        if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_CLAIM_SUPPLIES_BOOL)) {
+            claimFreeSupplies();
+        }
+        if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_BUY_SUPPLIES_BOOL)
+                && found(TemplatesEnum.DAWN_ACADEMY_CLAIM_FOR_FREE_TITLE, 1)) {
+            buySupplies();
+        }
+        Duration next = durationHelper.attemptRecognition(NEXT_SUPPLY_TOP_LEFT, NEXT_SUPPLY_BOTTOM_RIGHT,
+                3, 200L, WHITE_TEXT, GameTimeUtils::isAcceptedFormat, GameTimeUtils::parseDuration);
+        if (next != null && !next.isNegative() && !next.isZero()) {
+            considerNextRun(LocalDateTime.now().plus(next).plusMinutes(1));
+        }
+        tapNear(BLANK_LOWER_SCREEN, 6);
+        sleepTask(1200);
+    }
+
+    /** Claims the free supplies if their button is up. Leaves the supply panel open. */
+    private void claimFreeSupplies() {
         ImageSearchResultData claim = templateSearchHelper.locatePattern(TemplatesEnum.TUNDRA_TREK_CLAIM_BUTTON,
                 SearchConfig.builder().withCoordinates(CLAIM_TOP_LEFT, CLAIM_BOTTOM_RIGHT).build());
         if (claim.isFound()) {
@@ -575,13 +610,70 @@ public class DawnAcademyRoutine extends DelayedTask {
                 sleepTask(1500);
             }
         }
-        Duration next = durationHelper.attemptRecognition(NEXT_SUPPLY_TOP_LEFT, NEXT_SUPPLY_BOTTOM_RIGHT,
-                3, 200L, WHITE_TEXT, GameTimeUtils::isAcceptedFormat, GameTimeUtils::parseDuration);
-        if (next != null && !next.isNegative() && !next.isZero()) {
-            considerNextRun(LocalDateTime.now().plus(next).plusMinutes(1));
+    }
+
+    /**
+     * Uses the gem buys left today, each only at {@value #MAX_SUPPLY_PRICE} gems or less. The
+     * panel stays open after a buy and its counter drops, which is the proof the buy went
+     * through. Leaves the supply panel open.
+     */
+    private void buySupplies() {
+        Integer left = readBuysLeft();
+        if (left == null) {
+            logWarning("Could not read the Trek Supply buys left today.");
+            return;
         }
-        tapNear(BLANK_LOWER_SCREEN, 6);
-        sleepTask(1200);
+        if (left == 0) {
+            logInfo("No gem Trek Supply buys left today.");
+            return;
+        }
+        for (int buy = 0; buy < DAILY_SUPPLY_BUYS && left > 0; buy++) {
+            tapNear(BUY_SUPPLIES_BUTTON, 6);
+            sleepTask(1500);
+            if (!found(TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE, 2)) {
+                logWarning("The Trek Supply purchase dialog did not open.");
+                return;
+            }
+            Integer price = integerHelper.attemptRecognition(PURCHASE_PRICE_TOP_LEFT, PURCHASE_PRICE_BOTTOM_RIGHT,
+                    3, 200L, null, text -> parsePrice(text) != null, DawnAcademyRoutine::parsePrice);
+            if (price == null || price > MAX_SUPPLY_PRICE) {
+                logWarning("Not buying Trek Supplies at " + price + " gems (limit " + MAX_SUPPLY_PRICE + ").");
+                tapNear(PURCHASE_CLOSE, 4);
+                sleepTask(1200);
+                return;
+            }
+            tapNear(PURCHASE_CONFIRM_BUTTON, 6);
+            sleepTask(2500);
+            if (found(TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE, 1)) {
+                logWarning("The Trek Supply purchase dialog stayed open; closing it.");
+                tapNear(PURCHASE_CLOSE, 4);
+                sleepTask(1200);
+                return;
+            }
+            Integer after = readBuysLeft();
+            if (after == null || after >= left) {
+                logWarning("Trek Supply buy not confirmed (" + left + " -> " + after + " left); stopping.");
+                return;
+            }
+            logInfo("Bought 5 Trek Supplies for " + price + " gems; " + after + " buys left today.");
+            left = after;
+        }
+    }
+
+    private Integer readBuysLeft() {
+        return integerHelper.attemptRecognition(BUYS_LEFT_TOP_LEFT, BUYS_LEFT_BOTTOM_RIGHT, 3, 200L, null,
+                text -> parseBuysLeft(text) != null, DawnAcademyRoutine::parseBuysLeft);
+    }
+
+    /** "Daily Limit: 1/4" reads 1, the buys left today. */
+    static Integer parseBuysLeft(String text) {
+        long[] fraction = parseFraction(text);
+        return fraction == null || fraction[0] > fraction[1] ? null : (int) fraction[0];
+    }
+
+    /** "Confirm to spend 1,000 Gems?" reads 1000. */
+    static Integer parsePrice(String text) {
+        return text == null ? null : parseCount(text.replace(".", ""));
     }
 
     private void runAutoTrek(String name, TemplatesEnum sign, int supplies) {

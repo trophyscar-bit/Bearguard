@@ -29,6 +29,8 @@ public class DawnAcademyLayoutController extends AbstractProfileController {
     @FXML
     private CheckBox checkBoxClaimSupplies;
     @FXML
+    private CheckBox checkBoxBuySupplies;
+    @FXML
     private CheckBox checkBoxTundraTrek;
     @FXML
     private CheckBox checkBoxFrontierTrek;
@@ -57,6 +59,7 @@ public class DawnAcademyLayoutController extends AbstractProfileController {
             new AcademySwitch(checkBoxUpgradeSkills, ConfigurationKeyEnum.DAWN_ACADEMY_UPGRADE_SKILLS_BOOL),
             new AcademySwitch(checkBoxGiftCompasses, ConfigurationKeyEnum.DAWN_ACADEMY_GIFT_COMPASSES_BOOL),
             new AcademySwitch(checkBoxClaimSupplies, ConfigurationKeyEnum.DAWN_ACADEMY_CLAIM_SUPPLIES_BOOL),
+            new AcademySwitch(checkBoxBuySupplies, ConfigurationKeyEnum.DAWN_ACADEMY_BUY_SUPPLIES_BOOL),
             new AcademySwitch(checkBoxTundraTrek, ConfigurationKeyEnum.DAWN_ACADEMY_TUNDRA_TREK_BOOL),
             new AcademySwitch(checkBoxFrontierTrek, ConfigurationKeyEnum.DAWN_ACADEMY_FRONTIER_TREK_BOOL),
             new AcademySwitch(checkBoxWayfarer, ConfigurationKeyEnum.DAWN_ACADEMY_WAYFARER_BOOL)

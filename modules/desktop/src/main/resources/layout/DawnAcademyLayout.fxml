@@ -24,7 +24,7 @@
                                 <VBox styleClass="task-section-inner">
                                     <children>
                                         <Label styleClass="task-card-description" wrapText="true"
-                                               text="The Experts' building (Fire Crystal Age). One pass keeps the learning queue busy, claims the free Trek Supplies and spends them on Auto Trek. Gem buttons are never tapped." />
+                                               text="The Experts' building (Fire Crystal Age). One pass keeps the learning queue busy, claims the free Trek Supplies and spends them on Auto Trek. Gem buttons are never tapped, except the daily Trek Supply buys when ticked." />
                                         <Separator style="-fx-opacity: 0.25;" />
                                         <CheckBox fx:id="checkBoxDawnAcademy" mnemonicParsing="false"
                                                   text="Enable Dawn Academy" />
@@ -93,6 +93,8 @@
                                             <children>
                                                 <CheckBox fx:id="checkBoxClaimSupplies" mnemonicParsing="false"
                                                           text="Claim the free Trek Supplies (08:00 and 20:00 UTC)" />
+                                                <CheckBox fx:id="checkBoxBuySupplies" mnemonicParsing="false"
+                                                          text="Buy the day's 4 gem Trek Supply packs (1,000 gems each, once a day)" />
                                                 <CheckBox fx:id="checkBoxTundraTrek" mnemonicParsing="false"
                                                           text="Spend Trek Supplies on Tundra Trek (Auto, auto-managed)" />
                                                 <CheckBox fx:id="checkBoxFrontierTrek" mnemonicParsing="false"
