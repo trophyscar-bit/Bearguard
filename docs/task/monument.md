@@ -96,6 +96,14 @@ and the assembly board both clear it while being nowhere near the hub.
 
 ## Screen flow and its traps
 
+### The building opens a chooser, not the hub
+
+Since at least 2026-10-28, tapping the Monument building raises two hexagon
+options beside the tower: `Monument` (410, 808) and `Tundra Albums` (530, 808).
+The hub only opens from the second. `MONUMENT_TUNDRA_ALBUMS_OPTION` scores
+98.6-99.4 on the chooser and at most 45.5 on the city view and the hub, so it is
+matched rather than tapped by coordinate.
+
 ### Chained reward modals
 
 Claiming an album book emits **two** dialogs in sequence: `Rewards`, then
@@ -173,3 +181,15 @@ no-op on the two-button dialog and lands close to Cancel. Before requesting, che
 whether a piece already shows `Requesting...`; if one does, there is nothing to do.
 
 Missing pieces render greyed out; owned pieces are saturated blue.
+
+My Requests' `Request` (358, 368) does not open a piece card. It opens a scene's
+piece grid, header `Complete this Scene to obtain.`, with an animated hand over a
+missing piece; tapping a grey card opens the card above. The hand animates, so it
+is never matched. Grid rows shift by scene (centres 410/590/778/965 in one,
+450/635/820/1000 in another), so missing cards are found by scanning each column
+(x = 162, 361, 560) for runs of grey strips with no saturated blue: missing rows
+read blue 0.00, owned cards blue >= 0.36. Green `+n` tags on owned cards are the
+spare duplicates that can be sent to allies. The grid closes with the X at (680, 40).
+
+Claiming a filled request shows a reward reveal and then a `Like and thanks`
+card, each closed by a tap; re-read the trade title before every tap.
