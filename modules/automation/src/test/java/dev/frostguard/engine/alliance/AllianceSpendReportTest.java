@@ -115,6 +115,16 @@ class AllianceSpendReportTest {
     }
 
     @Test
+    void aLongPopUpTitleMatchesItsScanThroughTwoMisreadLetters() {
+        // The deal scan read Night of Wonders Pack 3's pop-up as "Wonderai", "Wondems" and "Wondeee".
+        List<String> known = List.of("nightofwonderspack3", "nightofwonderspack2", "fishingproset");
+        assertEquals("nightofwonderspack3", AllianceSpendReport.canonical("nightofwonderaipack3", known));
+        assertEquals("nightofwonderspack3", AllianceSpendReport.canonical("nightofwondemspack3", known));
+        assertEquals("nightofwonderspack2", AllianceSpendReport.canonical("nightofwondeeepack2", known));
+        assertEquals("fishingpro", AllianceSpendReport.canonical("fishingpro", known), "three letters short is another pack");
+    }
+
+    @Test
     void foldsMisreadsIntoTheNameSeenMostOftenButKeepsDistinctPlayers() throws Exception {
         AllianceSpendReport report = build(List.of(
                 row("2026-10-26T10:00", "Alliance Gift I", "AthenaRyu", "Common Lucky Chip Pack"),

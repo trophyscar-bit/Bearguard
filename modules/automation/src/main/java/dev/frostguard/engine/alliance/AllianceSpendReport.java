@@ -64,9 +64,17 @@ public final class AllianceSpendReport {
 
     /**
      * How many edits two readings of one pack name may differ by: one stray letter ("Arcanel",
-     * "Dream T Traveler"). Not two, since "Common" and "Uncommon" Lucky Chip packs are two apart.
+     * "Dream T Traveler"), or two on a name of {@link #LONG_NAME} letters or more, where pop-up
+     * titles come out misspelled ("Night of Wonderai Pack 3", "Wondems", "Wondeee"). "Common" and
+     * "Uncommon" Lucky Chip packs are two apart but start differently, which keeps them apart.
      */
     static final int FUZZY_EDITS = 1;
+
+    static final int LONG_NAME = 16;
+
+    static int allowedEdits(String a, String b) {
+        return Math.min(a.length(), b.length()) >= LONG_NAME ? 2 : FUZZY_EDITS;
+    }
 
     /** One purchase as shown, plus the spellings it was read as and the screen it came from. */
     public record Purchase(LocalDateTime at, String tier, String buyer, boolean anonymous, String pack,
@@ -349,17 +357,18 @@ public final class AllianceSpendReport {
     }
 
     /**
-     * One stray letter apart, same start, same digits. Digits must match exactly: "Hero Rally 2
+     * One stray letter apart (two on a long name), same start, same digits. Digits must match exactly: "Hero Rally 2
      * Unlock" and "Hero Rally Unlock" are different packs, and a digit OCR invented mid-name
      * ("Legend 1 Transcend Pack") goes through the alias file instead.
      */
     static boolean sameThing(String a, String b) {
-        if (a.length() < 3 || b.length() < 3 || Math.abs(a.length() - b.length()) > FUZZY_EDITS
+        int allowed = allowedEdits(a, b);
+        if (a.length() < 3 || b.length() < 3 || Math.abs(a.length() - b.length()) > allowed
                 || !a.substring(0, 3).equals(b.substring(0, 3))
                 || !a.replaceAll("\\D", "").equals(b.replaceAll("\\D", ""))) {
             return false;
         }
-        return edits(a, b) <= FUZZY_EDITS;
+        return edits(a, b) <= allowed;
     }
 
     /**
@@ -448,7 +457,7 @@ public final class AllianceSpendReport {
             return read;
         }
         String best = read;
-        int bestEdits = FUZZY_EDITS + 1;
+        int bestEdits = Integer.MAX_VALUE;
         for (String title : known) {
             if (!sameThing(read, title)) {
                 continue;
