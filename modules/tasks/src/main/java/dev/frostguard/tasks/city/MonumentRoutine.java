@@ -1890,14 +1890,10 @@ public class MonumentRoutine extends DelayedTask {
             }
         }
 
-        if (!isOnTradePanel()) {
-            String pickerHeader = readButtonLabel(PIECE_PICKER_HEADER_TL, PIECE_PICKER_HEADER_BR);
-            if (pickerHeader != null && pickerHeader.contains("scene")) {
-                tapNear(PIECE_PICKER_CLOSE_X);
-                sleepTask(ACTION_SETTLE_MS);
-            }
-        }
-        if (!returnToTradePanel()) {
+        // The game stays on the piece grid after Confirm (live 2026-10-28: the card read
+        // "Requesting..." with the grid still up), and "tap anywhere" there lands on the scene
+        // strip. Re-read the screen every attempt rather than once.
+        if (!leavePieceGridToTradePanel()) {
             logWarning(logLine("Request tapped but the trade panel did not come back -- outcome unknown, "
                     + "not counting it. " + dumpDiagnosticFrame("after-request-no-trade-panel")));
             return;
@@ -1912,6 +1908,19 @@ public class MonumentRoutine extends DelayedTask {
             logWarning(logLine("Request tapped but My Requests reads '" + after + "', not Requesting -- "
                     + "not counting it as filed. " + dumpDiagnosticFrame("request-not-confirmed")));
         }
+    }
+
+    /** Closes the piece grid by its X, or a dialog over it by a tap, until the trade title reads. */
+    private boolean leavePieceGridToTradePanel() {
+        for (int i = 0; i < TRADE_PANEL_RETURN_ATTEMPTS; i++) {
+            if (isOnTradePanel()) {
+                return true;
+            }
+            String header = readButtonLabel(PIECE_PICKER_HEADER_TL, PIECE_PICKER_HEADER_BR);
+            tapNear(header != null && header.contains("scene") ? PIECE_PICKER_CLOSE_X : REWARD_REVEAL_TAP_ANYWHERE);
+            sleepTask(ACTION_SETTLE_MS);
+        }
+        return isOnTradePanel();
     }
 
     /**
