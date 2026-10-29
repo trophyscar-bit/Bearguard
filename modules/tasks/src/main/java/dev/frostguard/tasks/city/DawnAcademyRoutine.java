@@ -19,8 +19,10 @@ import dev.frostguard.vision.convert.GameTimeUtils;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,6 +49,8 @@ public class DawnAcademyRoutine extends DelayedTask {
             new LearningOption(Duration.ofHours(2), new PointData(390, 662)),
             new LearningOption(Duration.ofHours(10), new PointData(102, 740)),
             new LearningOption(Duration.ofHours(23), new PointData(390, 740)));
+    /** Banking on a full bar: short, so a skill that needs XP gets the queue back soon. */
+    static final LearningOption BANK_OPTION = LEARNING_OPTIONS.get(1);
 
     // "4,200/7,200" on the card; "4,200+7,200/7,200" on the dialog, where the middle number is the gain.
     private static final Pattern FRACTION = Pattern.compile("(\\d[\\d,.]*)(?:\\+[\\d,.]+)?/(\\d[\\d,.]*)");
@@ -86,6 +90,8 @@ public class DawnAcademyRoutine extends DelayedTask {
     // Dawn Academy screen. With the queue idle, Learn only shows a guide hand pointing at an
     // Expert in their room; the Expert opens from a tap where the finger points.
     private static final PointData ACADEMY_LEARN_ICON = new PointData(57, 150);
+    // Where the idle guide hand pointed on 27 Oct: the Expert standing in the training room.
+    private static final PointData EXPERT_IN_TRAINING_ROOM = new PointData(395, 850);
     static final AreaData GUIDE_HAND_AREA = new AreaData(new PointData(0, 250), new PointData(719, 1100));
     static final int FINGERTIP_DX = -20;
     static final int FINGERTIP_DY = -5;
@@ -233,10 +239,11 @@ public class DawnAcademyRoutine extends DelayedTask {
                         .withMaxAttempts(3)
                         .withDelay(500)
                         .build());
+        PointData expert = hand.isFound() ? fingertip(hand.getMatchedArea()) : EXPERT_IN_TRAINING_ROOM;
         if (!hand.isFound()) {
-            return false;
+            logInfo("No guide hand on the Academy; tapping the Expert in the training room.");
         }
-        tapNear(fingertip(hand.getMatchedArea()), 4);
+        tapNear(expert, 4);
         sleepTask(2500);
         return isOnExpertScreen();
     }
@@ -277,14 +284,30 @@ public class DawnAcademyRoutine extends DelayedTask {
         tapNear(SKILLS_TAB, 6);
         sleepTask(1200);
 
+        // The queue never sits idle: first a skill whose bar still needs XP, then, when every
+        // unlocked bar is full and waiting on Books of Knowledge, bank XP on the first of those.
+        // XP past the bar carries over to the next level, so banked time is never wasted.
+        Set<ExpertSkillItemEnum.Expert> present = expertsInAcademy();
+        SkillTarget bankable = null;
         for (SkillTarget target : skillTargets()) {
-            if (!showExpert(target.expert())) {
-                logInfo(target.expert() + " is not in the Academy yet; skipping " + target.label() + ".");
+            if (!present.contains(target.expert()) || !showExpert(target.expert())) {
                 continue;
             }
             tapNear(SKILLS_TAB, 6);
             sleepTask(800);
-            SkillOutcome outcome = learnSkill(target);
+            SkillOutcome outcome = learnSkill(target, false);
+            if (outcome.started()) {
+                considerNextRun(LocalDateTime.now().plus(outcome.duration()).plusMinutes(1));
+                return;
+            }
+            if (outcome.bankable() && bankable == null) {
+                bankable = target;
+            }
+        }
+        if (bankable != null && showExpert(bankable.expert())) {
+            tapNear(SKILLS_TAB, 6);
+            sleepTask(800);
+            SkillOutcome outcome = learnSkill(bankable, true);
             if (outcome.started()) {
                 considerNextRun(LocalDateTime.now().plus(outcome.duration()).plusMinutes(1));
                 return;
@@ -294,24 +317,40 @@ public class DawnAcademyRoutine extends DelayedTask {
         considerNextRun(LocalDateTime.now().plusHours(6));
     }
 
-    /**
-     * The configured priorities, or every slot of the first Expert shown when none are set.
-     */
+    /** Steps through the Experts with the arrow and returns every one that lives in the Academy. */
+    private Set<ExpertSkillItemEnum.Expert> expertsInAcademy() {
+        Set<ExpertSkillItemEnum.Expert> present = EnumSet.noneOf(ExpertSkillItemEnum.Expert.class);
+        for (int step = 0; step < ExpertSkillItemEnum.Expert.values().length + 1; step++) {
+            ExpertSkillItemEnum.Expert shown = currentExpert();
+            if (shown != null && !present.add(shown)) {
+                break;
+            }
+            tapNear(NEXT_EXPERT_ARROW, 6);
+            sleepTask(700);
+        }
+        logInfo("Experts in the Academy: " + present + ".");
+        return present;
+    }
+
+    /** The configured priorities first, then every other slot of every Expert. */
     private List<SkillTarget> skillTargets() {
         List<SkillTarget> targets = new ArrayList<>();
+        Set<ExpertSkillItemEnum> listed = EnumSet.noneOf(ExpertSkillItemEnum.class);
         for (PriorityItemData item : PriorityConfigResolver.activeRankings(profile,
                 ConfigurationKeyEnum.EXPERT_SKILL_TRAINING_PRIORITIES_STRING)) {
             try {
                 ExpertSkillItemEnum skill = ExpertSkillItemEnum.valueOf(item.getIdentifier().toUpperCase());
-                targets.add(new SkillTarget(skill.expert(), skill.slotIndex(), item.getName()));
+                if (listed.add(skill)) {
+                    targets.add(new SkillTarget(skill.expert(), skill.slotIndex(), item.getName()));
+                }
             } catch (IllegalArgumentException unknown) {
                 logWarning("Unknown skill priority " + item.getIdentifier() + "; ignored.");
             }
         }
-        if (targets.isEmpty()) {
-            ExpertSkillItemEnum.Expert shown = currentExpert();
-            for (int slot = 1; slot <= 4 && shown != null; slot++) {
-                targets.add(new SkillTarget(shown, slot, shown + " skill " + slot));
+        for (ExpertSkillItemEnum skill : ExpertSkillItemEnum.values()) {
+            if (listed.add(skill)) {
+                targets.add(new SkillTarget(skill.expert(), skill.slotIndex(),
+                        skill.expert() + " skill " + skill.slotIndex()));
             }
         }
         return targets;
@@ -329,7 +368,11 @@ public class DawnAcademyRoutine extends DelayedTask {
         return currentExpert() == wanted;
     }
 
-    private SkillOutcome learnSkill(SkillTarget target) {
+    /**
+     * Starts learning {@code target}. A full bar is skipped unless {@code bank} is set, in which
+     * case it learns {@link #BANK_OPTION} anyway and the XP carries over to the next level.
+     */
+    private SkillOutcome learnSkill(SkillTarget target, boolean bank) {
         tapNear(new PointData(SKILL_SLOT_X[target.slot() - 1], SKILL_SLOT_Y), 8);
         sleepTask(1000);
         if (found(TemplatesEnum.DAWN_ACADEMY_SKILL_UNLOCK_BUTTON, 1)) {
@@ -373,12 +416,13 @@ public class DawnAcademyRoutine extends DelayedTask {
             logWarning("Learning XP of " + target.label() + " was unreadable; not starting it blind.");
             return SkillOutcome.notStarted();
         }
-        if (xp[0] >= xp[1]) {
+        boolean full = xp[0] >= xp[1];
+        if (full && !bank) {
             logInfo(target.label() + " has full Learning XP (" + xp[0] + "/" + xp[1]
                     + ") but could not be upgraded; it needs more Books of Knowledge.");
-            return SkillOutcome.notStarted();
+            return SkillOutcome.bankableOnly();
         }
-        LearningOption option = pickLearningOption(xp[0], xp[1]);
+        LearningOption option = full ? BANK_OPTION : pickLearningOption(xp[0], xp[1]);
 
         tapInside(learn);
         sleepTask(1200);
@@ -412,8 +456,8 @@ public class DawnAcademyRoutine extends DelayedTask {
             sleepTask(800);
             return SkillOutcome.notStarted();
         }
-        logInfo("Learning " + target.label() + " for " + format(option.duration()) + " (XP " + xp[0] + "/" + xp[1]
-                + ", needs " + (xp[1] - xp[0]) + ").");
+        logInfo((full ? "Banking XP on " : "Learning ") + target.label() + " for " + format(option.duration())
+                + " (XP " + xp[0] + "/" + xp[1] + (full ? ", bar full, waiting on Books)." : ", needs " + (xp[1] - xp[0]) + ")."));
         return SkillOutcome.started(option.duration());
     }
 
@@ -840,13 +884,18 @@ public class DawnAcademyRoutine extends DelayedTask {
     private record SkillTarget(ExpertSkillItemEnum.Expert expert, int slot, String label) {
     }
 
-    private record SkillOutcome(boolean started, Duration duration) {
+    private record SkillOutcome(boolean started, Duration duration, boolean bankable) {
         static SkillOutcome started(Duration duration) {
-            return new SkillOutcome(true, duration);
+            return new SkillOutcome(true, duration, false);
         }
 
         static SkillOutcome notStarted() {
-            return new SkillOutcome(false, Duration.ZERO);
+            return new SkillOutcome(false, Duration.ZERO, false);
+        }
+
+        /** Not started because the bar is full; learning it anyway would bank XP. */
+        static SkillOutcome bankableOnly() {
+            return new SkillOutcome(false, Duration.ZERO, true);
         }
     }
 }

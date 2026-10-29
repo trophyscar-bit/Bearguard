@@ -15,6 +15,17 @@ with a guide hand pointing at an Expert in their room. The Academy's Learn
 icon only re-shows that hand. The task taps the fingertip, offset (-20,-5)
 from the hand template, to open the Expert.
 
+The queue is never left idle. The task notes which Experts live in the Academy
+by stepping through them with the arrow. It then walks the configured skill
+priorities, followed by every other slot of every Expert. The first unlocked
+skill whose bar still needs XP is learned. If every unlocked bar is already
+full and waiting on Books of Knowledge, the first of those is learned anyway
+for 2h to bank XP that carries over to the next level ("Banking XP on ..." in
+the log). On 29 Oct 2026 the old rule only looked at the first Expert shown,
+and with Cyrille's two open skills full, the queue sat idle for 6h at a time.
+When the idle Academy shows no guide hand, the task taps the Expert's spot in
+the training room, `(395,850)`.
+
 Learning picks the shortest of 10m, 2h, 10h and 23h whose XP covers what the
 bar still needs. Learning XP accrues at one point per second, so 2h gives
 7,200. XP past the bar carries over: 7,800/3,600 became 4,200/7,200 after an
@@ -23,7 +34,7 @@ upgrade on 27 Oct 2026. The 3d and 5d options are locked and never picked.
 The XP fraction is read beside the Learn template. The card moves 40px when
 Upgrade Skill is shown, so the read is relative, not fixed. The task does not
 start a skill whose XP read fails or whose bar is already full without an
-upgrade (out of Books). It checks the duration shown on the Learn button
+upgrade (out of Books), except to bank XP as above. It checks the duration shown on the Learn button
 before confirming.
 
 Gem Trek Supply buys are off by default (`DAWN_ACADEMY_BUY_SUPPLIES_BOOL`).
