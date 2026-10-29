@@ -16,6 +16,7 @@ import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.vision.convert.GameTimeUtils;
 
+import java.awt.Color;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -59,12 +60,21 @@ public class DawnAcademyRoutine extends DelayedTask {
     /** The game's white digits on dark or coloured bars read cleanly only with this preset. */
     private static final OcrSettingsData WHITE_TEXT = OcrSettingsData.forWhiteTextOnDark();
     /**
-     * Affinity bars: white digits outlined in black on a yellow fill. The white-text preset read
-     * Cyrille's 570/580 as 970/580 once the bar was nearly full; plain digits read it right.
+     * Affinity bars: white digits outlined in black over a yellow fill. With the fill nearly full
+     * the line presets read Cyrille's 570/580 as 970/580, 9/70/580 or nothing; one word of white
+     * digits in a box hugging the text reads it right (29 Oct live frame).
      */
     static final OcrSettingsData AFFINITY_DIGITS = OcrSettingsData.configurator()
-            .textLayout(OcrSettingsData.TextLayout.SINGLE_LINE)
+            .textLayout(OcrSettingsData.TextLayout.SINGLE_WORD)
+            .isolateForeground(true)
+            .targetColor(Color.WHITE)
             .allowedGlyphs("0123456789,/")
+            .build();
+    static final OcrSettingsData LEVEL_DIGITS = OcrSettingsData.configurator()
+            .textLayout(OcrSettingsData.TextLayout.SINGLE_WORD)
+            .isolateForeground(true)
+            .targetColor(Color.WHITE)
+            .allowedGlyphs("0123456789")
             .build();
     static final int MAX_SUPPLY_PRICE = 1_000;
     private static final int DAILY_SUPPLY_BUYS = 4;
@@ -98,10 +108,18 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData GIFT_SEND_BUTTON = new PointData(530, 1208);
     private static final PointData GIFT_PLUS_BUTTON = new PointData(427, 1088);
     // The Affinity bar on the gift screen ("100/460" for Cyrille, 27 Oct).
-    static final PointData GIFT_AFFINITY_TOP_LEFT = new PointData(150, 552);
-    static final PointData GIFT_AFFINITY_BOTTOM_RIGHT = new PointData(595, 592);
+    static final PointData GIFT_AFFINITY_TOP_LEFT = new PointData(270, 556);
+    static final PointData GIFT_AFFINITY_BOTTOM_RIGHT = new PointData(460, 590);
     static final int COMPASS_AFFINITY = 10;
     static final int TOP_OFF_MAX_AFFINITY = 200;
+    // "Lv. 16" under the clover on the gift screen.
+    static final PointData GIFT_LEVEL_TOP_LEFT = new PointData(88, 576);
+    static final PointData GIFT_LEVEL_BOTTOM_RIGHT = new PointData(132, 606);
+    // The gift cards: Compass +10, Fiery Heart +100, Sail +1,000 Affinity.
+    private static final PointData FIERY_HEART_CARD = new PointData(360, 860);
+    private static final PointData SAIL_CARD = new PointData(583, 860);
+    private static final PointData GIFT_MINUS_BUTTON = new PointData(90, 1088);
+    private static final int MAX_GIFT_ROUNDS = 6;
     // Relationship advancement screen: the Advance button and the shard bar ("18/5") above it.
     private static final PointData ADVANCE_BUTTON_TOP_LEFT = new PointData(200, 1160);
     private static final PointData ADVANCE_BUTTON_BOTTOM_RIGHT = new PointData(520, 1260);
@@ -444,7 +462,8 @@ public class DawnAcademyRoutine extends DelayedTask {
         boolean full = xp[0] >= xp[1];
         if (full && !bank) {
             logInfo(target.label() + " has full Learning XP (" + xp[0] + "/" + xp[1]
-                    + ") but could not be upgraded; it needs more Books of Knowledge.");
+                    + ") but Upgrade Skill is unavailable; the next level needs a higher Expert relationship"
+                    + " (Cyrille's Entrapment Lv. 5 asks for Acquaintance 3) or more Books.");
             return SkillOutcome.bankableOnly();
         }
         LearningOption option = full ? BANK_OPTION : pickLearningOption(xp[0], xp[1]);
@@ -554,21 +573,82 @@ public class DawnAcademyRoutine extends DelayedTask {
             logInfo(focus + " is not in the Academy yet; Compasses kept until " + focus + " reaches 1,000 Affinity.");
             return;
         }
-        if (!openGiftScreen(focus)) {
-            return;
+        // Every 10 levels the bar stops at a gate that only a Relationship Advancement opens, and
+        // Gift is replaced until then. So: gift up to the gate, advance through it, and keep going
+        // while Compasses and shards last.
+        for (int round = 0; round < MAX_GIFT_ROUNDS; round++) {
+            boolean advanced = false;
+            if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_ADVANCE_RELATIONSHIPS_BOOL)) {
+                while (advanceRelationship(focus)) {
+                    advanced = true;
+                    sleepTask(1000);
+                }
+            }
+            if (found(TemplatesEnum.DAWN_ACADEMY_RELATIONSHIP_ADVANCE_BUTTON, 1)) {
+                logInfo(focus + " is at a 10-level gate; Compasses kept until the gate can be advanced.");
+                return;
+            }
+            if (!giftAllCompasses(focus) && !advanced) {
+                return;
+            }
         }
-        tapNear(COMPASS_CARD, 8);
+    }
+
+    /**
+     * Gives the focus Expert gifts up to the next 10-level gate: Compasses first, then (when
+     * ticked) Fiery Hearts and Sails. The game caps each slider at what reaches the gate (84 Fiery
+     * Hearts owned showed a maximum of 47 for Cyrille at Lv. 22), so the slider's maximum is the
+     * gift count to the gate. Sails stop one short of that cap, since a +1,000 gift would mostly
+     * overshoot it. True when anything was given.
+     */
+    private boolean giftAllCompasses(ExpertSkillItemEnum.Expert focus) {
+        if (!openGiftScreen(focus)) {
+            return false;
+        }
+        boolean gave = giveMax(focus, "Compasses", COMPASS_CARD, COMPASS_AFFINITY, false);
+        if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_GIFT_HEARTS_SAILS_BOOL)) {
+            gave |= giveMax(focus, "Fiery Hearts", FIERY_HEART_CARD, 100, false);
+            gave |= giveMax(focus, "Sails", SAIL_CARD, 1_000, true);
+        }
+        closeGiftScreen();
+        return gave;
+    }
+
+    /** Picks one gift card, slides to the game's cap and sends it. True when any were given. */
+    private boolean giveMax(ExpertSkillItemEnum.Expert focus, String gift, PointData card, int affinityEach,
+            boolean oneShort) {
+        if (!found(TemplatesEnum.DAWN_ACADEMY_SELECT_GIFT_TITLE, 1)) {
+            return false;
+        }
+        String before = affinityLabel();
+        tapNear(card, 8);
         sleepTask(600);
         swipe(GIFT_SLIDER_START, GIFT_SLIDER_END, 600);
         sleepTask(700);
         Integer chosen = readCount(GIFT_COUNT_TOP_LEFT, GIFT_COUNT_BOTTOM_RIGHT, WHITE_TEXT);
-        if (chosen == null || chosen <= 0) {
-            logInfo("No Compasses to give " + focus + ".");
-        } else {
-            logInfo("Gifting " + chosen + " Compasses to " + focus + ".");
-            sendGift();
+        if (oneShort && chosen != null && chosen > 0) {
+            tapNear(GIFT_MINUS_BUTTON, 4);
+            sleepTask(400);
+            chosen = readCount(GIFT_COUNT_TOP_LEFT, GIFT_COUNT_BOTTOM_RIGHT, WHITE_TEXT);
         }
-        closeGiftScreen();
+        if (chosen == null || chosen <= 0) {
+            logInfo("No " + gift + " to give " + focus + " (" + before + ").");
+            return false;
+        }
+        sendGift();
+        // Before -> after per batch is the record of what each level costs.
+        logInfo("Gave " + focus + " " + chosen + " " + gift + " (+" + chosen * affinityEach + " Affinity): "
+                + before + " -> " + affinityLabel() + ".");
+        return true;
+    }
+
+    /** "Lv. 16 100/460" from the gift screen, or "unread" parts where OCR fails. */
+    private String affinityLabel() {
+        Integer level = integerHelper.attemptRecognition(GIFT_LEVEL_TOP_LEFT, GIFT_LEVEL_BOTTOM_RIGHT, 2, 200L,
+                LEVEL_DIGITS, text -> parseCount(text) != null, DawnAcademyRoutine::parseCount);
+        long[] bar = parseAffinity(stringHelper.attemptRecognition(GIFT_AFFINITY_TOP_LEFT, GIFT_AFFINITY_BOTTOM_RIGHT,
+                2, 200L, AFFINITY_DIGITS, text -> parseAffinity(text) != null, String::trim));
+        return "Lv. " + (level == null ? "?" : level) + " " + (bar == null ? "?/?" : bar[0] + "/" + bar[1]);
     }
 
     /**
