@@ -182,12 +182,22 @@ class DawnAcademyFrameTest {
         String bar = OcrEngine.recognizeText(frame("gift-screen.png"), DawnAcademyRoutine.GIFT_AFFINITY_TOP_LEFT,
                 DawnAcademyRoutine.GIFT_AFFINITY_BOTTOM_RIGHT, DawnAcademyRoutine.AFFINITY_DIGITS);
         assertArrayEquals(new long[]{100, 460}, DawnAcademyRoutine.parseAffinity(bar), "affinity " + bar);
-        // A nearly full bar is white-on-yellow: the white-text preset read 570/580 as 970/580.
-        // Frame: matt's phone screenshot of Cyrille's Stats tab, 29 Oct, scaled to 720 wide.
-        String full = OcrEngine.recognizeText(frame("cyrille-stats-570-scaled.png"), new PointData(135, 902),
-                new PointData(585, 942), DawnAcademyRoutine.AFFINITY_DIGITS);
+        // Live 29 Oct: a nearly full bar is white digits on yellow, which the line presets misread
+        // (970/580, 9/70/580). Cyrille here owns 84 Fiery Hearts but the slider tops out at 47:
+        // the game caps gifts at the Lv. 30 gate.
+        String full = OcrEngine.recognizeText(frame("gift-screen-hearts.png"), DawnAcademyRoutine.GIFT_AFFINITY_TOP_LEFT,
+                DawnAcademyRoutine.GIFT_AFFINITY_BOTTOM_RIGHT, DawnAcademyRoutine.AFFINITY_DIGITS);
         assertArrayEquals(new long[]{570, 580}, DawnAcademyRoutine.parseAffinity(full), "affinity " + full);
         assertNull(DawnAcademyRoutine.parseAffinity("970/580"));
+        String level = OcrEngine.recognizeText(frame("gift-screen.png"), DawnAcademyRoutine.GIFT_LEVEL_TOP_LEFT,
+                DawnAcademyRoutine.GIFT_LEVEL_BOTTOM_RIGHT, DawnAcademyRoutine.LEVEL_DIGITS);
+        assertEquals(16, DawnAcademyRoutine.parseCount(level), "level " + level);
+        String level22 = OcrEngine.recognizeText(frame("gift-screen-hearts.png"), DawnAcademyRoutine.GIFT_LEVEL_TOP_LEFT,
+                DawnAcademyRoutine.GIFT_LEVEL_BOTTOM_RIGHT, DawnAcademyRoutine.LEVEL_DIGITS);
+        assertEquals(22, DawnAcademyRoutine.parseCount(level22), "level " + level22);
+        assertTrue(find("gift-screen-hearts.png", TemplatesEnum.DAWN_ACADEMY_SELECT_GIFT_TITLE).isFound());
+        // The gift count shows 0 at rest, so a slide to the cap is what gets read.
+        assertEquals(0, count("gift-screen-hearts.png", new PointData(470, 1068), new PointData(590, 1108)));
         // 29 Oct: Cyrille at 570/580 needs one Compass (+10 each).
         assertEquals(1, DawnAcademyRoutine.topOffCompasses(570, 580));
         assertEquals(2, DawnAcademyRoutine.topOffCompasses(565, 580));
@@ -231,6 +241,13 @@ class DawnAcademyFrameTest {
         assertArrayEquals(new long[]{18, 5}, DawnAcademyRoutine.parseFraction(shards), "shards " + shards);
         assertTrue(find("relationship-advanced.png", TemplatesEnum.DAWN_ACADEMY_ADVANCED_TITLE).isFound());
         assertFalse(find("relationship-advance.png", TemplatesEnum.DAWN_ACADEMY_ADVANCED_TITLE).isFound());
+    }
+
+    @Test
+    void aSkillGatedByRelationshipShowsNoLiveUpgradeButton() throws Exception {
+        // Live 29 Oct: Cyrille's Entrapment at 36,600/14,400 XP asks for Acquaintance 3 to reach
+        // Lv. 5, with 4,980/280 Books. Its Upgrade Skill button is greyed out.
+        assertFalse(find("skill-gated-by-relationship.png", TemplatesEnum.DAWN_ACADEMY_UPGRADE_SKILL_BUTTON).isFound());
     }
 
     @Test

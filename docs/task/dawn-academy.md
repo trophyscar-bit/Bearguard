@@ -87,6 +87,30 @@ the focus Expert. The guide behind this (heaven-guardian.com, Oct 2026) says
 to concentrate gifts but spend them where they complete a level. On 29 Oct
 2026 Cyrille sat at 570/580, one Compass short.
 
+The focus Expert is gifted toward the next 10-level gate. At each gate the
+bar stops (Agnes showed 0/410 at Lv. 10) and Relationship Advancement replaces
+Gift. The game caps every gift slider at what reaches that gate: Cyrille at
+Lv. 22 owned 84 Fiery Hearts, but the slider allowed 47. So the slider's
+maximum is the gift count to the gate.
+
+Each round:
+1. Advance through a ready gate.
+2. Give Compasses (+10) to the cap.
+3. With `DAWN_ACADEMY_GIFT_HEARTS_SAILS_BOOL` (on by default), give Fiery
+   Hearts (+100) to the cap, then Sails (+1,000) one short of it so a
+   +1,000 doesn't overshoot.
+4. Repeat while anything was given.
+It stops at a gate whose shards fall short. Each batch logs the level and bar
+before and after, which is the record of what each level costs.
+
+Affinity bars are white digits outlined in black over a yellow fill. When the
+fill is nearly full, the line presets misread 570/580 as 970/580 or 9/70/580.
+One word of white digits in `(270,556)..(460,590)` reads it right.
+
+Skill levels are gated by relationship too. On 29 Oct, Cyrille's Entrapment
+Lv. 5 asked for Acquaintance 3 while she was Acquaintance 2, with 4,980/280
+Books. Its Upgrade Skill button stays grey and the template does not match it.
+
 The focus Expert, Agnes by default. An Expert
 takes gifts only once settled in the Academy (1,000 Affinity from treks).
 Until then the task logs and keeps the Compasses. Fiery Hearts and Sails are
