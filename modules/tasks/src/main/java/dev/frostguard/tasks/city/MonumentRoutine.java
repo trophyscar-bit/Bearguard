@@ -204,10 +204,11 @@ public class MonumentRoutine extends DelayedTask {
     /** Quantity defaults to the full owned count already -- one Enable tap consumes
      *  all of them (confirmed live twice: stacks of 2 fully consumed in one tap). */
     private static final PointData PACK_DETAIL_ENABLE_BTN = new PointData(358, 905);
-    /** Pack detail title, e.g. "Mythic General Scene Fragment Pack" (live 2026-10-28). It is the
-     *  positive anchor for the Enable tap; the "Obtain more" purchase dialog has no such title here. */
-    private static final PointData PACK_DETAIL_TITLE_TL = new PointData(130, 268);
-    private static final PointData PACK_DETAIL_TITLE_BR = new PointData(590, 312);
+    /** The Enable button's own label, the positive anchor for tapping it. Not the pack title:
+     *  "Explore the World - Mythic Scene Fragment Pack" wraps to two lines and read as junk on
+     *  every pass of 2026-10-29, leaving five packs unopened. */
+    static final PointData PACK_DETAIL_ENABLE_LABEL_TL = new PointData(250, 876);
+    static final PointData PACK_DETAIL_ENABLE_LABEL_BR = new PointData(470, 932);
     /** "Tap anywhere to close" reward-reveal screen -- tap near the text, not dead-center. */
     private static final PointData REWARD_REVEAL_TAP_ANYWHERE = new PointData(358, 1198);
 
@@ -325,7 +326,7 @@ public class MonumentRoutine extends DelayedTask {
      *  panel transition -- root cause of an earlier stuck-owned-count bug. */
     private static final int PACK_OPEN_SETTLE_MS = 1800;
 
-    private static final OcrSettingsData PANEL_TITLE_OCR_SETTINGS = OcrSettingsData.assembler()
+    static final OcrSettingsData PANEL_TITLE_OCR_SETTINGS = OcrSettingsData.assembler()
             .stripBackground(true)
             .charWhitelist("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ")
             .textLayout(OcrSettingsData.TextLayout.SINGLE_LINE)
@@ -1618,12 +1619,12 @@ public class MonumentRoutine extends DelayedTask {
             tapNear(target);
             sleepTask(ACTION_SETTLE_MS);
 
-            // The pack detail names itself ("... Scene Fragment Pack"). Anything else -- the "Obtain
-            // more" gold-key purchase dialog above all -- gets no Enable tap.
-            String detailTitle = readButtonLabel(PACK_DETAIL_TITLE_TL, PACK_DETAIL_TITLE_BR);
-            if (detailTitle == null || !detailTitle.contains("pack") || detailTitle.contains("obtain")) {
-                logWarning(logLine("Tapped the pack icon at " + target + " but the pack detail title did not read "
-                        + "(read: '" + detailTitle + "') -- not tapping Enable on an unidentified screen. Opened "
+            // Only the pack detail's own Enable button gets tapped. Anything else -- the "Obtain more"
+            // gold-key purchase dialog above all -- does not read "Enable" there.
+            String enableLabel = readButtonLabel(PACK_DETAIL_ENABLE_LABEL_TL, PACK_DETAIL_ENABLE_LABEL_BR);
+            if (enableLabel == null || !enableLabel.contains("enable")) {
+                logWarning(logLine("Tapped the pack icon at " + target + " but the pack detail's Enable button did "
+                        + "not read (read: '" + enableLabel + "') -- not tapping on an unidentified screen. Opened "
                         + opened + " total. " + dumpDiagnosticFrame("backpack-pack-detail-unknown")));
                 recoverTowardHome();
                 return;
@@ -1631,7 +1632,7 @@ public class MonumentRoutine extends DelayedTask {
 
             opened++;
             scrolls = 0;
-            logInfo(logLine("Opening pack " + opened + " ('" + detailTitle.trim() + "') at " + target + "."));
+            logInfo(logLine("Opening pack " + opened + " at " + target + "."));
 
             tapNear(PACK_DETAIL_ENABLE_BTN);
             sleepTask(PACK_OPEN_SETTLE_MS);

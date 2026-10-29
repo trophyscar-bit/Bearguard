@@ -144,9 +144,10 @@ end). Pack art is the only 80-200px blob of saturated gold/red/purple; banners a
 planks are list-wide and Obtain is blue. Do not OCR the count: a lone `1` never
 read, which left a Mythic General pack unopened on 2026-10-28.
 
-Pack detail dialog geometry is stable across pack types: title (130, 268)-(590, 312)
-reads `... Scene Fragment Pack` and anchors the tap, quantity defaults to the full
-stack, `Enable` (358, 903).
+Pack detail dialog geometry is stable across pack types: quantity defaults to the
+full stack, `Enable` (358, 903). Anchor the tap on the Enable label itself
+(250, 876)-(470, 932); the pack title wraps to two lines on themed packs
+(`Explore the World - Mythic Scene Fragment Pack`) and does not OCR.
 
 ### Alliance Trade
 
