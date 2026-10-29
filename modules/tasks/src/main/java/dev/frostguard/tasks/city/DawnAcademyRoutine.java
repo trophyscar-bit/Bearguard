@@ -88,6 +88,12 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData GIFT_COUNT_TOP_LEFT = new PointData(470, 1068);
     private static final PointData GIFT_COUNT_BOTTOM_RIGHT = new PointData(590, 1108);
     private static final PointData GIFT_SEND_BUTTON = new PointData(530, 1208);
+    private static final PointData GIFT_PLUS_BUTTON = new PointData(427, 1088);
+    // The Affinity bar on the gift screen ("100/460" for Cyrille, 27 Oct).
+    static final PointData GIFT_AFFINITY_TOP_LEFT = new PointData(150, 552);
+    static final PointData GIFT_AFFINITY_BOTTOM_RIGHT = new PointData(595, 592);
+    static final int COMPASS_AFFINITY = 10;
+    static final int TOP_OFF_MAX_AFFINITY = 200;
     // Relationship advancement screen: the Advance button and the shard bar ("18/5") above it.
     private static final PointData ADVANCE_BUTTON_TOP_LEFT = new PointData(200, 1160);
     private static final PointData ADVANCE_BUTTON_BOTTOM_RIGHT = new PointData(520, 1260);
@@ -515,10 +521,10 @@ public class DawnAcademyRoutine extends DelayedTask {
      * the Academy (1,000 Affinity from treks); until then this logs and does nothing.
      */
     private void giftCompasses() {
-        ExpertSkillItemEnum.Expert target;
+        ExpertSkillItemEnum.Expert focus;
         try {
             String configured = profile.getConfig(ConfigurationKeyEnum.DAWN_ACADEMY_GIFT_EXPERT_STRING, String.class);
-            target = ExpertSkillItemEnum.Expert.valueOf(configured == null ? "AGNES" : configured.trim().toUpperCase());
+            focus = ExpertSkillItemEnum.Expert.valueOf(configured == null ? "AGNES" : configured.trim().toUpperCase());
         } catch (IllegalArgumentException unknown) {
             logWarning("Unknown gift Expert in settings; gifting skipped.");
             return;
@@ -529,20 +535,18 @@ public class DawnAcademyRoutine extends DelayedTask {
         }
         tapNear(STATS_TAB, 6);
         sleepTask(1000);
-        if (!showExpert(target)) {
-            logInfo(target + " is not in the Academy yet; Compasses kept until " + target + " reaches 1,000 Affinity.");
+        if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_GIFT_TOP_OFF_BOOL)) {
+            for (ExpertSkillItemEnum.Expert expert : expertsInAcademy()) {
+                if (expert != focus && showExpert(expert)) {
+                    topOff(expert);
+                }
+            }
+        }
+        if (!showExpert(focus)) {
+            logInfo(focus + " is not in the Academy yet; Compasses kept until " + focus + " reaches 1,000 Affinity.");
             return;
         }
-        ImageSearchResultData giftButton = templateSearchHelper.locatePattern(
-                TemplatesEnum.DAWN_ACADEMY_GIFT_OPEN_BUTTON, SearchConfig.builder().withMaxAttempts(2).build());
-        if (!giftButton.isFound()) {
-            logWarning("Gift button not found on " + target + "'s Stats tab.");
-            return;
-        }
-        tapInside(giftButton);
-        sleepTask(1500);
-        if (!found(TemplatesEnum.DAWN_ACADEMY_SELECT_GIFT_TITLE, 2)) {
-            logWarning("Gift screen did not open for " + target + ".");
+        if (!openGiftScreen(focus)) {
             return;
         }
         tapNear(COMPASS_CARD, 8);
@@ -551,15 +555,84 @@ public class DawnAcademyRoutine extends DelayedTask {
         sleepTask(700);
         Integer chosen = readCount(GIFT_COUNT_TOP_LEFT, GIFT_COUNT_BOTTOM_RIGHT, WHITE_TEXT);
         if (chosen == null || chosen <= 0) {
-            logInfo("No Compasses to give " + target + ".");
+            logInfo("No Compasses to give " + focus + ".");
         } else {
-            logInfo("Gifting " + chosen + " Compasses to " + target + ".");
-            tapNear(GIFT_SEND_BUTTON, 8);
-            sleepTask(2500);
-            // A level-up banner may cover the screen; a tap on the empty top half clears it.
-            tapNear(new PointData(360, 300), 10);
-            sleepTask(1000);
+            logInfo("Gifting " + chosen + " Compasses to " + focus + ".");
+            sendGift();
         }
+        closeGiftScreen();
+    }
+
+    /**
+     * Gives the Expert on screen just enough Compasses to reach the next Affinity level when that
+     * is at most {@value #TOP_OFF_MAX_AFFINITY} Affinity away, before the rest go to the focus
+     * Expert. A level that close costs a handful of Compasses and its stat is otherwise left
+     * unclaimed.
+     */
+    private void topOff(ExpertSkillItemEnum.Expert expert) {
+        if (!openGiftScreen(expert)) {
+            return;
+        }
+        long[] affinity = parseFraction(stringHelper.attemptRecognition(GIFT_AFFINITY_TOP_LEFT,
+                GIFT_AFFINITY_BOTTOM_RIGHT, 3, 200L, WHITE_TEXT, text -> parseFraction(text) != null, String::trim));
+        int compasses = affinity == null ? 0 : topOffCompasses(affinity[0], affinity[1]);
+        if (compasses > 0) {
+            tapNear(COMPASS_CARD, 8);
+            sleepTask(600);
+            for (int tap = 0; tap < compasses; tap++) {
+                tapNear(GIFT_PLUS_BUTTON, 4);
+                sleepTask(250);
+            }
+            Integer chosen = readCount(GIFT_COUNT_TOP_LEFT, GIFT_COUNT_BOTTOM_RIGHT, WHITE_TEXT);
+            if (chosen != null && chosen == compasses) {
+                logInfo("Topping off " + expert + ": " + compasses + " Compasses for " + (affinity[1] - affinity[0])
+                        + " Affinity to the next level (" + affinity[0] + "/" + affinity[1] + ").");
+                sendGift();
+            } else {
+                logInfo("Not topping off " + expert + ": wanted " + compasses + " Compasses, the count reads "
+                        + chosen + ".");
+            }
+        }
+        closeGiftScreen();
+    }
+
+    /**
+     * Compasses (+{@value #COMPASS_AFFINITY} each) needed to finish the Affinity level, or 0 when
+     * the level is further than {@value #TOP_OFF_MAX_AFFINITY} away or the read is not a fraction.
+     */
+    static int topOffCompasses(long current, long needed) {
+        long missing = needed - current;
+        if (missing <= 0 || missing > TOP_OFF_MAX_AFFINITY) {
+            return 0;
+        }
+        return (int) ((missing + COMPASS_AFFINITY - 1) / COMPASS_AFFINITY);
+    }
+
+    private boolean openGiftScreen(ExpertSkillItemEnum.Expert expert) {
+        ImageSearchResultData giftButton = templateSearchHelper.locatePattern(
+                TemplatesEnum.DAWN_ACADEMY_GIFT_OPEN_BUTTON, SearchConfig.builder().withMaxAttempts(2).build());
+        if (!giftButton.isFound()) {
+            logWarning("Gift button not found on " + expert + "'s Stats tab.");
+            return false;
+        }
+        tapInside(giftButton);
+        sleepTask(1500);
+        if (!found(TemplatesEnum.DAWN_ACADEMY_SELECT_GIFT_TITLE, 2)) {
+            logWarning("Gift screen did not open for " + expert + ".");
+            return false;
+        }
+        return true;
+    }
+
+    private void sendGift() {
+        tapNear(GIFT_SEND_BUTTON, 8);
+        sleepTask(2500);
+        // A level-up banner may cover the screen; a tap on the empty top half clears it.
+        tapNear(new PointData(360, 300), 10);
+        sleepTask(1000);
+    }
+
+    private void closeGiftScreen() {
         if (found(TemplatesEnum.DAWN_ACADEMY_SELECT_GIFT_TITLE, 1)) {
             tapNear(BACK_ARROW, 4);
             sleepTask(1200);

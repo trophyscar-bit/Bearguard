@@ -347,6 +347,7 @@ public enum ConfigurationKeyEnum {
     DAWN_ACADEMY_ADVANCE_RELATIONSHIPS_BOOL     ("true",        Boolean.class, ConfigCategory.EXPERTS),
     DAWN_ACADEMY_GIFT_COMPASSES_BOOL            ("false",       Boolean.class, ConfigCategory.EXPERTS),
     DAWN_ACADEMY_GIFT_EXPERT_STRING             ("AGNES",       String.class,  ConfigCategory.EXPERTS),
+    DAWN_ACADEMY_GIFT_TOP_OFF_BOOL              ("true",        Boolean.class, ConfigCategory.EXPERTS),
 
     /* ─────────── gathering ─────────── */
 
