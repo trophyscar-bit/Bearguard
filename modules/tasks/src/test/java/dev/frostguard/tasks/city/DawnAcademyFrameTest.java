@@ -194,6 +194,26 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void aPendingRelationshipAdvancementReplacesGiftUntilItIsDone() throws Exception {
+        // Live 29 Oct: the flame bubble on the Academy led to Agnes, whose Stats tab showed
+        // Relationship Advancement instead of Gift. Advance (5 of 18 shards) made her
+        // Acquaintance 1 and Gift came back.
+        assertTrue(find("expert-advance-ready.png", TemplatesEnum.DAWN_ACADEMY_RELATIONSHIP_ADVANCE_BUTTON).isFound());
+        assertFalse(find("expert-advance-ready.png", TemplatesEnum.DAWN_ACADEMY_GIFT_OPEN_BUTTON).isFound());
+        assertTrue(find("expert-after-advance.png", TemplatesEnum.DAWN_ACADEMY_GIFT_OPEN_BUTTON).isFound());
+        assertFalse(find("expert-after-advance.png", TemplatesEnum.DAWN_ACADEMY_RELATIONSHIP_ADVANCE_BUTTON).isFound());
+        assertFalse(find("expert-stats.png", TemplatesEnum.DAWN_ACADEMY_RELATIONSHIP_ADVANCE_BUTTON).isFound());
+
+        assertTrue(find("relationship-advance.png", TemplatesEnum.DAWN_ACADEMY_ADVANCE_BUTTON).isFound());
+        String shards = OcrEngine.recognizeText(frame("relationship-advance.png"),
+                DawnAcademyRoutine.ADVANCE_SHARDS_TOP_LEFT, DawnAcademyRoutine.ADVANCE_SHARDS_BOTTOM_RIGHT,
+                OcrSettingsData.forWhiteTextOnDark());
+        assertArrayEquals(new long[]{18, 5}, DawnAcademyRoutine.parseFraction(shards), "shards " + shards);
+        assertTrue(find("relationship-advanced.png", TemplatesEnum.DAWN_ACADEMY_ADVANCED_TITLE).isFound());
+        assertFalse(find("relationship-advance.png", TemplatesEnum.DAWN_ACADEMY_ADVANCED_TITLE).isFound());
+    }
+
+    @Test
     void wayfarerShowsClaimAll() throws Exception {
         assertTrue(find("wayfarer.png", TemplatesEnum.DAWN_ACADEMY_WAYFARER_CLAIM_ALL).isFound());
     }

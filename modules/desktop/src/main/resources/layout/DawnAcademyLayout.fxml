@@ -68,6 +68,8 @@
                                         </HBox>
                                         <VBox styleClass="task-section-inner" spacing="10">
                                             <children>
+                                                <CheckBox fx:id="checkBoxAdvanceRelationships" mnemonicParsing="false"
+                                                          text="Advance Expert relationships when the shards cover it (flame bubble)" />
                                                 <HBox alignment="CENTER_LEFT" spacing="10">
                                                     <children>
                                                         <CheckBox fx:id="checkBoxGiftCompasses" mnemonicParsing="false"
