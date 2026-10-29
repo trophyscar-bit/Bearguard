@@ -57,6 +57,12 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void aFullBarBanksTwoHoursSoTheQueueIsNeverIdle() {
+        // 29 Oct: CYRILLE 36,600/14,400 and 91,200/55,200 waiting on Books left the queue idle.
+        assertEquals(Duration.ofHours(2), DawnAcademyRoutine.BANK_OPTION.duration());
+    }
+
+    @Test
     void fractionsAndCountsParse() {
         assertArrayEquals(new long[]{4_200, 7_200}, DawnAcademyRoutine.parseFraction("4,200/7,200"));
         assertArrayEquals(new long[]{4_200, 7_200}, DawnAcademyRoutine.parseFraction("4,200+7,200/7,200"));
