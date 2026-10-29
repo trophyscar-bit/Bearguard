@@ -77,6 +77,8 @@
                                                         <ComboBox fx:id="comboGiftExpert" prefWidth="140.0" />
                                                     </children>
                                                 </HBox>
+                                                <CheckBox fx:id="checkBoxGiftTopOff" mnemonicParsing="false"
+                                                          text="First top off any other Expert within 200 Affinity (20 Compasses) of a level" />
                                                 <Label styleClass="task-card-description" wrapText="true"
                                                        text="Gifts are one pool for every Expert. An Expert takes gifts only once settled in the Academy (1,000 Affinity from treks); until then Compasses are kept. Fiery Hearts and Sails are never given." />
                                             </children>

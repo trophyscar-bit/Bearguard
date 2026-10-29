@@ -78,7 +78,16 @@ It checks every Expert in the Academy and taps Advance only when the shard bar
 at `(195,1098)..(520,1132)` reads have >= need. Then it dismisses
 "Successfully Advanced" and repeats while further tiers are ready.
 
-Compass gifting goes to the configured Expert, Agnes by default. An Expert
+Compass gifting tops off before it focuses
+(`DAWN_ACADEMY_GIFT_TOP_OFF_BOOL`, on by default). A Compass is +10 Affinity,
+and the gift screen shows the Expert's bar at `(150,552)..(595,592)`. Any
+other Expert within 200 Affinity of their next level gets exactly enough
+Compasses, added one at a time with "+" at `(427,1088)`. The rest then go to
+the focus Expert. The guide behind this (heaven-guardian.com, Oct 2026) says
+to concentrate gifts but spend them where they complete a level. On 29 Oct
+2026 Cyrille sat at 570/580, one Compass short.
+
+The focus Expert, Agnes by default. An Expert
 takes gifts only once settled in the Academy (1,000 Affinity from treks).
 Until then the task logs and keeps the Compasses. Fiery Hearts and Sails are
 never given.

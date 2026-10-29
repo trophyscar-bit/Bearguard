@@ -25,6 +25,8 @@ public class DawnAcademyLayoutController extends AbstractProfileController {
     @FXML
     private CheckBox checkBoxGiftCompasses;
     @FXML
+    private CheckBox checkBoxGiftTopOff;
+    @FXML
     private CheckBox checkBoxAdvanceRelationships;
     @FXML
     private ComboBox<String> comboGiftExpert;
@@ -62,6 +64,7 @@ public class DawnAcademyLayoutController extends AbstractProfileController {
             new AcademySwitch(checkBoxAdvanceRelationships,
                     ConfigurationKeyEnum.DAWN_ACADEMY_ADVANCE_RELATIONSHIPS_BOOL),
             new AcademySwitch(checkBoxGiftCompasses, ConfigurationKeyEnum.DAWN_ACADEMY_GIFT_COMPASSES_BOOL),
+            new AcademySwitch(checkBoxGiftTopOff, ConfigurationKeyEnum.DAWN_ACADEMY_GIFT_TOP_OFF_BOOL),
             new AcademySwitch(checkBoxClaimSupplies, ConfigurationKeyEnum.DAWN_ACADEMY_CLAIM_SUPPLIES_BOOL),
             new AcademySwitch(checkBoxBuySupplies, ConfigurationKeyEnum.DAWN_ACADEMY_BUY_SUPPLIES_BOOL),
             new AcademySwitch(checkBoxTundraTrek, ConfigurationKeyEnum.DAWN_ACADEMY_TUNDRA_TREK_BOOL),

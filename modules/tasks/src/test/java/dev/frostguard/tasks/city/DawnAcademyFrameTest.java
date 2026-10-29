@@ -178,6 +178,20 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void theGiftScreenShowsAffinitySoAnExpertCloseToALevelCanBeToppedOff() throws Exception {
+        String bar = OcrEngine.recognizeText(frame("gift-screen.png"), DawnAcademyRoutine.GIFT_AFFINITY_TOP_LEFT,
+                DawnAcademyRoutine.GIFT_AFFINITY_BOTTOM_RIGHT, OcrSettingsData.forWhiteTextOnDark());
+        assertArrayEquals(new long[]{100, 460}, DawnAcademyRoutine.parseFraction(bar), "affinity " + bar);
+        // 29 Oct: Cyrille at 570/580 needs one Compass (+10 each).
+        assertEquals(1, DawnAcademyRoutine.topOffCompasses(570, 580));
+        assertEquals(2, DawnAcademyRoutine.topOffCompasses(565, 580));
+        assertEquals(20, DawnAcademyRoutine.topOffCompasses(260, 460));
+        assertEquals(0, DawnAcademyRoutine.topOffCompasses(100, 460));
+        assertEquals(0, DawnAcademyRoutine.topOffCompasses(0, 410));
+        assertEquals(0, DawnAcademyRoutine.topOffCompasses(580, 580));
+    }
+
+    @Test
     void anIdleQueueLeadsToTheGuideHandAndItsFingertipIsTheExpert() throws Exception {
         // Live 27 Oct: the idle Expert row opened the Academy with this hand on Cyrille, and a
         // tap at (395,850) opened her screen.
