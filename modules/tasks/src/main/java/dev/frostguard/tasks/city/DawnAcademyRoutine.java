@@ -58,6 +58,14 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final Pattern FRACTION = Pattern.compile("(\\d[\\d,.]*)(?:\\+[\\d,.]+)?/(\\d[\\d,.]*)");
     /** The game's white digits on dark or coloured bars read cleanly only with this preset. */
     private static final OcrSettingsData WHITE_TEXT = OcrSettingsData.forWhiteTextOnDark();
+    /**
+     * Affinity bars: white digits outlined in black on a yellow fill. The white-text preset read
+     * Cyrille's 570/580 as 970/580 once the bar was nearly full; plain digits read it right.
+     */
+    static final OcrSettingsData AFFINITY_DIGITS = OcrSettingsData.configurator()
+            .textLayout(OcrSettingsData.TextLayout.SINGLE_LINE)
+            .allowedGlyphs("0123456789,/")
+            .build();
     static final int MAX_SUPPLY_PRICE = 1_000;
     private static final int DAILY_SUPPLY_BUYS = 4;
     private static final Pattern FIRST_NUMBER = Pattern.compile("(\\d+)");
@@ -573,9 +581,16 @@ public class DawnAcademyRoutine extends DelayedTask {
         if (!openGiftScreen(expert)) {
             return;
         }
-        long[] affinity = parseFraction(stringHelper.attemptRecognition(GIFT_AFFINITY_TOP_LEFT,
-                GIFT_AFFINITY_BOTTOM_RIGHT, 3, 200L, WHITE_TEXT, text -> parseFraction(text) != null, String::trim));
+        long[] affinity = parseAffinity(stringHelper.attemptRecognition(GIFT_AFFINITY_TOP_LEFT,
+                GIFT_AFFINITY_BOTTOM_RIGHT, 3, 200L, AFFINITY_DIGITS, text -> parseAffinity(text) != null,
+                String::trim));
         int compasses = affinity == null ? 0 : topOffCompasses(affinity[0], affinity[1]);
+        if (affinity == null) {
+            logWarning("Affinity of " + expert + " was unreadable; not topping off.");
+        } else if (compasses == 0) {
+            logInfo(expert + " is " + (affinity[1] - affinity[0]) + " Affinity from the next level ("
+                    + affinity[0] + "/" + affinity[1] + "); not topping off.");
+        }
         if (compasses > 0) {
             tapNear(COMPASS_CARD, 8);
             sleepTask(600);
@@ -606,6 +621,12 @@ public class DawnAcademyRoutine extends DelayedTask {
             return 0;
         }
         return (int) ((missing + COMPASS_AFFINITY - 1) / COMPASS_AFFINITY);
+    }
+
+    /** An Affinity bar such as "570/580"; a read past the bar ("970/580") is a misread. */
+    static long[] parseAffinity(String text) {
+        long[] fraction = parseFraction(text);
+        return fraction == null || fraction[0] > fraction[1] ? null : fraction;
     }
 
     private boolean openGiftScreen(ExpertSkillItemEnum.Expert expert) {
