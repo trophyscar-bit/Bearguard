@@ -62,6 +62,22 @@ with `OcrSettingsData.forWhiteTextOnDark()`. The landing's Frontier counter is
 the exception. Its lone `0` reads as `8` with that preset, so it uses the
 plain path.
 
+The Academy building and the Expert's room show one of two speech bubbles.
+A blue book means the learning queue is idle. A flame with a green up-arrow
+means a Relationship Advancement is ready. While an advancement is pending,
+the Expert's Stats tab shows "Relationship Advancement" where Gift normally
+sits, so Compass gifting cannot run.
+
+On 29 Oct 2026 that is why the log said "Gift button not found" for Agnes.
+Agnes was at Lv. 10 Affinity 0/410 with 18 shards. Advance cost 5 and made
+her Acquaintance 1 (+99,200 power, Earthbreaker Lv.2, new Efficient Recon),
+and Gift came back. The flame then left the building and the book showed.
+
+`DAWN_ACADEMY_ADVANCE_RELATIONSHIPS_BOOL` (on by default) runs before gifting.
+It checks every Expert in the Academy and taps Advance only when the shard bar
+at `(195,1098)..(520,1132)` reads have >= need. Then it dismisses
+"Successfully Advanced" and repeats while further tiers are ready.
+
 Compass gifting goes to the configured Expert, Agnes by default. An Expert
 takes gifts only once settled in the Academy (1,000 Affinity from treks).
 Until then the task logs and keeps the Compasses. Fiery Hearts and Sails are

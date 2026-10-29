@@ -34,6 +34,8 @@ import java.util.regex.Pattern;
  * <li>Trek: claim the free Trek Supplies (08:00 and 20:00 UTC) and, when ticked, the day's gem
  * buys, spend them on an Auto Trek with "Auto-manage options and mini-games" ticked, then do the
  * same with any Frontier Supplies.</li>
+ * <li>Relationships: advance any Expert whose Stats tab offers Relationship Advancement (the
+ * flame bubble with a green arrow over the Academy) while their shards cover it.</li>
  * <li>Gifts: give every Compass to the chosen Expert once that Expert lives in the Academy.</li>
  * <li>Endless Wayfarer: claim the free reward track.</li>
  * </ol>
@@ -86,6 +88,12 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData GIFT_COUNT_TOP_LEFT = new PointData(470, 1068);
     private static final PointData GIFT_COUNT_BOTTOM_RIGHT = new PointData(590, 1108);
     private static final PointData GIFT_SEND_BUTTON = new PointData(530, 1208);
+    // Relationship advancement screen: the Advance button and the shard bar ("18/5") above it.
+    private static final PointData ADVANCE_BUTTON_TOP_LEFT = new PointData(200, 1160);
+    private static final PointData ADVANCE_BUTTON_BOTTOM_RIGHT = new PointData(520, 1260);
+    static final PointData ADVANCE_SHARDS_TOP_LEFT = new PointData(195, 1098);
+    static final PointData ADVANCE_SHARDS_BOTTOM_RIGHT = new PointData(520, 1132);
+    private static final PointData ADVANCED_EXIT = new PointData(360, 1150);
 
     // Dawn Academy screen. With the queue idle, Learn only shows a guide hand pointing at an
     // Expert in their room; the Expert opens from a tap where the finger points.
@@ -160,6 +168,9 @@ public class DawnAcademyRoutine extends DelayedTask {
             } else {
                 runLearning();
             }
+        }
+        if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_ADVANCE_RELATIONSHIPS_BOOL)) {
+            advanceRelationships();
         }
         if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_GIFT_COMPASSES_BOOL)) {
             giftCompasses();
@@ -512,14 +523,9 @@ public class DawnAcademyRoutine extends DelayedTask {
             logWarning("Unknown gift Expert in settings; gifting skipped.");
             return;
         }
-        if (!isOnExpertScreen()) {
-            if (!isOnAcademy() && !returnToAcademy()) {
-                return;
-            }
-            if (!openExpertFromAcademy()) {
-                logWarning("No Expert could be opened from the Academy; gifting skipped this pass.");
-                return;
-            }
+        if (!reachExpertScreen()) {
+            logWarning("No Expert could be opened from the Academy; gifting skipped this pass.");
+            return;
         }
         tapNear(STATS_TAB, 6);
         sleepTask(1000);
@@ -558,6 +564,79 @@ public class DawnAcademyRoutine extends DelayedTask {
             tapNear(BACK_ARROW, 4);
             sleepTask(1200);
         }
+    }
+
+    private boolean reachExpertScreen() {
+        if (isOnExpertScreen()) {
+            return true;
+        }
+        return (isOnAcademy() || returnToAcademy()) && openExpertFromAcademy();
+    }
+
+    // ------------------------------------------------------------------ relationships
+
+    /**
+     * Advances every Expert whose Stats tab shows Relationship Advancement where Gift normally
+     * sits. The game flags this with a flame bubble and green arrow over the Academy and the
+     * Expert; until it is done the Gift button is hidden, so Compass gifting cannot run either.
+     * Each advance costs that Expert's shards and is only tapped when the shard bar covers it.
+     */
+    private void advanceRelationships() {
+        if (!reachExpertScreen()) {
+            logWarning("No Expert could be opened from the Academy; relationships skipped this pass.");
+            return;
+        }
+        tapNear(STATS_TAB, 6);
+        sleepTask(1000);
+        for (ExpertSkillItemEnum.Expert expert : expertsInAcademy()) {
+            if (!showExpert(expert)) {
+                continue;
+            }
+            for (int tier = 0; tier < 5 && advanceRelationship(expert); tier++) {
+                sleepTask(1000);
+            }
+        }
+    }
+
+    /** One advance for the Expert on screen. True when it went through and another may follow. */
+    private boolean advanceRelationship(ExpertSkillItemEnum.Expert expert) {
+        ImageSearchResultData button = templateSearchHelper.locatePattern(
+                TemplatesEnum.DAWN_ACADEMY_RELATIONSHIP_ADVANCE_BUTTON, SearchConfig.builder().build());
+        if (!button.isFound()) {
+            return false;
+        }
+        tapInside(button);
+        sleepTask(1500);
+        ImageSearchResultData advance = templateSearchHelper.locatePattern(TemplatesEnum.DAWN_ACADEMY_ADVANCE_BUTTON,
+                SearchConfig.builder().withCoordinates(ADVANCE_BUTTON_TOP_LEFT, ADVANCE_BUTTON_BOTTOM_RIGHT)
+                        .withMaxAttempts(2).build());
+        if (!advance.isFound()) {
+            logWarning("Relationship Advancement for " + expert + " did not show its Advance button.");
+            tapNear(BACK_ARROW, 4);
+            sleepTask(1500);
+            return false;
+        }
+        long[] shards = parseFraction(stringHelper.attemptRecognition(ADVANCE_SHARDS_TOP_LEFT,
+                ADVANCE_SHARDS_BOTTOM_RIGHT, 3, 200L, WHITE_TEXT, text -> parseFraction(text) != null, String::trim));
+        if (shards == null || shards[0] < shards[1]) {
+            logInfo(expert + "'s relationship can advance but the shards do not cover it ("
+                    + (shards == null ? "unreadable" : shards[0] + "/" + shards[1]) + ").");
+            tapNear(BACK_ARROW, 4);
+            sleepTask(1500);
+            return false;
+        }
+        tapInside(advance);
+        sleepTask(2500);
+        if (!found(TemplatesEnum.DAWN_ACADEMY_ADVANCED_TITLE, 3)) {
+            logWarning("Advance for " + expert + " showed no result screen.");
+            tapNear(BACK_ARROW, 4);
+            sleepTask(1500);
+            return false;
+        }
+        logInfo("Advanced " + expert + "'s relationship (shards " + shards[0] + "/" + shards[1] + ").");
+        tapNear(ADVANCED_EXIT, 10);
+        sleepTask(2000);
+        return isOnExpertScreen();
     }
 
     // ------------------------------------------------------------------ trek
