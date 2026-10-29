@@ -39,6 +39,7 @@ import java.util.regex.Pattern;
  * flame bubble with a green arrow over the Academy) while their shards cover it.</li>
  * <li>Gifts: give every Compass to the chosen Expert once that Expert lives in the Academy.</li>
  * <li>Endless Wayfarer: claim the free reward track.</li>
+ * <li>Achievements: claim every finished Academy Achievement (shards, Fiery Hearts, Books).</li>
  * </ol>
  * The only gem button tapped is the daily Trek Supply buy, when ticked, and only at
  * {@value #MAX_SUPPLY_PRICE} gems or less. Finish on the learning dialog and the paid Wayfarer
@@ -130,6 +131,8 @@ public class DawnAcademyRoutine extends DelayedTask {
     // Dawn Academy screen. With the queue idle, Learn only shows a guide hand pointing at an
     // Expert in their room; the Expert opens from a tap where the finger points.
     private static final PointData ACADEMY_LEARN_ICON = new PointData(57, 150);
+    private static final PointData ACADEMY_ACHIEVEMENTS_ICON = new PointData(83, 1200);
+    private static final PointData ACHIEVEMENTS_CLOSE = new PointData(665, 158);
     // Where the idle guide hand pointed on 27 Oct: the Expert standing in the training room.
     private static final PointData EXPERT_IN_TRAINING_ROOM = new PointData(395, 850);
     static final AreaData GUIDE_HAND_AREA = new AreaData(new PointData(0, 250), new PointData(719, 1100));
@@ -213,6 +216,9 @@ public class DawnAcademyRoutine extends DelayedTask {
             return;
         }
 
+        if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_ACHIEVEMENTS_BOOL)) {
+            claimAchievements();
+        }
         if (anyTrekWorkEnabled()) {
             runTrek();
         }
@@ -811,6 +817,43 @@ public class DawnAcademyRoutine extends DelayedTask {
         tapNear(ADVANCED_EXIT, 10);
         sleepTask(2000);
         return isOnExpertScreen();
+    }
+
+    // ------------------------------------------------------------------ achievements
+
+    /**
+     * Claims every finished Achievement from the Academy's bottom-left button. A claim pays out
+     * in place, with no popup, and the row moves to its next tier with Go instead of Claim
+     * (29 Oct), so the loop taps Claim until none is left. Leaves the game on the Academy.
+     */
+    private void claimAchievements() {
+        tapNear(ACADEMY_ACHIEVEMENTS_ICON, 6);
+        sleepTask(1500);
+        if (!found(TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENTS_TITLE, 2)) {
+            logWarning("Achievements did not open from the Academy.");
+            returnToAcademy();
+            return;
+        }
+        int claimed = 0;
+        for (int attempt = 0; attempt < 12; attempt++) {
+            ImageSearchResultData claim = templateSearchHelper.locatePattern(
+                    TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENT_CLAIM_BUTTON, SearchConfig.builder().build());
+            if (!claim.isFound()) {
+                break;
+            }
+            tapInside(claim);
+            sleepTask(1500);
+            claimed++;
+            if (!found(TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENTS_TITLE, 1)) {
+                // A reward popup covered the list; a tap on the blank top clears it.
+                tapNear(new PointData(360, 80), 10);
+                sleepTask(1000);
+            }
+        }
+        logInfo(claimed == 0 ? "No Academy Achievements to claim." : "Claimed " + claimed + " Academy Achievement(s).");
+        tapNear(ACHIEVEMENTS_CLOSE, 4);
+        sleepTask(1200);
+        returnToAcademy();
     }
 
     // ------------------------------------------------------------------ trek

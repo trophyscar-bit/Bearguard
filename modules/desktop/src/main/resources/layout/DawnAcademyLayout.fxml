@@ -107,6 +107,8 @@
                                                           text="Spend Frontier Supplies on Frontier Trek (Auto, auto-managed)" />
                                                 <CheckBox fx:id="checkBoxWayfarer" mnemonicParsing="false"
                                                           text="Claim the free Endless Wayfarer rewards" />
+                                                <CheckBox fx:id="checkBoxAchievements" mnemonicParsing="false"
+                                                          text="Claim finished Academy Achievements" />
                                                 <Label styleClass="task-card-description" wrapText="true"
                                                        text="Auto Trek runs with 'Auto-manage options and mini-games' ticked, so the game answers every encounter. Frontier Trek uses whichever Expert is assigned in game." />
                                             </children>

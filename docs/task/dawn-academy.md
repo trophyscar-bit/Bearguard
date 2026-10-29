@@ -48,6 +48,13 @@ price is read, and the task closes the dialog without buying above 1,000 gems.
 The panel stays open after a buy, with no reward popup. The counter dropping
 by one is the proof the buy went through; if it doesn't drop, the task stops.
 
+Academy Achievements (`DAWN_ACADEMY_ACHIEVEMENTS_BOOL`, on by default) open from
+the Academy's bottom-left button at `(83,1200)`. A finished row shows a green
+Claim, and claiming pays out in place with no popup. The row then moves to its
+next tier with Go (29 Oct 2026: 150 Trek Encounters became 200). The task taps
+Claim until none is left, closes the dialog with the X at `(665,158)`, and
+returns to the Academy before Trek.
+
 Finish (gems), the Frontier Supply shop and the paid Wayfarer column are never
 tapped.
 
