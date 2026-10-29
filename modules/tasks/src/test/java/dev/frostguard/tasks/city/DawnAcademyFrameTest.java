@@ -251,6 +251,18 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void finishedAchievementsShowClaimAndClaimedOnesTurnToGo() throws Exception {
+        // Live 29 Oct: four Claims; after one, that row moved to its next tier with Go.
+        assertTrue(find("achievements-claimable.png", TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENTS_TITLE).isFound());
+        assertTrue(find("achievements-claimable.png", TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENT_CLAIM_BUTTON).isFound());
+        assertFalse(OpenCvPatternLocator.locatePattern(bytes("achievements-after-claim.png"),
+                TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENT_CLAIM_BUTTON.getTemplate(),
+                new PointData(500, 260), new PointData(680, 500), 90).isFound());
+        assertFalse(find("academy-achievements-dot.png", TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENTS_TITLE).isFound());
+        assertTrue(find("academy-achievements-dot.png", TemplatesEnum.DAWN_ACADEMY_TREK_BUTTON).isFound());
+    }
+
+    @Test
     void wayfarerShowsClaimAll() throws Exception {
         assertTrue(find("wayfarer.png", TemplatesEnum.DAWN_ACADEMY_WAYFARER_CLAIM_ALL).isFound());
     }
