@@ -180,8 +180,14 @@ class DawnAcademyFrameTest {
     @Test
     void theGiftScreenShowsAffinitySoAnExpertCloseToALevelCanBeToppedOff() throws Exception {
         String bar = OcrEngine.recognizeText(frame("gift-screen.png"), DawnAcademyRoutine.GIFT_AFFINITY_TOP_LEFT,
-                DawnAcademyRoutine.GIFT_AFFINITY_BOTTOM_RIGHT, OcrSettingsData.forWhiteTextOnDark());
-        assertArrayEquals(new long[]{100, 460}, DawnAcademyRoutine.parseFraction(bar), "affinity " + bar);
+                DawnAcademyRoutine.GIFT_AFFINITY_BOTTOM_RIGHT, DawnAcademyRoutine.AFFINITY_DIGITS);
+        assertArrayEquals(new long[]{100, 460}, DawnAcademyRoutine.parseAffinity(bar), "affinity " + bar);
+        // A nearly full bar is white-on-yellow: the white-text preset read 570/580 as 970/580.
+        // Frame: matt's phone screenshot of Cyrille's Stats tab, 29 Oct, scaled to 720 wide.
+        String full = OcrEngine.recognizeText(frame("cyrille-stats-570-scaled.png"), new PointData(135, 902),
+                new PointData(585, 942), DawnAcademyRoutine.AFFINITY_DIGITS);
+        assertArrayEquals(new long[]{570, 580}, DawnAcademyRoutine.parseAffinity(full), "affinity " + full);
+        assertNull(DawnAcademyRoutine.parseAffinity("970/580"));
         // 29 Oct: Cyrille at 570/580 needs one Compass (+10 each).
         assertEquals(1, DawnAcademyRoutine.topOffCompasses(570, 580));
         assertEquals(2, DawnAcademyRoutine.topOffCompasses(565, 580));
