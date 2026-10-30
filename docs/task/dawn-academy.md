@@ -42,9 +42,11 @@ When ticked, the task uses every buy left today, 4 a day at 1,000 gems for 5
 supplies, in the same supply-panel visit as the free claim. "Daily Limit: 1/4"
 at `(500,696)..(662,724)` counts the buys left. At 0/4 the button becomes a
 timer to the 00:00 UTC reset, so later passes that day read 0 and tap nothing.
-Each buy opens the shared Purchase dialog ("Confirm to spend 1,000 Gems?"). Its
-price is read, and the task closes the dialog without buying above 1,000 gems.
-"Don't show this again today" is left unticked, so every buy shows its price.
+Before each tap, the button's own price at `(555,738)..(635,775)` is read, and
+the task taps nothing above 1,000 gems. The tap usually opens the shared
+Purchase dialog ("Confirm to spend 1,000 Gems?"), whose price is checked again
+before Confirm. The task never ticks "Don't show this again today", but once
+it is ticked in game, the tap buys at once with no dialog (29 Oct).
 The panel stays open after a buy, with no reward popup. The counter dropping
 by one is the proof the buy went through; if it doesn't drop, the task stops.
 
@@ -130,5 +132,7 @@ The next run is the earliest of: learning end + 1 min, next free supply
 Evidence: saved-frame tests in `DawnAcademyFrameTest` (`dawnacademy/` frames
 from 27 Oct 2026, gem-buy frames from 28 Oct 2026) cover every template and OCR
 region the task uses. The gem-buy flow (tap, confirm, counter 1/4 -> 0/4, gems
--1,000, supplies +5) was walked live by hand over ADB on 28 Oct 2026; the
-task's own buy loop has not run live yet.
+-1,000, supplies +5) was walked live by hand over ADB on 28 Oct 2026. On 29 Oct
+the task's taps bought live with the dialog skipped (3/4 -> 2/4, gems -1,000,
+supplies +5, frames `supply-panel-no-confirm*.png`), which the old loop logged
+as a failure; the fix that counts those buys has not run live yet.

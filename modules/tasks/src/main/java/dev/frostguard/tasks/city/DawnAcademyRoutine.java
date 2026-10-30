@@ -155,6 +155,8 @@ public class DawnAcademyRoutine extends DelayedTask {
     static final PointData BUYS_LEFT_TOP_LEFT = new PointData(500, 696);
     static final PointData BUYS_LEFT_BOTTOM_RIGHT = new PointData(662, 724);
     private static final PointData BUY_SUPPLIES_BUTTON = new PointData(575, 756);
+    static final PointData BUY_PRICE_TOP_LEFT = new PointData(555, 738);
+    static final PointData BUY_PRICE_BOTTOM_RIGHT = new PointData(635, 775);
     // The shared Purchase dialog: "Confirm to spend 1,000 Gems?". "Don't show again" stays unticked
     // so every buy shows its price.
     static final PointData PURCHASE_PRICE_TOP_LEFT = new PointData(160, 568);
@@ -954,8 +956,9 @@ public class DawnAcademyRoutine extends DelayedTask {
 
     /**
      * Uses the gem buys left today, each only at {@value #MAX_SUPPLY_PRICE} gems or less. The
-     * panel stays open after a buy and its counter drops, which is the proof the buy went
-     * through. Leaves the supply panel open.
+     * button's price is checked before every tap, because with "Don't show this again today!"
+     * ticked the tap buys at once with no Purchase dialog (29 Oct). The panel stays open after a
+     * buy and its counter drops, which is the proof the buy went through. Leaves the panel open.
      */
     private void buySupplies() {
         Integer left = readBuysLeft();
@@ -968,27 +971,34 @@ public class DawnAcademyRoutine extends DelayedTask {
             return;
         }
         for (int buy = 0; buy < DAILY_SUPPLY_BUYS && left > 0; buy++) {
-            tapNear(BUY_SUPPLIES_BUTTON, 6);
-            sleepTask(1500);
-            if (!found(TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE, 2)) {
-                logWarning("The Trek Supply purchase dialog did not open.");
-                return;
-            }
-            Integer price = integerHelper.attemptRecognition(PURCHASE_PRICE_TOP_LEFT, PURCHASE_PRICE_BOTTOM_RIGHT,
-                    3, 200L, null, text -> parsePrice(text) != null, DawnAcademyRoutine::parsePrice);
+            Integer price = integerHelper.attemptRecognition(BUY_PRICE_TOP_LEFT, BUY_PRICE_BOTTOM_RIGHT,
+                    3, 200L, AFFINITY_DIGITS, text -> parseCount(text) != null, DawnAcademyRoutine::parseCount);
             if (price == null || price > MAX_SUPPLY_PRICE) {
                 logWarning("Not buying Trek Supplies at " + price + " gems (limit " + MAX_SUPPLY_PRICE + ").");
-                tapNear(PURCHASE_CLOSE, 4);
-                sleepTask(1200);
                 return;
             }
-            tapNear(PURCHASE_CONFIRM_BUTTON, 6);
-            sleepTask(2500);
-            if (found(TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE, 1)) {
-                logWarning("The Trek Supply purchase dialog stayed open; closing it.");
-                tapNear(PURCHASE_CLOSE, 4);
-                sleepTask(1200);
-                return;
+            tapNear(BUY_SUPPLIES_BUTTON, 6);
+            sleepTask(1500);
+            if (found(TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE, 2)) {
+                Integer asked = integerHelper.attemptRecognition(PURCHASE_PRICE_TOP_LEFT,
+                        PURCHASE_PRICE_BOTTOM_RIGHT, 3, 200L, null, text -> parsePrice(text) != null,
+                        DawnAcademyRoutine::parsePrice);
+                if (asked == null || asked > MAX_SUPPLY_PRICE) {
+                    logWarning("Not buying Trek Supplies at " + asked + " gems (limit " + MAX_SUPPLY_PRICE + ").");
+                    tapNear(PURCHASE_CLOSE, 4);
+                    sleepTask(1200);
+                    return;
+                }
+                tapNear(PURCHASE_CONFIRM_BUTTON, 6);
+                sleepTask(2500);
+                if (found(TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE, 1)) {
+                    logWarning("The Trek Supply purchase dialog stayed open; closing it.");
+                    tapNear(PURCHASE_CLOSE, 4);
+                    sleepTask(1200);
+                    return;
+                }
+            } else {
+                sleepTask(1000);
             }
             Integer after = readBuysLeft();
             if (after == null || after >= left) {
