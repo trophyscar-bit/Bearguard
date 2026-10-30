@@ -107,6 +107,9 @@ public class PetAdventureChestRoutine extends DelayedTask {
 	private static final int NAVIGATION_RETRY_MINUTES = 15;
 	private static final int CHEST_COMPLETION_HOURS = 2;
 
+	/** An adventure started on this visit or already underway; its chest finishes before reset. */
+	private boolean adventureRunning;
+
 	// ========================================================================
 	// CHEST PRIORITY ORDER
 	// ========================================================================
@@ -400,6 +403,7 @@ public class PetAdventureChestRoutine extends DelayedTask {
 				continue;
 			}
 			if (PetAdventureDecisions.occupiedByTimer(chestResult.getPoint(), timers)) {
+				adventureRunning = true;
 				logInfo("Skipping " + chestTemplate + " already in adventure at "
 						+ chestResult.getPoint());
 				continue;
@@ -474,6 +478,7 @@ public class PetAdventureChestRoutine extends DelayedTask {
 					SearchConfigConstants.DEFAULT_SINGLE);
 			if (PetAdventureDecisions.inAdventureOverlay(inAdventure)) {
 				staminaHelper.subtractStamina(STAMINA_PER_CHEST, false);
+				adventureRunning = true;
 				logInfo("Started " + chestTemplate + " adventure (consumed "
 						+ STAMINA_PER_CHEST + " stamina)");
 				pressBack();
@@ -499,8 +504,13 @@ public class PetAdventureChestRoutine extends DelayedTask {
 				SearchConfigConstants.SINGLE_WITH_RETRIES);
 
 		if (noAttemptsMessage.isFound()) {
-			logInfo("No more adventure attempts available. Rescheduling for next game reset");
-			rescheduleToGameReset();
+			LocalDateTime next = afterAttemptsSpent(LocalDateTime.now(), GameTimeUtils.dailyResetTime(),
+					adventureRunning);
+			reschedule(next);
+			logInfo("No more adventure attempts available. "
+					+ (adventureRunning ? "An adventure is still running; checking its chest at "
+							: "Nothing running; next check at the game reset, ")
+					+ next.format(DATETIME_FORMATTER) + ".");
 			return ChestStartResult.NO_ATTEMPTS;
 		}
 
@@ -529,19 +539,6 @@ public class PetAdventureChestRoutine extends DelayedTask {
 	}
 
 	/**
-	 * Reschedules the task to the next game reset (00:00 UTC).
-	 * 
-	 * <p>
-	 * Used when all daily attempts have been exhausted.
-	 */
-	private void rescheduleToGameReset() {
-		LocalDateTime nextReset = GameTimeUtils.dailyResetTime();
-		reschedule(nextReset);
-		logInfo("Rescheduled to next game reset: " +
-				nextReset.format(DATETIME_FORMATTER));
-	}
-
-	/**
 	 * Reschedules the task for navigation retry (15 minutes).
 	 * 
 	 * <p>
@@ -551,6 +548,20 @@ public class PetAdventureChestRoutine extends DelayedTask {
 		LocalDateTime retryTime = LocalDateTime.now().plusMinutes(NAVIGATION_RETRY_MINUTES);
 		reschedule(retryTime);
 		logWarning("Navigation failed. Retrying at " + retryTime.format(TIME_FORMATTER));
+	}
+
+	/**
+	 * With the day's attempts spent, the reset is the next chance to start one. A running
+	 * adventure still finishes before then, and on 30 Oct its chest sat in the Beast Cage until
+	 * the 20:00 reset. So the next visit is the chest-completion check or the reset, whichever
+	 * comes first.
+	 */
+	static LocalDateTime afterAttemptsSpent(LocalDateTime now, LocalDateTime reset, boolean adventureRunning) {
+		if (!adventureRunning) {
+			return reset;
+		}
+		LocalDateTime chestCheck = now.plusHours(CHEST_COMPLETION_HOURS);
+		return chestCheck.isBefore(reset) ? chestCheck : reset;
 	}
 
 	static LocalDateTime unverifiedStartRecheck(LocalDateTime now) {
