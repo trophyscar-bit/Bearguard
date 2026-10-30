@@ -2,6 +2,7 @@ package dev.frostguard.tasks.city;
 
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
@@ -26,10 +27,6 @@ public class CrystalLaboratoryRoutine extends DelayedTask {
 private static final int MAX_CONSECUTIVE_FAILED_CLAIMS_LIMIT = 3;
 
 private static final int MAX_OCR_RETRIES_LIMIT = 5;
-
-private static final int MAX_SCREEN_VALIDATION_ATTEMPTS = 3;
-
-private static final int MAX_NAVIGATION_ATTEMPTS = 2;
 
 private static final int INSUFFICIENT_FC_RETRY_HOURS_VALUE = 2;
 
@@ -62,6 +59,8 @@ private static final PointData CURRENT_FC_BOTTOM_RIGHT_VALUE = new PointData(700
 private static final PointData CURRENT_RFC_TOP_LEFT_VALUE = new PointData(170, 1078);
 
 private static final PointData CURRENT_RFC_BOTTOM_RIGHT_VALUE = new PointData(512, 1106);
+
+private static final AreaData DAILY_DEALS_BADGE_AREA = AreaData.of(25, 775, 210, 1000);
 
 private static final Pattern NUMBER_PATTERN = Pattern.compile("(\\d{1,3}(?:[.,]\\d{3})*|\\d+)");
 
@@ -155,9 +154,26 @@ boolean performDiscountedRFCPurchase() {
         ImageSearchResultData refineResult = locateRfcRefineButton();
 
         if (refineResult.isFound()) {
+            Integer weeklyRefinementsBefore = extractWeeklyRefinementCountFlow();
+            if (weeklyRefinementsBefore == null) {
+                logWarning(routineLogCrystalLaboratoryLine("Discounted RFC purchase remains unknown because the "
+                        + "weekly refinement count was unreadable; "
+                        + retainDiagnosticSnapshot("discounted-rfc-count-unreadable")));
+                return false;
+            }
             if (tapDiscountedRfc(refineResult)) {
+                Integer weeklyRefinementsAfter = extractWeeklyRefinementCountFlow();
+                boolean badgeGone = !locateDailyDiscountedRfc().isFound();
+                if (weeklyRefinementsAfter != null
+                        && weeklyRefinementsAfter == weeklyRefinementsBefore + 1
+                        && badgeGone) {
+                    logInfo(routineLogCrystalLaboratoryLine("Discounted RFC purchase confirmed: weekly "
+                            + "refinements " + weeklyRefinementsBefore + " -> " + weeklyRefinementsAfter + "."));
+                    return true;
+                }
                 logWarning(routineLogCrystalLaboratoryLine(
-                        "Discounted RFC tap sent; purchase outcome was not confirmed; "
+                        "Discounted RFC purchase remains unknown: before=" + weeklyRefinementsBefore
+                                + ", after=" + weeklyRefinementsAfter + ", badgeGone=" + badgeGone + "; "
                                 + retainDiagnosticSnapshot("discounted-rfc-unconfirmed")));
             } else {
                 logWarning(routineLogCrystalLaboratoryLine(
@@ -215,34 +231,9 @@ boolean purchaseDiscountedRFCFlow() {
     }
 
 ImageSearchResultData locateDailyDiscountedRfc() {
-        return templateSearchHelper.locatePattern(
+        return templateSearchHelper.locatePatternMono(
                 CRYSTAL_LAB_DAILY_DISCOUNTED_RFC,
-                SearchConfig.builder().build());
-    }
-
-private boolean validateCrystalLabInterface() {
-        for (int attempt = 1; attempt <= MAX_SCREEN_VALIDATION_ATTEMPTS; attempt++) {
-            if (isCrystalLabInterfaceVisible()) {
-                logInfo(routineLogCrystalLaboratoryLine("Successfully navigated to Crystal Laboratory"));
-                return true;
-            }
-
-            if (attempt < MAX_SCREEN_VALIDATION_ATTEMPTS) {
-                sleepTask(500);
-            }
-        }
-
-        logWarning(routineLogCrystalLaboratoryLine("Crystal Lab UI not detected after "
-                + MAX_SCREEN_VALIDATION_ATTEMPTS + " checks; "
-                + retainDiagnosticSnapshot("screen-validation-failed")));
-        return false;
-    }
-
-boolean isCrystalLabInterfaceVisible() {
-        ImageSearchResultData validationResult = templateSearchHelper.locatePattern(
-                VALIDATION_CRYSTAL_LAB_UI,
-                SearchConfig.builder().build());
-        return validationResult.isFound();
+                SearchConfig.builder().withArea(DAILY_DEALS_BADGE_AREA).withThreshold(90).build());
     }
 
 int extractNumberWithOCRFlow(PointData topLeft, PointData bottomRight, String description) {
@@ -293,51 +284,11 @@ CrystalClaimLoop.Result performCrystalClaimLoop() {
 
 boolean reachCrystalLaboratory() {
         logInfo(routineLogCrystalLaboratoryLine("Moving to Crystal Laboratory"));
-
-        for (int attempt = 1; attempt <= MAX_NAVIGATION_ATTEMPTS; attempt++) {
-            if (navigateToCrystalLaboratoryViaSidebar()
-                    && openCrystalLaboratoryFromCity()
-                    && validateCrystalLabInterface()) {
-                return true;
-            }
-
-            if (attempt < MAX_NAVIGATION_ATTEMPTS) {
-                logWarning(routineLogCrystalLaboratoryLine(
-                        "Crystal Laboratory navigation was not confirmed. Recovering and retrying."));
-                recoverCrystalLaboratoryNavigation();
-                sleepTask(500);
-            }
-        }
-
-        logWarning(routineLogCrystalLaboratoryLine(
-                "Crystal Laboratory row, its Go action, or the resulting screen could not be confirmed."));
-        return false;
+        return navigateToCrystalLaboratory();
     }
 
-boolean navigateToCrystalLaboratoryViaSidebar() {
+boolean navigateToCrystalLaboratory() {
         return navigationHelper.navigateToSidebarDestination(SidebarDestination.CRYSTAL_LABORATORY);
-    }
-
-    boolean openCrystalLaboratoryFromCity() {
-        ImageSearchResultData entryResult = templateSearchHelper.locatePattern(
-                CRYSTAL_LAB_BUILDING_MARKER,
-                SearchConfig.builder()
-                        .withMaxAttempts(3)
-                        .withDelay(500)
-                        .build());
-        if (!entryResult.isFound()) {
-            logWarning(routineLogCrystalLaboratoryLine("Crystal Laboratory building marker was not detected "
-                    + "after sidebar navigation; " + retainDiagnosticSnapshot("building-marker-missing")));
-            return false;
-        }
-
-        tapInside(entryResult);
-        sleepTask(1000);
-        return true;
-    }
-
-void recoverCrystalLaboratoryNavigation() {
-        navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
     }
 
 private boolean locateAndClaimCrystal() {
@@ -397,6 +348,14 @@ Integer extractCurrentRFCFlow() {
                 "current refined FC");
 
         return rfc == -1 ? null : rfc;
+    }
+
+Integer extractWeeklyRefinementCountFlow() {
+        int refinements = extractNumberWithOCRFlow(
+                CURRENT_RFC_TOP_LEFT_VALUE,
+                CURRENT_RFC_BOTTOM_RIGHT_VALUE,
+                "weekly Super Refinements");
+        return refinements == -1 ? null : refinements;
     }
 
 WeeklyRFCResultShape handleRFCRefinements(int currentFC, int currentRFC) {

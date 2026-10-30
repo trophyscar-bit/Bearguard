@@ -64,7 +64,8 @@ class NavigationHelperIntelPolicyTest {
     @Test
     void ordinaryDestinationsRetainDirectRowActionPolicy() {
         for (SidebarDestination destination : SidebarDestination.values()) {
-            if (destination == SidebarDestination.LIGHTHOUSE_INTEL) {
+            if (destination == SidebarDestination.LIGHTHOUSE_INTEL
+                    || destination == SidebarDestination.CRYSTAL_LABORATORY) {
                 continue;
             }
             RecordingNavigation navigation = new RecordingNavigation();

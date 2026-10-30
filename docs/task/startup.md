@@ -11,9 +11,14 @@ Initialization distinguishes startup blockers before attempting recovery:
   `Confirm` action both match in one fresh frame.
 - Closeable promotional overlays are dismissed at most three times per
   initialization, and only when their concrete top-right close control matches
-  inside the measured area `(540, 65)`–`(680, 200)`. Offer text, artwork, price, and currency are
+  inside the measured area `(540, 20)`–`(719, 280)`. Offer text, artwork, price, and currency are
   not used as evidence. Frostguard taps the matched control rather than sending
   a generic Back action.
+- An English Trek result overlay is dismissed at most three times only after OCR
+  of the lower `(0, 1160)`–`(719, 1279)` band normalizes to ordered whole words
+  `tap` then `exit`; `anywhere` is optional. Frostguard taps the lower-centre
+  hint area and waits for a fresh home/world frame, so the tap itself never
+  records initialization success.
 - The mandatory app-update dialog is identified pattern-first from both its
   stable `Update` title and the concrete `Update` action, with the one-action
   pale-blue panel used as supporting layout evidence. Frostguard taps only the
@@ -39,13 +44,33 @@ Initialization distinguishes startup blockers before attempting recovery:
   immediately retries Initialize.
 
 The generic `CloseCrossDetector` handles close controls in initialization,
-restricted to the measured `(540, 65)`–`(680, 200)` area. A full upper-right
+restricted to the measured `(540, 20)`–`(719, 280)` area. A full upper-right
 quarter produced a false match on the Welcome back dialog in saved-frame tests,
 so initialization uses the detector's custom-area overload. It runs only after reconnect,
 resource-download, Welcome-back, and mandatory-update classification,
-preserving those higher-priority flows. Its shared template is covered by the
+preserving those higher-priority flows. Its three masked grayscale templates are covered by the
 redacted startup frame
 `modules/tasks/src/test/resources/startup/closeable-offer-overlay-20260821.png`.
+The 10 October 2026 Craftsman's Treasure frame placed its white X around
+`(637, 202)`–`(691, 256)`: the previous bounds clipped it, and the original
+template did not represent its blue-canopy style. The revised bounded region and
+second template are verified against a tightly cropped, reviewed fixture. Its
+center must remain at or above y=240, which excludes the lower Welcome back
+decoration exposed by the larger rectangle.
+
+The reviewed Default-profile Myriad Bazaar frame from 17 October 2026 contains
+no profile identifier and is retained as
+`modules/tasks/src/test/resources/startup/myriad-bazaar-overlay-20261017.png`.
+Its close control is centred around `(680, 43)`, so the former `y=65` boundary
+excluded it. Initialization deliberately treats it as a generic closeable
+overlay: in startup, the detected close control is sufficient evidence to tap,
+regardless of the event or promotion behind it. The normal startup, post-update,
+resource-download, and bounded Back-recovery paths all reuse this handler. The
+log records the close score and dismissal count, and the caller waits for a
+fresh home/world postcondition before success is possible. Existing offer and
+Craftsman's Treasure controls remain covered, and the mandatory update, resource
+download, Welcome back, and Android launcher fixtures remain non-closeable
+negatives.
 
 The measured mandatory-update title and button templates are
 `mandatoryUpdateTitle.png` and `mandatoryUpdateButton.png`, cropped from the

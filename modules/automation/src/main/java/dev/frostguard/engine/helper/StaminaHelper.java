@@ -2,6 +2,8 @@ package dev.frostguard.engine.helper;
 
 import dev.frostguard.api.configs.TpMessageSeverityEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.engine.emulator.EmulatorController;
 import dev.frostguard.engine.input.TapInteractionService;
 import dev.frostguard.engine.input.TapJitterPolicy;
@@ -11,18 +13,18 @@ import dev.frostguard.engine.schedule.StaminaWaitScheduler;
 import dev.frostguard.engine.service.LoggingService;
 import dev.frostguard.engine.service.StaminaService;
 import dev.frostguard.vision.convert.GameTimeUtils;
+import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.convert.RegexNumberParser;
 import dev.frostguard.vision.logging.ProfileContextLogger;
 import dev.frostguard.vision.ocr.ResilientOcrExecutor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 // Orchestrates stamina tracking: OCR reads, regen delay computation,
 // availability gating, item top-ups, and travel time parsing.
 public class StaminaHelper {
 
-    private static final int PROFILE_SCREEN_SETTLE_MS = 800;
-    private static final int STAMINA_DIALOG_SETTLE_MS = 1000;
     private static final int STAMINA_OCR_ATTEMPTS = 5;
     private static final long STAMINA_OCR_RETRY_MS = 200L;
 
@@ -37,13 +39,11 @@ public class StaminaHelper {
     private final String accountLabel;
     private final LoggingService centralLog;
     private final StaminaItemTopUpFlow itemTopUpFlow;
-    private final ProfileStaminaUi profileStaminaUi;
+    private final HudStaminaUi hudStaminaUi;
 
-    interface ProfileStaminaUi {
-        void openProfile(int settleMs) throws Exception;
-        void openStaminaDialog(int settleMs) throws Exception;
+    /** Reads Chief Stamina off the main HUD. A seam so tests can stand in for the screen. */
+    interface HudStaminaUi {
         Integer readStamina(int attempts, long retryMs) throws Exception;
-        void cleanup() throws Exception;
     }
 
     public StaminaHelper(EmulatorController emuManager, String emulatorNumber,
@@ -64,37 +64,16 @@ public class StaminaHelper {
             persistence.setStamina(accountKey, observed);
             emitInfo("Obtain-more dialog: synchronized tracked stamina " + tracked + " -> " + observed);
         });
-        this.profileStaminaUi = new ProfileStaminaUi() {
-            @Override
-            public void openProfile(int settleMs) {
-                taps.tapInside(CommonGameAreas.PROFILE_AVATAR, 1, settleMs);
-            }
-
-            @Override
-            public void openStaminaDialog(int settleMs) {
-                taps.tapInside(CommonGameAreas.STAMINA_BUTTON, 1, settleMs);
-            }
-
-            @Override
-            public Integer readStamina(int attempts, long retryMs) {
-                return numberReader.attemptRecognition(
-                        CommonGameAreas.STAMINA_OCR_AREA.topLeft(),
-                        CommonGameAreas.STAMINA_OCR_AREA.bottomRight(),
-                        attempts, retryMs,
-                        CommonOCRSettings.STAMINA_FRACTION_SETTINGS,
-                        RegexNumberParser::hasFractionSyntax,
-                        RegexNumberParser::numerator);
-            }
-
-            @Override
-            public void cleanup() {
-                device.pressBack(deviceSlot);
-                device.pressBack(deviceSlot);
-            }
-        };
+        this.hudStaminaUi = (attempts, retryMs) -> numberReader.attemptRecognition(
+                CommonGameAreas.HUD_STAMINA_OCR_AREA.topLeft(),
+                CommonGameAreas.HUD_STAMINA_OCR_AREA.bottomRight(),
+                attempts, retryMs,
+                CommonOCRSettings.HUD_STAMINA_SETTINGS,
+                StaminaHelper::isHudStaminaText,
+                StaminaHelper::parseHudStamina);
     }
 
-    StaminaHelper(StaminaService persistence, Long accountKey, ProfileStaminaUi profileStaminaUi) {
+    StaminaHelper(StaminaService persistence, Long accountKey, HudStaminaUi hudStaminaUi) {
         this.device = null;
         this.deviceSlot = null;
         this.taps = null;
@@ -106,57 +85,91 @@ public class StaminaHelper {
         this.accountLabel = "test";
         this.centralLog = null;
         this.itemTopUpFlow = null;
-        this.profileStaminaUi = profileStaminaUi;
+        this.hudStaminaUi = hudStaminaUi;
     }
 
-    // Opens avatar screen, reads stamina via bounded OCR retries, persists, then navigates back.
-    public void updateStaminaFromProfile() {
-        emitDebug("Opening profile to read stamina");
+    /**
+     * Reads Chief Stamina off the main HUD and persists it. No taps and no navigation: every caller
+     * has already reached the City or the World map, where the bar is always on screen. This replaced
+     * a profile-and-dialog round trip -- two taps, two back presses and about 4.5 seconds of OCR --
+     * that the October 2026 Chief Profile redesign broke outright, leaving stamina unknown on every
+     * read and Intel rescheduling itself a minute later, around the clock.
+     */
+    public void updateStaminaFromHud() {
         long startMs = System.currentTimeMillis();
-
         try {
-            profileStaminaUi.openProfile(PROFILE_SCREEN_SETTLE_MS);
-            profileStaminaUi.openStaminaDialog(STAMINA_DIALOG_SETTLE_MS);
-
-            Integer reading = profileStaminaUi.readStamina(STAMINA_OCR_ATTEMPTS, STAMINA_OCR_RETRY_MS);
-
+            Integer reading = hudStaminaUi.readStamina(STAMINA_OCR_ATTEMPTS, STAMINA_OCR_RETRY_MS);
             if (reading == null) {
-                emitWarn("OCR could not parse stamina (elapsed " + (System.currentTimeMillis() - startMs) + "ms)");
+                String snapshot = retainStaminaOcrFailureSnapshot();
+                emitWarn("HUD stamina unreadable after " + STAMINA_OCR_ATTEMPTS + " attempts (elapsed "
+                        + (System.currentTimeMillis() - startMs) + "ms); is the City or World map on screen? "
+                        + snapshot);
             } else {
                 emitInfo("Stamina read: " + reading);
                 persistence.setStamina(accountKey, reading);
             }
         } catch (Exception ex) {
             emitWarn("Stamina update error: " + ex.getMessage());
-        } finally {
-            // Safety navigation back
-            try {
-                profileStaminaUi.cleanup();
-            } catch (Exception ex) {
-                emitDebug("Press-back cleanup error: " + ex.getMessage());
-            }
         }
+    }
+
+    static boolean isHudStaminaText(String text) {
+        return text != null && text.trim().matches("[0-9][0-9,]*");
+    }
+
+    static Integer parseHudStamina(String text) {
+        String digits = text == null ? "" : text.replaceAll("[^0-9]", "");
+        return digits.isEmpty() ? null : Integer.valueOf(digits);
     }
 
     /**
      * Uses Chief Stamina items until the profile holds at least {@code targetStamina}, opening the
-     * Obtain-more dialog from the profile stamina bar. The structured result distinguishes a
+     * Obtain-more dialog from the HUD stamina bar. The structured result distinguishes a
      * confirmed item shortage from transient OCR or UI failures so callers can schedule safely.
      *
      * @param itemReserve number of items never to spend
      */
-    public StaminaTopUpResult topUpFromProfile(int targetStamina, int itemReserve) {
-        taps.tapInside(CommonGameAreas.PROFILE_AVATAR, 1, 200);
-        pause(800);
-        taps.tapInside(CommonGameAreas.STAMINA_BUTTON, 1, 200);
+    public StaminaTopUpResult topUpFromHud(int targetStamina, int itemReserve) {
+        taps.tapInside(CommonGameAreas.HUD_STAMINA_BAR, 1, 200);
         pause(1000);
 
         StaminaTopUpResult result = useItemsInOpenDialog(targetStamina, itemReserve);
-        device.pressBack(deviceSlot);
-        pause(500);
-        device.pressBack(deviceSlot);
-        pause(500);
+        // The dialog's own close, not Back: a Back press that lands on the World map is the game's
+        // "quit the game?" prompt.
+        taps.tapNear(CommonGameAreas.STAMINA_DIALOG_CLOSE, TapJitterPolicy.DEFAULT_POINT_JITTER_RADIUS);
+        pause(800);
         return result;
+    }
+
+    RawImageData captureStaminaDiagnosticFrame() {
+        return device.captureScreen(deviceSlot);
+    }
+
+    DiagnosticSnapshotStore diagnosticSnapshotStore() {
+        return DiagnosticSnapshotStore.forCurrentWorkspace();
+    }
+
+    boolean diagnosticSnapshotsEnabled() {
+        return diagnosticSnapshotStore().isEnabled();
+    }
+
+    String retainStaminaOcrFailureSnapshot() {
+        if (!diagnosticSnapshotsEnabled()) {
+            return "snapshot=disabled";
+        }
+        try {
+            RawImageData frame = captureStaminaDiagnosticFrame();
+            try {
+                ImageConverter.toBufferedImage(frame);
+            } catch (RuntimeException failure) {
+                return "snapshot=unavailable; reason=capture-returned-no-valid-frame";
+            }
+            return diagnosticSnapshotStore().write(frame, "stamina", "ocr-failed", Instant.now())
+                    .map(path -> "snapshot=" + path)
+                    .orElse("snapshot=unavailable; reason=write-failed");
+        } catch (RuntimeException failure) {
+            return "snapshot=unavailable; reason=" + failure.getClass().getSimpleName();
+        }
     }
 
     /** Same, but for the dialog the game opens itself when a red deploy cost is pressed. */

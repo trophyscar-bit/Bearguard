@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -41,37 +40,11 @@ class CrystalLaboratoryRoutineTest {
     }
 
     @Test
-    void retriesScreenValidationWhenTheFirstFrameMisses() {
-        TestRoutine routine = new TestRoutine(false, true);
+    void delegatesCrystalLaboratoryEntryToNavigation() {
+        TestRoutine routine = new TestRoutine();
 
         assertTrue(routine.reachCrystalLaboratory());
-        assertEquals(1, routine.sidebarNavigationAttempts);
-        assertEquals(1, routine.crystalEntryAttempts);
-        assertEquals(2, routine.screenValidationAttempts);
-        assertEquals(0, routine.recoveryAttempts);
-    }
-
-    @Test
-    void recoversAndRetriesSidebarNavigationAfterPersistentValidationMisses() {
-        TestRoutine routine = new TestRoutine(false, false, false, false, false, false);
-
-        assertFalse(routine.reachCrystalLaboratory());
-        assertEquals(2, routine.sidebarNavigationAttempts);
-        assertEquals(2, routine.crystalEntryAttempts);
-        assertEquals(6, routine.screenValidationAttempts);
-        assertEquals(1, routine.recoveryAttempts);
-    }
-
-    @Test
-    void retriesWithoutValidationWhenTheCrystalBuildingCannotBeOpened() {
-        TestRoutine routine = new TestRoutine();
-        routine.crystalEntrySucceeds = false;
-
-        assertFalse(routine.reachCrystalLaboratory());
-        assertEquals(2, routine.sidebarNavigationAttempts);
-        assertEquals(2, routine.crystalEntryAttempts);
-        assertEquals(0, routine.screenValidationAttempts);
-        assertEquals(1, routine.recoveryAttempts);
+        assertEquals(1, routine.crystalLaboratoryNavigationCalls);
     }
 
     @Test
@@ -114,19 +87,19 @@ class CrystalLaboratoryRoutineTest {
     }
 
     @Test
-    void purchasesDiscountedRfcWhenTheOfferAndRefineButtonArePresent() {
+    void confirmsDiscountedRfcOnlyWhenTheCountAdvancesAndTheBadgeDisappears() {
         TestRoutine routine = new TestRoutine();
         routine.discountedOfferFound = true;
         routine.refineButtonFound = true;
+        routine.weeklyRefinementsBefore = 28;
+        routine.weeklyRefinementsAfter = 29;
 
-        assertFalse(routine.purchaseDiscountedRFCFlow());
+        assertTrue(routine.purchaseDiscountedRFCFlow());
 
-        assertEquals(1, routine.discountedOfferSearches);
+        assertEquals(2, routine.discountedOfferSearches);
         assertEquals(1, routine.refineButtonSearches);
         assertEquals(1, routine.discountedRfcTaps);
-        assertEquals(List.of("discounted-rfc-unconfirmed"), routine.snapshotTypes);
-        assertTrue(routine.warningMessages.stream()
-                .anyMatch(message -> message.contains("purchase outcome was not confirmed")));
+        assertTrue(routine.snapshotTypes.isEmpty());
     }
 
     @Test
@@ -135,6 +108,8 @@ class CrystalLaboratoryRoutineTest {
         routine.useDiscountedDailyRFC = true;
         routine.discountedOfferFound = true;
         routine.refineButtonFound = true;
+        routine.weeklyRefinementsBefore = 28;
+        routine.weeklyRefinementsAfter = 28;
 
         routine.execute();
 
@@ -144,10 +119,8 @@ class CrystalLaboratoryRoutineTest {
     }
 
     @Test
-    void retainsAScreencapWhoseBitDepthFailsTheByteLengthCheck() {
+    void retainsAScreencapWhoseColorDepthIsInBitsPerPixel() {
         RawImageData frame = RawImageData.capture(new byte[2 * 2 * 4], 2, 2, 32);
-        // This fork fixed isValid() to compare bytes with bytes (colorDepth is bits per pixel), so a
-        // genuine 32-bit frame now passes. Retention must keep the screencap either way.
         assertTrue(frame.isValid());
 
         String retained = new RetentionRoutine(frame, snapshotWorkspace).retainDiagnosticSnapshot("bit-depth");
@@ -211,6 +184,7 @@ class CrystalLaboratoryRoutineTest {
 
         assertEquals(0, routine.ocrExtractions);
         assertEquals(List.of(DAILY_RESET), routine.scheduledTimes);
+        assertEquals(1, routine.discountedOfferSearches);
     }
 
     @Test
@@ -265,21 +239,20 @@ class CrystalLaboratoryRoutineTest {
     }
 
     private static final class TestRoutine extends CrystalLaboratoryRoutine {
-        private final Queue<Boolean> validationResults;
         private final List<LocalDateTime> scheduledTimes = new ArrayList<>();
         private final List<String> infoMessages = new ArrayList<>();
         private final List<String> warningMessages = new ArrayList<>();
         private boolean navigationSucceeds = true;
-        private boolean crystalEntrySucceeds = true;
-        private int sidebarNavigationAttempts;
-        private int crystalEntryAttempts;
-        private int screenValidationAttempts;
-        private int recoveryAttempts;
+        private int crystalLaboratoryNavigationCalls;
         private boolean discountedOfferFound;
+        private boolean discountedOfferAfterTapFound;
         private boolean refineButtonFound;
         private int discountedOfferSearches;
         private int refineButtonSearches;
         private int discountedRfcTaps;
+        private int weeklyRefinementReads;
+        private Integer weeklyRefinementsBefore;
+        private Integer weeklyRefinementsAfter;
         private final List<String> snapshotTypes = new ArrayList<>();
         private boolean weeklyCheckDay;
         private LocalDateTime dailyReset = DAILY_RESET;
@@ -289,10 +262,9 @@ class CrystalLaboratoryRoutineTest {
         private Queue<String> ocrResults = new LinkedList<>();
         private CrystalClaimLoop.Result claimResult = new CrystalClaimLoop.Result(0, 3, false);
 
-        private TestRoutine(Boolean... validationResults) {
+        private TestRoutine() {
             super(new AccountDescriptor(1L, "Test", "1", true, 1L, 30L),
                     TpDailyTaskEnum.CRYSTAL_LABORATORY);
-            this.validationResults = new ArrayDeque<>(Arrays.asList(validationResults));
             this.stringHelper = new ResilientOcrExecutor<>((config, topLeft, bottomRight) -> {
                 ocrExtractions++;
                 return ocrResults.poll();
@@ -310,26 +282,9 @@ class CrystalLaboratoryRoutineTest {
         }
 
         @Override
-        boolean navigateToCrystalLaboratoryViaSidebar() {
-            sidebarNavigationAttempts++;
+        boolean navigateToCrystalLaboratory() {
+            crystalLaboratoryNavigationCalls++;
             return navigationSucceeds;
-        }
-
-        @Override
-        boolean openCrystalLaboratoryFromCity() {
-            crystalEntryAttempts++;
-            return crystalEntrySucceeds;
-        }
-
-        @Override
-        boolean isCrystalLabInterfaceVisible() {
-            screenValidationAttempts++;
-            return validationResults.isEmpty() || validationResults.remove();
-        }
-
-        @Override
-        void recoverCrystalLaboratoryNavigation() {
-            recoveryAttempts++;
         }
 
         @Override
@@ -367,7 +322,9 @@ class CrystalLaboratoryRoutineTest {
         @Override
         ImageSearchResultData locateDailyDiscountedRfc() {
             discountedOfferSearches++;
-            return imageSearchResult(discountedOfferFound);
+            boolean found = discountedOfferSearches == 1
+                    ? discountedOfferFound : discountedOfferAfterTapFound;
+            return imageSearchResult(found);
         }
 
         @Override
@@ -380,6 +337,12 @@ class CrystalLaboratoryRoutineTest {
         boolean tapDiscountedRfc(ImageSearchResultData refineResult) {
             discountedRfcTaps++;
             return true;
+        }
+
+        @Override
+        Integer extractWeeklyRefinementCountFlow() {
+            weeklyRefinementReads++;
+            return weeklyRefinementReads == 1 ? weeklyRefinementsBefore : weeklyRefinementsAfter;
         }
 
         @Override

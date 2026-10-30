@@ -62,15 +62,24 @@ public final class PowerRankingPayloadDecoder {
     }
 
     List<DecodedMember> decodeFrame(byte[] packedFrame) {
-        byte[] unpacked = packedDecoder.unpack(packedFrame);
-        SprotoStructReader.SprotoStruct rpcHeader = structReader.read(unpacked, 0, unpacked.length);
-        if (rpcHeader.consumedBytes() >= unpacked.length) {
+        // A live capture carries every message the server sends, and most are not member lists.
+        // One whose payload does not read as a struct is skipped, as decodeMemberArray already
+        // does for a malformed member; throwing here failed the whole capture on the first
+        // unrelated message ("truncated field headers at unpacked offset 16").
+        byte[] unpacked;
+        SprotoStructReader.SprotoStruct rpcHeader;
+        SprotoStructReader.SprotoStruct response;
+        try {
+            unpacked = packedDecoder.unpack(packedFrame);
+            rpcHeader = structReader.read(unpacked, 0, unpacked.length);
+            if (rpcHeader.consumedBytes() >= unpacked.length) {
+                return List.of();
+            }
+            int payloadOffset = rpcHeader.consumedBytes();
+            response = structReader.read(unpacked, payloadOffset, unpacked.length - payloadOffset);
+        } catch (IllegalArgumentException notAStructPayload) {
             return List.of();
         }
-
-        int payloadOffset = rpcHeader.consumedBytes();
-        SprotoStructReader.SprotoStruct response = structReader.read(
-                unpacked, payloadOffset, unpacked.length - payloadOffset);
         for (byte[] candidate : response.dataFields()) {
             List<DecodedMember> decoded = decodeMemberArray(candidate);
             if (!decoded.isEmpty()) {

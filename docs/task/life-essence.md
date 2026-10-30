@@ -31,7 +31,11 @@ between tasks. Across 60 live frames the counter was present on every island
 frame and absent from every world and city frame.
 
 **The right shape.** `IslandClaimBadges` accepts a `GameColors.isVividGreen`
-blob 28-46 wide, 30-70 tall, at least 0.38 filled, of at least 600 pixels. From
+blob 28-46 wide, 30-70 tall, at least 0.38 filled, of at least 750 pixels.
+The pixel floor was raised from 600 after the island was redesigned: its hedges
+and flower beds throw large ragged green blobs, and the biggest badge-shaped one
+measured 597 pixels against a real badge at 1316-1324. Those decoys hold still,
+so the settling check cannot reject them - only the floor can. From
 live frames the crystal covers 913-1476 pixels in a 35-42 x 37-59 box, the
 height varying because the bubble bounces. Green alone does not identify a
 badge; the size rules do.
@@ -62,8 +66,7 @@ roughly 30px.
 
 ## The search window
 
-`CommonGameAreas.ISLAND_CLAIM_BADGE_AREA` is `(0,200)-(720,1100)`. Both edges
-are load-bearing and neither should be widened.
+`CommonGameAreas.ISLAND_CLAIM_BADGE_AREA` is `(0,0)-(720,1100)`.
 
 The top edge sits below the HUD counter, which is the same crystal artwork,
 passes every shape rule, and ends at y=54 on live frames - excluding it is the
@@ -78,6 +81,21 @@ another account puts the badge higher still, which is why the window starts as
 high as the counter allows rather than just above the one tree measured here.
 
 The bottom edge stops short of the chat and navigation bars.
+
+## The top of the screen
+
+The window runs to y=0 because a badge can sit there. A crafting station placed
+at the back of the redesigned island carries its badge at y=29..85, level with
+the HUD, and a previous y=100 edge cut it off entirely - that station was simply
+never claimed.
+
+The essence counter cannot be excluded by lowering the window, because no
+horizontal line separates the two: the counter occupies y=13..52 and the badge
+y=29..85, so they share rows. They never share columns, the counter being pinned
+to the top right, so `IslandClaimBadges` drops any blob whose centre falls inside
+`ISLAND_ESSENCE_COUNTER`. That filter deliberately lives in `candidates` and not
+in `isClaimBadge`, because `onIslandScreen` identifies the island by finding that
+same counter and still needs it to pass the shape rules.
 
 ## Calibration warning
 

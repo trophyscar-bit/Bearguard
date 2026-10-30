@@ -14,6 +14,16 @@ public class ChiefOrderLayoutController extends AbstractProfileController {
     private CheckBox checkBoxUrgentMobilisation;
     @FXML
     private CheckBox checkBoxProductivityDay;
+    @FXML
+    private CheckBox checkBoxCrunchTime;
+    @FXML
+    private CheckBox checkBoxComprehensiveCare;
+    @FXML
+    private CheckBox checkBoxDoubleTime;
+    @FXML
+    private CheckBox checkBoxAdvancedTraining;
+    @FXML
+    private CheckBox checkBoxDawnCommendation;
 
     @FXML
     private void initialize() { /* internal */
@@ -37,7 +47,12 @@ public class ChiefOrderLayoutController extends AbstractProfileController {
         return List.of(
             new OrderSwitch(checkBoxRushJob, ConfigurationKeyEnum.BOOL_CHIEF_ORDER_RUSH_JOB),
             new OrderSwitch(checkBoxUrgentMobilisation, ConfigurationKeyEnum.BOOL_CHIEF_ORDER_URGENT_MOBILISATION),
-            new OrderSwitch(checkBoxProductivityDay, ConfigurationKeyEnum.BOOL_CHIEF_ORDER_PRODUCTIVITY_DAY)
+            new OrderSwitch(checkBoxProductivityDay, ConfigurationKeyEnum.BOOL_CHIEF_ORDER_PRODUCTIVITY_DAY),
+            new OrderSwitch(checkBoxCrunchTime, ConfigurationKeyEnum.BOOL_CHIEF_ORDER_CRUNCH_TIME),
+            new OrderSwitch(checkBoxComprehensiveCare, ConfigurationKeyEnum.BOOL_CHIEF_ORDER_COMPREHENSIVE_CARE),
+            new OrderSwitch(checkBoxDoubleTime, ConfigurationKeyEnum.BOOL_CHIEF_ORDER_DOUBLE_TIME),
+            new OrderSwitch(checkBoxAdvancedTraining, ConfigurationKeyEnum.BOOL_CHIEF_ORDER_ADVANCED_TRAINING),
+            new OrderSwitch(checkBoxDawnCommendation, ConfigurationKeyEnum.BOOL_CHIEF_ORDER_DAWN_COMMENDATION)
         );
     }
 

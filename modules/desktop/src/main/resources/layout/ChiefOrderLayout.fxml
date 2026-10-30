@@ -32,8 +32,22 @@
 
                                         <VBox styleClass="task-subsection" spacing="14">
                                             <children>
+                                                <CheckBox fx:id="checkBoxCrunchTime" mnemonicParsing="false"
+                                                          graphicTextGap="3.0" text="Crunch Time - +100% resource output for 24h (every 12h)" />
                                                 <CheckBox fx:id="checkBoxRushJob" mnemonicParsing="false"
-                                                          graphicTextGap="3.0" text="Rush Job (every 24h)" />
+                                                          graphicTextGap="3.0" text="Rush Job (every 23h)" />
+                                                <CheckBox fx:id="checkBoxComprehensiveCare" mnemonicParsing="false"
+                                                          graphicTextGap="3.0" text="Comprehensive Care - heals sick survivors, only when some are sick (every 4h)" />
+                                                <CheckBox fx:id="checkBoxDawnCommendation" mnemonicParsing="false"
+                                                          graphicTextGap="3.0" text="Dawn Alliance Commendation - random Dawn Alliance reward (every 1d 23h)" />
+                                                <CheckBox fx:id="checkBoxAdvancedTraining" mnemonicParsing="false"
+                                                          graphicTextGap="3.0" text="Advanced Training - +20% troop training for 2h (every 1d 23h)" />
+                                                <CheckBox fx:id="checkBoxDoubleTime" mnemonicParsing="false"
+                                                          graphicTextGap="3.0" text="Double Time - +20% on builds started in the next 5 min (every 23h)" />
+
+                                                <Separator style="-fx-opacity: 0.25;" />
+                                                <Label styleClass="task-card-description" wrapText="true"
+                                                       text="Before Fire Crystal Age only. Leave off once your state has entered it." />
                                                 <CheckBox fx:id="checkBoxUrgentMobilisation" mnemonicParsing="false"
                                                           graphicTextGap="3.0" text="Urgent Mobilisation (every 8h)" />
                                                 <CheckBox fx:id="checkBoxProductivityDay" mnemonicParsing="false"

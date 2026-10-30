@@ -9,6 +9,13 @@ import java.util.regex.Pattern;
 // Shared OCR presets and regex helpers for OCR-based game-state readers.
 public final class CommonOCRSettings {
 
+    public static final OcrSettingsData FISHING_DEPTH_SETTINGS = OcrSettingsData.builder()
+            .textLayout(TextLayout.SINGLE_WORD).allowedGlyphs("0123456789mM").build();
+    public static final OcrSettingsData FISHING_CURRENT_DEPTH_SETTINGS = FISHING_DEPTH_SETTINGS.toConfigurator()
+            .textLayout(TextLayout.SINGLE_LINE).isolateForeground(true).targetColor(java.awt.Color.WHITE).build();
+    public static final OcrSettingsData FISHING_RESULT_SETTINGS = OcrSettingsData.builder()
+            .textLayout(TextLayout.SINGLE_LINE).allowedGlyphs("HaulExit ").build();
+
     private CommonOCRSettings() {}
 
     private static final String LATIN_LETTERS =
@@ -21,7 +28,62 @@ public final class CommonOCRSettings {
                     .allowedGlyphs(LATIN_LETTERS)
                     .build();
 
+    // Deal panels: every readable line with its position. No colour isolation, because titles,
+    // descriptions and "Remaining" use different colours on different panel skins.
+    public static final OcrSettingsData DEAL_PAGE_TEXT_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SPARSE)
+                    .build();
+
+    // A deal tile's count read as one line, for the pure-white second opinion on tinted tiles; the sparse
+    // layout finds no text in a lone digit such as a Polishing Solution's 9.
+    public static final OcrSettingsData DEAL_TILE_COUNT_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .build();
+
+    // Price label inside the orange purchase button, read from a WhiteTextIsolator mask, so no
+    // further colour isolation here.
+    public static final OcrSettingsData DEAL_PRICE_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .allowedGlyphs("$0123456789.")
+                    .build();
+
+    // A pop-up list row's right-hand count, dark on the light list panel: "x1,000".
+    public static final OcrSettingsData DEAL_ROW_COUNT_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .allowedGlyphs("x0123456789,K")
+                    .build();
+
+    // Quantity in the bottom-right corner of an item tile, read from a WhiteTextIsolator mask.
+    public static final OcrSettingsData DEAL_ITEM_QUANTITY_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .allowedGlyphs("0123456789,")
+                    .build();
+
+    // Tab strip labels on the gem shop and Deals panels.
+    public static final OcrSettingsData DEAL_TAB_LABEL_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SPARSE)
+                    .allowedGlyphs(LATIN_LETTERS + "&/-'")
+                    .build();
+
+    // Result-overlay exit hints can be centered with decorative spacing and are English in this scope.
+    public static final OcrSettingsData STARTUP_EXIT_HINT_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SPARSE)
+                    .allowedGlyphs(LATIN_LETTERS)
+                    .build();
+
     // stamina fraction: "123/500" style
+    // White digits on the HUD's green stamina bar. Isolating white matters: unisolated, a frame with no
+    // HUD read a stray "5" out of the background where the isolated read correctly returned nothing.
+    public static final OcrSettingsData HUD_STAMINA_SETTINGS =
+            buildConfig("0123456789,", true, 254, 254, 254, TextLayout.SINGLE_LINE);
+
     public static final OcrSettingsData STAMINA_FRACTION_SETTINGS =
             buildConfig("0123456789/", true, 255, 255, 255, TextLayout.SINGLE_LINE);
 
