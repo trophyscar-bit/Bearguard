@@ -160,6 +160,20 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void withTheDialogSkippedTheButtonPriceGuardsTheBuyAndTheCounterProvesIt() throws Exception {
+        // Live 29 Oct: "Don't show this again today!" was ticked, so the tap bought at once: 3/4 -> 2/4.
+        assertEquals(1_000, DawnAcademyRoutine.parseCount(OcrEngine.recognizeText(frame("supply-panel-no-confirm.png"),
+                DawnAcademyRoutine.BUY_PRICE_TOP_LEFT, DawnAcademyRoutine.BUY_PRICE_BOTTOM_RIGHT,
+                DawnAcademyRoutine.AFFINITY_DIGITS)));
+        assertEquals(1_000, DawnAcademyRoutine.parseCount(OcrEngine.recognizeText(frame("supply-panel-buyable.png"),
+                DawnAcademyRoutine.BUY_PRICE_TOP_LEFT, DawnAcademyRoutine.BUY_PRICE_BOTTOM_RIGHT,
+                DawnAcademyRoutine.AFFINITY_DIGITS)));
+        assertEquals(3, buysLeft("supply-panel-no-confirm.png"));
+        assertEquals(2, buysLeft("supply-panel-no-confirm-after.png"));
+        assertFalse(find("supply-panel-no-confirm-after.png", TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE).isFound());
+    }
+
+    @Test
     void buysLeftAndPricesParse() {
         assertEquals(1, DawnAcademyRoutine.parseBuysLeft("Daily Limit: 1/4"));
         assertEquals(0, DawnAcademyRoutine.parseBuysLeft("Daily Limit: 0/4"));
