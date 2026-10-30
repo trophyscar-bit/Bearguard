@@ -21,6 +21,7 @@ import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.vision.color.GameColors;
 import dev.frostguard.vision.color.PixelStats;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -46,6 +47,7 @@ import dev.frostguard.vision.convert.ImageConverter;
 public class EndlessTrialRoutine extends DelayedTask {
 
     private static final int DAILY_ATTACKS = 3;
+    private static final int OPEN_ATTEMPTS = 2;
     private static final Duration RUN_AFTER_RESET = Duration.ofHours(1);
     /** Landing is followed by the game releasing the slot, so the retry waits slightly past zero. */
     private static final Duration RECALL_RETURN_PAD = Duration.ofSeconds(30);
@@ -138,6 +140,26 @@ public class EndlessTrialRoutine extends DelayedTask {
     }
 
     private void openEndlessTrial() {
+        // 29 Oct 21:03: after attack 1, Events reopened on Canyon Clash and the tab scan reported
+        // "Tab not found: ENDLESS_TRIAL", which ended the run with two attacks unsent. The strip
+        // shows the tab within four scan swipes when retried, so one more full open is tried
+        // before giving up, and a frame is kept if that misses too.
+        for (int attempt = 1; attempt <= OPEN_ATTEMPTS; attempt++) {
+            if (tryOpenEndlessTrial()) {
+                return;
+            }
+            if (attempt < OPEN_ATTEMPTS) {
+                logWarning(logLine("Endless Trial panel not reached on attempt " + attempt + "; reopening Events."));
+                pressBack();
+                sleepTask(ACTION_SETTLE_MS);
+            }
+        }
+        String snapshot = TaskDiagnosticSnapshots.capture(emuManager, EMULATOR_NUMBER, "endlesstrial", "panel-not-reached");
+        throw new IllegalStateException("Endless Trial panel not reached after " + OPEN_ATTEMPTS
+                + " opens (title did not read 'Endless Trial'); the event may not be running; " + snapshot + ".");
+    }
+
+    private boolean tryOpenEndlessTrial() {
         ImageSearchResultData eventsBtn = templateSearchHelper.locatePattern(
                 TemplatesEnum.HOME_EVENTS_BUTTON, SearchConfigConstants.SINGLE_WITH_RETRIES);
         if (!eventsBtn.isFound()) {
@@ -146,7 +168,7 @@ public class EndlessTrialRoutine extends DelayedTask {
         tapNear(eventsBtn.getPoint());
         sleepTask(PANEL_SETTLE_MS);
         if (titleReads(TITLE_TL, TITLE_BR, "ENDLESS")) {
-            return;
+            return true;
         }
 
         // Events reopens on whichever tab it last showed. A selected tab shows only its icon, so
@@ -155,10 +177,7 @@ public class EndlessTrialRoutine extends DelayedTask {
         sleepTask(ACTION_SETTLE_MS);
         navigationHelper.navigateToEventMenu(EventMenu.ENDLESS_TRIAL);
         sleepTask(PANEL_SETTLE_MS);
-        if (!titleReads(TITLE_TL, TITLE_BR, "ENDLESS")) {
-            throw new IllegalStateException("Endless Trial panel not reached (title did not read 'Endless Trial'); "
-                    + "the event may not be running.");
-        }
+        return titleReads(TITLE_TL, TITLE_BR, "ENDLESS");
     }
 
     private List<RowState> readRewardRows() {
