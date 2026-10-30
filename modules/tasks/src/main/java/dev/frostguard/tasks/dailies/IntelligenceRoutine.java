@@ -87,6 +87,11 @@ private static final long JOURNEY_RESULT_POLL_MILLIS = 1_000L;
 // Fire Beast deployments only -- ordinary beast markers are not counted or capped.
 private static final int PREVAIL_WARNING_MAX_ATTEMPTS = 1;
 
+// Execute All's missions finished within about two seconds live; this waits up to eight.
+private static final int EXECUTE_ALL_MAX_POLLS = 16;
+
+private static final long EXECUTE_ALL_POLL_MILLIS = 500L;
+
 // A marker that will not open after this many taps is left alone for this pass.
 private static final int BEAST_OPEN_MAX_TAPS = 3;
 
@@ -293,6 +298,19 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 		// recalled -- so a pass that could not afford a single mission still cost a full recall, and
 		// with stamina unreadable it cost one every minute.
 		if (!hasEnoughStaminaFlow()) {
+			processingTask = false;
+			return;
+		}
+
+		// Execute All runs every mission that needs no troops in one tap -- survivors, journeys and
+		// ordinary beasts -- so it goes first, before auto-join is switched off or a single gather march
+		// is recalled. Only what it leaves behind can need the army: in practice a Fire Beast.
+		if (executeAllFlow() && !hasVisibleIntelMissionFlow()) {
+			logInfo(routineLogIntelligenceLine("Execute All cleared the map; nothing left needs troops, "
+					+ "so no gather recall this pass."));
+			updateIntelMissionsAvailableFlag(false);
+			TroopSlotPolicy.release(profile, TpDailyTaskEnum.INTEL);
+			tryRescheduleFromCooldownFlow();
 			processingTask = false;
 			return;
 		}
@@ -608,6 +626,9 @@ private MarchesAvailable resolveMarchesAvailable(List<MarchSlotState> slots) {
 private int redeemCompletedMissions() {
 		intelScreenHelper.ensureOnIntelScreen();
 		logInfo(routineLogIntelligenceLine("Scanning for completed missions to claim."));
+		if (IntelBottomBar.claimAllReady(captureFrameFlow())) {
+			return claimAllFlow() ? 1 : redeemCompletedMissionsIndividually();
+		}
 		ImageSearchResultData claimAll = templateSearchHelper.locatePattern(
 				TemplatesEnum.INTEL_CLAIM_ALL, INTEL_CLAIM_ALL_SEARCH);
 		if (claimAll.isFound()) {
@@ -1781,6 +1802,56 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 			logWarning(routineLogIntelligenceLine("Could not persist " + key.name() + "=" + value
 					+ "; Fire Beast attempts may reset if Intel restarts."));
 		}
+	}
+
+	/**
+	 * Taps Execute All when it is lit, waits for its missions to finish, then claims them.
+	 *
+	 * <p>Measured live on 29 October: "Execute All (8) · 84" sent all eight missions out together and
+	 * every one was done within about two seconds -- no deploy screens, no troops -- after which
+	 * Claim All lit green. The Fire Beast on the same map was left alone.
+	 *
+	 * @return true when Execute All was lit and tapped
+	 */
+	private boolean executeAllFlow() {
+		intelScreenHelper.ensureOnIntelScreen();
+		if (!IntelBottomBar.executeAllReady(captureFrameFlow())) {
+			logDebug(routineLogIntelligenceLine("Execute All is not lit: nothing eligible, or not unlocked."));
+			return false;
+		}
+		logInfo(routineLogIntelligenceLine("Execute All is lit: running every troop-free mission with one tap."));
+		tapInside(CommonGameAreas.INTEL_EXECUTE_ALL_BUTTON);
+		for (int poll = 1; poll <= EXECUTE_ALL_MAX_POLLS; poll++) {
+			sleepTask(EXECUTE_ALL_POLL_MILLIS);
+			if (IntelBottomBar.claimAllReady(captureFrameFlow())) {
+				claimAllFlow();
+				return true;
+			}
+		}
+		logWarning(routineLogIntelligenceLine("Execute All was tapped but Claim All never lit up within "
+				+ (EXECUTE_ALL_MAX_POLLS * EXECUTE_ALL_POLL_MILLIS / 1000) + "s; the normal pass will claim them."));
+		return true;
+	}
+
+	/** Taps the lit Claim All, dismisses the rewards screen, and reports whether it cleared. */
+	private boolean claimAllFlow() {
+		logInfo(routineLogIntelligenceLine("Claim All is lit: collecting every finished mission."));
+		tapInside(CommonGameAreas.INTEL_CLAIM_ALL_BUTTON);
+		sleepTask(1_500);
+		// "Tap anywhere to exit" on the rewards screen; the corner keeps clear of the reward icons.
+		tapInside(new PointData(700, 1270), new PointData(710, 1280), 6, 250);
+		sleepTask(1_000);
+		if (IntelBottomBar.claimAllReady(captureFrameFlow())) {
+			logWarning(routineLogIntelligenceLine("Claim All was still lit after the tap."));
+			return false;
+		}
+		logInfo(routineLogIntelligenceLine("Claim All collected and greyed out."));
+		return true;
+	}
+
+	private BufferedImage captureFrameFlow() {
+		RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+		return dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
 	}
 
 	private void waitForSurvivorBatchCooldownFlow() {

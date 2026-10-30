@@ -50,6 +50,13 @@ public final class CommonGameAreas {
     public static final AreaData INTEL_COOLDOWN_WITH_MARKERS_OCR_AREA = region(118, 106, 548, 144);
     public static final AreaData INTEL_COOLDOWN_EMPTY_MAP_OCR_AREA    = region(378, 580, 530, 640);
     public static final AreaData INTEL_CLAIM_ALL_AREA                 = region(190, 1050, 530, 1200);
+    // The Intel screen's bottom bar, since late October 2026: Execute All on the left (unlocked by
+    // Agnes's Efficient Recon), Claim All on the right. Claim All used to sit centred, inside
+    // INTEL_CLAIM_ALL_AREA above; it moved to the right half and that area no longer reaches it.
+    // Read by colour: lit Execute All measured 15,628 blue pixels and lit Claim All 16,053 green, both
+    // exactly 0 when greyed out.
+    public static final AreaData INTEL_EXECUTE_ALL_BUTTON             = region(40, 1165, 350, 1235);
+    public static final AreaData INTEL_CLAIM_ALL_BUTTON               = region(372, 1165, 686, 1235);
 
     // Furnace detail entry, distinct from the final building confirmation dialog.
     public static final AreaData FURNACE_PANEL_TITLE = region(0, 650, 245, 760);
