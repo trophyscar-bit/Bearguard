@@ -64,19 +64,17 @@ final class ChatPass {
      * anything new. A bridge needs real matches: two screens that read as empty, or as a banner and
      * nothing else, have not touched history, and calling that "caught up" is how a gap hides.
      */
-    private int knownRun;
-    private int knownThisScreen;
     private final List<ChatMessage> knownRunMessages = new java.util.ArrayList<>();
     private final List<ChatMessage> knownThisScreenMessages = new java.util.ArrayList<>();
 
-    /** Whether messages matched as stored are one stretch of the conversation; see the store. */
-    private java.util.function.Predicate<List<ChatMessage>> stretch;
+    /** Picks out of the matched messages the group stored close together; see the store. */
+    private java.util.function.UnaryOperator<List<ChatMessage>> stretch;
 
     /** When the frames were photographed, so messages are filed at that and not at read time. */
     private Instant stampedAt;
 
-    void useStretchCheck(java.util.function.Predicate<List<ChatMessage>> sameStretch) {
-        this.stretch = sameStretch;
+    void useStretchCheck(java.util.function.UnaryOperator<List<ChatMessage>> largestStretch) {
+        this.stretch = largestStretch;
     }
 
     /**
@@ -88,14 +86,22 @@ final class ChatPass {
         this.stampedAt = photographedAt;
     }
 
-    /** How many stored messages the barren screens must show before they count as a bridge. */
+    /**
+     * How many stored messages, close together in the transcript, the barren screens must show
+     * before they count as a bridge; fewer will do once there have been several such screens.
+     */
     private static final int KNOWN_MESSAGES_TO_BRIDGE = 3;
+    private static final int KNOWN_MESSAGES_TO_BRIDGE_AFTER_MANY = 2;
+    private static final int MANY_BARREN_SCREENS = 4;
 
     /**
-     * A body shorter than this proves nothing: "ok" and "jajaja" repeat all day, so matching one is
-     * not evidence of being in the same place in the conversation.
+     * A body shorter than this proves little on its own: "ok" and "jajaja" repeat all day, so
+     * matching one is not evidence of being in the same place in the conversation. World is mostly
+     * such lines, though, so they are counted -- a stretch needs at least one longer message among
+     * them, or enough short ones that matching them all in order by chance is not credible.
      */
-    private static final int MIN_BODY_TO_PROVE_HISTORY = 8;
+    private static final int LONG_ENOUGH_TO_PROVE_HISTORY = 8;
+    private static final int SHORT_MESSAGES_THAT_PROVE_HISTORY_ALONE = 5;
 
     /**
      * Where each collected message first appeared: the screen it was read on and how far down that
@@ -181,11 +187,9 @@ final class ChatPass {
         knownBefore = unseen;
         if (fresh == 0) {
             barrenScreens++;
-            knownRun += knownThisScreen;
             knownRunMessages.addAll(knownThisScreenMessages);
         } else {
             barrenScreens = 0;
-            knownRun = 0;
             knownRunMessages.clear();
         }
         return fresh;
@@ -210,9 +214,33 @@ final class ChatPass {
 
     /** Whether this walk has reached history it has already read. */
     boolean reachedKnownHistory() {
-        return barrenScreens >= BARREN_SCREENS_BEFORE_STOP
-                && (known == null || (knownRun >= KNOWN_MESSAGES_TO_BRIDGE
-                && (stretch == null || stretch.test(knownRunMessages))));
+        if (barrenScreens < BARREN_SCREENS_BEFORE_STOP) {
+            return false;
+        }
+        if (known == null) {
+            return true;
+        }
+        List<ChatMessage> group = evidence();
+        int needed = barrenScreens >= MANY_BARREN_SCREENS
+                ? KNOWN_MESSAGES_TO_BRIDGE_AFTER_MANY : KNOWN_MESSAGES_TO_BRIDGE;
+        int longOnes = (int) group.stream()
+                .filter(m -> m.body().length() >= LONG_ENOUGH_TO_PROVE_HISTORY).count();
+        return group.size() >= needed
+                && (longOnes >= 1 || group.size() >= SHORT_MESSAGES_THAT_PROVE_HISTORY_ALONE);
+    }
+
+    /** The stored messages seen since anything was last new, narrowed to one stretch of the transcript. */
+    private List<ChatMessage> evidence() {
+        return stretch == null ? knownRunMessages : stretch.apply(knownRunMessages);
+    }
+
+    /** Why a walk did or did not count as caught up, for the log. */
+    String explainBridge() {
+        List<ChatMessage> group = known == null ? knownRunMessages : evidence();
+        long longOnes = group.stream().filter(m -> m.body().length() >= LONG_ENOUGH_TO_PROVE_HISTORY).count();
+        return barrenScreens + " screen(s) with nothing new, " + knownRunMessages.size()
+                + " stored message(s) among them, " + group.size() + " in one stretch of the transcript ("
+                + longOnes + " of them longer than " + LONG_ENOUGH_TO_PROVE_HISTORY + " characters)";
     }
 
     /** Everything worth storing from this walk, in the order it was read. */
@@ -635,7 +663,6 @@ final class ChatPass {
     void beginScreen() {
         screenNumber++;
         lineOnScreen = 0;
-        knownThisScreen = 0;
         knownThisScreenMessages.clear();
     }
 
@@ -659,8 +686,7 @@ final class ChatPass {
             // kept a busy channel reading all seventy-six of its screens every pass for a night.
             if (known == null || !known.test(m)) {
                 unseen++;
-            } else if (m.body().length() >= MIN_BODY_TO_PROVE_HISTORY) {
-                knownThisScreen++;
+            } else {
                 knownThisScreenMessages.add(m);
             }
             return;

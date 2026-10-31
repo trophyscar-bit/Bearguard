@@ -199,22 +199,25 @@ public final class ChatTranscriptStore {
     }
 
     /**
-     * Whether these messages, already stored, sit close together in the order they were stored.
+     * The largest group of these messages that were stored close together, in storage order.
      *
-     * <p>What separates "I am back in chat I already have" from "I met three lines that people post
-     * every hour". The store matches on the body alone, so "join the rally please" matches an
-     * old copy of itself; three of those on one screen all match, and each match is far from the
-     * others in storage order. A real stretch of the conversation matches messages that were
-     * stored one after another.
+     * <p>What separates "I am back in chat I already have" from "I met some lines people post every
+     * hour". The store matches on the body alone, so "join the rally please" matches an old copy of
+     * itself; each such match sits far from the others in storage order. A real stretch of the
+     * conversation matches messages that were stored one after another.
+     *
+     * <p>The largest group, not all of them. One message that matched something unrelated and far
+     * away -- a short line the fuzzy matcher took for another -- must not veto three that agree.
      *
      * <p>Counted within the channel, because the two channels' passes are stored in turn and the
      * other channel's messages would otherwise make every stretch look long.
      *
-     * @param maxSpread the most same-channel messages allowed between the first and last match
+     * @param maxSpread the most same-channel messages allowed between the first and last of a group
+     * @return the group, in the order given; empty when none of them can be placed in the window
      */
-    public boolean sameStretch(List<ChatMessage> messages, int maxSpread) {
-        if (messages.size() < 2) {
-            return true;
+    public List<ChatMessage> stretchOf(List<ChatMessage> messages, int maxSpread) {
+        if (messages.isEmpty()) {
+            return List.of();
         }
         String channel = messages.get(0).channel();
         Map<String, Integer> position = new HashMap<>();
@@ -224,21 +227,36 @@ public final class ChatTranscriptStore {
                 position.put(signature, index++);
             }
         }
-        int lowest = Integer.MAX_VALUE;
-        int highest = Integer.MIN_VALUE;
-        int found = 0;
-        for (ChatMessage m : messages) {
-            String match = matchOf(signatureOf(m));
+        List<int[]> placed = new ArrayList<>();
+        for (int i = 0; i < messages.size(); i++) {
+            String match = matchOf(signatureOf(messages.get(i)));
             Integer at = match == null ? null : position.get(match);
             if (at != null) {
-                lowest = Math.min(lowest, at);
-                highest = Math.max(highest, at);
-                found++;
+                placed.add(new int[] {at, i});
             }
         }
-        // Matches the window no longer holds cannot be placed, and that is not evidence either way;
-        // fewer than two placed ones leave nothing to compare.
-        return found < 2 || highest - lowest <= maxSpread;
+        placed.sort((x, y) -> Integer.compare(x[0], y[0]));
+        int bestFrom = 0;
+        int bestSize = 0;
+        for (int from = 0, to = 0; from < placed.size(); from++) {
+            if (to < from) {
+                to = from;
+            }
+            while (to + 1 < placed.size() && placed.get(to + 1)[0] - placed.get(from)[0] <= maxSpread) {
+                to++;
+            }
+            if (to - from + 1 > bestSize) {
+                bestSize = to - from + 1;
+                bestFrom = from;
+            }
+        }
+        List<int[]> group = placed.subList(bestFrom, bestFrom + bestSize);
+        group.sort((x, y) -> Integer.compare(x[1], y[1]));
+        List<ChatMessage> result = new ArrayList<>();
+        for (int[] g : group) {
+            result.add(messages.get(g[1]));
+        }
+        return result;
     }
 
     /**
