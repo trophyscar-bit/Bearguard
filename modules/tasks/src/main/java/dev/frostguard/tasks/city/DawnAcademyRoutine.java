@@ -381,6 +381,9 @@ public class DawnAcademyRoutine extends DelayedTask {
             logWarning("Learn did not open an Expert; skill upgrades skipped this pass.");
             return;
         }
+        // Straight off the sidebar the first arrow tap is lost and only one Expert is seen (31 Oct).
+        tapNear(SKILLS_TAB, 6);
+        sleepTask(1200);
         for (ExpertSkillItemEnum.Expert expert : expertsInAcademy()) {
             if (!showExpert(expert)) {
                 continue;
