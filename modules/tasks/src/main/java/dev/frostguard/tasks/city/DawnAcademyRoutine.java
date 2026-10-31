@@ -202,6 +202,9 @@ public class DawnAcademyRoutine extends DelayedTask {
             if (learningLeft.isPresent()) {
                 logInfo("Learning queue busy for " + learningLeft.get().toMinutes() + " more minutes.");
                 considerNextRun(LocalDateTime.now().plus(learningLeft.get()));
+                if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_UPGRADE_SKILLS_BOOL)) {
+                    upgradeReadySkills();
+                }
             } else {
                 runLearning();
             }
@@ -368,6 +371,44 @@ public class DawnAcademyRoutine extends DelayedTask {
         considerNextRun(LocalDateTime.now().plusHours(6));
     }
 
+    /**
+     * Upgrades every skill whose Upgrade Skill button is up, while another skill is learning. A
+     * full bar waits on a relationship gate, and once the gate is advanced the upgrade used to
+     * wait for the learning timer too (Agnes skill 1, 31 Oct).
+     */
+    private void upgradeReadySkills() {
+        if (!isOnExpertScreen() && !openExpertFromAcademy()) {
+            logWarning("Learn did not open an Expert; skill upgrades skipped this pass.");
+            return;
+        }
+        for (ExpertSkillItemEnum.Expert expert : expertsInAcademy()) {
+            if (!showExpert(expert)) {
+                continue;
+            }
+            tapNear(SKILLS_TAB, 6);
+            sleepTask(800);
+            for (int slot = 1; slot <= SKILL_SLOT_X.length; slot++) {
+                tapNear(new PointData(SKILL_SLOT_X[slot - 1], SKILL_SLOT_Y), 8);
+                sleepTask(800);
+                upgradeShownSkill(expert + " skill " + slot);
+            }
+        }
+    }
+
+    /** Taps Upgrade Skill on the selected skill until it is gone, at most five levels. */
+    private void upgradeShownSkill(String label) {
+        for (int upgrades = 0; upgrades < 5; upgrades++) {
+            ImageSearchResultData upgrade = templateSearchHelper.locatePattern(
+                    TemplatesEnum.DAWN_ACADEMY_UPGRADE_SKILL_BUTTON, SearchConfig.builder().build());
+            if (!upgrade.isFound()) {
+                return;
+            }
+            logInfo("Upgrading " + label + ".");
+            tapInside(upgrade);
+            sleepTask(2500);
+        }
+    }
+
     /** Steps through the Experts with the arrow and returns every one that lives in the Academy. */
     private Set<ExpertSkillItemEnum.Expert> expertsInAcademy() {
         Set<ExpertSkillItemEnum.Expert> present = EnumSet.noneOf(ExpertSkillItemEnum.Expert.class);
@@ -431,16 +472,7 @@ public class DawnAcademyRoutine extends DelayedTask {
             return SkillOutcome.notStarted();
         }
         if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_UPGRADE_SKILLS_BOOL)) {
-            for (int upgrades = 0; upgrades < 5; upgrades++) {
-                ImageSearchResultData upgrade = templateSearchHelper.locatePattern(
-                        TemplatesEnum.DAWN_ACADEMY_UPGRADE_SKILL_BUTTON, SearchConfig.builder().build());
-                if (!upgrade.isFound()) {
-                    break;
-                }
-                logInfo("Upgrading " + target.label() + ".");
-                tapInside(upgrade);
-                sleepTask(2500);
-            }
+            upgradeShownSkill(target.label());
         }
         ImageSearchResultData speedup = templateSearchHelper.locatePattern(
                 TemplatesEnum.EXPERT_TRAINING_SPEEDUP_ICON, SearchConfig.builder().build());
