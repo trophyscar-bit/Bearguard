@@ -87,6 +87,11 @@ private static final long JOURNEY_RESULT_POLL_MILLIS = 1_000L;
 // Fire Beast deployments only -- ordinary beast markers are not counted or capped.
 private static final int PREVAIL_WARNING_MAX_ATTEMPTS = 1;
 
+// Execute All's missions finished within about two seconds live; this waits up to eight.
+private static final int EXECUTE_ALL_MAX_POLLS = 16;
+
+private static final long EXECUTE_ALL_POLL_MILLIS = 500L;
+
 // A marker that will not open after this many taps is left alone for this pass.
 private static final int BEAST_OPEN_MAX_TAPS = 3;
 
@@ -101,6 +106,18 @@ private static final int INTEL_BACKOUT_MAX_STEPS = 3;
 
 
 private static final AreaData JOURNEY_VICTORY_CONTINUE_AREA = AreaData.of(400, 990, 658, 1038);
+
+/** Agnes's portrait on the Intel screen, left edge under the title bar; same area her own task uses. */
+static final AreaData AGNES_PORTRAIT_AREA = AreaData.of(0, 80, 168, 470);
+
+static final int AGNES_PORTRAIT_THRESHOLD = 90;
+
+private static final SearchConfig AGNES_PORTRAIT_SEARCH = SearchConfig.builder()
+		.withMaxAttempts(2)
+		.withDelay(300L)
+		.withThreshold(AGNES_PORTRAIT_THRESHOLD)
+		.withArea(AGNES_PORTRAIT_AREA)
+		.build();
 
 private static final SearchConfig INTEL_CLAIM_ALL_SEARCH = SearchConfig.builder()
 		.withMaxAttempts(2)
@@ -234,6 +251,7 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 			// at before the task gives up on it. One navigation, only on the runs that were going to
 			// bail anyway.
 			intelScreenHelper.resumeIntelCycleFromWilderness();
+			claimAgnesIntelFlow();
 			if (!hasVisibleIntelMissionFlow()) {
 				saveEmptyIntelMapScreenshot();
 				logInfo(routineLogIntelligenceLine("Daily sidebar has no green Intel availability evidence, no "
@@ -253,6 +271,7 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 					+ "has pending mission completion. Resuming through the Wilderness shortcut."));
 			intelScreenHelper.resumeIntelCycleFromWilderness();
 		}
+		claimAgnesIntelFlow();
 		boolean intelMissionsDetected = hasVisibleIntelMissionFlow();
 		// GatherRoutine reads INTEL_LAST_RUN_HAD_MISSIONS_BOOL to tell a real march-consuming Intel
 		// pass from an idle recheck. Without it Gather saw "Intel pending" every cycle, recalled and
@@ -293,6 +312,19 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 		// recalled -- so a pass that could not afford a single mission still cost a full recall, and
 		// with stamina unreadable it cost one every minute.
 		if (!hasEnoughStaminaFlow()) {
+			processingTask = false;
+			return;
+		}
+
+		// Execute All runs every mission that needs no troops in one tap -- survivors, journeys and
+		// ordinary beasts -- so it goes first, before auto-join is switched off or a single gather march
+		// is recalled. Only what it leaves behind can need the army: in practice a Fire Beast.
+		if (executeAllFlow() && !hasVisibleIntelMissionFlow()) {
+			logInfo(routineLogIntelligenceLine("Execute All cleared the map; nothing left needs troops, "
+					+ "so no gather recall this pass."));
+			updateIntelMissionsAvailableFlag(false);
+			TroopSlotPolicy.release(profile, TpDailyTaskEnum.INTEL);
+			tryRescheduleFromCooldownFlow();
 			processingTask = false;
 			return;
 		}
@@ -608,6 +640,9 @@ private MarchesAvailable resolveMarchesAvailable(List<MarchSlotState> slots) {
 private int redeemCompletedMissions() {
 		intelScreenHelper.ensureOnIntelScreen();
 		logInfo(routineLogIntelligenceLine("Scanning for completed missions to claim."));
+		if (IntelBottomBar.claimAllReady(captureFrameFlow())) {
+			return claimAllFlow() ? 1 : redeemCompletedMissionsIndividually();
+		}
 		ImageSearchResultData claimAll = templateSearchHelper.locatePattern(
 				TemplatesEnum.INTEL_CLAIM_ALL, INTEL_CLAIM_ALL_SEARCH);
 		if (claimAll.isFound()) {
@@ -1117,6 +1152,9 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 		sleepTask(500);
 
 		intelScreenHelper.ensureOnIntelScreen();
+		if (claimAgnesIntelFlow()) {
+			executeAllFlow();
+		}
 		releaseElapsedIntelMarchesFlow();
 		marchQueueLimitReached = !marchesAvailable.available() || intelMarchesRemaining <= 0;
 		boolean nonMarchBoundMissionAvailable = hasNonMarchBoundIntelMissionAvailableFlow();
@@ -1781,6 +1819,83 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 			logWarning(routineLogIntelligenceLine("Could not persist " + key.name() + "=" + value
 					+ "; Fire Beast attempts may reset if Intel restarts."));
 		}
+	}
+
+	/**
+	 * Taps Execute All when it is lit, waits for its missions to finish, then claims them.
+	 *
+	 * <p>Measured live on 29 October: "Execute All (8) · 84" sent all eight missions out together and
+	 * every one was done within about two seconds -- no deploy screens, no troops -- after which
+	 * Claim All lit green. The Fire Beast on the same map was left alone.
+	 *
+	 * @return true when Execute All was lit and tapped
+	 */
+	private boolean executeAllFlow() {
+		intelScreenHelper.ensureOnIntelScreen();
+		if (!IntelBottomBar.executeAllReady(captureFrameFlow())) {
+			logDebug(routineLogIntelligenceLine("Execute All is not lit: nothing eligible, or not unlocked."));
+			return false;
+		}
+		logInfo(routineLogIntelligenceLine("Execute All is lit: running every troop-free mission with one tap."));
+		tapInside(CommonGameAreas.INTEL_EXECUTE_ALL_BUTTON);
+		for (int poll = 1; poll <= EXECUTE_ALL_MAX_POLLS; poll++) {
+			sleepTask(EXECUTE_ALL_POLL_MILLIS);
+			if (IntelBottomBar.claimAllReady(captureFrameFlow())) {
+				claimAllFlow();
+				return true;
+			}
+		}
+		logWarning(routineLogIntelligenceLine("Execute All was tapped but Claim All never lit up within "
+				+ (EXECUTE_ALL_MAX_POLLS * EXECUTE_ALL_POLL_MILLIS / 1000) + "s; the normal pass will claim them."));
+		return true;
+	}
+
+	/** Taps the lit Claim All, dismisses the rewards screen, and reports whether it cleared. */
+	private boolean claimAllFlow() {
+		logInfo(routineLogIntelligenceLine("Claim All is lit: collecting every finished mission."));
+		tapInside(CommonGameAreas.INTEL_CLAIM_ALL_BUTTON);
+		sleepTask(1_500);
+		// "Tap anywhere to exit" on the rewards screen; the corner keeps clear of the reward icons.
+		tapInside(new PointData(700, 1270), new PointData(710, 1280), 6, 250);
+		sleepTask(1_000);
+		if (IntelBottomBar.claimAllReady(captureFrameFlow())) {
+			logWarning(routineLogIntelligenceLine("Claim All was still lit after the tap."));
+			return false;
+		}
+		logInfo(routineLogIntelligenceLine("Claim All collected and greyed out."));
+		return true;
+	}
+
+	/**
+	 * Taps Agnes's portrait when it is on the Intel screen. It is her free daily Intel: on 30 October
+	 * the tap put two new missions on an otherwise finished map ("Agnes found 2 new intel for you!")
+	 * and lit Execute All (2). It has to come before the empty-map check, which otherwise sends the
+	 * task back to sleep with her missions still unclaimed. Her own task is off in prod, so nothing
+	 * else was doing this.
+	 *
+	 * <p>When she turns up is not known yet. On 31 October the 12:06 re-scan put the task to sleep
+	 * until 20:00 with her portrait on screen, so the re-scan looks for her too, not just the way in.
+	 * The info lines are how her real cadence gets learned.
+	 *
+	 * @return true when the portrait was there and tapped
+	 */
+	private boolean claimAgnesIntelFlow() {
+		ImageSearchResultData agnes = templateSearchHelper.locatePattern(TemplatesEnum.AGNES_CLAIM_INTEL,
+				AGNES_PORTRAIT_SEARCH);
+		if (!agnes.isFound()) {
+			logDebug(routineLogIntelligenceLine("Agnes's portrait is not on the Intel screen."));
+			return false;
+		}
+		logInfo(routineLogIntelligenceLine("Agnes's portrait is up: claiming her free Intel."));
+		tapInside(agnes);
+		// The "Agnes found N new intel" banner and the new markers land together within about a second.
+		sleepTask(2_000);
+		return true;
+	}
+
+	private BufferedImage captureFrameFlow() {
+		RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+		return dev.frostguard.vision.convert.ImageConverter.toBufferedImage(frame);
 	}
 
 	private void waitForSurvivorBatchCooldownFlow() {

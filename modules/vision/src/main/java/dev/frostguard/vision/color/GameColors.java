@@ -37,6 +37,14 @@ public final class GameColors {
         return blue(rgb) > 200 && blue(rgb) > red(rgb) + 100 && green(rgb) > 120;
     }
 
+    /**
+     * The saturated blue of an enabled Intel bottom-bar button, Execute All. Its greyed state is
+     * near-neutral and its pressed "in progress" state is a dull slate, so neither passes.
+     */
+    public static boolean isIntelActionBlue(int rgb) {
+        return blue(rgb) > 200 && red(rgb) < 110 && green(rgb) > 120 && blue(rgb) - red(rgb) > 110;
+    }
+
     /** Blue circular march-queue activity icons such as stationed, attack, and rally rows. */
     public static boolean isMarchQueueIconBlue(int rgb) {
         return blue(rgb) > 150 && green(rgb) > 90 && red(rgb) < 120;
