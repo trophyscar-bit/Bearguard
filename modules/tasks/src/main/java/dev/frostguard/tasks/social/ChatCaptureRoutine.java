@@ -226,7 +226,7 @@ public class ChatCaptureRoutine extends DelayedTask {
 
     /**
      * How often the walk stops to check whether it has reached stored chat, and when it
-     * does: every eighth frame, every sixteenth while the reader is busy, since a check waits
+     * does: every eighth frame, every twelfth while the reader is busy, since a check waits
      * behind whatever the reader is already chewing through. Reading two frames costs about as long as scrolling ten, so
      * checking every eighth keeps the overhead near a third while overshooting by at most eight
      * frames, which are deleted unread.
@@ -237,7 +237,7 @@ public class ChatCaptureRoutine extends DelayedTask {
      * The most same-channel messages allowed between the first and last of the stored messages a
      * bridge rests on. A real stretch of conversation was stored one message after another; lines
      * people repeat every hour match copies scattered far apart. See
-     * {@link dev.frostguard.engine.chat.ChatTranscriptStore#sameStretch}.
+     * {@link dev.frostguard.engine.chat.ChatTranscriptStore#stretchOf}.
      */
     private static final int STRETCH_SPREAD = 40;
 
@@ -1180,7 +1180,7 @@ public class ChatCaptureRoutine extends DelayedTask {
             } else {
                 stalled = 0;
             }
-            int checkEvery = PENDING_FRAMES.get() > 0 ? OVERLAP_CHECK_EVERY * 2 : OVERLAP_CHECK_EVERY;
+            int checkEvery = PENDING_FRAMES.get() > 0 ? OVERLAP_CHECK_EVERY + 4 : OVERLAP_CHECK_EVERY;
             if (stopAtStoredChat && previous != null && shots.size() % checkEvery == 0) {
                 long checkStart = System.currentTimeMillis();
                 boolean reached = reachedStoredChat(channel, previous, image, coverBack);
@@ -1233,7 +1233,7 @@ public class ChatCaptureRoutine extends DelayedTask {
                     CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
             ChatTranscriptStore stored = store;
             probe.useKnownHistory(stored::alreadyStored);
-            probe.useStretchCheck(matched -> stored.sameStretch(matched, STRETCH_SPREAD));
+            probe.useStretchCheck(matched -> stored.stretchOf(matched, STRETCH_SPREAD));
             for (BufferedImage image : List.of(newer, older)) {
                 List<TextLine> lines = engine.read(image, TEXT_COLUMN_LEFT, FEED_TOP, TEXT_COLUMN_RIGHT,
                         FEED_BOTTOM, PADDLE_LANG, PADDLE_MIN_CONFIDENCE);
@@ -1242,10 +1242,18 @@ public class ChatCaptureRoutine extends DelayedTask {
                 }
                 probe.useRereader((l, t, r, b, language) ->
                         engine.read(image, l, t, r, b, language, PADDLE_MIN_CONFIDENCE));
-                probe.addScreen(ChatFrames.toRaw(image), image, lines, true);
+                ChatPass.Screen screen = probe.addScreen(ChatFrames.toRaw(image), image, lines, true);
+                // Not at stored chat yet if the nearer frame still has something new on it, and the
+                // second frame costs as much to read as the first, so it is not read.
+                if (screen.fresh() > 0) {
+                    return false;
+                }
             }
             if (coverBack == null) {
-                return probe.reachedKnownHistory();
+                boolean reached = probe.reachedKnownHistory();
+                logDebug("ChatCaptureRoutine | " + channel + ": overlap check: "
+                        + probe.explainBridge() + " -> " + (reached ? "stop" : "keep going") + ".");
+                return reached;
             }
             int olderThanTarget = 0;
             for (ChatMessage m : probe.messages()) {
@@ -1342,7 +1350,7 @@ public class ChatCaptureRoutine extends DelayedTask {
         ChatPass pass = new ChatPass(channel, body -> translator.toEnglish(body),
                 CHAT_TEXT_SETTINGS, CHAT_CJK_SETTINGS, CHAT_CYRILLIC_SETTINGS, TEXT_COLUMN_RIGHT);
         pass.useKnownHistory(transcript::alreadyStored);
-        pass.useStretchCheck(matched -> transcript.sameStretch(matched, STRETCH_SPREAD));
+        pass.useStretchCheck(matched -> transcript.stretchOf(matched, STRETCH_SPREAD));
         // Filed at the moment the frames were photographed. Reading can run hours later when the
         // reader is busy, and a message stamped at read time lands in the wrong hour of the wrong
         // day -- which is how a whole morning of chat ended up looking like a spike at 10:46.
@@ -1456,15 +1464,16 @@ public class ChatCaptureRoutine extends DelayedTask {
                             + " unaccounted for.");
                 } else {
                     logWarning("ChatCaptureRoutine | " + channel + ": GAP NOT BRIDGED -- the"
-                            + " reconcile read all " + screensRead + " screen(s) and was still"
-                            + " finding messages it did not have, so anything older than the"
-                            + " oldest screen was not looked at. Raise the reconcile minutes to"
-                            + " reach further.");
+                            + " reconcile read all " + screensRead + " screen(s) and did not end"
+                            + " on chat it already had (" + pass.explainBridge() + "), so anything"
+                            + " older than the oldest screen was not looked at. Raise the reconcile"
+                            + " minutes to reach further.");
                 }
             } else if (!finished && !conversations) {
                 logWarning("ChatCaptureRoutine | " + channel + ": read all " + shots.size()
-                        + " photographed screen(s) and was still finding new messages. Anything"
-                        + " older than that was not read this pass.");
+                        + " photographed screen(s) without ending on chat it already had ("
+                        + pass.explainBridge() + "). Anything older than that was not read this"
+                        + " pass.");
             }
             int stored = reconcile && !conversations
                     ? appendReconciled(channel, pass, transcript, newestPossible)

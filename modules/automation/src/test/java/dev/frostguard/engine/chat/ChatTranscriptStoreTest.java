@@ -247,10 +247,9 @@ class ChatTranscriptStoreTest {
 
         // Stored back to back: a real stretch of conversation.
         s.append(List.of(rally, thanks, speedups));
-        assertTrue(s.sameStretch(List.of(rally, thanks, speedups), 40));
+        assertEquals(List.of(rally, thanks, speedups), s.stretchOf(List.of(rally, thanks, speedups), 40));
 
-        // Two hundred unrelated messages later the same three lines are posted again, but a fresh
-        // store that only ever saw them far apart must not call them one stretch.
+        // Stored two hundred unrelated messages apart: no group of them is a stretch of three.
         ChatTranscriptStore scattered = new ChatTranscriptStore(dir.resolve("scattered"), ZoneOffset.UTC);
         scattered.append(List.of(rally));
         for (int i = 0; i < 100; i++) {
@@ -261,7 +260,32 @@ class ChatTranscriptStoreTest {
             scattered.append(List.of(msg(at, "X", unrelated(i))));
         }
         scattered.append(List.of(speedups));
-        assertFalse(scattered.sameStretch(List.of(rally, thanks, speedups), 40));
+        assertEquals(1, scattered.stretchOf(List.of(rally, thanks, speedups), 40).size());
+    }
+
+    @Test
+    void oneStrayMatchFarAwayDoesNotHideThreeThatSitTogether() throws IOException {
+        Instant at = Instant.parse("2026-10-24T05:00:00Z");
+        ChatTranscriptStore s = new ChatTranscriptStore(dir.resolve("stray"), ZoneOffset.UTC);
+        ChatMessage old = msg(at, "A", "an unrelated old line from long ago");
+        s.append(List.of(old));
+        for (int i = 0; i < 100; i++) {
+            s.append(List.of(msg(at, "X", unrelated(i))));
+        }
+        ChatMessage one = msg(at, "B", "join the rally please everyone");
+        ChatMessage two = msg(at, "C", "thanks for the help everyone");
+        ChatMessage three = msg(at, "D", "who has spare speedups for tonight");
+        s.append(List.of(one, two, three));
+
+        List<ChatMessage> group = s.stretchOf(List.of(old, one, two, three), 40);
+        assertEquals(List.of(one, two, three), group);
+    }
+
+    @Test
+    void messagesTheStoreHasNeverSeenAreNotPlaced() {
+        ChatTranscriptStore s = new ChatTranscriptStore(dir.resolve("empty"), ZoneOffset.UTC);
+        ChatMessage stranger = msg(Instant.parse("2026-10-24T05:00:00Z"), "A", "nobody stored this line");
+        assertTrue(s.stretchOf(List.of(stranger), 40).isEmpty());
     }
 
     /** Bodies that share no run of characters, so none is mistaken for a reread of another. */

@@ -55,11 +55,20 @@ class ChatPassBridgeTest {
     }
 
     @Test
-    void shortRepeatedMessagesAreNotEvidence() {
+    void threeShortRepeatedMessagesAreNotEvidence() {
+        ChatPass pass = pass(Set.of("ok", "jajaja", "lol", "gg", "thanks"));
+        screen(pass, "ok", "jajaja", "lol");
+        screen(pass, "gg");
+        assertFalse(pass.reachedKnownHistory());
+    }
+
+    @Test
+    void fiveShortMessagesInOneStretchAreEnoughOnQuietWorld() {
+        // World is mostly short lines. Matching five of them in a row is not a coincidence.
         ChatPass pass = pass(Set.of("ok", "jajaja", "lol", "gg", "thanks"));
         screen(pass, "ok", "jajaja", "lol");
         screen(pass, "gg", "thanks");
-        assertFalse(pass.reachedKnownHistory());
+        assertTrue(pass.reachedKnownHistory());
     }
 
     @Test
@@ -81,12 +90,26 @@ class ChatPassBridgeTest {
     }
 
     @Test
+    void aMixOfLongAndShortStoredMessagesBridgesAfterSeveralBarrenScreens() {
+        // The shape of a quiet World pass: six screens, nothing new, a couple of real sentences
+        // among the "ok"s. Two matches are enough once there have been four such screens.
+        ChatPass pass = pass(Set.of("good morning everyone how are you", "ok", "jajaja",
+                "who is joining the rally later"));
+        screen(pass, "ok", "jajaja");
+        screen(pass, "good morning everyone how are you");
+        screen(pass);
+        screen(pass, "who is joining the rally later");
+        assertTrue(pass.reachedKnownHistory());
+    }
+
+    @Test
     void repeatedLinesScatteredThroughTheTranscriptAreNotABridge() {
         Set<String> stored = Set.of("join the rally please everyone", "thanks for the help everyone",
                 "who has spare speedups for tonight");
         ChatPass pass = pass(stored);
-        // Every one of these matches an old copy, but the store says the copies sit far apart.
-        pass.useStretchCheck(matched -> false);
+        // Every one of these matches an old copy, but the store says the copies sit far apart, so
+        // no group of them is a stretch.
+        pass.useStretchCheck(matched -> List.of());
         screen(pass, "join the rally please everyone", "thanks for the help everyone");
         screen(pass, "who has spare speedups for tonight");
         assertFalse(pass.reachedKnownHistory());
@@ -97,10 +120,33 @@ class ChatPassBridgeTest {
         Set<String> stored = Set.of("join the rally please everyone", "thanks for the help everyone",
                 "who has spare speedups for tonight");
         ChatPass pass = pass(stored);
-        pass.useStretchCheck(matched -> matched.size() >= 3);
+        pass.useStretchCheck(matched -> matched);
         screen(pass, "join the rally please everyone", "thanks for the help everyone");
         screen(pass, "who has spare speedups for tonight");
         assertTrue(pass.reachedKnownHistory());
+    }
+
+    @Test
+    void oneStrayMatchDoesNotVetoThreeThatAgree() {
+        Set<String> stored = Set.of("join the rally please everyone", "thanks for the help everyone",
+                "who has spare speedups for tonight", "an unrelated old line from long ago");
+        ChatPass pass = pass(stored);
+        // The store hands back only the group that sits together, dropping the stray.
+        pass.useStretchCheck(matched -> matched.stream()
+                .filter(m -> !m.body().startsWith("an unrelated")).toList());
+        screen(pass, "join the rally please everyone", "thanks for the help everyone");
+        screen(pass, "who has spare speedups for tonight", "an unrelated old line from long ago");
+        assertTrue(pass.reachedKnownHistory());
+    }
+
+    @Test
+    void theExplanationSaysWhatWasSeen() {
+        ChatPass pass = pass(Set.of("rally at the north gate in ten minutes"));
+        screen(pass, "rally at the north gate in ten minutes");
+        screen(pass);
+        String why = pass.explainBridge();
+        assertTrue(why.contains("2 screen(s) with nothing new"), why);
+        assertTrue(why.contains("1 stored message(s)"), why);
     }
 
     @Test
