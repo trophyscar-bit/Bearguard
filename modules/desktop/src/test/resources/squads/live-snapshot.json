@@ -1,0 +1,1151 @@
+{
+  "capturedAt" : "2026-10-31T21:58:37.900770900Z",
+  "heroes" : [ {
+    "name" : "Mia",
+    "rarity" : "SSR",
+    "troopClass" : "Lancer",
+    "power" : 1614639,
+    "level" : 77,
+    "stars" : 3.7,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 3528,
+      "Hero Defense" : 2780,
+      "Hero Health" : 31541,
+      "Escort Attack" : 1175,
+      "Escort Defense" : 926,
+      "Escort Health" : 10513
+    },
+    "expedition" : {
+      "Attack" : 175.02,
+      "Defense" : 175.02,
+      "Lethality" : 148.7,
+      "Health" : 65.56
+    },
+    "explorationSkills" : [ {
+      "name" : "Fate's Finale",
+      "level" : 4,
+      "description" : "Mia throws a tarot card at enemies, dealing Attack “351% damage, and can either reduce the target's Attack by 20% for 2s or stun the target for 1.5s.",
+      "unreadable" : false
+    }, {
+      "name" : "Bad Omen",
+      "level" : 4,
+      "description" : "Mia curses an enemy target, dealing fluctuating damage based ona \"base value” of Mia's Attack “65%. The final damage dealt will be a random figure ranging from 5% to 600% of the \"base value.”",
+      "unreadable" : false
+    }, {
+      "name" : "Guardian of Destiny",
+      "level" : 4,
+      "description" : "Mia protects the hero with the lowest remaining Health and restores Health for the hero based on a \"base value” of Mia's Attack “130%. The final Health restored will be a random figure ranging from 5% to 400% of the \"base value.”",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Bad Luck Streak",
+      "level" : 4,
+      "description" : "Grants all troops' attack a 50% chance of cursing the target, increasing their damage taken by 40%.",
+      "unreadable" : false
+    }, {
+      "name" : "Lucky Charm",
+      "level" : 4,
+      "description" : "Mia brings good luck to the Troops, granting a 50% chance of boosting troops' Attack by 40%.",
+      "unreadable" : false
+    }, {
+      "name" : "Ritual Deciphering",
+      "level" : 4,
+      "description" : "Mia foresees potential dangers before battle, granting a 40% chance of reducing damage taken by 40% for all troops.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : 100,
+      "mastery" : 6
+    }, {
+      "slot" : 2,
+      "enhancement" : 55,
+      "mastery" : 1
+    }, {
+      "slot" : 3,
+      "enhancement" : 50,
+      "mastery" : null
+    }, {
+      "slot" : 4,
+      "enhancement" : 81,
+      "mastery" : 5
+    } ],
+    "exclusiveGear" : "Fate Crystal",
+    "exclusiveGearLevel" : 1,
+    "key" : true
+  }, {
+    "name" : "Flint",
+    "rarity" : "SSR",
+    "troopClass" : "Infantry",
+    "power" : 1503308,
+    "level" : 78,
+    "stars" : 4.2,
+    "escorts" : 10,
+    "troopCapacity" : 13390,
+    "exploration" : {
+      "Hero Attack" : 2124,
+      "Hero Defense" : 3394,
+      "Hero Health" : 46254,
+      "Escort Attack" : 706,
+      "Escort Defense" : 1130,
+      "Escort Health" : 15417
+    },
+    "expedition" : {
+      "Attack" : 177.34,
+      "Defense" : 177.34,
+      "Lethality" : 79.99,
+      "Health" : 149.24
+    },
+    "explorationSkills" : [ {
+      "name" : "Fires of Vengeance",
+      "level" : 5,
+      "description" : "Flint's fire-breathing attack deals Attack*84% damage every 0.5s and amplifies damage taken by the target by 30% for 2s.",
+      "unreadable" : false
+    }, {
+      "name" : "Incinerator",
+      "level" : 5,
+      "description" : "Pain only boosts Flint's potential. Flint immediately regains 40% of his max Health when Health is below 50%. Can only activate once per battle.",
+      "unreadable" : false
+    }, {
+      "name" : "Heat Diffusion",
+      "level" : 5,
+      "description" : "The warmth of Flint's fire represents hope in troubling times, boosting your heroes' Attack Speed by 7%.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Pyromaniac",
+      "level" : 5,
+      "description" : "Every flame, no matter how small, can ignite a roaring fire. Flint increases his Infantry's Damage Dealt by 100%.",
+      "unreadable" : false
+    }, {
+      "name" : "Burning Resolve",
+      "level" : 5,
+      "description" : "Flint's fire not only dispels the cold but also ignites the passion for battle, increasing Attack by 25% for all troops.",
+      "unreadable" : false
+    }, {
+      "name" : "Immolation",
+      "level" : 5,
+      "description" : "Flint's Flame of anger devours everything, increasing all troops' Lethality by 25%.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : 50,
+      "mastery" : null
+    }, {
+      "slot" : 2,
+      "enhancement" : 80,
+      "mastery" : 5
+    }, {
+      "slot" : 3,
+      "enhancement" : 80,
+      "mastery" : 5
+    }, {
+      "slot" : 4,
+      "enhancement" : 50,
+      "mastery" : 1
+    } ],
+    "exclusiveGear" : "Dragonbane",
+    "exclusiveGearLevel" : 4,
+    "key" : true
+  }, {
+    "name" : "Molly",
+    "rarity" : "SSR",
+    "troopClass" : "Lancer",
+    "power" : 1317405,
+    "level" : 80,
+    "stars" : 5.0,
+    "escorts" : 10,
+    "troopCapacity" : 13470,
+    "exploration" : {
+      "Hero Attack" : 3028,
+      "Hero Defense" : 2739,
+      "Hero Health" : 28840,
+      "Escort Attack" : 1009,
+      "Escort Defense" : 913,
+      "Escort Health" : 9613
+    },
+    "expedition" : {
+      "Attack" : 200.16,
+      "Defense" : 200.16,
+      "Lethality" : 88.55,
+      "Health" : 56.33
+    },
+    "explorationSkills" : [ {
+      "name" : "Super Snowball",
+      "level" : 5,
+      "description" : "Molly launches a Super Snowball which plops down to deal Attack*252% Area of Effect Damage and freezes them for 1.5s.",
+      "unreadable" : false
+    }, {
+      "name" : "Frost Ambush",
+      "level" : 5,
+      "description" : "Molly ambushes the enemy with her great camouflage skills, dealing Attack*210% damage.",
+      "unreadable" : false
+    }, {
+      "name" : "Youthful Persistence",
+      "level" : 5,
+      "description" : "Molly loves a challenge, gaining +60% Attack Speed under 50% Health.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Snow's Grace",
+      "level" : 5,
+      "description" : "Molly creates an avalanche that clouds enemy sights, granting a 40% chance of reducing all troops' Damage Taken by 50%.",
+      "unreadable" : false
+    }, {
+      "name" : "Ice Dominion",
+      "level" : 5,
+      "description" : "Molly excels in snowy terrains, granting all troops' attack a 50% chance of increasing damage dealt by 50%.",
+      "unreadable" : false
+    }, {
+      "name" : "Youthful Rage",
+      "level" : 5,
+      "description" : "Hell hath no fury like an angry Molly, increasing damage dealt by 25% for all troops.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : 65,
+      "mastery" : 2
+    }, {
+      "slot" : 2,
+      "enhancement" : 45,
+      "mastery" : null
+    }, {
+      "slot" : 3,
+      "enhancement" : 40,
+      "mastery" : null
+    }, {
+      "slot" : 4,
+      "enhancement" : 61,
+      "mastery" : 2
+    } ],
+    "exclusiveGear" : "Yeti Spirit",
+    "exclusiveGearLevel" : 2,
+    "key" : true
+  }, {
+    "name" : "Bahiti",
+    "rarity" : "SR",
+    "troopClass" : "Marksman",
+    "power" : 1242944,
+    "level" : 77,
+    "stars" : 5.0,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 3362,
+      "Hero Defense" : 2630,
+      "Hero Health" : 18605,
+      "Escort Attack" : 1118,
+      "Escort Defense" : 876,
+      "Escort Health" : 6198
+    },
+    "expedition" : {
+      "Attack" : 140.11,
+      "Defense" : 140.11,
+      "Lethality" : 112.56,
+      "Health" : 48.4
+    },
+    "explorationSkills" : [ {
+      "name" : "Precise Shot",
+      "level" : 5,
+      "description" : "Bahiti targets enemy weak points with devastating precision, dealing Attack\"560% damage.",
+      "unreadable" : false
+    }, {
+      "name" : "Quick Shot",
+      "level" : 5,
+      "description" : "Bahiti gains +30% Attack Speed as he is very experienced in wilderness survival.",
+      "unreadable" : false
+    }, {
+      "name" : "Pathfinder Vision",
+      "level" : 5,
+      "description" : "Bahiti deals 30% extra damage.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Sixth Sense",
+      "level" : 5,
+      "description" : "Bahiti senses the dangers ahead, reducing damage taken by 20% for all troops.",
+      "unreadable" : false
+    }, {
+      "name" : "Fluorescence",
+      "level" : 5,
+      "description" : "Bahiti's battlefield instincts grants all troops' attack a 50% chance of increasing damage dealt by 50%.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : 80,
+      "mastery" : 4
+    }, {
+      "slot" : 2,
+      "enhancement" : 40,
+      "mastery" : 1
+    }, {
+      "slot" : 3,
+      "enhancement" : 40,
+      "mastery" : 1
+    }, {
+      "slot" : 4,
+      "enhancement" : 78,
+      "mastery" : 4
+    } ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : true
+  }, {
+    "name" : "Sergey",
+    "rarity" : "SR",
+    "troopClass" : "Infantry",
+    "power" : 1220672,
+    "level" : 77,
+    "stars" : 5.0,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 1715,
+      "Hero Defense" : 3137,
+      "Hero Health" : 37022,
+      "Escort Attack" : 570,
+      "Escort Defense" : 1044,
+      "Escort Health" : 12340
+    },
+    "expedition" : {
+      "Attack" : 140.11,
+      "Defense" : 140.11,
+      "Lethality" : 53.33,
+      "Health" : 104.76
+    },
+    "explorationSkills" : [ {
+      "name" : "Shielded Strike",
+      "level" : 5,
+      "description" : "Sergey gives an enemy a solid whack with his heavy shield, knocking the target back while dealing Attack\"280% Area of Effect damage.",
+      "unreadable" : false
+    }, {
+      "name" : "Joint Defense",
+      "level" : 5,
+      "description" : "Sergey can organize strong perimeters, increasing all friendly hero Defense by 15%.",
+      "unreadable" : false
+    }, {
+      "name" : "Shield Block",
+      "level" : 5,
+      "description" : "Sergey trades in his shield for an upgraded model, reducing damage taken by 30%.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Defenders' Edge",
+      "level" : 5,
+      "description" : "Sergey guards our troops with his shield, reducing damage taken by 20% for all troops.",
+      "unreadable" : false
+    }, {
+      "name" : "Weaken",
+      "level" : 5,
+      "description" : "Sergey's intimidating presence reduces Attack by 20% for all enemy troops.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : 50,
+      "mastery" : null
+    }, {
+      "slot" : 2,
+      "enhancement" : 76,
+      "mastery" : 3
+    }, {
+      "slot" : 3,
+      "enhancement" : 76,
+      "mastery" : 4
+    }, {
+      "slot" : 4,
+      "enhancement" : 50,
+      "mastery" : null
+    } ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : true
+  }, {
+    "name" : "Jessie",
+    "rarity" : "SR",
+    "troopClass" : "Lancer",
+    "power" : 761620,
+    "level" : 77,
+    "stars" : 5.0,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 1786,
+      "Hero Defense" : 2196,
+      "Hero Health" : 17718,
+      "Escort Attack" : 595,
+      "Escort Defense" : 732,
+      "Escort Health" : 5906
+    },
+    "expedition" : {
+      "Attack" : 140.11,
+      "Defense" : 140.11,
+      "Lethality" : 3.33
+    },
+    "explorationSkills" : [ {
+      "name" : "Burst Fire",
+      "level" : 5,
+      "description" : "Jessie sprays enemies in a forward arc with her machine gun, dealing Attack*75% damage every 0.5s for 2s.",
+      "unreadable" : false
+    }, {
+      "name" : "Defense Upgrade",
+      "level" : 5,
+      "description" : "Jessie upgrades her armor, increasing Defense by 70%.",
+      "unreadable" : false
+    }, {
+      "name" : "Weapon Upgrade",
+      "level" : 5,
+      "description" : "Jessie's upgraded weapon boosts Attack by 24%.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Stand of Arms",
+      "level" : 5,
+      "description" : "Jessie implements advanced weaponry for our troops, increasing damage dealt by 25% for all troops.",
+      "unreadable" : false
+    }, {
+      "name" : "Bulwarks",
+      "level" : 5,
+      "description" : "With a keen engineering eye, Jessie enhances troops' armor, reducing damage taken by 20% for all troops.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 2,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 3,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 4,
+      "enhancement" : null,
+      "mastery" : null
+    } ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : true
+  }, {
+    "name" : "Patrick",
+    "rarity" : "SR",
+    "troopClass" : null,
+    "power" : 635580,
+    "level" : 77,
+    "stars" : 4.7,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : { },
+    "expedition" : { },
+    "explorationSkills" : [ ],
+    "expeditionSkills" : [ ],
+    "gear" : [ ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : false
+  }, {
+    "name" : "Gina",
+    "rarity" : "SR",
+    "troopClass" : null,
+    "power" : 612540,
+    "level" : 77,
+    "stars" : 4.7,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : { },
+    "expedition" : { },
+    "explorationSkills" : [ ],
+    "expeditionSkills" : [ ],
+    "gear" : [ ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : false
+  }, {
+    "name" : "Zinman",
+    "rarity" : "SSR",
+    "troopClass" : "Marksman",
+    "power" : 512905,
+    "level" : 77,
+    "stars" : 3.3,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 1757,
+      "Hero Defense" : 1438,
+      "Hero Health" : 10826,
+      "Escort Attack" : 585,
+      "Escort Defense" : 479,
+      "Escort Health" : 3606
+    },
+    "expedition" : {
+      "Attack" : 107.81,
+      "Defense" : 107.81,
+      "Lethality" : 12.0,
+      "Health" : 10.83
+    },
+    "explorationSkills" : [ {
+      "name" : "Nail Scatter",
+      "level" : 4,
+      "description" : "Zinman covers the target in a stream of nails, each dealing Attack\"70% damage and a 2-second Stun.",
+      "unreadable" : false
+    }, {
+      "name" : "Quick Defense",
+      "level" : 3,
+      "description" : "Zinman works well under pressure, fortifying his position under 50% Health with a +100% boost to his Defense.",
+      "unreadable" : false
+    }, {
+      "name" : "Robust",
+      "level" : 4,
+      "description" : "Zinman''s energetic poise provides a +25% Attack Speed boost.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Implacable",
+      "level" : 2,
+      "description" : "Zinman the master builder understands what is required of a strong defensive line, increasing Troop's Defense by 4% and Health by 4%.",
+      "unreadable" : false
+    }, {
+      "name" : "Bastionist",
+      "level" : 4,
+      "description" : "Zinman's skillful control of the construction workflow reduces basic resource consumption (Meat, Wood, Coal, Iron) by 12% and increases Building Upgrade speed by 12%.",
+      "unreadable" : false
+    }, {
+      "name" : "Positional Battier",
+      "level" : 3,
+      "description" : "Zinman masterfully manipulates the battlefield, increasing Lethality by 15% for all troops.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 2,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 3,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 4,
+      "enhancement" : null,
+      "mastery" : null
+    } ],
+    "exclusiveGear" : "Woodpecker",
+    "exclusiveGearLevel" : 1,
+    "key" : true
+  }, {
+    "name" : "Eugene",
+    "rarity" : "R",
+    "troopClass" : null,
+    "power" : 490522,
+    "level" : 77,
+    "stars" : 4.5,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : { },
+    "expedition" : { },
+    "explorationSkills" : [ ],
+    "expeditionSkills" : [ ],
+    "gear" : [ ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : false
+  }, {
+    "name" : "Charlie",
+    "rarity" : "R",
+    "troopClass" : null,
+    "power" : 450359,
+    "level" : 77,
+    "stars" : 4.3,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : { },
+    "expedition" : { },
+    "explorationSkills" : [ ],
+    "expeditionSkills" : [ ],
+    "gear" : [ ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : false
+  }, {
+    "name" : "Jasser",
+    "rarity" : "SR",
+    "troopClass" : "Marksman",
+    "power" : 435621,
+    "level" : 77,
+    "stars" : 3.8,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 1527,
+      "Hero Defense" : 1549,
+      "Hero Health" : 9401,
+      "Escort Attack" : 508,
+      "Escort Defense" : 516,
+      "Escort Health" : 3133
+    },
+    "expedition" : {
+      "Attack" : 89.01,
+      "Defense" : 89.01,
+      "Lethality" : 6.0,
+      "Health" : 4.83
+    },
+    "explorationSkills" : [ {
+      "name" : "Triple Volley",
+      "level" : 2,
+      "description" : "Jasser precisely aims and fires three consecutive bullets, dealing Attack\"100%, Attack\"137.5%, and Attack\"165% damage respectively, with the third being area of effect damage.",
+      "unreadable" : false
+    }, {
+      "name" : "Suppressive Fire",
+      "level" : 1,
+      "description" : "Jasser relies on masterful marksmanship and overwhelming firepower to suppress the enemy, dealing Attack\"100% damage and reducing the target's Attack Speed by 30% for 2s.",
+      "unreadable" : false
+    }, {
+      "name" : "Natural Precision",
+      "level" : 1,
+      "description" : "Jasser's impeccable marksmanship has become second nature, increasing Attack by 8%.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Tactical Genius",
+      "level" : 4,
+      "description" : "Jasser's combination of courage and wisdom enriches the army, increasing damage dealt by 20% for all troops.",
+      "unreadable" : false
+    }, {
+      "name" : "Enlightened Warfare",
+      "level" : 4,
+      "description" : "Jasser's profound knowledge increases the city's Research Speed by 12%.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 2,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 3,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 4,
+      "enhancement" : null,
+      "mastery" : null
+    } ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : true
+  }, {
+    "name" : "Smith",
+    "rarity" : "R",
+    "troopClass" : null,
+    "power" : 431885,
+    "level" : 77,
+    "stars" : 4.3,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : { },
+    "expedition" : { },
+    "explorationSkills" : [ ],
+    "expeditionSkills" : [ ],
+    "gear" : [ ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : false
+  }, {
+    "name" : "Natalia",
+    "rarity" : "SSR",
+    "troopClass" : "Infantry",
+    "power" : 422470,
+    "level" : 77,
+    "stars" : 2.8,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 982,
+      "Hero Defense" : 1176,
+      "Hero Health" : 19278,
+      "Escort Attack" : 326,
+      "Escort Defense" : 392,
+      "Escort Health" : 6426
+    },
+    "expedition" : {
+      "Attack" : 86.63,
+      "Defense" : 86.63,
+      "Lethality" : 5.33,
+      "Health" : 6.0
+    },
+    "explorationSkills" : [ {
+      "name" : "Beast Charge",
+      "level" : 3,
+      "description" : "Natalia's bear violently smashes the ground, knocking back enemies in range and stunning them for 1s, while dealing Attack\"192% Area of Effect Damage.",
+      "unreadable" : false
+    }, {
+      "name" : "Whip",
+      "level" : 3,
+      "description" : "Natalia wields her whip against a target for Attack*180% damage.",
+      "unreadable" : false
+    }, {
+      "name" : "Rage Response",
+      "level" : 2,
+      "description" : "Only fools would dare anger Natalia or her furry companion. Natalia has a 10% chance of gaining a +6% Attack boost for 3s upon taking damage (max 5 stacks).",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Feral Protection",
+      "level" : 3,
+      "description" : "Natalia commands the beasts to cover your troops, granting a 40% chance of reducing all troops' Damage Taken by 30%.",
+      "unreadable" : false
+    }, {
+      "name" : "Queen of the Wild",
+      "level" : 2,
+      "description" : "Natalia is a natural leader, increasing Attack by 10% for all troops.",
+      "unreadable" : false
+    }, {
+      "name" : "Call of the Wild",
+      "level" : 3,
+      "description" : "Natalia's unexplained connection with nature allows her to rally wild beasts, increasing damage dealt by 15% for all troops.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 2,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 3,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 4,
+      "enhancement" : null,
+      "mastery" : null
+    } ],
+    "exclusiveGear" : "Gale Force",
+    "exclusiveGearLevel" : null,
+    "key" : true
+  }, {
+    "name" : "Seo-yoon",
+    "rarity" : "SR",
+    "troopClass" : null,
+    "power" : 401500,
+    "level" : 77,
+    "stars" : 3.7,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : { },
+    "expedition" : { },
+    "explorationSkills" : [ ],
+    "expeditionSkills" : [ ],
+    "gear" : [ ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : false
+  }, {
+    "name" : "Lumak Bokan",
+    "rarity" : "SR",
+    "troopClass" : null,
+    "power" : 401330,
+    "level" : 77,
+    "stars" : 3.7,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : { },
+    "expedition" : { },
+    "explorationSkills" : [ ],
+    "expeditionSkills" : [ ],
+    "gear" : [ ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : false
+  }, {
+    "name" : "Cloris",
+    "rarity" : "R",
+    "troopClass" : null,
+    "power" : 382998,
+    "level" : null,
+    "stars" : 4.5,
+    "escorts" : 2,
+    "troopCapacity" : 265,
+    "exploration" : { },
+    "expedition" : { },
+    "explorationSkills" : [ ],
+    "expeditionSkills" : [ ],
+    "gear" : [ ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : false
+  }, {
+    "name" : "Alonso",
+    "rarity" : "SSR",
+    "troopClass" : "Marksman",
+    "power" : 373045,
+    "level" : 77,
+    "stars" : 2.3,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 1506,
+      "Hero Defense" : 1033,
+      "Hero Health" : 9275,
+      "Escort Attack" : 501,
+      "Escort Defense" : 344,
+      "Escort Health" : 3091
+    },
+    "expedition" : {
+      "Attack" : 87.37,
+      "Defense" : 87.37,
+      "Lethality" : 6.0,
+      "Health" : 4.83
+    },
+    "explorationSkills" : [ {
+      "name" : "Trapnet",
+      "level" : 1,
+      "description" : "Alonso casts a wide net over the target area, dealing Attack*200% Area of Effect Damage and immobilizing enemies for 1.5s.",
+      "unreadable" : false
+    }, {
+      "name" : "Tidal Force",
+      "level" : 1,
+      "description" : "Alonso shoots a harpoon with tsunami-like force at a target, dealing Attack*50% Area of Effect Damage.",
+      "unreadable" : false
+    }, {
+      "name" : "Harpoon Blast",
+      "level" : 1,
+      "description" : "Alonso's heavy harpoon can really do some damage, stunning targets for 0.2s after every 8 strikes.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Onslaught",
+      "level" : 1,
+      "description" : "Alonso attacks like the waves, granting a 40% chance of increasing all troop's Lethality by 10%.",
+      "unreadable" : false
+    }, {
+      "name" : "Lron Strength",
+      "level" : 1,
+      "description" : "Alonso's indomitable will grants all troops' attack a 20% chance of reducing damage dealt by 10% for all enemy troops for 2 turns.",
+      "unreadable" : false
+    }, {
+      "name" : "Poison Harpoon",
+      "level" : 1,
+      "description" : "Alonso coats weapons with lethal toxins, granting all troops' attack a 50% chance of dealing 10% more damage.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 2,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 3,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 4,
+      "enhancement" : null,
+      "mastery" : null
+    } ],
+    "exclusiveGear" : "Captain Ahab",
+    "exclusiveGearLevel" : null,
+    "key" : true
+  }, {
+    "name" : "Jeronimo",
+    "rarity" : "SSR",
+    "troopClass" : "Infantry",
+    "power" : 353775,
+    "level" : 77,
+    "stars" : 2.0,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 904,
+      "Hero Defense" : 954,
+      "Hero Health" : 17707,
+      "Escort Attack" : 300,
+      "Escort Defense" : 318,
+      "Escort Health" : 5902
+    },
+    "expedition" : {
+      "Attack" : 82.68,
+      "Defense" : 82.68,
+      "Lethality" : 5.33,
+      "Health" : 5.33
+    },
+    "explorationSkills" : [ {
+      "name" : "Combo Slash",
+      "level" : 1,
+      "description" : "Jeronimo launches enemies in the target area into the air, Following up with three slashes, each dealing Attack\"160% damage.",
+      "unreadable" : false
+    }, {
+      "name" : "Sword Art",
+      "level" : 1,
+      "description" : "Each of Jeronimo's attacks releases sword energy, dealing Attack\"15% damage to enemies in a rectangular area straight ahead.",
+      "unreadable" : false
+    }, {
+      "name" : "Lone Wolf",
+      "level" : 1,
+      "description" : "Jeronimo is a master at pressing advantages, gaining a +16% Attack boost over 50% Health.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Battle Manifesto",
+      "level" : 1,
+      "description" : "Jeronimo delivers a rousing rally speech ahead of the battle, increasing damage dealt by 5% for all troops.",
+      "unreadable" : false
+    }, {
+      "name" : "Swordmentor",
+      "level" : 1,
+      "description" : "Jeronimo imparts the secrets of swordsmanship, increasing Attack by 5% for all troops.",
+      "unreadable" : false
+    }, {
+      "name" : "Expert Swordsmanship",
+      "level" : 1,
+      "description" : "Jeronimo's sword arts empower soldiers to seize battle opportunities, increasing Damage Dealt by 6% for all troops For 2 turns every 4 turns.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 2,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 3,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 4,
+      "enhancement" : null,
+      "mastery" : null
+    } ],
+    "exclusiveGear" : "Dawnbreak",
+    "exclusiveGearLevel" : null,
+    "key" : true
+  }, {
+    "name" : "Philly",
+    "rarity" : "SSR",
+    "troopClass" : "Lancer",
+    "power" : 340660,
+    "level" : 77,
+    "stars" : 2.0,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : {
+      "Hero Attack" : 1141,
+      "Hero Defense" : 954,
+      "Hero Health" : 11382,
+      "Escort Attack" : 380,
+      "Escort Defense" : 318,
+      "Escort Health" : 3794
+    },
+    "expedition" : {
+      "Attack" : 76.32,
+      "Defense" : 76.32,
+      "Lethality" : 6.0,
+      "Health" : 5.33
+    },
+    "explorationSkills" : [ {
+      "name" : "First Aid",
+      "level" : 1,
+      "description" : "Philly's advanced medical training immediately restores Health equal to her Attack “200% to all friendly heroes.",
+      "unreadable" : false
+    }, {
+      "name" : "Restorative Hands",
+      "level" : 1,
+      "description" : "A master of first aid on the point of death, Philly immediately restores Health equal to her Attack “100% to the weakest Friendly hero.",
+      "unreadable" : false
+    }, {
+      "name" : "Paralytic Lotion",
+      "level" : 1,
+      "description" : "Philly poisons the target, disabling the enemy for 1s while dealing Attack\"140% damage.",
+      "unreadable" : false
+    } ],
+    "expeditionSkills" : [ {
+      "name" : "Vigor Tactics",
+      "level" : 1,
+      "description" : "Philly's secret remedy strengthens the soldiers, increasing Attack by 3% and Defense by 2% for all troops.",
+      "unreadable" : false
+    }, {
+      "name" : "Dosage Boost",
+      "level" : 1,
+      "description" : "Philly uses her secret tonic to enhance the warriors' strength, granting all troops' attack a 25% chance of dealing 120% damage.",
+      "unreadable" : false
+    }, {
+      "name" : "Energizing Shot",
+      "level" : 1,
+      "description" : "Philly's special shot improves troops' focus, granting a 40% chance of reducing all troops' Damage Taken by 10%.",
+      "unreadable" : false
+    } ],
+    "gear" : [ {
+      "slot" : 1,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 2,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 3,
+      "enhancement" : null,
+      "mastery" : null
+    }, {
+      "slot" : 4,
+      "enhancement" : null,
+      "mastery" : null
+    } ],
+    "exclusiveGear" : "Pharmacologica",
+    "exclusiveGearLevel" : null,
+    "key" : true
+  }, {
+    "name" : "Ling Xue",
+    "rarity" : "SR",
+    "troopClass" : null,
+    "power" : 320578,
+    "level" : 77,
+    "stars" : 3.0,
+    "escorts" : 10,
+    "troopCapacity" : 13350,
+    "exploration" : { },
+    "expedition" : { },
+    "explorationSkills" : [ ],
+    "expeditionSkills" : [ ],
+    "gear" : [ ],
+    "exclusiveGear" : null,
+    "exclusiveGearLevel" : null,
+    "key" : false
+  } ],
+  "troops" : {
+    "totalTroops" : "553.8K/553.8K",
+    "injured" : "0/153.3K",
+    "stocks" : [ {
+      "name" : "Apex Infantry",
+      "troopType" : "Infantry",
+      "count" : 182184
+    }, {
+      "name" : "Apex Marksman",
+      "troopType" : "Marksman",
+      "count" : 190078
+    }, {
+      "name" : "Apex Lancer",
+      "troopType" : "Lancer",
+      "count" : 181545
+    } ]
+  },
+  "savedSquads" : [ {
+    "slot" : 1,
+    "state" : "SAVED",
+    "heroes" : [ "Jessie", "Bahiti", "Sergey" ],
+    "heroLevels" : [ 77, 77, 77 ],
+    "troops" : [ 1, 1, 69696 ],
+    "capacity" : "69,698/126,850",
+    "power" : 75599399
+  }, {
+    "slot" : 2,
+    "state" : "SAVED",
+    "heroes" : [ "Jasser", "Molly", "Sergey" ],
+    "heroLevels" : [ 77, 80, 77 ],
+    "troops" : [ 12697, 22854, 25394 ],
+    "capacity" : "60,945/126,970",
+    "power" : 62412647
+  }, {
+    "slot" : 3,
+    "state" : "EMPTY_OR_LOCKED",
+    "heroes" : [ ],
+    "heroLevels" : [ ],
+    "troops" : [ ],
+    "capacity" : null,
+    "power" : null
+  }, {
+    "slot" : 4,
+    "state" : "SAVED",
+    "heroes" : [ "Patrick", "Flint", "Bahiti" ],
+    "heroLevels" : [ 77, 78, 77 ],
+    "troops" : [ 63445, 38067, 25378 ],
+    "capacity" : "126,890/126,890",
+    "power" : 41208457
+  }, {
+    "slot" : 5,
+    "state" : "SAVED",
+    "heroes" : [ "Sergey", "Molly", "Bahiti" ],
+    "heroLevels" : [ 77, 80, 77 ],
+    "troops" : [ 0, 0, 0 ],
+    "capacity" : "0/126,970",
+    "power" : null
+  }, {
+    "slot" : 6,
+    "state" : "SAVED",
+    "heroes" : [ "Jessie", "Bahiti", "Sergey" ],
+    "heroLevels" : [ 77, 77, 77 ],
+    "troops" : [ 0, 0, 0 ],
+    "capacity" : "0/126,850",
+    "power" : null
+  }, {
+    "slot" : 7,
+    "state" : "SAVED",
+    "heroes" : [ "Jessie", "Bahiti", "Sergey" ],
+    "heroLevels" : [ 77, 77, 77 ],
+    "troops" : [ 1268, 1268, 124314 ],
+    "capacity" : "126,850/126,850",
+    "power" : 37441830
+  }, {
+    "slot" : 8,
+    "state" : "SAVED",
+    "heroes" : [ "Jasser", "Molly", "Flint" ],
+    "heroLevels" : [ 77, 80, 78 ],
+    "troops" : [ 1270, 1270, 124470 ],
+    "capacity" : "127,010/127,010",
+    "power" : 13829365
+  }, {
+    "slot" : 9,
+    "state" : "SAME_AS_PREVIOUS",
+    "heroes" : [ ],
+    "heroLevels" : [ ],
+    "troops" : [ ],
+    "capacity" : null,
+    "power" : null
+  }, {
+    "slot" : 10,
+    "state" : "EMPTY_OR_LOCKED",
+    "heroes" : [ ],
+    "heroLevels" : [ ],
+    "troops" : [ ],
+    "capacity" : null,
+    "power" : null
+  }, {
+    "slot" : 11,
+    "state" : "EMPTY_OR_LOCKED",
+    "heroes" : [ ],
+    "heroLevels" : [ ],
+    "troops" : [ ],
+    "capacity" : null,
+    "power" : null
+  }, {
+    "slot" : 12,
+    "state" : "EMPTY_OR_LOCKED",
+    "heroes" : [ ],
+    "heroLevels" : [ ],
+    "troops" : [ ],
+    "capacity" : null,
+    "power" : null
+  } ],
+  "problems" : [ "Expedition stats incomplete for Jessie (read [Attack, Defense, Lethality]), so it is left out of team rankings" ]
+}
