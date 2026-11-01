@@ -521,6 +521,11 @@ public enum ConfigurationKeyEnum {
     CREATE_CHARACTER_MAX_AGE_MINUTES_INT("17",      Integer.class,  ConfigCategory.TESTING),
     CREATE_CHARACTER_SKIP_TUTORIAL_BOOL ("false",   Boolean.class,  ConfigCategory.TESTING),
     DUMMY_TASK_ENABLED_BOOL             ("false",   Boolean.class,  ConfigCategory.TESTING),
+    // Squads scan (heroes, troops, saved squads) once a night, in UTC like the slots around it.
+    // 07:15 UTC follows the 06:00 UTC deals scan (about an hour) and comes before the 08:01 UTC
+    // Dawn Academy supply; the scan takes six to eight minutes. 03:15 EDT / 02:15 EST.
+    SQUAD_SCAN_NIGHTLY_ENABLED_BOOL     ("true",    Boolean.class,  ConfigCategory.ANALYTICS),
+    SQUAD_SCAN_TIME_UTC_STRING          ("07:15",   String.class,   ConfigCategory.ANALYTICS),
     DUMMY_TASK_PRIORITY_INT             ("100",     Integer.class,  ConfigCategory.TESTING),
     KEEP_EMULATOR_OPEN_BOOL             ("false",   Boolean.class,  ConfigCategory.TESTING),
     PROFILE_MAX_ACTIVE_TIME_ENABLED_BOOL("false",   Boolean.class,  ConfigCategory.TESTING),

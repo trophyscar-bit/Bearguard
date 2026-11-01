@@ -41,6 +41,7 @@ import dev.frostguard.app.panel.misc.FishingLayoutController;
 import dev.frostguard.app.panel.economy.GatherLayoutController;
 import dev.frostguard.app.panel.misc.GiftcodeLayoutController;
 import dev.frostguard.app.panel.heroes.IntelLayoutController;
+import dev.frostguard.app.panel.heroes.SquadsLayoutController;
 import dev.frostguard.app.panel.dailies.MobilizationLayoutController;
 import dev.frostguard.api.domain.BotStateData;
 import dev.frostguard.api.domain.ActionRequiredIncidentData;
@@ -828,6 +829,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 new ModuleDefinition("HealingLayout",            "Healing",              MaterialDesignM.MEDICAL_BAG,                HealingLayoutController::new),
                 new ModuleDefinition("ResearchLayout",           "Research",             MaterialDesignF.FLASK_OUTLINE,              ResearchLayoutController::new),
                 new ModuleDefinition("PetsLayout",               "Pets",                 MaterialDesignP.PAW,                        PetsLayoutController::new),
+                new ModuleDefinition("SquadsLayout",             "Squads & Heroes",      MaterialDesignA.ACCOUNT_MULTIPLE_OUTLINE,   SquadsLayoutController::new),
                 new ModuleDefinition("EventsLayout",             "Events",               MaterialDesignC.CALENDAR_STAR,              EventsLayoutController::new),
                 new ModuleDefinition("ExpertsLayout",            "Experts",              MaterialDesignA.ACCOUNT_STAR_OUTLINE,       ExpertsLayoutController::new),
                 new ModuleDefinition("ChiefOrderLayout",         "Chief Order",          MaterialDesignC.CROWN_OUTLINE,              ChiefOrderLayoutController::new),
@@ -864,7 +866,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         java.util.List<String> economyOrder = java.util.List.of(
                 "Gem Shop", "General Shop", "Deals", "Get Giftcodes");
         java.util.List<String> troopsOrder = java.util.List.of(
-                "Training", "Healing", "Gather", "Intel", "Rally", "Beast Hunting", "Chief Order", "Pets");
+                "Training", "Healing", "Gather", "Intel", "Rally", "Beast Hunting", "Chief Order", "Pets", "Squads & Heroes");
         java.util.List<String> accountOrder = java.util.List.of(
                 "Character", "Skip Tutorial", "Experts");
         java.util.Set<String> tucked = java.util.Set.of(
