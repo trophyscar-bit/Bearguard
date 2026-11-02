@@ -90,6 +90,22 @@ private static final int PREVAIL_WARNING_MAX_ATTEMPTS = 1;
 // Execute All's missions finished within about two seconds live; this waits up to eight.
 private static final int EXECUTE_ALL_MAX_POLLS = 16;
 
+/** Allowance on top of the round trip before the gold pin counts as still needing a march. */
+private static final long FIREHUNTER_FIGHT_SECONDS = 20L;
+
+/** A lit Execute All that never clears must not be able to hold the task on the map. */
+private static final int EXECUTE_ALL_MAX_TAPS_PER_RUN = 3;
+
+/**
+ * The gold pin. Scores 0.94+ on live frames with it up and 0.63 on every frame without it, and it
+ * sits still enough that the bobbing Fire Beast marker's loose threshold is not needed.
+ */
+private static final SearchConfig FIREHUNTER_PIN_SEARCH = SearchConfig.builder()
+		.withMaxAttempts(2)
+		.withDelay(300L)
+		.withThreshold(85)
+		.build();
+
 private static final long EXECUTE_ALL_POLL_MILLIS = 500L;
 
 // A marker that will not open after this many taps is left alone for this pass.
@@ -187,6 +203,14 @@ private boolean shouldRequeueAutoJoinAfterIntel;
 // Changed by pernerch | Date: 2026-07-02 | Why: track beast march dispatch to keep intel rescheduling accurate.
 private boolean beastMarchSent;
 
+private int executeAllTapsThisRun;
+
+// Set once the odds rule out, or use up, the gold pin; cleared with each new run.
+private boolean firehunterLeftAlone;
+
+// The pin stays on the map while the march walks to it, so it is not "new work" until then.
+private LocalDateTime firehunterMarchAwayUntil;
+
 // Warned Fire Beast deployments spent this run; capped at PREVAIL_WARNING_MAX_ATTEMPTS.
 private int prevailWarningAttempts;
 
@@ -224,6 +248,9 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 
 		processingTask = true;
 		beastMarchSent = false;
+		executeAllTapsThisRun = 0;
+		firehunterLeftAlone = false;
+		firehunterMarchAwayUntil = null;
 		resumeFireBeastLedgerFlow();
 		// Changed by pernerch | Date: 2026-07-04 | Why: reset per-run Intel march-capacity override before processing cycle starts.
 		intelMarchCapacityOverride = null;
@@ -442,6 +469,10 @@ private boolean hasEnabledIntelMissionType() {
 	}
 
 private boolean hasVisibleIntelMissionFlow() {
+
+		if (executeAllLitFlow() || firehunterPinFlow().isFound()) {
+			return true;
+		}
 
 		if (fireBeastsEnabled && !fireBeastAttemptsExhausted && locateIntelPatternMono(
 				TemplatesEnum.INTEL_FIRE_BEAST, SearchConfigConstants.FIRE_BEAST_SEARCH)
@@ -1152,9 +1183,9 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 		sleepTask(500);
 
 		intelScreenHelper.ensureOnIntelScreen();
-		if (claimAgnesIntelFlow()) {
-			executeAllFlow();
-		}
+		// Agnes's Intel and the Firebeast's arrive during a run, and Execute All's own count shows it.
+		claimAgnesIntelFlow();
+		executeAllFlow();
 		releaseElapsedIntelMarchesFlow();
 		marchQueueLimitReached = !marchesAvailable.available() || intelMarchesRemaining <= 0;
 		boolean nonMarchBoundMissionAvailable = hasNonMarchBoundIntelMissionAvailableFlow();
@@ -1303,6 +1334,10 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 	}
 
 	private boolean hasMarchBoundIntelMissionAvailableFlow() {
+		if (firehunterPinFlow().isFound()) {
+			return true;
+		}
+
 		if (fireBeastsEnabled && !fireBeastAttemptsExhausted && locateIntelPatternMono(
 				TemplatesEnum.INTEL_FIRE_BEAST, SearchConfigConstants.FIRE_BEAST_SEARCH)
 				.isFound()) {
@@ -1332,11 +1367,23 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 		intelScreenHelper.ensureOnIntelScreen();
 		boolean beastFound = false;
 
+		// Worth 10 Crystallite Cores and well within reach, so it goes before anything that can lose.
+		if (!(useFlag && beastMarchSent)) {
+			ImageSearchResultData firehunter = firehunterPinFlow();
+			if (firehunter.isFound()) {
+				logInfo(routineLogIntelligenceLine("Firebeast gold pin is on the map: attacking it."));
+				handleBeast(firehunter, false, true);
+				beastFound = true;
+				if (!processingTask) {
+					return true;
+				}
+			}
+		}
 
 		if (fireBeastsEnabled && !fireBeastAttemptsExhausted && !(useFlag && beastMarchSent)) {
 			logDebug(routineLogIntelligenceLine("Scanning for fire beasts."));
 			if (seekAndProcessGrayscale(TemplatesEnum.INTEL_FIRE_BEAST,
-					SearchConfigConstants.FIRE_BEAST_SEARCH, beast -> handleBeast(beast, true))) {
+					SearchConfigConstants.FIRE_BEAST_SEARCH, beast -> handleBeast(beast, true, false))) {
 				beastFound = true;
 				if (useFlag) {
 					return true;
@@ -1349,7 +1396,7 @@ private void manageRescheduling(boolean anyIntelProcessed, boolean nonBeastIntel
 		if (!(useFlag && beastMarchSent)) {
 			logDebug(routineLogIntelligenceLine("Scanning for beasts using grayscale matching."));
 			for (TemplatesEnum beast_screening : beastTemplates()) {
-				if (seekAndProcessGrayscale(beast_screening, beast -> handleBeast(beast, false))) {
+				if (seekAndProcessGrayscale(beast_screening, beast -> handleBeast(beast, false, false))) {
 					beastFound = true;
 					break;
 				}
@@ -1447,10 +1494,17 @@ private void handleJourney(ImageSearchResultData result) {
 /**
  * Deploys against one Intel beast marker.
  *
- * @param fireBeast true when the marker was the Fire Beast one. Only Fire Beast deployments are held
- *                  to the screen's odds warning; ordinary beasts deploy as before.
+ * <p>Naming, settled on the live screen on 1 November: what this class calls a "Fire Beast" is the
+ * flaming skull, whose card reads "Master Bounty" -- a tough elite for books and parts. The game's
+ * real Firebeast is the gold pin, a "Firehunter" on its Intel card and a "Lv. 20 Firebeast" once on
+ * the world map, worth 10 Crystallite Cores in the Flame and Fangs event. Hence "firehunter" here.
+ *
+ * @param fireBeast true when the marker was the skull. Those deployments are held to the screen's
+ *                  odds warning and the once-a-cycle ledger.
+ * @param firehunter true when the marker was the gold pin. Held to the odds, but never to the
+ *                  skull's ledger: giving up on a Master Bounty must not cost the event's cores.
  */
-private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
+private void handleBeast(ImageSearchResultData beast, boolean fireBeast, boolean firehunter) {
 		if (marchQueueLimitReached) {
 			logInfo(routineLogIntelligenceLine("Beast detected but march queue is full. Skipping deployment but marking as detected."));
 			return;
@@ -1480,7 +1534,8 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 			leaveToIntelScreenFlow();
 			sleepTask(600);
 			ImageSearchResultData again = locateIntelPatternMono(
-					fireBeast ? TemplatesEnum.INTEL_FIRE_BEAST : beastTemplates()[0],
+					firehunter ? TemplatesEnum.INTEL_FIREHUNTER_PIN
+							: fireBeast ? TemplatesEnum.INTEL_FIRE_BEAST : beastTemplates()[0],
 					SearchConfigConstants.FIRE_BEAST_SEARCH);
 			if (again.isFound()) {
 				target = again;
@@ -1591,6 +1646,12 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 			}
 		}
 
+		if (firehunter && !firehunterOddsAllowFlow()) {
+			firehunterLeftAlone = true;
+			leaveToIntelScreenFlow();
+			return;
+		}
+
 		var deployment = deploymentHelper.readScreen(DeploymentHelper.MAX_ATTACK_STAMINA_COST);
 		long travelTimeSeconds = deployment.travelTimeSeconds();
 		int spentStamina = deployment.staminaCost();
@@ -1682,6 +1743,9 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 		logInfo(routineLogIntelligenceLine("Internal Intel march counter updated: " + intelMarchesRemaining
 				+ "/" + maxIntelMarches + " remaining after Beast/Fire Beast deployment."));
 		StatisticsService.obtain().addToCounter(profile, "Intel Beast", 1);
+		if (firehunter) {
+			firehunterMarchAwayUntil = LocalDateTime.now().plusSeconds(travelTimeSeconds * 2 + FIREHUNTER_FIGHT_SECONDS);
+		}
 
 
 		staminaHelper.subtractStamina(spentStamina, false);
@@ -1832,10 +1896,11 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 	 */
 	private boolean executeAllFlow() {
 		intelScreenHelper.ensureOnIntelScreen();
-		if (!IntelBottomBar.executeAllReady(captureFrameFlow())) {
+		if (!executeAllLitFlow()) {
 			logDebug(routineLogIntelligenceLine("Execute All is not lit: nothing eligible, or not unlocked."));
 			return false;
 		}
+		executeAllTapsThisRun++;
 		logInfo(routineLogIntelligenceLine("Execute All is lit: running every troop-free mission with one tap."));
 		tapInside(CommonGameAreas.INTEL_EXECUTE_ALL_BUTTON);
 		for (int poll = 1; poll <= EXECUTE_ALL_MAX_POLLS; poll++) {
@@ -1847,6 +1912,45 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast) {
 		}
 		logWarning(routineLogIntelligenceLine("Execute All was tapped but Claim All never lit up within "
 				+ (EXECUTE_ALL_MAX_POLLS * EXECUTE_ALL_POLL_MILLIS / 1000) + "s; the normal pass will claim them."));
+		return true;
+	}
+
+	private boolean executeAllLitFlow() {
+		return executeAllTapsThisRun < EXECUTE_ALL_MAX_TAPS_PER_RUN
+				&& IntelBottomBar.executeAllReady(captureFrameFlow());
+	}
+
+	/**
+	 * Finds the gold pin, unless the run has ruled it out or a march is already on its way to it.
+	 * Beasts or Fire Beasts switched on is enough: both already mean "fight Intel beasts" to the user.
+	 */
+	private ImageSearchResultData firehunterPinFlow() {
+		if (!(beastsEnabled || fireBeastsEnabled) || firehunterLeftAlone
+				|| (firehunterMarchAwayUntil != null && LocalDateTime.now().isBefore(firehunterMarchAwayUntil))) {
+			return ImageSearchResultData.miss();
+		}
+		return templateSearchHelper.locatePatternMono(TemplatesEnum.INTEL_FIREHUNTER_PIN, FIREHUNTER_PIN_SEARCH);
+	}
+
+	/**
+	 * Reads the Deploy screen for the gold pin. Measured "You are quite likely to prevail", which is
+	 * no warning at all. Never sends a march the game calls almost certain to fail; a "not likely"
+	 * gets one try this run, because a loss leaves the pin up and it would otherwise be fought again.
+	 */
+	private boolean firehunterOddsAllowFlow() {
+		DeploymentHelper.OddsWarning odds = deploymentHelper.readOddsWarning();
+		if (odds == DeploymentHelper.OddsWarning.UNREADABLE) {
+			logWarning(routineLogIntelligenceLine("Could not read the Firebeast's deploy odds. No march was sent."));
+			return false;
+		}
+		if (odds == DeploymentHelper.OddsWarning.CERTAIN_FAILURE) {
+			logWarning(routineLogIntelligenceLine("Firebeast deploy says almost certain to fail. No march was sent."));
+			return false;
+		}
+		if (odds == DeploymentHelper.OddsWarning.UNLIKELY) {
+			logWarning(routineLogIntelligenceLine("Firebeast deploy reads \"not likely to prevail\"; one try this run."));
+			firehunterLeftAlone = true;
+		}
 		return true;
 	}
 
