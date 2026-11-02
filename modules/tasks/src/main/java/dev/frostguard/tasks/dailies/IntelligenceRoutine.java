@@ -90,6 +90,22 @@ private static final int PREVAIL_WARNING_MAX_ATTEMPTS = 1;
 // Execute All's missions finished within about two seconds live; this waits up to eight.
 private static final int EXECUTE_ALL_MAX_POLLS = 16;
 
+/** Where the Fire Crystal icon sits in the shop's top row; found anywhere else, nothing is spent. */
+static final AreaData FLAME_FANGS_TOP_ROW_ICON = AreaData.of(340, 640, 430, 730);
+
+private static final SearchConfig INTEL_CORE_COUNTER_SEARCH = SearchConfig.builder()
+		.withMaxAttempts(2)
+		.withDelay(300L)
+		.withThreshold(90)
+		.build();
+
+private static final SearchConfig FLAME_FANGS_TOP_ROW_SEARCH = SearchConfig.builder()
+		.withMaxAttempts(4)
+		.withDelay(500L)
+		.withThreshold(90)
+		.withArea(FLAME_FANGS_TOP_ROW_ICON)
+		.build();
+
 /** Allowance on top of the round trip before the gold pin counts as still needing a march. */
 private static final long FIREHUNTER_FIGHT_SECONDS = 20L;
 
@@ -280,6 +296,7 @@ public IntelligenceRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 			intelScreenHelper.resumeIntelCycleFromWilderness();
 			claimAgnesIntelFlow();
 			if (!hasVisibleIntelMissionFlow()) {
+				redeemFireCrystalsFlow();
 				saveEmptyIntelMapScreenshot();
 				logInfo(routineLogIntelligenceLine("Daily sidebar has no green Intel availability evidence, no "
 						+ "Intel cycle is active, and the map shows no markers. Planning the next UTC Intel "
@@ -541,6 +558,8 @@ private void tryRescheduleFromCooldownFlow() {
 			logInfo(routineLogIntelligenceLine(
 					"Claimed " + completedRewardsClaimed + " completed Intel reward(s) before cooldown scheduling."));
 		}
+
+		redeemFireCrystalsFlow();
 
 		logInfo(routineLogIntelligenceLine("Zero intel items detected. Attempting to read the cooldown timer."));
 
@@ -1995,6 +2014,46 @@ private void handleBeast(ImageSearchResultData beast, boolean fireBeast, boolean
 		// The "Agnes found N new intel" banner and the new markers land together within about a second.
 		sleepTask(2_000);
 		return true;
+	}
+
+	/**
+	 * Spends Crystallite Cores on Fire Crystals, the shop's best row, on the way out of a run. Unspent
+	 * cores turn into 10K Meat apiece when Flame and Fangs ends. The red crystal counter on the Intel
+	 * map only exists during the event, so outside it this costs one template search.
+	 *
+	 * <p>Redeem spends with no confirmation, so it is only tapped with the Fire Crystal icon confirmed
+	 * in the top row. A row that has hit its limit, or a reshuffled shop, then spends nothing.
+	 */
+	private void redeemFireCrystalsFlow() {
+		ImageSearchResultData counter = templateSearchHelper.locatePattern(TemplatesEnum.INTEL_CORE_COUNTER,
+				INTEL_CORE_COUNTER_SEARCH);
+		if (!counter.isFound()) {
+			return;
+		}
+		tapInside(counter);
+		sleepTask(1_500);
+		if (!templateSearchHelper.locatePattern(TemplatesEnum.FLAME_FANGS_FIRE_CRYSTAL_ROW,
+				FLAME_FANGS_TOP_ROW_SEARCH).isFound()) {
+			logInfo(routineLogIntelligenceLine("Flame and Fangs: Fire Crystals are not in the top row. Nothing redeemed."));
+			leaveToIntelScreenFlow();
+			return;
+		}
+		if (!FlameAndFangsShop.redeemLit(captureFrameFlow())) {
+			logInfo(routineLogIntelligenceLine("Flame and Fangs: Fire Crystal Redeem is not lit. Nothing redeemed."));
+			leaveToIntelScreenFlow();
+			return;
+		}
+		tapInside(CommonGameAreas.FLAME_FANGS_TOP_ROW_REDEEM);
+		sleepTask(1_000);
+		boolean bulk = FlameAndFangsShop.bulkOffered(captureFrameFlow());
+		if (bulk) {
+			tapInside(CommonGameAreas.FLAME_FANGS_TOP_ROW_BULK);
+			sleepTask(1_000);
+		}
+		logInfo(routineLogIntelligenceLine("Flame and Fangs: redeemed Crystallite Cores for Fire Crystals"
+				+ (bulk ? ", including the bulk offer." : ".")));
+		saveIntelScreenshot("intel-flame-fangs-redeemed");
+		leaveToIntelScreenFlow();
 	}
 
 	private BufferedImage captureFrameFlow() {
