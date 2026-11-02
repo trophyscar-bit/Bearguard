@@ -81,6 +81,8 @@ public final class CommonGameAreas {
     // exactly 0 when greyed out.
     public static final AreaData INTEL_EXECUTE_ALL_BUTTON             = region(40, 1165, 350, 1235);
     public static final AreaData INTEL_CLAIM_ALL_BUTTON               = region(372, 1165, 686, 1235);
+    public static final AreaData FLAME_FANGS_TOP_ROW_REDEEM           = region(520, 690, 650, 740);
+    public static final AreaData FLAME_FANGS_TOP_ROW_BULK             = region(320, 682, 460, 735);
 
     // Furnace detail entry, distinct from the final building confirmation dialog.
     public static final AreaData FURNACE_PANEL_TITLE = region(0, 650, 245, 760);
