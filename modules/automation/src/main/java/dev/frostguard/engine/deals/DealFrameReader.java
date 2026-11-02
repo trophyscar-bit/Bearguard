@@ -714,6 +714,13 @@ public final class DealFrameReader {
                 if (choiceOr.isPresent()) {
                     cardTop = Math.max(cardTop, choiceOr.get() + CHOICE_BELOW_OR);
                 }
+                // A carousel's option row stands above the pack's tiles, and its chests wear what each option
+                // sells: Dawn Market's first chest read as a Fire Crystal tile on every option (2026-11-01).
+                Optional<DealCarousel.Box> option = DealCarousel.locate(capture)
+                        .flatMap(layout -> DealCarousel.selectedOption(capture, layout));
+                if (option.isPresent()) {
+                    cardTop = Math.max(cardTop, option.get().bottom());
+                }
                 if (!tabbed && pageTitleLine != null) {
                     // A page can hold one priced card under free ones: the VIP page's Daily Free Bundle stands
                     // above its Special Pack (2026-10-26), whose tiles were read into the pack and whose page

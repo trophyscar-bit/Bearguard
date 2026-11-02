@@ -694,6 +694,21 @@ class DealFrameReaderTest {
     }
 
     @Test
+    void readsNoItemFromACarouselsOptionRow() throws Exception {
+        Map<String, Long> designPlans = quantities(offerPriced(read("deals-dawn-market-option-3.png", "Dawn Market"), 9.99));
+        assertFalse(designPlans.containsKey("Fire Crystal"), designPlans.toString());
+        assertEquals(5_000L, designPlans.get("Gems"));
+        assertEquals(100L, designPlans.get("Design Plans"));
+
+        Map<String, Long> top = quantities(offerPriced(read("deals-dawn-market-option-3-top-tier.png", "Dawn Market"), 99.99));
+        assertFalse(top.containsKey("Fire Crystal"), top.toString());
+        assertEquals(1_000L, top.get("Design Plans"));
+
+        Map<String, Long> crystals = quantities(offerPriced(read("deals-dawn-market-option-1.png", "Dawn Market"), 9.99));
+        assertEquals(40L, crystals.get("Fire Crystal"));
+    }
+
+    @Test
     void acceptsTundraSupplyStationsTopTierPrice() throws Exception {
         offerPriced(read("gem-shop-tundra-supply-station.png", "Tundra Supply Station"), 999.90);
     }
