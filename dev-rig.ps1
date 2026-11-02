@@ -1,4 +1,4 @@
-# Bearguard dev rig.
+﻿# Bearguard dev rig.
 #
 # The problem this solves: testing a routine meant waiting for its schedule. Intel runs every
 # 15-60 minutes, so one attempt at a fix cost an hour of waiting, and the only place to try it was
@@ -39,7 +39,8 @@ function Get-BearguardProcesses([string]$root) {
     # against a running process. Requiring the trailing separator keeps the two roots apart.
     $needle = $root.TrimEnd('\') + '\'
     @(Get-CimInstance Win32_Process -Filter "Name='javaw.exe'" |
-        Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) })
+        Where-Object { $_.CommandLine -and
+            $_.CommandLine.IndexOf($needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 })
 }
 
 
@@ -70,7 +71,9 @@ function Stop-Bearguard([string]$root, [string]$label) {
 }
 
 function Start-Bearguard([string]$root, [string]$label) {
-    Start-Process -FilePath (Join-Path $root 'Start Bearguard.bat') -WorkingDirectory $root -WindowStyle Hidden
+    # Via Explorer, so Bearguard lands in no job object: started directly from a Claude
+    # session it dies with the Claude app when that is closed for its nightly update.
+    Start-Process explorer.exe -ArgumentList ('"' + (Join-Path $root 'launch-bearguard.vbs') + '"')
     Start-Sleep -Seconds 8
     Write-Host "$label started."
 }

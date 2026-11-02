@@ -23,9 +23,16 @@ import java.util.List;
 /** Finds close-cross shapes with a scale-tolerant OpenCV template search. */
 public final class CloseCrossDetector {
 
-    private static final String CROSS_TEMPLATE = "/templates/common/closeCross.png";
-    private static final double MATCH_THRESHOLD = 55.0;
+    private static final double MATCH_THRESHOLD = 78.0;
+    private static final int GLYPH_MASK_BRIGHTNESS_THRESHOLD = 220;
     private static final double[] SCALES = {0.60, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20};
+    private static final List<TemplateSpec> CROSS_TEMPLATES = List.of(
+            new TemplateSpec("/templates/common/closeCross.png", SCALES),
+            // The reviewed Craftsman capture is native 55 px. Smaller variants matched
+            // unrelated dialog decoration in the startup-negative frame set.
+            new TemplateSpec("/templates/common/closeCrossCraftsman.png", new double[] {1.00}),
+            // The Myriad Bazaar close glyph is a compact solid white X on a pale blue backing.
+            new TemplateSpec("/templates/common/closeCrossMyriadBazaar.png", new double[] {1.00}));
     private static final int MAX_MATCHES_PER_SCALE = 12;
     private static final int MAX_RESULTS = 32;
 
@@ -89,32 +96,47 @@ public final class CloseCrossDetector {
         }
     }
 
-    /** Returns matches scoring at least 55 percent in an inclusive image-relative area. */
+    /** Returns matches meeting the configured threshold in an inclusive image-relative area. */
     private static List<Detection> search(Mat roi, int offsetX, int offsetY) {
         MatOfByte encoded = null;
         Mat template = null;
+        Mat glyphMask = null;
         List<Mat> scaledTemplates = new ArrayList<>();
         List<Detection> candidates = new ArrayList<>();
-        try (InputStream stream = CloseCrossDetector.class.getResourceAsStream(CROSS_TEMPLATE)) {
-            if (stream == null) {
-                throw new IllegalStateException("Missing close-cross template " + CROSS_TEMPLATE);
-            }
-            encoded = new MatOfByte(stream.readAllBytes());
-            template = Imgcodecs.imdecode(encoded, Imgcodecs.IMREAD_GRAYSCALE);
-            if (template.empty()) {
-                throw new IllegalStateException("Could not decode close-cross template " + CROSS_TEMPLATE);
-            }
-            for (double scale : SCALES) {
-                int width = Math.max(8, (int) Math.round(template.cols() * scale));
-                int height = Math.max(8, (int) Math.round(template.rows() * scale));
-                if (width > roi.cols() || height > roi.rows()) {
-                    continue;
+        try {
+            for (TemplateSpec templateSpec : CROSS_TEMPLATES) {
+                try (InputStream stream = CloseCrossDetector.class.getResourceAsStream(templateSpec.path())) {
+                    if (stream == null) {
+                        throw new IllegalStateException("Missing close-cross template " + templateSpec.path());
+                    }
+                    encoded = new MatOfByte(stream.readAllBytes());
+                    template = Imgcodecs.imdecode(encoded, Imgcodecs.IMREAD_GRAYSCALE);
+                    if (template.empty()) {
+                        throw new IllegalStateException("Could not decode close-cross template " + templateSpec.path());
+                    }
+                    glyphMask = createGlyphMask(template);
+                    for (double scale : templateSpec.scales()) {
+                        int width = Math.max(8, (int) Math.round(template.cols() * scale));
+                        int height = Math.max(8, (int) Math.round(template.rows() * scale));
+                        if (width > roi.cols() || height > roi.rows()) {
+                            continue;
+                        }
+                        Mat scaled = new Mat();
+                        Imgproc.resize(template, scaled, new Size(width, height), 0, 0,
+                                scale < 1 ? Imgproc.INTER_AREA : Imgproc.INTER_CUBIC);
+                        scaledTemplates.add(scaled);
+                        Mat scaledMask = new Mat();
+                        Imgproc.resize(glyphMask, scaledMask, new Size(width, height), 0, 0, Imgproc.INTER_NEAREST);
+                        scaledTemplates.add(scaledMask);
+                        findMatchesAtScale(roi, scaled, scaledMask, width, height, offsetX, offsetY, candidates);
+                    }
                 }
-                Mat scaled = new Mat();
-                Imgproc.resize(template, scaled, new Size(width, height), 0, 0,
-                        scale < 1 ? Imgproc.INTER_AREA : Imgproc.INTER_CUBIC);
-                scaledTemplates.add(scaled);
-                findMatchesAtScale(roi, scaled, width, height, offsetX, offsetY, candidates);
+                encoded.release();
+                template.release();
+                glyphMask.release();
+                encoded = null;
+                template = null;
+                glyphMask = null;
             }
             return suppressDuplicates(candidates);
         } catch (IOException ex) {
@@ -124,6 +146,7 @@ public final class CloseCrossDetector {
                 scaled.release();
             }
             if (template != null) template.release();
+            if (glyphMask != null) glyphMask.release();
             if (encoded != null) encoded.release();
         }
     }
@@ -136,32 +159,56 @@ public final class CloseCrossDetector {
         }
     }
 
-    private static void findMatchesAtScale(Mat roi, Mat template, int width, int height,
+    private static void findMatchesAtScale(Mat roi, Mat template, Mat mask, int width, int height,
             int offsetX, int offsetY, List<Detection> candidates) {
         Mat scores = new Mat();
         try {
-            Imgproc.matchTemplate(roi, template, scores, Imgproc.TM_CCOEFF_NORMED);
+            Imgproc.matchTemplate(roi, template, scores, Imgproc.TM_CCOEFF_NORMED, mask);
             for (int index = 0; index < MAX_MATCHES_PER_SCALE; index++) {
-                Core.MinMaxLocResult peak = Core.minMaxLoc(scores);
-                double score = peak.maxVal * 100.0;
-                if (!Double.isFinite(score) || score < MATCH_THRESHOLD) {
+                ScorePeak peak = bestFinitePeak(scores);
+                if (peak == null || peak.score() < MATCH_THRESHOLD) {
                     break;
                 }
-                int x = (int) Math.round(peak.maxLoc.x + offsetX);
-                int y = (int) Math.round(peak.maxLoc.y + offsetY);
+                int x = peak.x() + offsetX;
+                int y = peak.y() + offsetY;
                 Detection detection = new Detection(
                         AreaData.of(x, y, x + width - 1, y + height - 1),
                         new PointData(x + width / 2, y + height / 2),
-                        score);
+                        peak.score());
                 candidates.add(detection);
                 Imgproc.rectangle(scores,
-                        new org.opencv.core.Point(peak.maxLoc.x - width / 2.0, peak.maxLoc.y - height / 2.0),
-                        new org.opencv.core.Point(peak.maxLoc.x + width / 2.0, peak.maxLoc.y + height / 2.0),
+                        new org.opencv.core.Point(peak.x() - width / 2.0, peak.y() - height / 2.0),
+                        new org.opencv.core.Point(peak.x() + width / 2.0, peak.y() + height / 2.0),
                         new Scalar(-1.0), -1);
             }
         } finally {
             scores.release();
         }
+    }
+
+    private static ScorePeak bestFinitePeak(Mat scores) {
+        float[] values = new float[Math.toIntExact(scores.total())];
+        scores.get(0, 0, values);
+        float best = -Float.MAX_VALUE;
+        int bestIndex = -1;
+        for (int index = 0; index < values.length; index++) {
+            float candidate = values[index];
+            if (Float.isFinite(candidate) && candidate > best) {
+                best = candidate;
+                bestIndex = index;
+            }
+        }
+        return bestIndex < 0 ? null
+                : new ScorePeak(best * 100.0, bestIndex % scores.cols(), bestIndex / scores.cols());
+    }
+
+    /**
+     * Ignores changing offer artwork behind the control while retaining the bright close glyph.
+     */
+    private static Mat createGlyphMask(Mat template) {
+        Mat mask = new Mat(template.rows(), template.cols(), CvType.CV_8UC1);
+        Imgproc.threshold(template, mask, GLYPH_MASK_BRIGHTNESS_THRESHOLD, 255, Imgproc.THRESH_BINARY);
+        return mask;
     }
 
     private static Mat toGray(BufferedImage frame, AreaBounds bounds) {
@@ -274,6 +321,9 @@ public final class CloseCrossDetector {
         }
     }
 
+    private record ScorePeak(double score, int x, int y) {
+    }
+
     /** Predefined screen areas; all returned match coordinates remain relative to the full frame. */
     public enum Region {
         /** Top-left quarter of the frame. */
@@ -300,6 +350,9 @@ public final class CloseCrossDetector {
         int height() {
             return bottom - top + 1;
         }
+    }
+
+    private record TemplateSpec(String path, double[] scales) {
     }
 
 }

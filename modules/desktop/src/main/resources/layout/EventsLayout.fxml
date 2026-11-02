@@ -50,11 +50,12 @@
                         </HBox>
                         <VBox styleClass="task-section-inner">
                             <Label wrapText="true" styleClass="task-card-description"
-                                   text="Automatically participate in Journey of Light event" />
+                                   text="Keeps every expedition team flying, claims the free daily Pocket Watch and milestone rewards. Never spends Pocket Watches." />
                             <Separator style="-fx-opacity: 0.25;" />
-                            <Label wrapText="true" style="-fx-font-style: italic;"
-                                   styleClass="task-card-description"
-                                   text="No additional configuration required" />
+                            <CheckBox mnemonicParsing="false" fx:id="checkBoxJourneyofLightAssembleCommon"
+                                      text="Assemble Common - 3 Common into 1 Premium" />
+                            <CheckBox mnemonicParsing="false" fx:id="checkBoxJourneyofLightAssemblePremium"
+                                      text="Assemble Premium - 3 Premium into Exquisite (75%) or Dazzling (25%)" />
                         </VBox>
                     </VBox>
                 </VBox>

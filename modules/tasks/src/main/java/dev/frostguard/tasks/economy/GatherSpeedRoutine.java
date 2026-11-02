@@ -1,328 +1,227 @@
 package dev.frostguard.tasks.economy;
 
 import java.time.LocalDateTime;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
+import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
-import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.AreaData;
+import dev.frostguard.api.domain.ImageSearchResultData;
+import dev.frostguard.api.domain.OcrSettingsData;
+import dev.frostguard.api.domain.PointData;
+import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
+import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 
 /**
- * Task responsible for activating gathering speed boost bonuses.
- * 
- * <p>
- * This task:
- * <ul>
- * <li>Opens the Growth menu</li>
- * <li>Navigates to Gathering Speed section</li>
- * <li>Applies configured boost type (8h or 24h)</li>
- * <li>Handles purchase dialogs if boost items are not in inventory</li>
- * <li>Handles boost replacement confirmations</li>
- * <li>Reschedules based on boost duration</li>
- * </ul>
- * 
- * <p>
- * <b>Boost Types:</b>
- * <ul>
- * <li>8h Boost: 250 gems, reschedules in 8 hours</li>
- * <li>24h Boost: 600 gems, reschedules in 24 hours</li>
- * </ul>
- * 
- * <p>
- * <b>Important:</b>
- * This task should run BEFORE GatherRoutine to ensure
- * gathering marches benefit from the speed boost.
+ * Activates the Gathering Speed boost from City Bonus (the blue arrow under the chief avatar).
+ *
+ * <p>Every step is checked against the screen. The old blind version tapped the profile spot at
+ * (40,118), which the HUD moved: the City Bonus button now sits at (34,142). It then tapped empty
+ * screen and reported "Activating" every 8h without spending a gem (27 Oct 2026: 464,517 gems
+ * before and after).</p>
+ *
+ * <p>Success means the gem count fell by the boost's price, or the item was used from the
+ * backpack (no Obtain dialog). Anything unverified retries in 15 minutes with a saved frame. A
+ * "replace the active boost" prompt is declined, because the boost is already running.</p>
  */
 public class GatherSpeedRoutine extends DelayedTask {
 
-	// ========== Navigation Coordinates ==========
-	private static final PointData PROFILE_MENU_BUTTON = new PointData(40, 118);
+	static final AreaData CITY_BONUS_BUTTON_AREA = new AreaData(new PointData(0, 95), new PointData(100, 190));
+	private static final PointData CITY_BONUS_BUTTON_FALLBACK = new PointData(34, 142);
 	private static final PointData GROWTH_TAB = new PointData(530, 122);
 	private static final PointData GATHERING_SPEED_SECTION = new PointData(313, 406);
 
-	// ========== Boost Button Coordinates ==========
-	private static final PointData BOOST_8H_USE_BUTTON = new PointData(578, 568);
-	private static final PointData BOOST_24H_USE_BUTTON = new PointData(578, 718);
+	/** The Use button sits this far from the top-left of its boost row's title. */
+	static final int USE_BUTTON_DX = 482;
+	static final int USE_BUTTON_DY = 48;
 
-	// ========== Obtain Dialog Coordinates ==========
-	private static final PointData OBTAIN_DIALOG_TEXT_TOP_LEFT = new PointData(267, 126);
-	private static final PointData OBTAIN_DIALOG_TEXT_BOTTOM_RIGHT = new PointData(370, 161);
-	private static final PointData OBTAIN_BUY_BUTTON = new PointData(580, 387);
+	static final PointData GEMS_TOP_LEFT = new PointData(575, 22);
+	static final PointData GEMS_BOTTOM_RIGHT = new PointData(700, 58);
+	private static final OcrSettingsData WHITE_TEXT = OcrSettingsData.forWhiteTextOnDark();
 
-	// ========== Purchase Confirmation Dialog ==========
-	private static final PointData PURCHASE_DIALOG_TEXT_TOP_LEFT = new PointData(287, 427);
-	private static final PointData PURCHASE_DIALOG_TEXT_BOTTOM_RIGHT = new PointData(433, 465);
+	private static final PointData OBTAIN_BUY_AND_USE_BUTTON = new PointData(580, 390);
 	private static final PointData PURCHASE_DONT_SHOW_CHECKBOX = new PointData(210, 712);
 	private static final PointData PURCHASE_CONFIRM_BUTTON = new PointData(370, 790);
 
-	// ========== Boost Replacement Dialog ==========
 	private static final PointData BOOST_REPLACE_TEXT_TOP_LEFT = new PointData(235, 549);
 	private static final PointData BOOST_REPLACE_TEXT_BOTTOM_RIGHT = new PointData(580, 584);
-	private static final PointData BOOST_REPLACE_CONFIRM_BUTTON = new PointData(505, 777);
 
-	// ========== Constants ==========
-	private static final int BOOST_24H_DURATION_HOURS = 24;
-	private static final int BOOST_8H_DURATION_HOURS = 8;
-	private static final int BOOST_24H_GEM_COST = 600;
-	private static final int BOOST_8H_GEM_COST = 250;
+	private static final Pattern GEM_DIGITS = Pattern.compile("\\d[\\d,.]*");
 
-	// ========== Configuration (loaded in loadConfiguration()) ==========
 	private BoostType boostType;
 
 	public GatherSpeedRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 		super(profile, tpTask);
 	}
 
-	/**
-	 * Loads task configuration from profile.
-	 */
 	private void loadConfiguration() {
 		String boostTypeValue = profile.getConfig(
 				ConfigurationKeyEnum.GATHER_SPEED_BOOST_TYPE_STRING, String.class);
-
-		// Parse boost type from ComboBox value (e.g., "8h (250 gems)" or "24h (600
-		// gems)")
-		if (boostTypeValue != null && boostTypeValue.startsWith("24h")) {
-			this.boostType = BoostType.BOOST_24H;
-		} else {
-			this.boostType = BoostType.BOOST_8H; // Default
-		}
-
-		logDebug(String.format("Configuration loaded - Boost type: %s",
-				boostType.getName()));
+		// The ComboBox stores its label, e.g. "8h (250 gems)" or "24h (600 gems)".
+		this.boostType = boostTypeValue != null && boostTypeValue.startsWith("24h")
+				? BoostType.BOOST_24H
+				: BoostType.BOOST_8H;
 	}
 
 	@Override
 	protected void execute() {
 		loadConfiguration();
-
 		logInfo(String.format("Starting gather speed boost (%s).", boostType.getName()));
 
-		if (!navigateToGatheringSpeed()) {
-			logWarning("Failed to navigate to gathering speed menu. Rescheduling in 5 minutes.");
-			rescheduleDefault();
+		if (!openGatheringSpeed()) {
+			retryLater("the Gathering Speed boosts did not open", "navigation");
+			return;
+		}
+		ImageSearchResultData row = templateSearchHelper.locatePattern(boostType.rowTemplate(),
+				SearchConfig.builder().withMaxAttempts(2).build());
+		if (!row.isFound()) {
+			retryLater("the " + boostType.getName() + " boost row was not found", "row-missing");
+			return;
+		}
+		Long gemsBefore = readGems();
+
+		PointData rowTopLeft = row.getMatchedArea().topLeft();
+		tapNear(new PointData(rowTopLeft.getX() + USE_BUTTON_DX, rowTopLeft.getY() + USE_BUTTON_DY), 6);
+		sleepTask(1500);
+
+		boolean bought = false;
+		if (found(TemplatesEnum.GATHER_SPEED_OBTAIN_MORE_TITLE, 2)) {
+			logInfo("Boost not owned; buying and using it for " + boostType.getGemCost() + " gems.");
+			tapNear(OBTAIN_BUY_AND_USE_BUTTON, 6);
+			sleepTask(1200);
+			if (found(TemplatesEnum.GATHER_SPEED_PURCHASE_TITLE, 2)) {
+				tapNear(PURCHASE_DONT_SHOW_CHECKBOX, 4);
+				sleepTask(300);
+				tapNear(PURCHASE_CONFIRM_BUTTON, 6);
+				sleepTask(2000);
+			}
+			bought = true;
+		} else if (declineReplacementIfAsked()) {
+			closeMenu();
+			LocalDateTime recheck = LocalDateTime.now().plusHours(1);
+			logInfo("A gathering boost is already active; checking again at " + recheck.format(DATETIME_FORMATTER) + ".");
+			reschedule(recheck);
 			return;
 		}
 
-		if (!activateBoost()) {
-			logWarning("Failed to activate boost. Rescheduling in 5 minutes.");
-			rescheduleDefault();
-			return;
+		if (bought) {
+			returnToCityBonus();
+			Long gemsAfter = readGems();
+			if (!spentFor(gemsBefore, gemsAfter, boostType.getGemCost())) {
+				closeMenu();
+				retryLater("the gem count did not fall by " + boostType.getGemCost() + " (" + gemsBefore + " -> "
+						+ gemsAfter + ")", "purchase-unverified");
+				return;
+			}
+			logInfo("Boost bought and active (gems " + gemsBefore + " -> " + gemsAfter + ").");
+		} else {
+			logInfo("Boost used from the backpack.");
 		}
-
-		closeMenuAndReturn();
-
-		rescheduleForBoostDuration();
+		closeMenu();
+		LocalDateTime next = LocalDateTime.now().plusHours(boostType.getDurationHours());
+		reschedule(next);
+		logInfo("Next gather speed boost at " + next.format(DATETIME_FORMATTER) + ".");
 	}
 
 	/**
-	 * Navigates to the Gathering Speed section in the Growth menu.
-	 * 
-	 * <p>
-	 * Navigation flow:
-	 * <ol>
-	 * <li>Opens profile menu</li>
-	 * <li>Switches to Growth tab</li>
-	 * <li>Opens Gathering Speed section</li>
-	 * </ol>
-	 * 
-	 * @return true if navigation succeeded, false otherwise
+	 * True when the gem count fell by at least the price. Both counts must be read; an unreadable
+	 * count is never taken as proof of a purchase.
 	 */
-	private boolean navigateToGatheringSpeed() {
-		logDebug("Opening profile menu");
-		tapNear(PROFILE_MENU_BUTTON);
-		sleepTask(1000); // Wait for profile menu to open
-
-		logDebug("Switching to Growth tab");
-		tapNear(GROWTH_TAB);
-		sleepTask(1000); // Wait for tab to load
-
-		logDebug("Opening Gathering Speed section");
-		tapNear(GATHERING_SPEED_SECTION);
-		sleepTask(1000); // Wait for section to open
-
-		return true;
+	static boolean spentFor(Long before, Long after, int cost) {
+		return before != null && after != null && before - after >= cost;
 	}
 
-	/**
-	 * Activates the configured boost type and handles any dialogs.
-	 * 
-	 * @return true if boost was activated, false otherwise
-	 */
-	private boolean activateBoost() {
-		PointData useButton = (boostType == BoostType.BOOST_8H)
-				? BOOST_8H_USE_BUTTON
-				: BOOST_24H_USE_BUTTON;
+	/** Reads "464,517" as 464517; null when no digits are legible. */
+	static Long parseGems(String text) {
+		if (text == null) {
+			return null;
+		}
+		Matcher matcher = GEM_DIGITS.matcher(text.replace(" ", ""));
+		if (!matcher.find()) {
+			return null;
+		}
+		try {
+			return Long.parseLong(matcher.group().replaceAll("[,.]", ""));
+		} catch (NumberFormatException unreadable) {
+			return null;
+		}
+	}
 
-		logInfo(String.format("Activating %s boost (%d gems)",
-				boostType.getName(), boostType.getGemCost()));
-
-		tapNear(useButton);
-		sleepTask(500); // Wait for dialog to appear
-
-		// Handle potential "Obtain" dialog (if boost item not in inventory)
-		if (!handleObtainDialog()) {
-			logWarning("Failed to handle obtain dialog");
+	private boolean openGatheringSpeed() {
+		ImageSearchResultData button = templateSearchHelper.locatePattern(TemplatesEnum.GATHER_SPEED_CITY_BONUS_BUTTON,
+				SearchConfig.builder()
+						.withCoordinates(CITY_BONUS_BUTTON_AREA.topLeft(), CITY_BONUS_BUTTON_AREA.bottomRight())
+						.withMaxAttempts(2)
+						.build());
+		if (button.isFound()) {
+			tapInside(button);
+		} else {
+			tapNear(CITY_BONUS_BUTTON_FALLBACK, 4);
+		}
+		sleepTask(1500);
+		if (!found(TemplatesEnum.GATHER_SPEED_CITY_BONUS_TITLE, 3)) {
 			return false;
 		}
-
-		// Handle potential boost replacement confirmation
-		handleBoostReplacementDialog();
-
-		return true;
+		tapNear(GROWTH_TAB, 6);
+		sleepTask(1000);
+		tapNear(GATHERING_SPEED_SECTION, 6);
+		sleepTask(1200);
+		return found(TemplatesEnum.GATHER_SPEED_BOOST_8H_ROW, 2) || found(TemplatesEnum.GATHER_SPEED_BOOST_24H_ROW, 1);
 	}
 
-	/**
-	 * Handles the "Obtain" dialog that appears when boost item is not in inventory.
-	 * Purchases the boost item with gems if the dialog appears.
-	 * 
-	 * @return true if dialog was handled or didn't appear, false if error occurred
-	 */
-	private boolean handleObtainDialog() {
-		logDebug("Checking for Obtain dialog");
-
-		String obtainText = readStringValue(
-				OBTAIN_DIALOG_TEXT_TOP_LEFT,
-				OBTAIN_DIALOG_TEXT_BOTTOM_RIGHT,
-				null);
-
-		if (obtainText == null || obtainText.isEmpty()) {
-			logDebug("No Obtain dialog detected");
-			return true;
-		}
-
-		String cleanText = obtainText.toLowerCase().trim();
-		logDebug("Obtain dialog OCR: '" + obtainText + "'");
-
-		if (!cleanText.contains("obtain")) {
-			logDebug("Obtain dialog not present");
-			return true;
-		}
-
-		logInfo("Obtain dialog detected. Purchasing boost item.");
-
-		// Click buy button
-		tapNear(OBTAIN_BUY_BUTTON);
-		sleepTask(800); // Wait for purchase confirmation dialog
-
-		// Handle purchase confirmation
-		return handlePurchaseConfirmation();
-
+	private Long readGems() {
+		String raw = stringHelper.attemptRecognition(GEMS_TOP_LEFT, GEMS_BOTTOM_RIGHT, 3, 200L, WHITE_TEXT,
+				text -> parseGems(text) != null, String::trim);
+		return parseGems(raw);
 	}
 
-	/**
-	 * Handles the purchase confirmation dialog.
-	 * Checks "Don't show again today" and confirms purchase.
-	 * 
-	 * @return true if dialog was handled or didn't appear, false if error occurred
-	 */
-	private boolean handlePurchaseConfirmation() {
-		logDebug("Checking for purchase confirmation dialog");
-
-		String purchaseText = readStringValue(
-				PURCHASE_DIALOG_TEXT_TOP_LEFT,
-				PURCHASE_DIALOG_TEXT_BOTTOM_RIGHT,
-				null);
-
-		if (purchaseText == null || purchaseText.isEmpty()) {
-			logDebug("No purchase confirmation dialog");
-			return true;
+	/** After a purchase the game may stack a pack advert; Back clears it without buying anything. */
+	private void returnToCityBonus() {
+		for (int attempt = 0; attempt < 3 && !found(TemplatesEnum.GATHER_SPEED_CITY_BONUS_TITLE, 1); attempt++) {
+			pressBack();
+			sleepTask(1200);
 		}
-
-		String cleanText = purchaseText.toLowerCase().trim();
-		logDebug("Purchase confirmation OCR: '" + purchaseText + "'");
-
-		if (!cleanText.contains("purchase")) {
-			logDebug("Purchase confirmation not present");
-			return true;
-		}
-
-		logInfo("Purchase confirmation dialog detected.");
-
-		// Click "Don't show this confirmation again today" checkbox
-		logDebug("Checking 'Don't show again' checkbox");
-		tapNear(PURCHASE_DONT_SHOW_CHECKBOX);
-		sleepTask(300); // Wait for checkbox animation
-
-		// Click confirm button
-		logDebug("Confirming purchase");
-		tapNear(PURCHASE_CONFIRM_BUTTON);
-		sleepTask(800); // Wait for purchase to complete
-
-		logInfo("Purchase confirmed.");
-		return true;
-
 	}
 
-	/**
-	 * Handles the boost replacement confirmation dialog.
-	 * This appears when a boost is already active and user tries to apply a new
-	 * one.
-	 */
-	private void handleBoostReplacementDialog() {
-		logDebug("Checking for boost replacement dialog");
-
-		String confirmText = readStringValue(
-				BOOST_REPLACE_TEXT_TOP_LEFT,
-				BOOST_REPLACE_TEXT_BOTTOM_RIGHT,
-				null);
-
-		if (confirmText == null || confirmText.isEmpty()) {
-			logDebug("No boost replacement dialog");
-			return;
+	private boolean declineReplacementIfAsked() {
+		String text = readStringValue(BOOST_REPLACE_TEXT_TOP_LEFT, BOOST_REPLACE_TEXT_BOTTOM_RIGHT, null);
+		if (text == null) {
+			return false;
 		}
-
-		String cleanText = confirmText.toLowerCase().trim();
-		logDebug("Boost replacement OCR: '" + confirmText + "'");
-
-		// Check for key phrases
-		boolean hasActivating = cleanText.contains("activating");
-		boolean hasAnother = cleanText.contains("another");
-		boolean hasBonus = cleanText.contains("bonus");
-
-		if (hasActivating || hasAnother || hasBonus) {
-			logInfo("Boost replacement dialog detected. Confirming replacement.");
-
-			tapNear(BOOST_REPLACE_CONFIRM_BUTTON);
-			sleepTask(800); // Wait for confirmation
-
-			logInfo("Confirmed replacing existing boost.");
-		} else {
-			logDebug("Boost replacement dialog not present");
+		String clean = text.toLowerCase();
+		if (!(clean.contains("activating") || clean.contains("another") || clean.contains("bonus"))) {
+			return false;
 		}
-
-	}
-
-	/**
-	 * Closes the Growth menu and returns to home.
-	 */
-	private void closeMenuAndReturn() {
-		logDebug("Closing Growth menu");
+		logInfo("Replacement prompt for an active boost; declining.");
 		pressBack();
-		sleepTask(500); // Wait for menu to close
+		sleepTask(800);
+		return true;
 	}
 
-	/**
-	 * Reschedules the task based on the boost duration.
-	 */
-	private void rescheduleForBoostDuration() {
-		int hours = boostType.getDurationHours();
-		LocalDateTime nextSchedule = LocalDateTime.now().plusHours(hours);
-
-		reschedule(nextSchedule);
-
-		logInfo(String.format("Rescheduled for %d hours later at: %s",
-				hours, nextSchedule.format(DATETIME_FORMATTER)));
+	private boolean found(TemplatesEnum template, int attempts) {
+		return templateSearchHelper.locatePattern(template,
+				SearchConfig.builder().withMaxAttempts(attempts).build()).isFound();
 	}
 
-	/**
-	 * Reschedules the task with default timing (5 minutes) in case of errors.
-	 */
-	private void rescheduleDefault() {
-		LocalDateTime nextSchedule = LocalDateTime.now().plusMinutes(5);
-		reschedule(nextSchedule);
+	private void closeMenu() {
+		for (int attempt = 0; attempt < 3 && found(TemplatesEnum.GATHER_SPEED_CITY_BONUS_TITLE, 1); attempt++) {
+			pressBack();
+			sleepTask(800);
+		}
+	}
+
+	private void retryLater(String reason, String snapshotType) {
+		String snapshot = TaskDiagnosticSnapshots.capture(emuManager, EMULATOR_NUMBER, "gatherspeed", snapshotType);
+		closeMenu();
+		LocalDateTime retry = LocalDateTime.now().plusMinutes(15);
+		logWarning("Gather speed boost not confirmed: " + reason + ". Retrying at " + retry.format(DATETIME_FORMATTER)
+				+ "; " + snapshot + ".");
+		reschedule(retry);
 	}
 
 	@Override
@@ -335,33 +234,36 @@ public class GatherSpeedRoutine extends DelayedTask {
 		return false;
 	}
 
-	/**
-	 * Enum representing the two boost types available.
-	 */
 	private enum BoostType {
-		BOOST_24H("24h", BOOST_24H_DURATION_HOURS, BOOST_24H_GEM_COST),
-		BOOST_8H("8h", BOOST_8H_DURATION_HOURS, BOOST_8H_GEM_COST);
+		BOOST_24H("24h", 24, 600, TemplatesEnum.GATHER_SPEED_BOOST_24H_ROW),
+		BOOST_8H("8h", 8, 250, TemplatesEnum.GATHER_SPEED_BOOST_8H_ROW);
 
 		private final String name;
 		private final int durationHours;
 		private final int gemCost;
+		private final TemplatesEnum rowTemplate;
 
-		BoostType(String name, int durationHours, int gemCost) {
+		BoostType(String name, int durationHours, int gemCost, TemplatesEnum rowTemplate) {
 			this.name = name;
 			this.durationHours = durationHours;
 			this.gemCost = gemCost;
+			this.rowTemplate = rowTemplate;
 		}
 
-		public String getName() {
+		String getName() {
 			return name;
 		}
 
-		public int getDurationHours() {
+		int getDurationHours() {
 			return durationHours;
 		}
 
-		public int getGemCost() {
+		int getGemCost() {
 			return gemCost;
+		}
+
+		TemplatesEnum rowTemplate() {
+			return rowTemplate;
 		}
 	}
 }

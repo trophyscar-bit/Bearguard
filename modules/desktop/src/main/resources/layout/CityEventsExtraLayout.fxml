@@ -156,13 +156,6 @@
                                           text="Buy monthly vip (10k gems)" />
                             </FlowPane>
 
-                            <Separator style="-fx-opacity: 0.15;" />
-
-                            <FlowPane alignment="CENTER_LEFT" hgap="20" vgap="10">
-                                <CheckBox fx:id="checkBoxTrekSupplies" text="Claim Trek Supplies" />
-                                <CheckBox fx:id="checkBoxTrekAutomation"
-                                          text="Tundra Trek Automation" />
-                            </FlowPane>
                         </VBox>
                     </Tab>
                 </TabPane>

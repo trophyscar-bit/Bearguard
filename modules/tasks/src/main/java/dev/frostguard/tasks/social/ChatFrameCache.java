@@ -98,9 +98,13 @@ final class ChatFrameCache {
         if (total <= budgetBytes) {
             return;
         }
-        // By name, not by modified time: the name carries the capture stamp, and a file copied or
-        // restored keeps its place in the sequence rather than jumping to the front of it.
-        frames.sort(Comparator.comparing(p -> p.getFileName().toString()));
+        // By the capture stamp in the name, not by modified time: a file copied or restored keeps
+        // its place in the sequence rather than jumping to the front of it. Not by the whole name,
+        // which starts with the channel: "alliance-..." sorts before "world-..." whatever the time,
+        // so Alliance frames were always the oldest and were deleted first. The cache held 1,214
+        // World frames and not one Alliance frame.
+        frames.sort(Comparator.comparing((Path p) -> stampOf(p.getFileName().toString()))
+                .thenComparing(p -> p.getFileName().toString()));
         // The newest frame is never pruned, even when it alone is over budget. A budget smaller
         // than one screen would otherwise mean the cache deletes every frame the moment it writes
         // it, and the setting would read as "keep 100MB" while keeping nothing at all -- an option
@@ -114,6 +118,13 @@ final class ChatFrameCache {
                 total -= size;
             }
         }
+    }
+
+    /** {@code world-20261023-083545-1.png} -> {@code 20261023-083545-1}: the part that is a time. */
+    static String stampOf(String fileName) {
+        int dash = fileName.indexOf('-');
+        String stamp = dash < 0 ? fileName : fileName.substring(dash + 1);
+        return stamp.endsWith(".png") ? stamp.substring(0, stamp.length() - 4) : stamp;
     }
 
     /** Signals that the cache could not write, without making a capture failure out of it. */

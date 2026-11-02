@@ -12,4 +12,5 @@ class TemplatesEnumTest {
                 "/templates/home/bottombar/backpackButton.png",
                 TemplatesEnum.GAME_HOME_BOTTOM_BAR_BACKPACK_BUTTON.resourcePath());
     }
+
 }

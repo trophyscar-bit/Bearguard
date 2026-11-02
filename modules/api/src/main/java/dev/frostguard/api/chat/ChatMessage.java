@@ -44,6 +44,12 @@ public record ChatMessage(
         UNREADABLE
     }
 
+    /** The same message filed under another time, for one whose real moment was never seen. */
+    public ChatMessage withCapturedAt(Instant when) {
+        return new ChatMessage(when, channel, author, allianceTag, vipLevel, body,
+                translated, mentions, kind, quoted);
+    }
+
     /** The same message with its body rewritten, keeping the mentions that body now names. */
     public ChatMessage withBody(String rewritten) {
         return new ChatMessage(capturedAt, channel, author, allianceTag, vipLevel, rewritten,

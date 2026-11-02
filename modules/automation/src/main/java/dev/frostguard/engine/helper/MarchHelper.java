@@ -5,6 +5,8 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.FormationSlots;
 import dev.frostguard.api.domain.ImageSearchResultData;
+import dev.frostguard.api.domain.MarchActivityType;
+import dev.frostguard.api.domain.MarchMovementPhase;
 import dev.frostguard.api.domain.MarchResourceType;
 import dev.frostguard.api.domain.MarchSlotAvailability;
 import dev.frostguard.api.domain.MarchSlotState;
@@ -27,7 +29,11 @@ import dev.frostguard.vision.ocr.OcrEngine;
 import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 // Handles march-slot availability checks, rally flag interaction,
@@ -55,6 +61,12 @@ public class MarchHelper {
     private static final double ACTIVITY_ICON_THRESHOLD = 85;
     // A non-gather row icon still contributes enough non-background colour to prove the row is not idle.
     private static final int ICON_PRESENT_MIN = 500;
+    private static final double RECALL_BUTTON_THRESHOLD = 90;
+    // The recall prompt's own confirm button, the same target the Intel recall flow taps.
+    private static final AreaData RECALL_CONFIRM =
+            new AreaData(new PointData(446, 780), new PointData(578, 800));
+    private static final int RECALL_TAP_SETTLE_MS = 300;
+    private static final int RECALL_CONFIRM_SETTLE_MS = 1000;
 
     private final EmulatorController emu;
     private final String device;
@@ -79,6 +91,106 @@ public class MarchHelper {
             log.info("No idle march slot");
         }
         return anyIdle;
+    }
+
+    /**
+     * Frees one march slot by recalling a gathering march, for callers that need a slot now and
+     * cannot wait for the queue to drain on its own.
+     *
+     * <p>The march closest to finishing is chosen: recalling forfeits only the yield it had left,
+     * and troops come home with whatever they already collected. Rows whose remaining time could
+     * not be read are used only when no row carries a countdown, since picking blindly would
+     * forfeit the most productive march just as easily as the least.
+     *
+     * <p>Only rows that are gathering at the node are eligible. A returning march already frees its
+     * slot on its own, and encampments, rallies and reinforcements belong to other players' plans.
+     *
+     * @return how long the recalled march takes to get home, or {@link Optional#empty()} when no
+     *         gathering march could be recalled
+     * @throws IllegalStateException when a march was recalled but its return timer could not be
+     *         read, since the caller must not invent a time to wait
+     */
+    public Optional<Duration> recallGatherMarchToFreeSlot() {
+        openLeftMenuSection(false);
+        try {
+            List<MarchSlotState> slots = readVisibleMarchQueue();
+            RawImageData frame = emu.captureScreen(device);
+            Map<Integer, ImageSearchResultData> recallButtons = new HashMap<>();
+            for (MarchSlotState slot : slots) {
+                ImageSearchResultData button = findRecallButton(frame, slot.slot());
+                if (button.isFound()) {
+                    recallButtons.put(slot.slot(), button);
+                }
+            }
+
+            Optional<MarchSlotState> candidate = pickRecallCandidate(slots, recallButtons.keySet());
+            if (candidate.isEmpty()) {
+                log.warn("No gathering march offers a recall button; cannot free a march slot");
+                return Optional.empty();
+            }
+            MarchSlotState target = candidate.get();
+
+            log.info("Recalling gathering march in slot #" + target.slot() + " (remaining "
+                    + target.countdown() + ") to free a march slot");
+            taps.tapInside(recallButtons.get(target.slot()), 1, RECALL_TAP_SETTLE_MS);
+            taps.tapInside(RECALL_CONFIRM, 1, RECALL_CONFIRM_SETTLE_MS);
+
+            Duration home = readReturnCountdown(target.slot());
+            if (home == null) {
+                throw new IllegalStateException("Recalled the gathering march in slot #" + target.slot()
+                        + " but could not read its return timer");
+            }
+            log.info("Slot #" + target.slot() + " recalled; troops home in " + home);
+            return Optional.of(home);
+        } finally {
+            dismissLeftPanel();
+        }
+    }
+
+    private ImageSearchResultData findRecallButton(RawImageData frame, int slot) {
+        AreaData row = CommonGameAreas.MARCH_QUEUE_ACTION[slot - 1];
+        return emu.locatePattern(device, frame, TemplatesEnum.MARCHES_AREA_RECALL_BUTTON,
+                row.topLeft(), row.bottomRight(), RECALL_BUTTON_THRESHOLD);
+    }
+
+    /**
+     * Chooses which gathering march to recall: the one closest to finishing, among the rows that
+     * actually offer a recall button. A row whose remaining time could not be read is a last
+     * resort, because it is as likely to be the most productive march as the least.
+     */
+    static Optional<MarchSlotState> pickRecallCandidate(List<MarchSlotState> slots,
+                                                        Set<Integer> slotsWithRecallButton) {
+        MarchSlotState best = null;
+        for (MarchSlotState slot : slots) {
+            if (slot.activityType() != MarchActivityType.GATHER
+                    || slot.movementPhase() != MarchMovementPhase.WORKING
+                    || !slotsWithRecallButton.contains(slot.slot())) {
+                continue;
+            }
+            if (best == null || isCloserToDone(slot, best)) {
+                best = slot;
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private static boolean isCloserToDone(MarchSlotState candidate, MarchSlotState best) {
+        if (candidate.countdown() == null) {
+            return false;
+        }
+        return best.countdown() == null || candidate.countdown().compareTo(best.countdown()) < 0;
+    }
+
+    /** Re-reads the recalled row so the caller waits on the real return timer, not an assumed one. */
+    private Duration readReturnCountdown(int slot) {
+        List<MarchSlotState> after = readVisibleMarchQueue();
+        return after.stream()
+                .filter(state -> state.slot() == slot)
+                .filter(state -> state.movementPhase() == MarchMovementPhase.RETURNING)
+                .map(MarchSlotState::countdown)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(null);
     }
 
     // Reads every March Queue row from a single screenshot. Text is deliberately avoided: the status

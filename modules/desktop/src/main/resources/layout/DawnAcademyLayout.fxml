@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import dev.frostguard.app.shared.PriorityListView?>
+
+<VBox maxHeight="Infinity" maxWidth="Infinity"
+      HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
+      xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
+    <children>
+        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="task-page-scroll"
+                    vbarPolicy="AS_NEEDED" VBox.vgrow="ALWAYS">
+            <content>
+                <VBox styleClass="task-page-root" maxHeight="Infinity" maxWidth="Infinity">
+                    <children>
+
+                        <VBox styleClass="content-card">
+                            <children>
+                                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                    <children>
+                                        <Label text="Dawn Academy" />
+                                    </children>
+                                </HBox>
+                                <VBox styleClass="task-section-inner">
+                                    <children>
+                                        <Label styleClass="task-card-description" wrapText="true"
+                                               text="The Experts' building (Fire Crystal Age). One pass keeps the learning queue busy, claims the free Trek Supplies and spends them on Auto Trek. Gem buttons are never tapped, except the daily Trek Supply buys when ticked." />
+                                        <Separator style="-fx-opacity: 0.25;" />
+                                        <CheckBox fx:id="checkBoxDawnAcademy" mnemonicParsing="false"
+                                                  text="Enable Dawn Academy" />
+                                    </children>
+                                </VBox>
+                            </children>
+                        </VBox>
+
+                        <VBox fx:id="dawnAcademyOptions" spacing="12">
+                            <children>
+                                <VBox styleClass="content-card">
+                                    <children>
+                                        <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                            <children>
+                                                <Label text="Learning" />
+                                            </children>
+                                        </HBox>
+                                        <VBox styleClass="task-section-inner" spacing="10">
+                                            <children>
+                                                <CheckBox fx:id="checkBoxLearning" mnemonicParsing="false"
+                                                          text="Keep the learning queue busy" />
+                                                <CheckBox fx:id="checkBoxUpgradeSkills" mnemonicParsing="false"
+                                                          text="Upgrade a skill when its Learning XP is full (spends Books of Knowledge)" />
+                                                <Label styleClass="task-card-description" wrapText="true"
+                                                       text="Picks the shortest learning time that fills the XP bar: 10m, 2h, 10h or 23h. XP past the bar carries over to the next level." />
+                                                <Separator style="-fx-opacity: 0.25;" />
+                                                <Label styleClass="task-card-description" wrapText="true"
+                                                       text="Skill priority (drag to reorder, untick to skip). With none ticked, the first unlocked skill of the Expert shown is learned." />
+                                                <PriorityListView fx:id="skillPriorities" prefHeight="220" maxWidth="Infinity" />
+                                            </children>
+                                        </VBox>
+                                    </children>
+                                </VBox>
+
+                                <VBox styleClass="content-card">
+                                    <children>
+                                        <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                            <children>
+                                                <Label text="Gifts" />
+                                            </children>
+                                        </HBox>
+                                        <VBox styleClass="task-section-inner" spacing="10">
+                                            <children>
+                                                <CheckBox fx:id="checkBoxAdvanceRelationships" mnemonicParsing="false"
+                                                          text="Advance Expert relationships when the shards cover it (flame bubble)" />
+                                                <HBox alignment="CENTER_LEFT" spacing="10">
+                                                    <children>
+                                                        <CheckBox fx:id="checkBoxGiftCompasses" mnemonicParsing="false"
+                                                                  text="Give every Compass to" />
+                                                        <ComboBox fx:id="comboGiftExpert" prefWidth="140.0" />
+                                                    </children>
+                                                </HBox>
+                                                <CheckBox fx:id="checkBoxGiftTopOff" mnemonicParsing="false"
+                                                          text="First top off any other Expert within 200 Affinity (20 Compasses) of a level" />
+                                                <CheckBox fx:id="checkBoxGiftHeartsSails" mnemonicParsing="false"
+                                                          text="Also give the focus Expert Fiery Hearts, then Sails, up to the next 10-level gate" />
+                                                <Label styleClass="task-card-description" wrapText="true"
+                                                       text="Gifts are one pool for every Expert. An Expert takes gifts only once settled in the Academy (1,000 Affinity from treks); until then Compasses are kept. Compasses go first; Fiery Hearts and Sails follow only when ticked, and never past the gate the game caps the slider at." />
+                                            </children>
+                                        </VBox>
+                                    </children>
+                                </VBox>
+
+                                <VBox styleClass="content-card">
+                                    <children>
+                                        <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                            <children>
+                                                <Label text="Trek" />
+                                            </children>
+                                        </HBox>
+                                        <VBox styleClass="task-section-inner" spacing="10">
+                                            <children>
+                                                <CheckBox fx:id="checkBoxClaimSupplies" mnemonicParsing="false"
+                                                          text="Claim the free Trek Supplies (08:00 and 20:00 UTC)" />
+                                                <CheckBox fx:id="checkBoxBuySupplies" mnemonicParsing="false"
+                                                          text="Buy the day's 4 gem Trek Supply packs (1,000 gems each, once a day)" />
+                                                <CheckBox fx:id="checkBoxTundraTrek" mnemonicParsing="false"
+                                                          text="Spend Trek Supplies on Tundra Trek (Auto, auto-managed)" />
+                                                <CheckBox fx:id="checkBoxFrontierTrek" mnemonicParsing="false"
+                                                          text="Spend Frontier Supplies on Frontier Trek (Auto, auto-managed)" />
+                                                <CheckBox fx:id="checkBoxWayfarer" mnemonicParsing="false"
+                                                          text="Claim the free Endless Wayfarer rewards" />
+                                                <CheckBox fx:id="checkBoxAchievements" mnemonicParsing="false"
+                                                          text="Claim finished Academy Achievements" />
+                                                <Label styleClass="task-card-description" wrapText="true"
+                                                       text="Auto Trek runs with 'Auto-manage options and mini-games' ticked, so the game answers every encounter. Frontier Trek uses whichever Expert is assigned in game." />
+                                            </children>
+                                        </VBox>
+                                    </children>
+                                </VBox>
+                            </children>
+                        </VBox>
+
+                    </children>
+                </VBox>
+            </content>
+        </ScrollPane>
+    </children>
+</VBox>

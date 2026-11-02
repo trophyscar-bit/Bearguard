@@ -10,8 +10,30 @@ import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.engine.alliance.AllianceGiftLedger;
+import dev.frostguard.engine.alliance.AllianceGiftLedger.GiftRow;
+import dev.frostguard.engine.alliance.AllianceSpendReport;
+import dev.frostguard.engine.alliance.PackLinks;
+import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.vision.convert.GameTimeUtils;
+import dev.frostguard.vision.convert.ImageConverter;
+import dev.frostguard.vision.ocr.ChatTextReader;
+import dev.frostguard.vision.ocr.OnnxOcrReader;
+import dev.frostguard.vision.ocr.PaddleOcrClient;
+import dev.frostguard.vision.ocr.TextLine;
+import java.awt.image.BufferedImage;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.BiPredicate;
+import javax.imageio.ImageIO;
 
 public class AllianceChestRoutine extends DelayedTask {
 
@@ -21,12 +43,16 @@ private static final int CLAIM_WAIT_TIME_MS = 1500;
 
 private static final int SHORT_WAIT_TIME_MS = 300;
 
+/** Set when Back from a followed pack link did not bring the gift list back; nothing more is tapped blind. */
+private boolean lostTheList;
+
 public AllianceChestRoutine(AccountDescriptor profile, TpDailyTaskEnum tpDailyTask) {
 		super(profile, tpDailyTask);
 	}
 
 @Override
 	protected void execute() {
+		lostTheList = false;
 
 		if (!reachAllianceScreen()) {
 			deferAndExit("Failed to navigate to alliance screen");
@@ -42,7 +68,9 @@ public AllianceChestRoutine(AccountDescriptor profile, TpDailyTaskEnum tpDailyTa
 		int allianceGiftsCollected = 0;
 		allianceGiftsCollected += gatherLootChests();
 		allianceGiftsCollected += gatherAllianceGifts();
-		allianceGiftsCollected += gatherHonorChest();
+		if (!lostTheList) {
+			allianceGiftsCollected += gatherHonorChest();
+		}
 
 		// Count what was actually collected this pass, not a per-run +1. The
 		// per-row individual-gift loop reports a true claimed count; the loot claim and (config-
@@ -141,6 +169,9 @@ private int gatherAllianceGifts() {
 		tapInside(new PointData(410, 375), new PointData(626, 420));
 		sleepTask(TAB_CHANGE_WAIT_TIME_MS);
 
+		if (Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ENABLED_BOOL, Boolean.class))) {
+			logGiftList();
+		}
 
 		ImageSearchResultData claimAllButton = templateSearchHelper.locatePattern(
 				TemplatesEnum.ALLIANCE_CHEST_CLAIM_ALL_BUTTON,
@@ -162,7 +193,328 @@ private int gatherAllianceGifts() {
 			giftsCollected = gatherIndividualGifts();
 		}
 		sleepTask(SHORT_WAIT_TIME_MS);
+		if (Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ENABLED_BOOL, Boolean.class))) {
+			followPackLinks();
+		}
 		return giftsCollected;
+	}
+
+private static final double OCR_MIN_CONFIDENCE = 0.60;
+
+private static final int KEEP_PASS_PHOTOS_DAYS = 7;
+
+/**
+ * A short, slow drag. The list travels about 1.5x the drag (a 300px drag moved it 295 to 460px
+ * on the live passes, leaving under one card of overlap); 160px keeps about two cards shared.
+ */
+private static final int SWIPE_FROM_Y = 1000;
+private static final int SWIPE_TO_Y = 840;
+private static final int SWIPE_MS = 1500;
+
+/**
+ * Screens a pass may read. The list ran past 41 screens (55 cards) three times on 2026-10-27,
+ * when the setting was 40, so a lower saved setting is raised to this.
+ */
+private static final int MIN_SCROLLS = 80;
+
+/** Tries at one pass; the list redraws at the top when a gift arrives mid-pass. */
+private static final int MAX_PASS_ATTEMPTS = 3;
+
+/** Below this the list did not move, i.e. the bottom has been reached. */
+private static final int END_OF_LIST_SHIFT_PX = 8;
+
+/**
+ * Photographs and reads the whole Alliance Gifts list before anything is claimed, and logs the
+ * purchases that arrived since the last pass. Never stops the claim: any failure here is logged
+ * and the pass carries on.
+ */
+private void logGiftList() {
+		boolean anonymise = Boolean.TRUE.equals(
+				profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ANONYMIZE_BOOL, Boolean.class));
+		Integer configuredScrolls = profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_MAX_SCROLLS_INT, Integer.class);
+		int maxScrolls = Math.max(MIN_SCROLLS, configuredScrolls == null ? 0 : configuredScrolls);
+		LocalDateTime started = LocalDateTime.now();
+		AllianceGiftLedger ledger = AllianceGiftLedger.forWorkspace(dev.frostguard.api.runtime.WorkspacePaths.current().root());
+		Path passDir = ledger.passDir(started);
+		ChatTextReader reader = null;
+		int screens = 0;
+		try {
+			reader = openReader();
+			if (reader == null) {
+				logWarning(routineLogAllianceChestLine("Alliance Spend | no OCR reader is up; saving photographs only."));
+			}
+			java.nio.file.Files.createDirectories(passDir);
+			Map<String, List<TextLine>> linesByFrame = new LinkedHashMap<>();
+			List<GiftRow> rows = new ArrayList<>();
+			boolean reachedEnd = false;
+			boolean lostTrack = false;
+			for (int attempt = 0; attempt < MAX_PASS_ATTEMPTS; attempt++) {
+				linesByFrame.clear();
+				rows.clear();
+				reachedEnd = false;
+				lostTrack = false;
+				boolean redrawn = false;
+				String prefix = attempt == 0 ? "" : "r" + attempt + "-";
+				BufferedImage previous = null;
+				int scrolledBy = 0;
+				int screensThisTry = 0;
+				for (int i = 0; i <= maxScrolls; i++) {
+					BufferedImage image = screenNow();
+					if (image == null) {
+						logWarning(routineLogAllianceChestLine("Alliance Spend | screen capture failed at screen " + i + "."));
+						lostTrack = true;
+						break;
+					}
+					if (previous != null) {
+						AllianceGiftLedger.ShiftMatch match = AllianceGiftLedger.scrollMatch(previous, image,
+								AllianceGiftLedger.EXPECTED_TRAVEL_PX);
+						if (match.shift() < 0) {
+							ImageIO.write(image, "png", passDir.resolve(prefix + String.format("%03d-unaligned.png", i)).toFile());
+							lostTrack = true;
+							redrawn = match.redrawn();
+							logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i + " does not line up with the one before"
+									+ (redrawn ? " (the list was redrawn, e.g. a new gift arrived)" : "") + "."));
+							break;
+						}
+						if (match.shift() <= END_OF_LIST_SHIFT_PX) {
+							// One drag in the middle of the list was once ignored (2026-10-27 13:49, 7 of 50
+							// cards); only a second drag that also does not move it is the bottom.
+							swipe(new PointData(330, SWIPE_FROM_Y), new PointData(330, SWIPE_TO_Y), SWIPE_MS);
+							sleepTask(700);
+							BufferedImage again = screenNow();
+							AllianceGiftLedger.ShiftMatch retry = again == null ? match
+									: AllianceGiftLedger.scrollMatch(previous, again, AllianceGiftLedger.EXPECTED_TRAVEL_PX);
+							if (retry.shift() >= 0 && retry.shift() <= END_OF_LIST_SHIFT_PX) {
+								reachedEnd = true;
+								break;
+							}
+							if (retry.shift() < 0) {
+								ImageIO.write(again, "png", passDir.resolve(prefix + String.format("%03d-unaligned.png", i)).toFile());
+								lostTrack = true;
+								redrawn = retry.redrawn();
+								logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i
+										+ " does not line up after a second drag."));
+								break;
+							}
+							image = again;
+							match = retry;
+						}
+						scrolledBy += match.shift();
+					}
+					String name = prefix + String.format("%03d.png", i);
+					ImageIO.write(image, "png", passDir.resolve(name).toFile());
+					screens++;
+					screensThisTry++;
+					if (reader != null) {
+						List<TextLine> lines = reader.read(image, AllianceGiftLedger.TEXT_LEFT, AllianceGiftLedger.LIST_TOP,
+								AllianceGiftLedger.TEXT_RIGHT, AllianceGiftLedger.LIST_BOTTOM, "en", OCR_MIN_CONFIDENCE);
+						linesByFrame.put(name, lines);
+						rows.addAll(AllianceGiftLedger.parseFrame(lines, LocalDateTime.now(), name, scrolledBy));
+					}
+					previous = image;
+					swipe(new PointData(360, SWIPE_FROM_Y), new PointData(360, SWIPE_TO_Y), SWIPE_MS);
+					sleepTask(700);
+				}
+				if (!redrawn || attempt + 1 >= MAX_PASS_ATTEMPTS) {
+					break;
+				}
+				// A redrawn list starts again from the top; so does the pass.
+				logInfo(routineLogAllianceChestLine("Alliance Spend | starting the pass again from the top."));
+				for (int k = 0; k < screensThisTry / 2 + 3; k++) {
+					swipe(new PointData(360, 600), new PointData(360, 1080), 250);
+				}
+				sleepTask(1000);
+			}
+			List<GiftRow> list = AllianceGiftLedger.stitch(rows);
+			ledger.writePassEvidence(passDir, linesByFrame, list);
+			if (reader == null || lostTrack) {
+				logWarning(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens saved, nothing logged. Frames: "
+						+ passDir));
+			} else {
+				if (!reachedEnd) {
+					logWarning(routineLogAllianceChestLine("Alliance Spend | stopped after " + screens
+							+ " screens without reaching the bottom; raise Max scrolls if the list is longer."));
+				}
+				AllianceGiftLedger.PassResult result = ledger.recordPass(list, anonymise, reachedEnd);
+				if (result.afterGap()) {
+					logWarning(routineLogAllianceChestLine("Alliance Spend | the last logged list has left the gift list;"
+							+ " logging all " + result.fresh() + " listed purchases as new, marked afterGap. Frames: " + passDir));
+				} else if (!result.aligned()) {
+					logWarning(routineLogAllianceChestLine("Alliance Spend | the last pass's newest rows are not in this list;"
+							+ " nothing logged this pass, list kept as the new reference. Frames: " + passDir));
+				}
+				logInfo(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens, " + result.listed()
+						+ " purchases in the list, " + result.fresh() + " new" + (result.firstPass() ? " (first pass: backlog)" : "")
+						+ ". Frames: " + passDir));
+			}
+			ledger.prunePasses(LocalDateTime.now(), KEEP_PASS_PHOTOS_DAYS);
+		} catch (RuntimeException | java.io.IOException e) {
+			logWarning(routineLogAllianceChestLine("Alliance Spend | gift logging failed: " + e + ". Claiming anyway."));
+		} finally {
+			if (reader instanceof OnnxOcrReader onnx) {
+				onnx.close();
+			}
+		}
+		for (int i = 0; i < screens / 2 + 2; i++) {
+			swipe(new PointData(360, 600), new PointData(360, 1080), 250);
+		}
+		sleepTask(SHORT_WAIT_TIME_MS);
+	}
+
+/** Links followed per pass; any further unknown packs wait for the next pass, an hour later. */
+private static final int MAX_LINKS_PER_PASS = 5;
+
+private static final int LINK_PAGE_WAIT_MS = 2500;
+
+/** Backs tried to get from a followed link back to the gift list. */
+private static final int MAX_BACKS = 3;
+
+/** A card whose text ends this far above the list's bottom edge is whole, so a missing link is real. */
+private static final int WHOLE_CARD_PX = 110;
+
+/**
+ * For every pack on the gift list whose price is not known, follows the pack name's link, saves
+ * and reads the page it opens, and presses Back; nothing on that page is tapped. Walks the whole
+ * list screen by screen, up to {@link #MAX_LINKS_PER_PASS} links a pass. A pack whose name is not
+ * a link is recorded as not on sale; both that and a page with no price are retried a day later
+ * (see {@link PackLinks#due}). Stops, and sets {@link #lostTheList}, if Back does not bring the
+ * gift list back.
+ */
+private void followPackLinks() {
+		ChatTextReader reader = null;
+		int scrolls = 0;
+		try {
+			Path workspace = dev.frostguard.api.runtime.WorkspacePaths.current().root();
+			PackLinks links = new PackLinks(AllianceGiftLedger.forWorkspace(workspace).root());
+			BiPredicate<String, String> known = AllianceSpendReport.knownPrice(workspace);
+			reader = openReader();
+			if (reader == null) {
+				return;
+			}
+			Integer configuredScrolls = profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_MAX_SCROLLS_INT, Integer.class);
+			int maxScrolls = Math.max(MIN_SCROLLS, configuredScrolls == null ? 0 : configuredScrolls);
+			Set<String> handled = new HashSet<>();
+			int followed = 0;
+			BufferedImage screen = screenNow();
+			while (screen != null && followed < MAX_LINKS_PER_PASS && scrolls <= maxScrolls) {
+				List<GiftRow> rows = AllianceGiftLedger.parseFrame(reader.read(screen, AllianceGiftLedger.TEXT_LEFT,
+						AllianceGiftLedger.LIST_TOP, AllianceGiftLedger.TEXT_RIGHT, AllianceGiftLedger.LIST_BOTTOM, "en",
+						OCR_MIN_CONFIDENCE), LocalDateTime.now(), "links", 0);
+				List<PackLinks.Target> targets = PackLinks.find(screen);
+				BufferedImage backOnList = null;
+				for (GiftRow row : rows) {
+					String pack = row.pack();
+					if (pack == null || !handled.add(packKey(pack))) {
+						continue;
+					}
+					LocalDateTime now = LocalDateTime.now();
+					if (known.test(pack, row.tier()) || !links.due(pack, now)) {
+						continue;
+					}
+					PackLinks.Target target = PackLinks.inCard(targets, row.listY());
+					if (target == null) {
+						if (row.listY() + WHOLE_CARD_PX < AllianceGiftLedger.LIST_BOTTOM) {
+							links.recordNotALink(pack, now);
+							logInfo(routineLogAllianceChestLine("Alliance Spend | \"" + pack
+									+ "\" is not a link (not on sale now); will look again tomorrow."));
+						} else {
+							handled.remove(packKey(pack));
+						}
+						continue;
+					}
+					tapInside(new PointData(target.x() - 4, target.y() - 2), new PointData(target.x() + 4, target.y() + 2));
+					sleepTask(LINK_PAGE_WAIT_MS);
+					BufferedImage page = screenNow();
+					List<TextLine> pageLines = page == null ? List.of()
+							: reader.read(page, 0, 0, page.getWidth(), page.getHeight(), "en", OCR_MIN_CONFIDENCE);
+					PackLinks.Page seen = links.record(pack, page, pageLines, now);
+					followed++;
+					logInfo(routineLogAllianceChestLine("Alliance Spend | followed the link of \"" + pack + "\": price "
+							+ seen.price() + " (all on page " + seen.prices() + "), page saved to " + seen.frame()));
+					// An event page can sit a level or two deeper than a pack card; allow up to three Backs.
+					BufferedImage back = null;
+					for (int backs = 1; backs <= MAX_BACKS; backs++) {
+						pressBack();
+						sleepTask(1500);
+						back = screenNow();
+						if (back != null && PackLinks.sameHeader(screen, back)) {
+							break;
+						}
+						links.saveLostScreen(pack, back, backs);
+						back = null;
+					}
+					if (back == null) {
+						lostTheList = true;
+						logWarning(routineLogAllianceChestLine("Alliance Spend | " + MAX_BACKS + " Backs from \"" + pack
+								+ "\" did not return to the gift list; stopping here. Screens: pack-links/"));
+						return;
+					}
+					// Back may leave the list scrolled elsewhere; read it again where it is.
+					backOnList = back;
+					break;
+				}
+				if (backOnList != null) {
+					screen = backOnList;
+					continue;
+				}
+				swipe(new PointData(360, SWIPE_FROM_Y), new PointData(360, SWIPE_TO_Y), SWIPE_MS);
+				sleepTask(700);
+				scrolls++;
+				BufferedImage next = screenNow();
+				if (next == null) {
+					break;
+				}
+				int shift = AllianceGiftLedger.scrollShift(screen, next);
+				if (shift >= 0 && shift <= END_OF_LIST_SHIFT_PX) {
+					break;
+				}
+				screen = next;
+			}
+		} catch (RuntimeException | java.io.IOException e) {
+			logWarning(routineLogAllianceChestLine("Alliance Spend | following pack links failed: " + e));
+		} finally {
+			if (reader instanceof OnnxOcrReader onnx) {
+				onnx.close();
+			}
+		}
+		if (!lostTheList) {
+			for (int i = 0; i < scrolls / 2 + 2; i++) {
+				swipe(new PointData(360, 600), new PointData(360, 1080), 250);
+			}
+			sleepTask(SHORT_WAIT_TIME_MS);
+		}
+	}
+
+/** A pack name with case, spacing and punctuation dropped, so two reads of one pack match. */
+private static String packKey(String pack) {
+		return pack.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "");
+	}
+
+private ChatTextReader openReader() {
+		Path here = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
+		for (Path up = here; up != null; up = up.getParent()) {
+			for (Path candidate : new Path[] {up.resolve("lib").resolve("ocr-models"),
+					up.resolve("tools").resolve("ocr").resolve("onnx")}) {
+				if (OnnxOcrReader.isAvailable(candidate)) {
+					try {
+						return new OnnxOcrReader(candidate);
+					} catch (Exception e) {
+						logWarning(routineLogAllianceChestLine("Alliance Spend | could not open the in-process reader: "
+								+ e.getMessage()));
+					}
+				}
+			}
+		}
+		PaddleOcrClient paddle = new PaddleOcrClient("127.0.0.1", 6975);
+		return paddle.isUp() ? paddle : null;
+	}
+
+private BufferedImage screenNow() {
+		RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+		if (frame == null || !frame.isValid()) {
+			return null;
+		}
+		return ImageConverter.toBufferedImage(frame);
 	}
 
 private void restoreHomeScreen() {
