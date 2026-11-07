@@ -40,6 +40,43 @@
             </ScrollPane>
         </Tab>
 
+        <Tab text="Mergeventure" closable="false">
+            <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
+                <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">
+                    <VBox styleClass="content-card">
+                        <HBox styleClass="header-yellow" maxWidth="Infinity" alignment="CENTER_LEFT">
+                            <CheckBox text="Mergeventure" style="-fx-font-weight: bold;"
+                                      mnemonicParsing="false" fx:id="checkBoxMergeventure" />
+                        </HBox>
+                        <VBox styleClass="task-section-inner">
+                            <Label wrapText="true" styleClass="task-card-description"
+                                   text="Plays the merge board while the event's icon is on the City rail: spends Merge Energy on the wheat field, merges and unburies pieces, feeds Jessie, then claims missions and rewards. Comes back when energy recovers. Never buys energy or packs." />
+                            <Separator style="-fx-opacity: 0.25;" />
+                            <CheckBox mnemonicParsing="false" fx:id="checkBoxMergeventureBoard"
+                                      text="Play the board - spend energy, merge everything, drain the storage bubble" />
+                            <CheckBox mnemonicParsing="false" fx:id="checkBoxMergeventureUseMax"
+                                      text="Use max-level pieces - coins, energy crates, chests, fruit baskets for Jessie" />
+                            <CheckBox mnemonicParsing="false" fx:id="checkBoxMergeventureMissions"
+                                      text="Claim Daily Missions" />
+                            <CheckBox mnemonicParsing="false" fx:id="checkBoxMergeventureAtlasPath"
+                                      text="Bank Atlas star cards and claim Path milestones" />
+                            <CheckBox mnemonicParsing="false" fx:id="checkBoxMergeventureHarvest"
+                                      text="Claim free Harvest Rhapsody rewards" />
+                            <CheckBox mnemonicParsing="false" fx:id="checkBoxMergeventureCaravan"
+                                      text="Spend coins in the Caravan" />
+                            <CheckBox mnemonicParsing="false" fx:id="checkBoxMergeventureSaveSojourner"
+                                      text="Bank coins for the Sojourner Caravan (10,000, +1% troop attack) first" />
+                            <HBox spacing="10" alignment="CENTER_LEFT">
+                                <Label text="Spend leftover coins in the last" styleClass="task-field-label" />
+                                <TextField prefWidth="50.0" fx:id="textfieldMergeventureSpendHours" />
+                                <Label text="hours of the board" styleClass="task-field-label" />
+                            </HBox>
+                        </VBox>
+                    </VBox>
+                </VBox>
+            </ScrollPane>
+        </Tab>
+
         <Tab text="Journey of Light" closable="false">
             <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
                 <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">

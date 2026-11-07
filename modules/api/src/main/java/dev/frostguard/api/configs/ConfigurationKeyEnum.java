@@ -564,6 +564,19 @@ public enum ConfigurationKeyEnum {
     EVENT_BROTHERS_IN_ARMS_CLAIM_BOOL    ("false",   Boolean.class,  ConfigCategory.EVENTS),
     EVENT_ENDLESS_TRIAL_BOOL             ("false",   Boolean.class,  ConfigCategory.EVENTS),
 
+    // Mergeventure, the merge-board event. Coins only buy from its Caravan, which stays open a
+    // day after the board closes, so by default they are banked for the 10,000-coin Sojourner
+    // Caravan and the rest is spent in the board's last hours.
+    MERGEVENTURE_ENABLED_BOOL            ("false",   Boolean.class,  ConfigCategory.EVENTS),
+    MERGEVENTURE_PLAY_BOARD_BOOL         ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    MERGEVENTURE_USE_MAX_PIECES_BOOL     ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    MERGEVENTURE_MISSIONS_BOOL           ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    MERGEVENTURE_ATLAS_PATH_BOOL         ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    MERGEVENTURE_HARVEST_BOOL            ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    MERGEVENTURE_CARAVAN_BOOL            ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    MERGEVENTURE_SAVE_FOR_SOJOURNER_BOOL ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    MERGEVENTURE_SPEND_HOURS_INT         ("4",       Integer.class,  ConfigCategory.EVENTS),
+
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
     // weeks) -- checked once a day, no-ops when nothing's there.

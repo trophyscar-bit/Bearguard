@@ -150,7 +150,8 @@ public enum TemplatesEnum {
     // to spawn one) and "Attack a Cryptid" (one is already on the map, free) -
     // so both are matched rather than assuming a single label.
     GINAS_REVENGE_TAB, CRYPTID_FIND_BUTTON, CRYPTID_ATTACK_BUTTON,
-    ENDLESS_TRIAL_TAB, ENDLESS_TRIAL_ATTACK_BUTTON, ENDLESS_TRIAL_RESULT_CONFIRM_BUTTON;
+    ENDLESS_TRIAL_TAB, ENDLESS_TRIAL_ATTACK_BUTTON, ENDLESS_TRIAL_RESULT_CONFIRM_BUTTON,
+    MERGEVENTURE_CITY_ICON, MERGEVENTURE_GO_MERGE_BUTTON, MERGEVENTURE_OBTAIN_MORE_TITLE;
 
     /* ================================================================
      *  Functional area taxonomy for batch queries and filtering.

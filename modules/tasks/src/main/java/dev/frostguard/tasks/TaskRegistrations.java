@@ -71,6 +71,7 @@ public class TaskRegistrations {
             case EVENT_HERO_RALLY_CLAIM -> new HeroRallyClaimRoutine(profile, type);
             case EVENT_LUCKY_CHIP_SUPPLY -> new LuckyChipSupplyRoutine(profile, type);
             case EVENT_ENDLESS_TRIAL -> new EndlessTrialRoutine(profile, type);
+            case EVENT_MERGEVENTURE -> new MergeventureRoutine(profile, type);
             case SHOP_CUSTOM_ARMAMENT_CHEST -> new CustomArmamentChestRoutine(profile, type);
             case SHOP_DAILY_DEALS_FREE_CHEST -> new DailyDealsFreeChestRoutine(profile, type);
             case RESEARCH -> new ResearchRoutine(profile, type);
