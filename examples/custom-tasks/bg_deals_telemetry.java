@@ -114,6 +114,12 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
     private static final int PANEL_RECHECK_MS = 1500;
     private static final int PANEL_OPEN_CHECKS = 4;
     private static final int PANEL_OPEN_ATTEMPTS = 2;
+    /**
+     * A panel that throws is surveyed once more after a pause. On 2026-11-07 the emulator's screencap failed for
+     * about 15 seconds; Gem Shop, Deals and Events each died on it, and the night's scan read 2 offers.
+     */
+    private static final int PANEL_SURVEY_RUNS = 2;
+    private static final int PANEL_RETRY_DELAY_MS = 30_000;
     private static final int TAB_SETTLE_MS = 2000;
     private static final int SCROLL_SETTLE_MS = 1600;
     private static final int BACK_SETTLE_MS = 1200;
@@ -728,48 +734,61 @@ public class bg_deals_telemetry extends DelayedTask implements CustomTaskConfigu
      *                    or {@code null} when the shortcut has no fixed position
      */
     private void surveyTemplatePanel(String surface, TemplatesEnum shortcut, PointData hudFallback) {
-        try {
-            for (int attempt = 1; attempt <= PANEL_OPEN_ATTEMPTS; attempt++) {
-                if (!returnToCity()) {
-                    problems.add(surface + ": skipped because the city view could not be confirmed first.");
-                    recordCoverage(surface, false, null, null, "city view not confirmed");
+        for (int run = 1; run <= PANEL_SURVEY_RUNS; run++) {
+            try {
+                surveyTemplatePanelOnce(surface, shortcut, hudFallback);
+                return;
+            } catch (RuntimeException failed) {
+                if (run == PANEL_SURVEY_RUNS) {
+                    recordFailure(surface, failed);
                     return;
                 }
-                ImageSearchResultData button = templateSearchHelper.locatePattern(
-                        shortcut, SearchConfigConstants.SINGLE_WITH_RETRIES);
-                if (button.isFound()) {
-                    tapNear(button.getPoint());
-                } else if (hudFallback != null) {
-                    logWarning("bg_deals_telemetry | " + surface + " shortcut template did not match; trying its "
-                            + "fixed top-bar position " + hudFallback.getX() + "," + hudFallback.getY() + ".");
-                    tapNear(hudFallback);
-                } else {
-                    problems.add(surface + ": shortcut not found on the city view; surface skipped.");
-                    recordCoverage(surface, false, null, null, "shortcut not found on the city view");
-                    logWarning("bg_deals_telemetry | " + surface + " shortcut not found; skipping it.");
-                    return;
-                }
-                RawImageData opened = awaitTabbedPanel();
-                if (opened == null) {
-                    surveyTabbedPanel(surface);
-                    return;
-                }
-                // The frame the check rejected is the only evidence of what covered or replaced the panel.
-                String evidence = saveFrame(opened);
-                if (attempt < PANEL_OPEN_ATTEMPTS) {
-                    logWarning("bg_deals_telemetry | " + surface + " showed no tab strip after tapping its shortcut ("
-                            + evidence + "); returning to the city and tapping it again.");
-                } else {
-                    recordCoverage(surface, false, null, null, "no tabbed panel opened after "
-                            + PANEL_OPEN_ATTEMPTS + " taps");
-                    problems.add(surface + ": no tabbed panel opened after " + PANEL_OPEN_ATTEMPTS
-                            + " taps (last screen " + evidence + "); surface skipped.");
-                    logWarning("bg_deals_telemetry | " + surface + " did not open a tabbed panel after "
-                            + PANEL_OPEN_ATTEMPTS + " taps (last screen " + evidence + "); skipping it.");
-                }
+                logWarning("bg_deals_telemetry | " + surface + " failed with " + failed.getClass().getName() + ": "
+                        + failed.getMessage() + "; surveying it again in " + PANEL_RETRY_DELAY_MS / 1000 + "s.");
+                sleepTask(PANEL_RETRY_DELAY_MS);
             }
-        } catch (RuntimeException failed) {
-            recordFailure(surface, failed);
+        }
+    }
+
+    private void surveyTemplatePanelOnce(String surface, TemplatesEnum shortcut, PointData hudFallback) {
+        for (int attempt = 1; attempt <= PANEL_OPEN_ATTEMPTS; attempt++) {
+            if (!returnToCity()) {
+                problems.add(surface + ": skipped because the city view could not be confirmed first.");
+                recordCoverage(surface, false, null, null, "city view not confirmed");
+                return;
+            }
+            ImageSearchResultData button = templateSearchHelper.locatePattern(
+                    shortcut, SearchConfigConstants.SINGLE_WITH_RETRIES);
+            if (button.isFound()) {
+                tapNear(button.getPoint());
+            } else if (hudFallback != null) {
+                logWarning("bg_deals_telemetry | " + surface + " shortcut template did not match; trying its "
+                        + "fixed top-bar position " + hudFallback.getX() + "," + hudFallback.getY() + ".");
+                tapNear(hudFallback);
+            } else {
+                problems.add(surface + ": shortcut not found on the city view; surface skipped.");
+                recordCoverage(surface, false, null, null, "shortcut not found on the city view");
+                logWarning("bg_deals_telemetry | " + surface + " shortcut not found; skipping it.");
+                return;
+            }
+            RawImageData opened = awaitTabbedPanel();
+            if (opened == null) {
+                surveyTabbedPanel(surface);
+                return;
+            }
+            // The frame the check rejected is the only evidence of what covered or replaced the panel.
+            String evidence = saveFrame(opened);
+            if (attempt < PANEL_OPEN_ATTEMPTS) {
+                logWarning("bg_deals_telemetry | " + surface + " showed no tab strip after tapping its shortcut ("
+                        + evidence + "); returning to the city and tapping it again.");
+            } else {
+                recordCoverage(surface, false, null, null, "no tabbed panel opened after "
+                        + PANEL_OPEN_ATTEMPTS + " taps");
+                problems.add(surface + ": no tabbed panel opened after " + PANEL_OPEN_ATTEMPTS
+                        + " taps (last screen " + evidence + "); surface skipped.");
+                logWarning("bg_deals_telemetry | " + surface + " did not open a tabbed panel after "
+                        + PANEL_OPEN_ATTEMPTS + " taps (last screen " + evidence + "); skipping it.");
+            }
         }
     }
 
