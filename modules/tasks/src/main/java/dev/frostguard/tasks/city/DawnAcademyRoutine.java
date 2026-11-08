@@ -171,6 +171,14 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData AUTO_TREK_CLOSE = new PointData(665, 388);
     private static final PointData DIALOGUE_ADVANCE = new PointData(360, 400);
 
+    // Cook Dish dialog: the green "Free" badge on each of the three ingredients.
+    static final int[] COOK_FREE_BADGE_LEFT_X = {205, 355, 505};
+    static final int COOK_FREE_BADGE_RIGHT_OFFSET = 75;
+    static final int COOK_FREE_BADGE_TOP_Y = 722;
+    static final int COOK_FREE_BADGE_BOTTOM_Y = 760;
+    private static final PointData COOK_DISH_CLOSE = new PointData(665, 310);
+    private static final int MAX_TREK_STORY_BEATS = 3;
+
     private static final Duration TREK_POLL = Duration.ofSeconds(4);
     private static final Duration TREK_STALL = Duration.ofSeconds(90);
     private static final Duration MIN_RESCHEDULE = Duration.ofMinutes(5);
@@ -1068,17 +1076,7 @@ public class DawnAcademyRoutine extends DelayedTask {
         }
         tapInside(signpost);
         sleepTask(6000);
-        ImageSearchResultData auto = templateSearchHelper.locatePattern(TemplatesEnum.TUNDRA_TREK_AUTO_BUTTON,
-                SearchConfig.builder().withMaxAttempts(5).withDelay(1000).build());
-        if (!auto.isFound()) {
-            logWarning(name + ": Auto button not found.");
-            leaveTrekRoute();
-            return;
-        }
-        tapInside(auto);
-        sleepTask(1500);
-        if (!found(TemplatesEnum.DAWN_ACADEMY_AUTO_TREK_TITLE, 2)) {
-            logWarning(name + ": Auto Trek dialog did not open.");
+        if (!openAutoTrekDialog(name)) {
             leaveTrekRoute();
             return;
         }
@@ -1098,6 +1096,71 @@ public class DawnAcademyRoutine extends DelayedTask {
         sleepTask(3000);
         waitForAutoTrek(name, supplies);
         leaveTrekRoute();
+    }
+
+    private boolean openAutoTrekDialog(String name) {
+        for (int beats = 0; beats <= MAX_TREK_STORY_BEATS; beats++) {
+            ImageSearchResultData auto = templateSearchHelper.locatePattern(TemplatesEnum.TUNDRA_TREK_AUTO_BUTTON,
+                    SearchConfig.builder().withMaxAttempts(5).withDelay(1000).build());
+            if (!auto.isFound()) {
+                logWarning(name + ": Auto button not found.");
+                return false;
+            }
+            tapInside(auto);
+            sleepTask(1500);
+            if (found(TemplatesEnum.DAWN_ACADEMY_AUTO_TREK_TITLE, 2)) {
+                return true;
+            }
+            // A waiting cooking beat greys Auto out, and the tap is what brings up Start Cooking.
+            if (!playCookingBeat(name)) {
+                logWarning(name + ": Auto Trek dialog did not open.");
+                return false;
+            }
+        }
+        logWarning(name + ": still blocked after " + MAX_TREK_STORY_BEATS + " cooking beats.");
+        return false;
+    }
+
+    /**
+     * Start Cooking, then Cook, then a heat gauge. Left alone the gauge runs out as "Failed", which
+     * still moves the story on and pays +50 Affinity (8 Nov 2026), so Stop is never tapped.
+     */
+    private boolean playCookingBeat(String name) {
+        ImageSearchResultData start = templateSearchHelper.locatePattern(TemplatesEnum.DAWN_ACADEMY_START_COOKING_BUTTON,
+                SearchConfig.builder().withMaxAttempts(3).withDelay(1000).build());
+        if (!start.isFound()) {
+            return false;
+        }
+        logInfo(name + ": cooking beat is blocking the route; playing it.");
+        tapInside(start);
+        sleepTask(1500);
+        ImageSearchResultData cook = templateSearchHelper.locatePattern(TemplatesEnum.DAWN_ACADEMY_COOK_BUTTON,
+                SearchConfig.builder().withMaxAttempts(8).withDelay(1000).build());
+        if (!cook.isFound()) {
+            logWarning(name + ": Cook Dish dialog did not open.");
+            return false;
+        }
+        for (int left : COOK_FREE_BADGE_LEFT_X) {
+            ImageSearchResultData free = templateSearchHelper.locatePattern(TemplatesEnum.DAWN_ACADEMY_COOK_FREE_BADGE,
+                    SearchConfig.builder().withCoordinates(new PointData(left, COOK_FREE_BADGE_TOP_Y),
+                            new PointData(left + COOK_FREE_BADGE_RIGHT_OFFSET, COOK_FREE_BADGE_BOTTOM_Y)).build());
+            if (!free.isFound()) {
+                logWarning(name + ": a Cook Dish ingredient is not free; not cooking.");
+                tapNear(COOK_DISH_CLOSE, 4);
+                sleepTask(1200);
+                return false;
+            }
+        }
+        tapInside(cook);
+        ImageSearchResultData exit = templateSearchHelper.locatePattern(TemplatesEnum.DAWN_ACADEMY_COOK_EXIT_TEXT,
+                SearchConfig.builder().withMaxAttempts(20).withDelay(1000).build());
+        if (!exit.isFound()) {
+            logWarning(name + ": the cooking result did not appear.");
+            return false;
+        }
+        tapNear(BLANK_LOWER_SCREEN, 6);
+        sleepTask(4000);
+        return true;
     }
 
     private void waitForAutoTrek(String name, int supplies) {
@@ -1120,6 +1183,10 @@ public class DawnAcademyRoutine extends DelayedTask {
                 if (idle) {
                     logInfo(name + ": Auto Trek stopped with " + last + " supplies left.");
                     return;
+                }
+                if (playCookingBeat(name)) {
+                    lastChange = LocalDateTime.now();
+                    continue;
                 }
                 // A story beat the auto-manager does not answer: skip or tap through it.
                 ImageSearchResultData skip = templateSearchHelper.locatePattern(TemplatesEnum.TUNDRA_TREK_SKIP_BUTTON,

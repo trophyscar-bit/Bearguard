@@ -66,6 +66,15 @@ Progress is the supply counter at `(512,22)..(615,60)`, which is the same on
 the landing and both routes. The run ends at 0 with Next Stop showing, or
 after a 90s stall. A stall without Next Stop is skipped or tapped through.
 
+A story beat can stop a route and grey Auto out. On 8 Nov 2026 Tundra sat on
+Cyrille's camping scene, and tapping Auto only brought up a blue Start Cooking
+button, so supplies climbed to 98/100 while every pass logged "Auto Trek dialog
+did not open". The task now answers it: Start Cooking, then Cook, but only when
+all three ingredients show the green Free badge. The heat gauge that follows
+has a Stop button the task never taps. Left alone, the gauge ends in "Failed",
+which still moves the story on and paid Cyrille +50 Affinity. "Tap anywhere to
+exit" closes the result, then the task taps Auto again.
+
 White digits on the coloured XP bars, buttons and counters read cleanly only
 with `OcrSettingsData.forWhiteTextOnDark()`. The landing's Frontier counter is
 the exception. Its lone `0` reads as `8` with that preset, so it uses the

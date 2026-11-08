@@ -133,6 +133,27 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void aWaitingCookingBeatIsRecognisedAndItsIngredientsAreFree() throws Exception {
+        // 8 Nov: Tundra sat on this beat with Auto greyed out while supplies climbed to 98.
+        assertTrue(find("trek-start-cooking.png", TemplatesEnum.DAWN_ACADEMY_START_COOKING_BUTTON).isFound());
+        assertFalse(find("tundra-route.png", TemplatesEnum.DAWN_ACADEMY_START_COOKING_BUTTON).isFound());
+        assertFalse(find("trek-after-cook.png", TemplatesEnum.DAWN_ACADEMY_START_COOKING_BUTTON).isFound());
+
+        assertTrue(find("cook-dish.png", TemplatesEnum.DAWN_ACADEMY_COOK_BUTTON).isFound());
+        for (int left : DawnAcademyRoutine.COOK_FREE_BADGE_LEFT_X) {
+            assertTrue(OpenCvPatternLocator.locatePattern(bytes("cook-dish.png"),
+                    TemplatesEnum.DAWN_ACADEMY_COOK_FREE_BADGE.getTemplate(),
+                    new PointData(left, DawnAcademyRoutine.COOK_FREE_BADGE_TOP_Y),
+                    new PointData(left + DawnAcademyRoutine.COOK_FREE_BADGE_RIGHT_OFFSET,
+                            DawnAcademyRoutine.COOK_FREE_BADGE_BOTTOM_Y), 90).isFound(), "badge at " + left);
+        }
+
+        assertTrue(find("cook-failed.png", TemplatesEnum.DAWN_ACADEMY_COOK_EXIT_TEXT).isFound());
+        assertFalse(find("cook-dish.png", TemplatesEnum.DAWN_ACADEMY_COOK_EXIT_TEXT).isFound());
+        assertTrue(find("trek-after-cook.png", TemplatesEnum.TUNDRA_TREK_AUTO_BUTTON).isFound());
+    }
+
+    @Test
     void theAutoTrekDialogShowsTheAutoManageTick() throws Exception {
         assertTrue(find("auto-trek-unticked.png", TemplatesEnum.DAWN_ACADEMY_AUTO_TREK_TITLE).isFound());
         assertTrue(find("auto-trek-unticked.png", TemplatesEnum.TUNDRA_TREK_CHECK_INACTIVE).isFound());
