@@ -10,6 +10,7 @@ import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.engine.nav.SidebarDestination;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -74,11 +75,26 @@ class CrystalLaboratoryNavigationTest {
         assertNull(navigation.snapshotType);
     }
 
+    @Test
+    void aHiddenRowIsNotRetriedOrDiagnosedAsAFailure(@TempDir Path workspace) {
+        RecordingNavigation navigation = new RecordingNavigation(workspace, true, true);
+        navigation.rowHidden = true;
+
+        assertEquals(SidebarRouteResult.NOT_OFFERED,
+                navigation.openSidebarDestination(SidebarDestination.CRYSTAL_LABORATORY));
+        assertEquals(1, navigation.sidebarAttempts);
+        assertEquals(1, navigation.sidebarCloses);
+        assertEquals(0, navigation.homeRecoveries);
+        assertNull(navigation.snapshotType);
+    }
+
     private static final class RecordingNavigation extends NavigationHelper {
         private final Path workspace;
         private final boolean anchorFound;
         private final boolean interfaceVisible;
         private boolean sidebarAvailable = true;
+        private boolean rowHidden;
+        private int sidebarCloses;
         private int sidebarAttempts;
         private int tutorialDismissals;
         private int anchorSearches;
@@ -96,10 +112,19 @@ class CrystalLaboratoryNavigationTest {
         }
 
         @Override
-        boolean navigateToDirectSidebarDestination(SidebarDestination destination) {
+        SidebarRouteResult navigateToDirectSidebarDestination(SidebarDestination destination) {
             assertEquals(SidebarDestination.CRYSTAL_LABORATORY, destination);
             sidebarAttempts++;
-            return sidebarAvailable;
+            if (rowHidden) {
+                return SidebarRouteResult.NOT_OFFERED;
+            }
+            return sidebarAvailable ? SidebarRouteResult.REACHED : SidebarRouteResult.FAILED;
+        }
+
+        @Override
+        public boolean closeSidebar() {
+            sidebarCloses++;
+            return true;
         }
 
         @Override

@@ -108,6 +108,8 @@ public final class CommonGameAreas {
 
     public static final AreaData SIDEBAR_CONTENT = region(10, 300, 440, 880);
     public static final AreaData SIDEBAR_ROW_ICON_COLUMN = region(15, 300, 80, 880);
+    public static final AreaData DAILY_HIDE_COMPLETED_BOX = region(388, 886, 424, 922);
+    public static final AreaData DAILY_HIDE_COMPLETED_TAP = region(398, 896, 412, 910);
     public static final PointData SIDEBAR_RESET_FROM = point(360, 350);
     public static final PointData SIDEBAR_RESET_TO = point(360, 820);
     public static final PointData SIDEBAR_SCROLL_FROM = point(360, 800);

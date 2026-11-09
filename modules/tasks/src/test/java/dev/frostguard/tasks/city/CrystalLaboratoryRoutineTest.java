@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import dev.frostguard.api.configs.TpDailyTaskEnum;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
@@ -43,7 +44,7 @@ class CrystalLaboratoryRoutineTest {
     void delegatesCrystalLaboratoryEntryToNavigation() {
         TestRoutine routine = new TestRoutine();
 
-        assertTrue(routine.reachCrystalLaboratory());
+        assertEquals(SidebarRouteResult.REACHED, routine.reachCrystalLaboratory());
         assertEquals(1, routine.crystalLaboratoryNavigationCalls);
     }
 
@@ -65,6 +66,25 @@ class CrystalLaboratoryRoutineTest {
         routine.execute();
 
         assertEquals(NOW.plusMinutes(5), routine.scheduledTimes.get(4));
+    }
+
+    @Test
+    void aHiddenRowReportsNothingAndDoesNotAddToTheBackOff() {
+        TestRoutine routine = new TestRoutine();
+        routine.rowHidden = true;
+
+        routine.execute();
+        routine.execute();
+
+        assertEquals(2, routine.scheduledTimes.size());
+        assertEquals(null, routine.failedAttemptReason());
+
+        routine.rowHidden = false;
+        routine.navigationSucceeds = false;
+        routine.execute();
+
+        assertEquals(NOW.plusMinutes(5), routine.scheduledTimes.get(2));
+        assertEquals("Could not reach the Crystal Laboratory", routine.failedAttemptReason());
     }
 
     @Test
@@ -243,6 +263,7 @@ class CrystalLaboratoryRoutineTest {
         private final List<String> infoMessages = new ArrayList<>();
         private final List<String> warningMessages = new ArrayList<>();
         private boolean navigationSucceeds = true;
+        private boolean rowHidden;
         private int crystalLaboratoryNavigationCalls;
         private boolean discountedOfferFound;
         private boolean discountedOfferAfterTapFound;
@@ -282,9 +303,12 @@ class CrystalLaboratoryRoutineTest {
         }
 
         @Override
-        boolean navigateToCrystalLaboratory() {
+        SidebarRouteResult navigateToCrystalLaboratory() {
             crystalLaboratoryNavigationCalls++;
-            return navigationSucceeds;
+            if (rowHidden) {
+                return SidebarRouteResult.NOT_OFFERED;
+            }
+            return navigationSucceeds ? SidebarRouteResult.REACHED : SidebarRouteResult.FAILED;
         }
 
         @Override

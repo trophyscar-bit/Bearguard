@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.engine.nav.SidebarDestination;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.engine.nav.SidebarRowLookup;
 import dev.frostguard.engine.schedule.LaunchPoint;
 
@@ -50,6 +51,39 @@ class NavigationHelperIntelPolicyTest {
             assertEquals(0, navigation.intelOpens);
             assertEquals(0, navigation.directActions);
         }
+    }
+
+    @Test
+    void aHiddenIntelRowIsNotOfferedButALostSidebarIsAFailure() {
+        RecordingNavigation hidden = new RecordingNavigation();
+        hidden.lookup = SidebarRowLookup.fromRow(ImageSearchResultData.miss());
+        assertEquals(SidebarRouteResult.NOT_OFFERED,
+                hidden.openSidebarDestination(SidebarDestination.LIGHTHOUSE_INTEL));
+        assertEquals(1, hidden.sidebarCloses);
+
+        RecordingNavigation lost = new RecordingNavigation();
+        lost.lookup = SidebarRowLookup.sidebarUnavailable();
+        assertEquals(SidebarRouteResult.FAILED,
+                lost.openSidebarDestination(SidebarDestination.LIGHTHOUSE_INTEL));
+    }
+
+    @Test
+    void aRowTheGameIsNotOfferingClosesDailyAndIsNotReached() {
+        RecordingNavigation navigation = new RecordingNavigation();
+        navigation.directResult = SidebarRouteResult.NOT_OFFERED;
+
+        assertFalse(navigation.navigateToSidebarDestination(SidebarDestination.PET_ADVENTURE));
+        assertEquals(1, navigation.sidebarCloses);
+    }
+
+    @Test
+    void anOrdinaryFailureLeavesTheSidebarToTheNextRecovery() {
+        RecordingNavigation navigation = new RecordingNavigation();
+        navigation.directResult = SidebarRouteResult.FAILED;
+
+        assertEquals(SidebarRouteResult.FAILED,
+                navigation.openSidebarDestination(SidebarDestination.PET_ADVENTURE));
+        assertEquals(0, navigation.sidebarCloses);
     }
 
     @Test
@@ -112,6 +146,7 @@ class NavigationHelperIntelPolicyTest {
     private static final class RecordingNavigation extends NavigationHelper {
         private SidebarRowLookup lookup = SidebarRowLookup.fromRow(
                 ImageSearchResultData.hit(46, 832, 99, 44, 44));
+        private SidebarRouteResult directResult = SidebarRouteResult.REACHED;
         private boolean sidebarClosed = true;
         private boolean intelVerified = true;
         private boolean shortcutFound = true;
@@ -177,9 +212,9 @@ class NavigationHelperIntelPolicyTest {
         }
 
         @Override
-        boolean navigateToDirectSidebarDestination(SidebarDestination destination) {
+        SidebarRouteResult navigateToDirectSidebarDestination(SidebarDestination destination) {
             directActions++;
-            return true;
+            return directResult;
         }
     }
 }

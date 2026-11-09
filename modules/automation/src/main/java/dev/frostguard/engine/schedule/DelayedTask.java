@@ -43,6 +43,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.TimeUnit;
 
+import dev.frostguard.vision.convert.GameTimeUtils;
+
 // Foundation class for all game automation tasks. Provides scheduling
 // primitives, profile lifecycle, helper wiring, screen-state validation,
 // emulator shortcuts, and cooperative preemption/injection.
@@ -91,6 +93,7 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
     // ── formatters ──────────────────────────────────────────────────
     protected static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
     protected static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss");
+    private static final Duration HIDDEN_ROW_RETRY = Duration.ofHours(2);
 
     // Force stamina OCR refresh after
     // emulator-local profile switches so stale stamina values cannot leak between accounts.
@@ -627,6 +630,24 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
      * from attempt to attempt, because a different text starts a new streak.
      */
     protected final void reportFailedAttempt(String reason) { failedAttemptReason = reason; }
+
+    /**
+     * For a routine whose Daily row the game is not listing. Not a failure: nothing is reported, so
+     * the queue clears the task's failure streak, and the row is looked for again later.
+     */
+    protected final void deferHiddenDailyRow(String rowName) {
+        LocalDateTime retryAt = hiddenRowRetryAt(LocalDateTime.now(), GameTimeUtils.dailyResetTime());
+        logInfo(rowName + " is hidden in Daily, not failed. Looking again at "
+                + retryAt.format(DATETIME_FORMATTER));
+        reschedule(retryAt);
+    }
+
+    /** Rows return at the daily reset, so a reset due sooner than the normal wait comes first. */
+    static LocalDateTime hiddenRowRetryAt(LocalDateTime now, LocalDateTime dailyReset) {
+        LocalDateTime retryAt = now.plus(HIDDEN_ROW_RETRY);
+        return dailyReset.isAfter(now) && dailyReset.isBefore(retryAt) ? dailyReset : retryAt;
+    }
+
     public final String failedAttemptReason() { return failedAttemptReason; }
     final void clearFailedAttempt() { failedAttemptReason = null; }
     public boolean isRecurring() { return recurring; }

@@ -27,6 +27,7 @@ import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.nav.SidebarDestination;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 
@@ -75,7 +76,13 @@ public class LifeEssenceRoutine extends DelayedTask {
 		loadFailureState();
 
 		// Navigate to Life Essence menu
-		if (!navigateToLifeEssenceMenu()) {
+		SidebarRouteResult route = navigateToLifeEssenceMenu();
+		if (route == SidebarRouteResult.NOT_OFFERED) {
+			clearFailureCount();
+			deferHiddenDailyRow("Life Essence");
+			return;
+		}
+		if (route != SidebarRouteResult.REACHED) {
 			handleNavigationFailure();
 			return;
 		}
@@ -145,11 +152,11 @@ public class LifeEssenceRoutine extends DelayedTask {
 	 * Uses the shared sidebar navigator to select Daily, locate the Life Essence row,
 	 * and tap the Go control associated with that detected row.
 	 * 
-	 * @return true if navigation successful, false otherwise
+	 * @return how following the Daily row ended
 	 */
-	private boolean navigateToLifeEssenceMenu() {
+	private SidebarRouteResult navigateToLifeEssenceMenu() {
 		logInfo("Navigating to Life Essence menu");
-		return navigationHelper.navigateToSidebarDestination(SidebarDestination.LIFE_ESSENCE);
+		return navigationHelper.openSidebarDestination(SidebarDestination.LIFE_ESSENCE);
 	}
 
 	/**
@@ -413,6 +420,14 @@ public class LifeEssenceRoutine extends DelayedTask {
 				+ " minutes at " + GameTimeUtils.formatCountdown(nextAttempt));
 	}
 
+	private void clearFailureCount() {
+		if (consecutiveFailures > 0) {
+			consecutiveFailures = 0;
+			writeProfileSetting(ConfigurationKeyEnum.LIFE_ESSENCE_CONSECUTIVE_FAILURES_INT, 0);
+			logInfo("Consecutive failure count reset");
+		}
+	}
+
 	/**
 	 * Exit Life Essence interface and reschedule task
 	 * 
@@ -424,12 +439,7 @@ public class LifeEssenceRoutine extends DelayedTask {
 		tapNear(EXIT_BUTTON);
 		sleepTask(1000); // Wait for menu close
 
-		// Reset failure count on successful execution
-		if (consecutiveFailures > 0) {
-			consecutiveFailures = 0;
-			writeProfileSetting(ConfigurationKeyEnum.LIFE_ESSENCE_CONSECUTIVE_FAILURES_INT, 0);
-			logInfo("Consecutive failure count reset after successful execution");
-		}
+		clearFailureCount();
 
 		// Calculate next schedule time
 		int scheduleOffset = offsetMinutes;

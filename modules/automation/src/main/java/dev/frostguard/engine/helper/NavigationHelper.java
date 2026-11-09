@@ -16,6 +16,7 @@ import dev.frostguard.engine.nav.ButtonConstants;
 import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.nav.SidebarDestination;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.engine.nav.SidebarRowLookup;
 import dev.frostguard.engine.nav.SidebarSection;
 import dev.frostguard.engine.nav.ShopTab;
@@ -136,10 +137,14 @@ public class NavigationHelper {
     }
 
     /** Completes the Crystal Laboratory city transition after its Daily sidebar destination is selected. */
-    private boolean navigateToCrystalLaboratory() {
+    private SidebarRouteResult navigateToCrystalLaboratory() {
         String finalFailure = null;
         for (int attempt = 1; attempt <= CRYSTAL_LAB_NAVIGATION_ATTEMPTS; attempt++) {
-            if (!navigateToDirectSidebarDestination(SidebarDestination.CRYSTAL_LABORATORY)) {
+            SidebarRouteResult row = navigateToDirectSidebarDestination(SidebarDestination.CRYSTAL_LABORATORY);
+            if (row == SidebarRouteResult.NOT_OFFERED) {
+                return row;
+            }
+            if (row != SidebarRouteResult.REACHED) {
                 finalFailure = "sidebar-navigation-failed";
             } else {
                 tapCrystalLabTutorialDismissal();
@@ -153,7 +158,7 @@ public class NavigationHelper {
                     waitForCrystalLabTransition(CRYSTAL_LAB_CITY_SETTLE_MS);
                     if (isCrystalLabInterfaceVisible()) {
                         broadcastInfo("Crystal Laboratory destination verified");
-                        return true;
+                        return SidebarRouteResult.REACHED;
                     }
                     finalFailure = "screen-validation-failed";
                 }
@@ -171,7 +176,7 @@ public class NavigationHelper {
                 : retainCrystalLabDiagnosticSnapshot(finalFailure);
         broadcastWarn("Crystal Laboratory navigation failed after " + CRYSTAL_LAB_NAVIGATION_ATTEMPTS
                 + " bounded attempts; reason=" + finalFailure + "; " + snapshot);
-        return false;
+        return SidebarRouteResult.FAILED;
     }
 
     ImageSearchResultData locateCrystalLabBuildingAnchor() {
@@ -243,25 +248,35 @@ public class NavigationHelper {
     }
 
     public boolean navigateToSidebarDestination(SidebarDestination destination) {
+        return openSidebarDestination(destination) == SidebarRouteResult.REACHED;
+    }
+
+    /** Follows a sidebar row and says whether a miss was a fault or the game hiding the row. */
+    public SidebarRouteResult openSidebarDestination(SidebarDestination destination) {
         ensureCorrectScreenLocation(LaunchPoint.ANY);
         broadcastInfo("Navigating through sidebar to " + destination);
 
-        boolean reached;
+        SidebarRouteResult result;
         if (destination.openingPolicy() == SidebarDestination.OpeningPolicy.WILDERNESS_INTEL) {
-            reached = navigateToWildernessIntel(destination);
+            result = navigateToWildernessIntel(destination);
         } else if (destination == SidebarDestination.CRYSTAL_LABORATORY) {
-            reached = navigateToCrystalLaboratory();
+            result = navigateToCrystalLaboratory();
         } else {
-            reached = navigateToDirectSidebarDestination(destination);
+            result = navigateToDirectSidebarDestination(destination);
         }
 
-        if (!reached) {
+        if (result == SidebarRouteResult.FAILED) {
             broadcastWarn("Sidebar navigation failed: " + destination);
+        } else if (result == SidebarRouteResult.NOT_OFFERED) {
+            broadcastInfo("Daily is not offering " + destination + " right now: hidden, not failed");
+            if (!closeSidebar()) {
+                broadcastWarn("Failed to close Daily sidebar after " + destination + " was not offered");
+            }
         }
-        return reached;
+        return result;
     }
 
-    boolean navigateToDirectSidebarDestination(SidebarDestination destination) {
+    SidebarRouteResult navigateToDirectSidebarDestination(SidebarDestination destination) {
         return sidebar.navigateTo(destination);
     }
 
@@ -302,29 +317,25 @@ public class NavigationHelper {
         return false;
     }
 
-    boolean navigateToWildernessIntel(SidebarDestination destination) {
+    SidebarRouteResult navigateToWildernessIntel(SidebarDestination destination) {
         SidebarRowLookup lookup = findSidebarDestinationRowWithStatus(destination);
         if (lookup.status() == SidebarRowLookup.Status.SIDEBAR_UNAVAILABLE) {
             broadcastWarn("Sidebar navigation failed before validating " + destination);
-            return false;
+            return SidebarRouteResult.FAILED;
         }
         if (!lookup.isFound()) {
-            broadcastInfo("Sidebar destination unavailable after bounded scan: " + destination);
-            if (!closeSidebar()) {
-                broadcastWarn("Failed to close Daily sidebar after missing " + destination);
-            }
-            return false;
+            return SidebarRouteResult.NOT_OFFERED;
         }
         broadcastInfo("Sidebar row validated; closing Daily before opening " + destination);
         if (!closeSidebar()) {
             broadcastWarn("Failed to close Daily sidebar before opening " + destination);
-            return false;
+            return SidebarRouteResult.FAILED;
         }
-        boolean reached = openIntelFromWilderness();
-        if (!reached) {
+        if (!openIntelFromWilderness()) {
             broadcastWarn("Sidebar navigation failed: Intel destination was not verified");
+            return SidebarRouteResult.FAILED;
         }
-        return reached;
+        return SidebarRouteResult.REACHED;
     }
 
     ImageSearchResultData locateIntelShortcut() {

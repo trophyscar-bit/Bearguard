@@ -3,6 +3,8 @@ package dev.frostguard.engine.helper;
 import java.awt.image.BufferedImage;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 
 import dev.frostguard.api.configs.TemplatesEnum;
@@ -16,8 +18,10 @@ import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.engine.emulator.EmulatorController;
 import dev.frostguard.engine.input.TapInteractionService;
 import dev.frostguard.engine.nav.CommonGameAreas;
+import dev.frostguard.engine.nav.DailyHideCompletedCheckbox;
 import dev.frostguard.engine.nav.SidebarDestination;
 import dev.frostguard.engine.nav.SidebarFrameClassifier;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.engine.nav.SidebarRowAction;
 import dev.frostguard.engine.nav.SidebarRowLookup;
 import dev.frostguard.engine.nav.SidebarSection;
@@ -46,6 +50,13 @@ public final class SidebarNavigator {
     private static final int GO_LEFT_OFFSET = 315;
     private static final int GO_RIGHT_OFFSET = 394;
     private static final int GO_HALF_HEIGHT = 30;
+    private static final int DAILY_LISTING_SETTLE_MS = 1_000;
+
+    /**
+     * Accounts whose Daily "hide completed" box needs no more attention this run. Added before the
+     * tap, so a tap that does not take is never repeated and the box can never be toggled back.
+     */
+    private static final Set<String> DAILY_LISTING_SETTLED = ConcurrentHashMap.newKeySet();
 
     private final EmulatorController emu;
     private final String device;
@@ -54,10 +65,12 @@ public final class SidebarNavigator {
     private final Waiter transitionWaiter;
     private final ProfileContextLogger log;
     private final SidebarHomeFallback homeFallback;
+    private final String dailyListingKey;
 
     public SidebarNavigator(EmulatorController emu, String device, AccountDescriptor profile) {
         this.emu = emu;
         this.device = device;
+        this.dailyListingKey = device + "/" + (profile == null ? "" : profile.getId());
         this.taps = TapInteractionService.forController(emu, device);
         this.screenStates = this::captureScreenState;
         this.transitionWaiter = this::interruptibleWait;
@@ -69,25 +82,29 @@ public final class SidebarNavigator {
         return homeFallback.open(() -> openSectionInternal(target));
     }
 
-    public boolean navigateTo(SidebarDestination destination) {
-        ImageSearchResultData locatedRow = findRow(destination);
-        if (locatedRow == null || !locatedRow.isFound()) {
-            return false;
+    public SidebarRouteResult navigateTo(SidebarDestination destination) {
+        SidebarRowLookup lookup = findRowWithStatus(destination);
+        if (lookup.status() == SidebarRowLookup.Status.SIDEBAR_UNAVAILABLE) {
+            return SidebarRouteResult.FAILED;
+        }
+        if (!lookup.isFound()) {
+            return notOffered(destination);
         }
 
         RawImageData actionFrame = emu.captureScreen(device);
         ImageSearchResultData rowIcon = locateRowIcon(destination, actionFrame);
         if (!rowIcon.isFound()) {
             log.info("Sidebar row moved before its action could be verified: " + destination);
-            return false;
+            return SidebarRouteResult.FAILED;
         }
 
         AreaData actionArea = rowActionAreaFor(rowIcon);
         ImageSearchResultData action = locateRowAction(destination, actionArea, actionFrame);
         if (action == null || !action.isFound()) {
             log.info("Sidebar row found without an expected action: " + destination
-                    + " icon=" + rowIcon + " actionArea=" + actionArea);
-            return false;
+                    + " icon=" + rowIcon + " actionArea=" + actionArea + "; frame saved: "
+                    + saveFrame(actionFrame, "row-action-unknown"));
+            return notOffered(destination);
         }
 
         log.info("Sidebar destination found: " + destination + " icon=" + rowIcon
@@ -95,10 +112,17 @@ public final class SidebarNavigator {
         taps.tapInside(action, 1, DESTINATION_SETTLE_MS);
         homeFallback.forget();
         if (selectedSection().isEmpty()) {
-            return true;
+            return SidebarRouteResult.REACHED;
         }
         log.warn("Sidebar stayed open after tapping destination " + destination);
-        return false;
+        return SidebarRouteResult.FAILED;
+    }
+
+    /** Only Daily hides finished rows, so a row missing anywhere else is still a fault. */
+    private static SidebarRouteResult notOffered(SidebarDestination destination) {
+        return destination.section() == SidebarSection.DAILY
+                ? SidebarRouteResult.NOT_OFFERED
+                : SidebarRouteResult.FAILED;
     }
 
     /** Finds a row from its left icon in the current viewport and after every settled scroll. */
@@ -116,6 +140,13 @@ public final class SidebarNavigator {
         if (frame == null || selectedSection(frame).orElse(null) != destination.section()) {
             log.warn("Sidebar state changed before scanning for " + destination);
             return SidebarRowLookup.sidebarUnavailable();
+        }
+        if (destination.section() == SidebarSection.DAILY) {
+            frame = keepCompletedDailyRowsListed(frame);
+            if (frame == null || selectedSection(frame).orElse(null) != destination.section()) {
+                log.warn("Sidebar state changed after checking the Daily listing for " + destination);
+                return SidebarRowLookup.sidebarUnavailable();
+            }
         }
         ImageSearchResultData current = locateRowIcon(destination, frame);
         if (current.isFound()) {
@@ -148,11 +179,58 @@ public final class SidebarNavigator {
         }
         log.info("Sidebar destination unavailable after bounded icon scan: " + destination
                 + " bottomBoundary=" + bottomScan.boundaryReached()
-                + " topBoundary=" + topScan.boundaryReached() + "; frame saved: "
-                + new DiagnosticSnapshotStore(WorkspacePaths.current().root())
-                        .write(topScan.frame(), SNAPSHOT_ACTIVITY, "row-unavailable", Instant.now())
-                        .map(Object::toString).orElse("(write failed)"));
+                + " topBoundary=" + topScan.boundaryReached()
+                + " hideCompleted=" + hideCompletedState(topScan.frame()) + "; frame saved: "
+                + saveFrame(topScan.frame(), "row-unavailable"));
         return SidebarRowLookup.fromRow(ImageSearchResultData.miss());
+    }
+
+    /**
+     * Unticks Daily's "hide completed" box the first time it is seen ticked, so every route's row
+     * stays on the list. The tap needs a same-frame reading of a tick inside the box on the selected
+     * Daily tab; any other reading leaves the screen alone. Returns the frame to scan.
+     */
+    private RawImageData keepCompletedDailyRowsListed(RawImageData frame) {
+        if (DAILY_LISTING_SETTLED.contains(dailyListingKey)) {
+            return frame;
+        }
+        DailyHideCompletedCheckbox.State state = hideCompletedState(frame);
+        if (state == DailyHideCompletedCheckbox.State.UNREADABLE) {
+            log.debug("Daily hide-completed checkbox could not be read; leaving it alone");
+            return frame;
+        }
+        DAILY_LISTING_SETTLED.add(dailyListingKey);
+        if (state == DailyHideCompletedCheckbox.State.UNTICKED) {
+            log.info("Daily hide-completed checkbox is already off");
+            return frame;
+        }
+
+        taps.tapInside(CommonGameAreas.DAILY_HIDE_COMPLETED_TAP, 1, DAILY_LISTING_SETTLE_MS);
+        RawImageData after = emu.captureScreen(device);
+        DailyHideCompletedCheckbox.State verified = hideCompletedState(after);
+        if (verified == DailyHideCompletedCheckbox.State.UNTICKED) {
+            log.info("Unticked the Daily hide-completed checkbox once, so completed rows stay listed");
+        } else {
+            log.warn("Tapped the Daily hide-completed checkbox once but read " + verified
+                    + " afterwards; it will not be tapped again this run; frame saved: "
+                    + saveFrame(after, "hide-completed-unverified"));
+        }
+        return after;
+    }
+
+    private static DailyHideCompletedCheckbox.State hideCompletedState(RawImageData frame) {
+        return frame == null
+                ? DailyHideCompletedCheckbox.State.UNREADABLE
+                : DailyHideCompletedCheckbox.read(ImageConverter.toBufferedImage(frame));
+    }
+
+    private static String saveFrame(RawImageData frame, String label) {
+        if (frame == null) {
+            return "(no frame)";
+        }
+        return new DiagnosticSnapshotStore(WorkspacePaths.current().root())
+                .write(frame, SNAPSHOT_ACTIVITY, label, Instant.now())
+                .map(Object::toString).orElse("(write failed)");
     }
 
     public boolean close() {

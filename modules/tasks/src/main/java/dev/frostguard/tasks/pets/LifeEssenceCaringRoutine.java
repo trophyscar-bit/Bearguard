@@ -12,6 +12,7 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.nav.SidebarDestination;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 
 public class LifeEssenceCaringRoutine extends DelayedTask {
@@ -46,7 +47,12 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 		loadConfiguration();
 
 		// Navigate to Life Essence menu
-		if (!navigateToLifeEssenceMenu()) {
+		SidebarRouteResult route = navigateToLifeEssenceMenu();
+		if (route == SidebarRouteResult.NOT_OFFERED) {
+			deferHiddenDailyRow("Life Essence");
+			return;
+		}
+		if (route != SidebarRouteResult.REACHED) {
 			logWarning("Failed to navigate to Life Essence menu. Retrying in " + retryOffsetMinutes + " minutes.");
 			reportFailedAttempt("Could not reach the Life Essence menu");
 			reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
@@ -59,7 +65,12 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 			// this menu, so every pass after the first has to re-enter it. Without this the next
 			// attempts check taps the Caring tab coordinate while the world map is up, finds nothing,
 			// and reports the day's attempts as spent after a single island.
-			if (i > 0 && !navigateToLifeEssenceMenu()) {
+			route = i > 0 ? navigateToLifeEssenceMenu() : SidebarRouteResult.REACHED;
+			if (route == SidebarRouteResult.NOT_OFFERED) {
+				deferHiddenDailyRow("Life Essence");
+				return;
+			}
+			if (route != SidebarRouteResult.REACHED) {
 				logWarning("Could not return to the Life Essence menu after caring for " + islandsCared
 						+ " island(s). Retrying in " + retryOffsetMinutes + " minutes.");
 				reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
@@ -114,11 +125,11 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 	 * Uses the shared sidebar navigator to select Daily, locate the Life Essence row,
 	 * and tap the Go control associated with that detected row.
 	 * 
-	 * @return true if navigation successful, false otherwise
+	 * @return how following the Daily row ended
 	 */
-	private boolean navigateToLifeEssenceMenu() {
+	private SidebarRouteResult navigateToLifeEssenceMenu() {
 		logInfo("Navigating to Life Essence menu");
-		return navigationHelper.navigateToSidebarDestination(SidebarDestination.LIFE_ESSENCE);
+		return navigationHelper.openSidebarDestination(SidebarDestination.LIFE_ESSENCE);
 	}
 
 	/**
@@ -154,7 +165,7 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 		// the menu and look once more before believing it.
 		logInfo("Daily caring indicator not found. Re-entering the menu to tell an empty allowance"
 				+ " apart from the wrong screen.");
-		if (!navigateToLifeEssenceMenu()) {
+		if (navigateToLifeEssenceMenu() != SidebarRouteResult.REACHED) {
 			logWarning("Could not re-enter the Life Essence menu, so the allowance is unknown rather"
 					+ " than spent.");
 			return false;

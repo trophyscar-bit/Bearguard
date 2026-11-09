@@ -8,6 +8,7 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.nav.SidebarDestination;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.engine.nav.SearchConfigConstants;
 
 import java.time.LocalDateTime;
@@ -86,7 +87,12 @@ public class PetAllianceTreasuresRoutine extends DelayedTask {
 	@Override
 	protected void execute() {
 
-		if (!navigateToPetAdventure()) {
+		SidebarRouteResult route = navigateToPetAdventure();
+		if (route == SidebarRouteResult.NOT_OFFERED) {
+			deferHiddenDailyRow("Pet Adventure");
+			return;
+		}
+		if (route != SidebarRouteResult.REACHED) {
 			rescheduleForRetry();
 			return;
 		}
@@ -114,11 +120,11 @@ public class PetAllianceTreasuresRoutine extends DelayedTask {
 	 * <li>Tap to open Beast Cage</li>
 	 * </ol>
 	 * 
-	 * @return true if navigation succeeded, false if any step failed
+	 * @return how following the Daily row ended
 	 */
-	private boolean navigateToPetAdventure() {
+	private SidebarRouteResult navigateToPetAdventure() {
 		logDebug("Opening Pet Adventure through the Daily sidebar");
-		return navigationHelper.navigateToSidebarDestination(SidebarDestination.PET_ADVENTURE);
+		return navigationHelper.openSidebarDestination(SidebarDestination.PET_ADVENTURE);
 	}
 
 	/**

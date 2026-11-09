@@ -63,6 +63,36 @@ class SidebarNavigatorFrameTest {
     }
 
     @Test
+    void aClearedLighthouseRowStaysListedWithItsArrowAndNoGainEvidence() throws IOException {
+        byte[] frame = resource("/navigation/sidebar-dynamic-20260821/daily-hide-off.png");
+
+        assertRowAction(frame, SidebarDestination.LIGHTHOUSE_INTEL, SidebarRowAction.GO);
+        ImageSearchResultData row = locate(frame, TemplatesEnum.SIDEBAR_DAILY_LIGHTHOUSE_INTEL,
+                CommonGameAreas.SIDEBAR_ROW_ICON_COLUMN);
+        assertFalse(locate(frame, TemplatesEnum.INTEL_GAIN_AVAILABLE, IntelScreenHelper.intelGainRowArea(row)).isFound(),
+                "A Cleared row must not read as Intel being available");
+    }
+
+    @Test
+    void anAvailableLighthouseRowStillShowsItsGainEvidence() throws IOException {
+        byte[] frame = resource("/intel/live-20260819/daily-sidebar-gain.png");
+
+        ImageSearchResultData row = locate(frame, TemplatesEnum.SIDEBAR_DAILY_LIGHTHOUSE_INTEL,
+                CommonGameAreas.SIDEBAR_ROW_ICON_COLUMN);
+        assertTrue(locate(frame, TemplatesEnum.INTEL_GAIN_AVAILABLE, IntelScreenHelper.intelGainRowArea(row)).isFound());
+    }
+
+    @Test
+    void routesWithoutAVerifiedGreenCheckNeverTapOne() {
+        for (SidebarDestination destination : new SidebarDestination[] {
+                SidebarDestination.ARENA, SidebarDestination.PET_ADVENTURE,
+                SidebarDestination.CRYSTAL_LABORATORY, SidebarDestination.LIGHTHOUSE_INTEL }) {
+            assertEquals(java.util.List.of(SidebarRowAction.GO), java.util.List.of(destination.actions()),
+                    destination.name());
+        }
+    }
+
+    @Test
     void waitsTwoSecondsAfterEverySidebarScanSwipe() {
         assertEquals(2_000, SidebarNavigator.SCROLL_SETTLE_MS);
     }

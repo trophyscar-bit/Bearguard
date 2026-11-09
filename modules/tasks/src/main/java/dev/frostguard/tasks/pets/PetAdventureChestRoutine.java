@@ -3,6 +3,7 @@ package dev.frostguard.tasks.pets;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.engine.nav.SidebarDestination;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.vision.convert.GameTimeUtils;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TemplatesEnum;
@@ -177,7 +178,12 @@ public class PetAdventureChestRoutine extends DelayedTask {
 			return; // Task will be rescheduled by helper
 		}
 
-		if (!navigateToPetAdventures()) {
+		SidebarRouteResult route = navigateToPetAdventures();
+		if (route == SidebarRouteResult.NOT_OFFERED) {
+			deferHiddenDailyRow("Pet Adventure");
+			return;
+		}
+		if (route != SidebarRouteResult.REACHED) {
 			rescheduleForNavigationRetry();
 			return;
 		}
@@ -211,11 +217,11 @@ public class PetAdventureChestRoutine extends DelayedTask {
 	 * <li>Tap its detected Go control</li>
 	 * </ol>
 	 * 
-	 * @return true if navigation succeeded, false if any step failed
+	 * @return how following the Daily row ended
 	 */
-	private boolean navigateToPetAdventures() {
+	private SidebarRouteResult navigateToPetAdventures() {
 		logDebug("Opening Pet Adventure through the Daily sidebar");
-		return navigationHelper.navigateToSidebarDestination(SidebarDestination.PET_ADVENTURE);
+		return navigationHelper.openSidebarDestination(SidebarDestination.PET_ADVENTURE);
 	}
 
 	// ========================================================================

@@ -10,6 +10,7 @@ import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.nav.SidebarDestination;
+import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -90,7 +91,13 @@ protected void loadConfiguration() {
 
         loadConfiguration();
 
-        if (!reachCrystalLaboratory()) {
+        SidebarRouteResult route = reachCrystalLaboratory();
+        if (route == SidebarRouteResult.NOT_OFFERED) {
+            consecutiveNavigationFailures = 0;
+            deferHiddenDailyRow("Crystal Laboratory");
+            return;
+        }
+        if (route != SidebarRouteResult.REACHED) {
             scheduleNavigationRetry();
             return;
         }
@@ -282,13 +289,13 @@ CrystalClaimLoop.Result performCrystalClaimLoop() {
                 MAX_CONSECUTIVE_FAILED_CLAIMS_LIMIT);
     }
 
-boolean reachCrystalLaboratory() {
+SidebarRouteResult reachCrystalLaboratory() {
         logInfo(routineLogCrystalLaboratoryLine("Moving to Crystal Laboratory"));
         return navigateToCrystalLaboratory();
     }
 
-boolean navigateToCrystalLaboratory() {
-        return navigationHelper.navigateToSidebarDestination(SidebarDestination.CRYSTAL_LABORATORY);
+SidebarRouteResult navigateToCrystalLaboratory() {
+        return navigationHelper.openSidebarDestination(SidebarDestination.CRYSTAL_LABORATORY);
     }
 
 private boolean locateAndClaimCrystal() {
