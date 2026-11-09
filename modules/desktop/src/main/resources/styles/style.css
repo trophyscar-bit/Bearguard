@@ -2394,6 +2394,11 @@
     -fx-text-fill: -fg-text-secondary;
 }
 
+.today-done-toggle {
+    -fx-font-size: 12px;
+    -fx-padding: 2 0;
+}
+
 .today-row {
     -fx-padding: 4 8;
     -fx-background-radius: 5;

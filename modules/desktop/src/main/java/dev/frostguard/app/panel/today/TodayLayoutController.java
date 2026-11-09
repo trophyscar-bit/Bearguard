@@ -20,6 +20,7 @@ import dev.frostguard.engine.listener.QueueStateListener;
 import dev.frostguard.engine.schedule.TaskQueue;
 import dev.frostguard.engine.service.ActionRequiredIncidentService;
 import dev.frostguard.engine.service.ScheduleService;
+import dev.frostguard.engine.service.TaskFailureIncidentService;
 import dev.frostguard.engine.service.TaskManagementService;
 import dev.frostguard.vision.convert.GameTimeUtils;
 import javafx.animation.Animation;
@@ -30,6 +31,7 @@ import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Parent;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.ToggleButton;
@@ -59,8 +61,9 @@ import java.util.function.LongSupplier;
 public final class TodayLayoutController implements IProfileLoadListener {
 
     private static final int MAX_SEARCH_RESULTS = 30;
-    private static final double ROWS_ABOVE_NOW = 2.5;
-    private static final int RELOAD_EVERY_SECONDS = 30;
+    private static final double TIME_COLUMN_WIDTH = 92;
+    /** Keeps the recent runs in view above Now when the page opens, up to half the viewport. */
+    private static final double ROWS_ABOVE_NOW = 10.5;
 
     private final TaskManagerLayoutController taskManager;
     private final LongSupplier loadedProfileId;
@@ -72,6 +75,8 @@ public final class TodayLayoutController implements IProfileLoadListener {
     private final TodaySearchBar search;
     private final Label summary = new Label();
     private final Label summaryNote = new Label();
+    private final Hyperlink doneToggle = new Hyperlink();
+    private final VBox doneList = new VBox(1);
     private final VBox timeline = new VBox(1);
     private final TaskInspectorPanel inspector;
     private ScrollPane lineScroll;
@@ -90,8 +95,8 @@ public final class TodayLayoutController implements IProfileLoadListener {
     private final TodayPanelSelection selection = new TodayPanelSelection();
     private String runningKey;
     private boolean scrollToNow = true;
-    private boolean dirty = true;
-    private int secondsSinceReload;
+    private boolean doneExpanded;
+    private final TodayRefreshSchedule refresh = new TodayRefreshSchedule();
     private long generation;
 
     public TodayLayoutController(TaskManagerLayoutController taskManager, LongSupplier loadedProfileId,
@@ -156,7 +161,14 @@ public final class TodayLayoutController implements IProfileLoadListener {
         summary.getStyleClass().add("today-summary");
         summaryNote.getStyleClass().add("today-note");
         summaryNote.setWrapText(true);
-        VBox verdict = new VBox(2, summary, summaryNote);
+        doneToggle.getStyleClass().add("today-done-toggle");
+        doneToggle.setOnAction(event -> {
+            doneExpanded = !doneExpanded;
+            setShown(doneList, doneExpanded);
+            doneToggle.setVisited(false);
+        });
+        setShown(doneList, false);
+        VBox verdict = new VBox(2, summary, summaryNote, doneToggle, doneList);
         verdict.getStyleClass().add("today-verdict");
 
         VBox line = new VBox(8, verdict, timeline);
@@ -208,6 +220,8 @@ public final class TodayLayoutController implements IProfileLoadListener {
         service.addQueueObserver(QueueStateListener.snapshotOnly(state -> Platform.runLater(this::requestReload)));
         ActionRequiredIncidentService.obtain().registerListener(
                 incidents -> Platform.runLater(this::requestReload));
+        // The task's status event can fire before its streak is written, so the write signals too.
+        TaskFailureIncidentService.obtain().registerStreakListener(() -> Platform.runLater(this::requestReload));
     }
 
     @Override
@@ -228,11 +242,8 @@ public final class TodayLayoutController implements IProfileLoadListener {
     private void onVisibilityChanged(boolean shown) {
         if (shown) {
             clock.play();
-            secondsSinceReload = 0;
             scrollToNow = true;
-            if (dirty) {
-                reload();
-            }
+            perform(refresh.onShown());
         } else {
             clock.stop();
         }
@@ -240,18 +251,20 @@ public final class TodayLayoutController implements IProfileLoadListener {
 
     private void onClockTick() {
         if (nowLabel != null) {
-            nowLabel.setText("Now " + TodayTimeline.clock(LocalDateTime.now()));
+            nowLabel.setText(TodayTimeline.nowText(LocalDateTime.now()));
         }
-        if (++secondsSinceReload >= RELOAD_EVERY_SECONDS) {
-            reload();
-        }
+        perform(refresh.onSecond());
     }
 
     private void requestReload() {
-        if (!timelineShowing()) {
-            dirty = true;
-        } else {
-            reloadDebounce.playFromStart();
+        perform(refresh.onEvent(timelineShowing()));
+    }
+
+    private void perform(TodayRefreshSchedule.Action action) {
+        switch (action) {
+            case RELOAD -> reload();
+            case DEBOUNCED_RELOAD -> reloadDebounce.playFromStart();
+            case NONE -> { }
         }
     }
 
@@ -266,11 +279,9 @@ public final class TodayLayoutController implements IProfileLoadListener {
     private void reload() {
         Long profileId = currentProfileId();
         if (profileId == null || !timelineShowing()) {
-            dirty = true;
             return;
         }
-        dirty = false;
-        secondsSinceReload = 0;
+        refresh.reloaded();
         long requested = ++generation;
         taskManager.loadTaskRows(profileId, rows -> Thread.ofVirtual().name("today-failures").start(() -> {
             List<TaskFailureStreakData> streaks = TaskFailureStreakRepository.getRepository().findForProfile(profileId);
@@ -313,6 +324,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
                 () -> items.stream().filter(item -> item.task() != null && item.kind() != Kind.PAST)
                         .map(item -> item.task().key()).findFirst().orElse(null));
         renderSummary(failures);
+        renderDone(TodayTimeline.doneSinceReset(tasks, GameTimeUtils.dailyResetTime().minusDays(1), now), now);
         renderTimeline(items, now);
         showInspector(profileId, now);
         search.refresh();
@@ -402,16 +414,21 @@ public final class TodayLayoutController implements IProfileLoadListener {
 
     private void renderSummary(Map<String, FailureInfo> failures) {
         int count = failures.size();
-        summary.setText(count == 0 ? "No tasks failing" : count + (count == 1 ? " task failing" : " tasks failing"));
+        summary.setText(TodayTimeline.failureHeadline(count));
         summary.getStyleClass().remove("today-summary-bad");
         if (count > 0) {
             summary.getStyleClass().add("today-summary-bad");
         }
         List<String> names = failures.values().stream().map(FailureInfo::name).distinct().toList();
-        String shown = String.join(", ", names.subList(0, Math.min(3, names.size())));
-        summaryNote.setText(names.size() > 3 ? shown + " and " + (names.size() - 3) + " more" : shown);
+        summaryNote.setText(TodayTimeline.failureNames(names));
         summaryNote.setVisible(!names.isEmpty());
         summaryNote.setManaged(!names.isEmpty());
+    }
+
+    /** "Ran" and not "succeeded": the app stores when a task last ran, not how each run ended. */
+    private void renderDone(List<Task> done, LocalDateTime now) {
+        doneToggle.setText("Ran since daily reset: " + done.size());
+        doneList.getChildren().setAll(done.stream().map(task -> row(new Item(Kind.PAST, task.last(), task), now)).toList());
     }
 
     private void renderTimeline(List<Item> items, LocalDateTime now) {
@@ -419,7 +436,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         for (Item item : items) {
             switch (item.kind()) {
                 case NOW -> {
-                    nowLabel = new Label("Now " + TodayTimeline.clock(now));
+                    nowLabel = new Label(TodayTimeline.nowText(now));
                     nodes.add(marker(nowLabel, "today-mark"));
                 }
                 case RESET -> nodes.add(marker(new Label("Daily reset " + rowTime(item.time(), now)), "today-mark-reset"));
@@ -433,7 +450,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         }
     }
 
-    /** Keeps a little history above the Now marker, so what is next is what shows first. */
+    /** Keeps the recent runs above the Now marker while what is next still shows. */
     private void revealNow() {
         Node marker = nowLabel == null ? null : nowLabel.getParent();
         if (marker == null) {
@@ -447,8 +464,9 @@ public final class TodayLayoutController implements IProfileLoadListener {
             return;
         }
         double top = timeline.getBoundsInParent().getMinY() + marker.getBoundsInParent().getMinY();
-        double rowHeight = marker.getBoundsInParent().getHeight();
-        lineScroll.setVvalue(Math.max(0, Math.min(1, (top - ROWS_ABOVE_NOW * rowHeight) / overflow)));
+        double above = Math.min(ROWS_ABOVE_NOW * marker.getBoundsInParent().getHeight(),
+                lineScroll.getViewportBounds().getHeight() / 2);
+        lineScroll.setVvalue(Math.max(0, Math.min(1, (top - above) / overflow)));
     }
 
     private static Node marker(Label label, String styleClass) {
@@ -466,10 +484,10 @@ public final class TodayLayoutController implements IProfileLoadListener {
     private Node row(Item item, LocalDateTime now) {
         Task task = item.task();
 
-        Label time = new Label(item.kind() == Kind.RUNNING ? startedClock(task, now) : rowTime(item.time(), now));
+        Label time = new Label(timeColumn(item, now));
         time.getStyleClass().add("today-time");
-        time.setMinWidth(82);
-        time.setPrefWidth(82);
+        time.setMinWidth(TIME_COLUMN_WIDTH);
+        time.setPrefWidth(TIME_COLUMN_WIDTH);
 
         Region dot = new Region();
         dot.getStyleClass().addAll("today-dot", dotClass(item.kind(), task));
@@ -498,6 +516,14 @@ public final class TodayLayoutController implements IProfileLoadListener {
         return box;
     }
 
+    private String timeColumn(Item item, LocalDateTime now) {
+        return switch (item.kind()) {
+            case RUNNING -> startedClock(item.task(), now);
+            case UPCOMING -> TodayTimeline.nextRunTime(item.time(), now);
+            default -> rowTime(item.time(), now);
+        };
+    }
+
     private static String dotClass(Kind kind, Task task) {
         if (task.failing()) {
             return "today-dot-bad";
@@ -515,7 +541,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         return switch (item.kind()) {
             case RUNNING -> "Running";
             case UPCOMING -> {
-                String when = TodayTimeline.relative(now, item.time());
+                String when = TodayTimeline.nextRunDetail(item.time(), now);
                 yield task.failing() ? failing + ", " + when : when;
             }
             default -> failing;
@@ -574,10 +600,10 @@ public final class TodayLayoutController implements IProfileLoadListener {
         if (task.executing()) {
             return "Running";
         }
-        if (!task.scheduled() || task.next() == null) {
+        if (!TodayTimeline.hasNextRun(task, now)) {
             return "Off";
         }
-        return "Next " + rowTime(task.next(), now);
+        return "Next " + TodayTimeline.nextRunTime(task.next(), now);
     }
 
     private void selectFromSearch(String key) {
@@ -616,7 +642,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
                 task.key(), task.name(), row.getTaskEnum(), row.isCustomTask() ? row.getCustomTaskName() : null,
                 statusOf(task, botRunning, now),
                 task.executing() ? "Started" : "Scheduled",
-                task.executing() ? startedText(profileId, task) : scheduledText(task, now),
+                task.executing() ? startedText(profileId, task) : TodayTimeline.scheduledText(task, now),
                 TodayTimeline.lastRunText(task, now),
                 failureLines.getOrDefault(task.key(), List.of()), runNow, selection.following()));
     }
@@ -626,13 +652,6 @@ public final class TodayLayoutController implements IProfileLoadListener {
         return started == null ? "Before this app opened" : dayClock(started);
     }
 
-    private static String scheduledText(Task task, LocalDateTime now) {
-        if (task.next() == null || !task.scheduled()) {
-            return "Not scheduled";
-        }
-        return rowTime(task.next(), now) + " (" + TodayTimeline.relative(now, task.next()) + ")";
-    }
-
     private static String statusOf(Task task, boolean botRunning, LocalDateTime now) {
         if (task.executing()) {
             return "Running";
@@ -640,12 +659,13 @@ public final class TodayLayoutController implements IProfileLoadListener {
         if (task.failing()) {
             return "Failing";
         }
+        boolean hasNext = TodayTimeline.hasNextRun(task, now);
         if (task.savedOnly() || !botRunning) {
-            return task.scheduled() ? "Bot is stopped, saved schedule" : "Off";
+            return hasNext ? "Bot is stopped, saved schedule" : "Off";
         }
         if (task.dueNow()) {
             return "Due now";
         }
-        return task.scheduled() ? "Waiting, " + TodayTimeline.relative(now, task.next()) : "Off";
+        return hasNext ? "Waiting, " + TodayTimeline.relative(now, task.next()) : "Off";
     }
 }

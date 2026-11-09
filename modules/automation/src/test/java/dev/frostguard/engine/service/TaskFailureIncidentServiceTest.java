@@ -47,6 +47,18 @@ class TaskFailureIncidentServiceTest {
     }
 
     @Test
+    void everyStreakChangeTellsItsListeners() {
+        java.util.concurrent.atomic.AtomicInteger signals = new java.util.concurrent.atomic.AtomicInteger();
+        failureService.registerStreakListener(signals::incrementAndGet);
+
+        failureService.recordFailure(report("stable"));
+        assertEquals(1, signals.get());
+
+        failureService.recordSuccess(report("stable").profileId(), report("stable").taskKey());
+        assertEquals(2, signals.get());
+    }
+
+    @Test
     void escalatesThirdStableFailureReactivatesAfterAcknowledgeAndRecoversOnSuccess() {
         TaskFailureIncidentService.FailureDecision first = failureService.recordFailure(report("stable"));
         TaskFailureIncidentService.FailureDecision second = failureService.recordFailure(report("stable"));

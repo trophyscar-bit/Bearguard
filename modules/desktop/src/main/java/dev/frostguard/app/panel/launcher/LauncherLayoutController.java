@@ -242,6 +242,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     private long uptimeStartedAtNanos;
     private int autoStartSecondsRemaining;
     private boolean isStartup = true;
+    private volatile boolean startAttempted = false;
     private NotificationCenterController notificationCenterController;
     private final Consumer<List<ActionRequiredIncidentData>> notificationListener =
             this::onNotificationSnapshot;
@@ -1240,7 +1241,8 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     public void onEngineStateTransition(BotStateData botState) { /* bind */
         if (null != botState) {
             if (botState.getRunning()) {
-                cancelAutoStart();
+                cancelAutoStart("the bot is running");
+                startAttempted = false;
                 if (botState.getPaused() != null && botState.getPaused()) {
                     buttonStartStop.setText("Stop");
                     buttonStartStop.setDisable(false);
@@ -1265,14 +1267,18 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 buttonStartStop.setDisable(false);
                 buttonPauseResume.setDisable(true);
                 resetPauseStates();
+                boolean endsStartup = AutoStartDecision.stopEndsStartup(estado, startAttempted);
                 estado = false;
-                isStartup = false;
+                startAttempted = false;
                 setBotStatus("Stopped");
-                if (userInitiatedStop) {
-                    // Consume it and stay stopped - this is the perma-stop case.
-                    userInitiatedStop = false;
-                } else {
-                    scheduleAutoStart();
+                if (endsStartup) {
+                    isStartup = false;
+                    if (userInitiatedStop) {
+                        // Consume it and stay stopped - this is the perma-stop case.
+                        userInitiatedStop = false;
+                    } else {
+                        scheduleAutoStart();
+                    }
                 }
             }
         }
@@ -1636,7 +1642,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     public void handleButtonStartStop(ActionEvent event) { /* bind */
         if (null != autoStartTimeline) {
             // During the countdown this button is the way out, so the click must not start the bot.
-            cancelAutoStart();
+            cancelAutoStart("the Cancel button was pressed");
             setBotStatus("Auto-start cancelled");
             return;
         }
@@ -1648,6 +1654,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                     buttonStartStop.setDisable(true);
                 });
                 userInitiatedStop = false;
+                startAttempted = true;
                 actionController.startBot();
             } else {
                 Platform.runLater(() -> {
@@ -1699,6 +1706,8 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
     /** The start was refused before the engine was touched, so no engine callback will reset the button. */
     void onBotStartRefused(String reason) {
+        logger.warn("Bot start refused: {}", reason);
+        startAttempted = false;
         buttonStartStop.setText("Start Bot");
         buttonStartStop.setDisable(false);
         setBotStatus("Not started");
@@ -1715,7 +1724,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
     public void forceStartBot() { /* bind */
         if (!estado) {
-            cancelAutoStart();
+            cancelAutoStart("a forced start was requested");
             Thread startStopThread = Thread.ofVirtual().unstarted(() -> {
                 Platform.runLater(() -> {
                     buttonStartStop.setText("Starting...");
@@ -1862,9 +1871,8 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     }
 
     public void scheduleAutoStart() { /* bind */
-        cancelAutoStart();
+        cancelAutoStart("the countdown is being set again");
         HashMap<String, String> globalConfig = ConfigService.obtain().loadGlobalSettings();
-        if (null == globalConfig) return;
 
         // The AUTO_START_SUPPRESSED_BOOL gate that used to sit here is gone
         // along with the Full Stop button that set it. Leaving the read in place would have been
@@ -1874,24 +1882,13 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         // consumed in onEngineStateTransition without rescheduling), which is the behaviour the operator
         // confirmed he wanted and the reason the button was redundant.
 
-        boolean autoStartEnabled = Boolean.parseBoolean(
-                globalConfig.getOrDefault(ConfigurationKeyEnum.AUTO_START_ENABLED_BOOL.name(), "false"));
-        if (!autoStartEnabled) return;
-
-        String autoStartMode = globalConfig.getOrDefault(ConfigurationKeyEnum.AUTO_START_MODE_STRING.name(), "Continuous");
-        if ("Startup Only".equalsIgnoreCase(autoStartMode) && !isStartup) return;
-
-        // Seconds-based delay (he wants 30s specifically) —
-        // takes priority over the older minutes-only key, which stays only
-        // for backward compatibility with anything still reading it.
-        int delaySeconds;
-        try {
-            delaySeconds = Integer.parseInt(
-                    globalConfig.getOrDefault(ConfigurationKeyEnum.AUTO_START_DELAY_SECONDS_INT.name(), "30"));
-        } catch (NumberFormatException e) {
-            delaySeconds = 30;
+        AutoStartDecision decision = AutoStartDecision.from(globalConfig, isStartup);
+        if (!decision.arms()) {
+            logger.info("Auto-start not armed: {}", decision.skipReason());
+            return;
         }
-        if (delaySeconds <= 0) return;
+        int delaySeconds = decision.seconds();
+        logger.info("Auto-start armed: {} seconds", delaySeconds);
 
         autoStartSecondsRemaining = delaySeconds;
         buttonStartStop.setText(countdownLabel(delaySeconds));
@@ -1902,14 +1899,21 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
             buttonStartStop.setText(countdownLabel(autoStartSecondsRemaining));
             setBotStatus(String.format("Auto-start in %02d:%02d", mins, secs));
             if (autoStartSecondsRemaining <= 0) {
-                cancelAutoStart();
+                cancelAutoStart("the countdown finished");
+                startAttempted = true;
                 Thread autoStartThread = Thread.ofVirtual().unstarted(() -> {
                     Platform.runLater(() -> {
                         buttonStartStop.setText("Starting...");
                     setBotStatus("Starting up");
                         buttonStartStop.setDisable(true);
                     });
-                    actionController.startBot();
+                    try {
+                        actionController.startBot();
+                    } catch (RuntimeException failure) {
+                        // A throw on this thread reached nothing, leaving the button on "Starting...".
+                        logger.error("Auto-start failed", failure);
+                        Platform.runLater(() -> onBotStartRefused("Auto-start failed: " + failure.getMessage()));
+                    }
                 });
                 autoStartThread.setName("Auto-Start-Thread");
                 autoStartThread.start();
@@ -1924,8 +1928,9 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         return String.format("Cancel (%02d:%02d)", seconds / 60, seconds % 60);
     }
 
-    private void cancelAutoStart() { /* internal */
+    private void cancelAutoStart(String reason) { /* internal */
         if (null != autoStartTimeline) {
+            logger.info("Auto-start countdown ended: {}", reason);
             autoStartTimeline.stop();
             autoStartTimeline = null;
             buttonStartStop.setText("Start Bot");

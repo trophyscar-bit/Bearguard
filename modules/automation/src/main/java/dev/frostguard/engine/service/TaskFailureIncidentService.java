@@ -8,9 +8,11 @@ import dev.frostguard.data.repository.TaskFailureStreakRepository;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Persistent failure-budget gateway for both queue-thrown exceptions and tasks
@@ -27,6 +29,7 @@ public class TaskFailureIncidentService {
 
     private final TaskFailureStreakRepository streakRepository;
     private final ActionRequiredIncidentService incidentService;
+    private final List<Runnable> streakListeners = new CopyOnWriteArrayList<>();
 
     TaskFailureIncidentService(
             TaskFailureStreakRepository streakRepository,
@@ -54,9 +57,15 @@ public class TaskFailureIncidentService {
      * Records an internally handled attempt. Callers retain ownership of task
      * rescheduling; this method owns only streak persistence and escalation.
      */
+    /** Called after every streak write, so a page showing failing tasks can refresh at once. */
+    public void registerStreakListener(Runnable listener) {
+        streakListeners.add(listener);
+    }
+
     public synchronized FailureDecision recordFailure(TaskFailureReport report) {
         TaskFailureStreakData streak = streakRepository.recordFailure(
                 report.profileId(), report.taskKey(), report.signature(), LocalDateTime.now());
+        streakListeners.forEach(Runnable::run);
         if (streak.consecutiveFailures() < report.escalationThreshold()) {
             return new FailureDecision(
                     streak.consecutiveFailures(), false, report.retryAt(), Optional.empty());
@@ -109,6 +118,7 @@ public class TaskFailureIncidentService {
 
     public synchronized int recordSuccess(long profileId, String taskKey) {
         streakRepository.clear(profileId, taskKey);
+        streakListeners.forEach(Runnable::run);
         return incidentService.recoverTask(profileId, taskKey);
     }
 
