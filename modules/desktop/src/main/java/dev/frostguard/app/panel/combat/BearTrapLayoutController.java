@@ -274,8 +274,8 @@ public class BearTrapLayoutController extends AbstractProfileController {
                 ? "Both 48-hour event timers are configured."
                 : "Strongly recommended: Set both UTC event timers, even without participation automation, so either Bear Trap can be protected or selected without reconfiguration.");
         labelTimerRecommendation.setStyle(bothTimersConfigured
-                ? "-fx-background-color: rgba(34, 197, 94, 0.12); -fx-background-radius: 4; -fx-padding: 6 8; -fx-text-fill: #86efac; -fx-font-size: 11px;"
-                : "-fx-background-color: rgba(245, 158, 11, 0.14); -fx-background-radius: 4; -fx-padding: 6 8; -fx-text-fill: #fbbf24; -fx-font-size: 11px;");
+                ? "-fx-background-color: rgba(34, 197, 94, 0.12); -fx-background-radius: 4; -fx-padding: 6 8; -fx-text-fill: #86efac; -fx-font-size: 12px;"
+                : "-fx-background-color: rgba(245, 158, 11, 0.14); -fx-background-radius: 4; -fx-padding: 6 8; -fx-text-fill: #fbbf24; -fx-font-size: 12px;");
         labelTrapSelectionHelper.setText(availableTraps.isEmpty()
                 ? "Set a complete UTC date and time above and click Apply first."
                 : "Only event timers applied above can be selected.");

@@ -61,6 +61,6 @@
         <FontIcon iconLiteral="mdi2i-information-outline" iconSize="14"
                   style="-fx-icon-color: #4a4a6a;"/>
         <Label fx:id="statusLabel" text="Ready"
-               style="-fx-text-fill: #636a75; -fx-font-size: 11px;"/>
+               style="-fx-text-fill: #636a75; -fx-font-size: 12px;"/>
     </HBox>
 </VBox>

@@ -65,11 +65,11 @@
                 <HBox alignment="CENTER_RIGHT" spacing="8"
                       GridPane.columnIndex="2" GridPane.rowIndex="0">
                     <ToggleButton fx:id="toggleInactiveTasksButton" onAction="#toggleInactiveTasks"
-                                  style="-fx-font-size: 11; -fx-background-color: -fg-bg-card; -fx-text-fill: -fg-text-primary; -fx-padding: 4 12; -fx-border-color: -fg-border-subtle; -fx-border-radius: 4; -fx-background-radius: 4;"
+                                  style="-fx-font-size: 12px; -fx-background-color: -fg-bg-card; -fx-text-fill: -fg-text-primary; -fx-padding: 4 12; -fx-border-color: -fg-border-subtle; -fx-border-radius: 4; -fx-background-radius: 4;"
                                   text="Hide inactive" />
                     <Label styleClass="task-field-label" text="Window" />
                     <ToggleButton fx:id="toggleViewButton" onAction="#toggleTimeView"
-                                  style="-fx-font-size: 11; -fx-background-color: -fg-bg-card; -fx-text-fill: -fg-yellow; -fx-padding: 4 12; -fx-border-color: -fg-yellow; -fx-border-radius: 4; -fx-background-radius: 4;"
+                                  style="-fx-font-size: 12px; -fx-background-color: -fg-bg-card; -fx-text-fill: -fg-yellow; -fx-padding: 4 12; -fx-border-color: -fg-yellow; -fx-border-radius: 4; -fx-background-radius: 4;"
                                   text="2 Hours" />
                 </HBox>
             </GridPane>

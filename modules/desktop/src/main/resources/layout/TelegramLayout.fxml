@@ -77,7 +77,7 @@
                                             </children>
                                         </HBox>
                                         <Label styleClass="label-muted"
-                                               style="-fx-font-size: 11; -fx-padding: 0 0 0 130;"
+                                               style="-fx-font-size: 12px; -fx-padding: 0 0 0 130;"
                                                text="Auto-detected from running JAR. Use browse (...) only if the path is wrong." />
 
                                         <Separator style="-fx-opacity: 0.25;" />
@@ -141,7 +141,7 @@
                                         <!-- When bot is closed -->
                                         <VBox spacing="8">
                                             <children>
-                                                <Label style="-fx-text-fill: #90caf9; -fx-font-size: 11; -fx-font-weight: bold;" text="When the bot app is closed" />
+                                                <Label style="-fx-text-fill: #90caf9; -fx-font-size: 12px; -fx-font-weight: bold;" text="When the bot app is closed" />
                                                 <VBox styleClass="task-subsection">
                                                     <children>
                                                         <HBox spacing="0">
@@ -170,7 +170,7 @@
                                         <!-- When bot is open -->
                                         <VBox spacing="8">
                                             <children>
-                                                <Label style="-fx-text-fill: #90caf9; -fx-font-size: 11; -fx-font-weight: bold;" text="When the bot app is open" />
+                                                <Label style="-fx-text-fill: #90caf9; -fx-font-size: 12px; -fx-font-weight: bold;" text="When the bot app is open" />
                                                 <VBox styleClass="task-subsection">
                                                     <children>
                                                         <HBox spacing="0">

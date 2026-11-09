@@ -93,12 +93,12 @@
                                        wrapText="true" />
                                 <Label fx:id="labelParticipationWarning"
                                        maxWidth="300" managed="false"
-                                       style="-fx-background-color: rgba(245, 158, 11, 0.14); -fx-background-radius: 4; -fx-padding: 4 6; -fx-text-fill: #fbbf24; -fx-font-size: 11px;"
+                                       style="-fx-background-color: rgba(245, 158, 11, 0.14); -fx-background-radius: 4; -fx-padding: 4 6; -fx-text-fill: #fbbf24; -fx-font-size: 12px;"
                                        text="Bear icons cannot distinguish Trap 1 from Trap 2."
                                        visible="false" wrapText="true" />
                                 <Label fx:id="labelSelectedTimerWarning"
                                        maxWidth="320" managed="false"
-                                       style="-fx-background-color: rgba(245, 158, 11, 0.14); -fx-background-radius: 4; -fx-padding: 4 6; -fx-text-fill: #fbbf24; -fx-font-size: 11px;"
+                                       style="-fx-background-color: rgba(245, 158, 11, 0.14); -fx-background-radius: 4; -fx-padding: 4 6; -fx-text-fill: #fbbf24; -fx-font-size: 12px;"
                                        visible="false" wrapText="true" />
                             </VBox>
                         </HBox>

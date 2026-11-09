@@ -34,8 +34,10 @@ public class PriorityListView extends HBox {
     private static final double MIN_SCROLL_SPEED = 0.002;
     private static final double ROW_HEIGHT = 36.0;
 
-    private final ObservableList<PriorityItemData> items = FXCollections.observableArrayList();
-    private final ListView<PriorityItemData> listView = new ListView<>(items);
+    private final ObservableList<PriorityItemData> items;
+    private final ListView<PriorityItemData> listView;
+    private final PriorityListView source;
+    private final List<PriorityListView> mirrors = new ArrayList<>();
     private final AnimationTimer autoScrollTimer;
 
     private Runnable onChangeCallback;
@@ -43,6 +45,19 @@ public class PriorityListView extends HBox {
     private double scrollSpeed;
 
     public PriorityListView() {
+        this(FXCollections.observableArrayList(), null);
+    }
+
+    /** A second view of {@code source}: same items, and every change saves through it. */
+    public PriorityListView(PriorityListView source) {
+        this(source.items, source);
+        source.mirrors.add(this);
+    }
+
+    private PriorityListView(ObservableList<PriorityItemData> items, PriorityListView source) {
+        this.items = items;
+        this.source = source;
+        listView = new ListView<>(items);
         autoScrollTimer = createAutoScrollTimer();
         configureList();
         getChildren().addAll(listView, createMoveControls());
@@ -134,6 +149,12 @@ public class PriorityListView extends HBox {
     }
 
     private void notifyChanged() {
+        if (source != null) {
+            source.notifyChanged();
+            return;
+        }
+        listView.refresh();
+        mirrors.forEach(mirror -> mirror.listView.refresh());
         if (onChangeCallback != null) {
             onChangeCallback.run();
         }

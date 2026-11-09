@@ -894,7 +894,7 @@ public class ProfileManagerLayoutController implements IProfileChangeObserver {
 
 	private Label taskChip(String label) {
 		Label chip = new Label(label);
-		chip.setStyle("-fx-background-color: #2ea043; -fx-text-fill: white; -fx-padding: 4 8; -fx-background-radius: 4; -fx-font-size: 11px;");
+		chip.setStyle("-fx-background-color: #2ea043; -fx-text-fill: white; -fx-padding: 4 8; -fx-background-radius: 4; -fx-font-size: 12px;");
 		FontIcon check = new FontIcon("mdi2c-check-circle");
 		check.setIconSize(12);
 		check.setIconColor(Color.WHITE);

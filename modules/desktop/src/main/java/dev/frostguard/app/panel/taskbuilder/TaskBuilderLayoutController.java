@@ -1144,7 +1144,7 @@ public class TaskBuilderLayoutController {
             path.setScaleY(0.9);
             
             Label lbl = new Label("Back");
-            lbl.setStyle("-fx-text-fill: white; -fx-font-size: 9px; -fx-font-weight: 600; -fx-opacity: 0.8;");
+            lbl.setStyle("-fx-text-fill: white; -fx-font-size: 12px; -fx-font-weight: 600; -fx-opacity: 0.8;");
             
             card.getChildren().addAll(path, lbl);
         } else {
@@ -1208,8 +1208,8 @@ public class TaskBuilderLayoutController {
                 branchBadge.setPadding(new Insets(0, 0, 0, 0));
                 String yesText = node.getType() == FlowStepKind.TEMPLATE_SEARCH ? "● Found" : "● Yes";
                 String noText  = node.getType() == FlowStepKind.TEMPLATE_SEARCH ? "● Not Found" : "● No";
-                Label yes = new Label(yesText); yes.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 10px; -fx-font-weight: bold;");
-                Label no  = new Label(noText);  no.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 10px; -fx-font-weight: bold;");
+                Label yes = new Label(yesText); yes.setStyle("-fx-text-fill: #27ae60; -fx-font-size: 12px; -fx-font-weight: bold;");
+                Label no  = new Label(noText);  no.setStyle("-fx-text-fill: #e74c3c; -fx-font-size: 12px; -fx-font-weight: bold;");
                 branchBadge.getChildren().addAll(yes, new Label("  "), no);
                 body.getChildren().add(branchBadge);
             }
@@ -1606,7 +1606,7 @@ public class TaskBuilderLayoutController {
         bg.setCursor(Cursor.HAND);
 
         javafx.scene.text.Text lbl = new javafx.scene.text.Text(labelText);
-        lbl.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+        lbl.setStyle("-fx-font-size: 12px; -fx-font-weight: bold;");
         lbl.setFill(Color.web("#f59e0b"));
         lbl.setMouseTransparent(true);
         lbl.setX(bgX + 12);
@@ -1679,7 +1679,7 @@ public class TaskBuilderLayoutController {
         bg.setMouseTransparent(true);
 
         javafx.scene.text.Text lbl = new javafx.scene.text.Text(text);
-        lbl.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+        lbl.setStyle("-fx-font-size: 12px; -fx-font-weight: bold;");
         lbl.setFill(Color.web(color));
         lbl.setMouseTransparent(true);
         lbl.setX(bgX + 9);

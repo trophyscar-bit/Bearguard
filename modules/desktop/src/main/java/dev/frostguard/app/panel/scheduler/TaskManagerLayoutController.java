@@ -392,16 +392,17 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 		});
 	}
 
-	private void reloadTaskRows(AccountDescriptor profile, Consumer<List<TaskManagerAux>> onListReady) {
-		taskManagerActionController.loadDailyTaskStatus(profile.getId(), statuses -> {
+	/** Delivers the same rows as the Tasks table, in its order, on the FX thread. */
+	public void loadTaskRows(Long profileId, Consumer<List<TaskManagerAux>> onListReady) {
+		taskManagerActionController.loadDailyTaskStatus(profileId, statuses -> {
 			List<TaskManagerAux> list = new ArrayList<>();
 			for (TpDailyTaskEnum task : TpDailyTaskEnum.values()) {
 				if (task != TpDailyTaskEnum.CUSTOM_TASK) {
-					list.add(createTaskAux(profile.getId(), task, task.getName(), null, statuses));
+					list.add(createTaskAux(profileId, task, task.getName(), null, statuses));
 				}
 			}
 			CustomTaskService.getInstance().getEnabledTasks().forEach(customTask -> list.add(createTaskAux(
-					profile.getId(),
+					profileId,
 					TpDailyTaskEnum.CUSTOM_TASK,
 					customTask.getCustomName(),
 					customTask.getClassName(),
@@ -409,6 +410,15 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 			list.sort(TASK_AUX_COMPARATOR);
 			Platform.runLater(() -> onListReady.accept(list));
 		});
+	}
+
+	private void reloadTaskRows(AccountDescriptor profile, Consumer<List<TaskManagerAux>> onListReady) {
+		loadTaskRows(profile.getId(), onListReady);
+	}
+
+	/** Runs through the existing action controller, which must stay the only instance. */
+	public void runTaskNow(TaskManagerAux task) {
+		taskManagerActionController.executeTaskDirectly(task);
 	}
 
 	private TaskManagerAux createTaskAux(Long profileId, TpDailyTaskEnum task, String taskName, String customTaskName,
@@ -419,10 +429,7 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 			return fromLiveState(profileId, task, taskName, customTaskName, liveState);
 		}
 
-		DailyTaskStatusData storedState = statuses.stream()
-				.filter(status -> status.getIdTpDailyTask() == task.getId())
-				.findFirst()
-				.orElse(null);
+		DailyTaskStatusData storedState = storedStatusFor(task, customTaskName, statuses);
 		if (storedState == null) {
 			return new TaskManagerAux(taskName, null, null, task, profileId, Long.MAX_VALUE, false, false, false, customTaskName);
 		}
@@ -439,6 +446,27 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 				isQueued(profileId, task, customTaskName),
 				false,
 				customTaskName);
+	}
+
+	/**
+	 * Every custom task shares one task id, so the label is what tells their rows apart. A built-in
+	 * task can also carry a labelled row left by an older version; its unlabelled row is the current one.
+	 */
+	private static DailyTaskStatusData storedStatusFor(TpDailyTaskEnum task, String customTaskName,
+			List<DailyTaskStatusData> statuses) {
+		List<DailyTaskStatusData> sameTask = statuses.stream()
+				.filter(status -> status.getIdTpDailyTask() == task.getId())
+				.toList();
+		if (customTaskName != null) {
+			return sameTask.stream()
+					.filter(status -> customTaskName.equals(status.getCustomLabel()))
+					.findFirst()
+					.orElse(null);
+		}
+		return sameTask.stream()
+				.filter(status -> status.getCustomLabel() == null)
+				.findFirst()
+				.orElse(sameTask.isEmpty() ? null : sameTask.get(0));
 	}
 
 	private TaskManagerAux fromLiveState(Long profileId, TpDailyTaskEnum task, String taskName, String customTaskName,

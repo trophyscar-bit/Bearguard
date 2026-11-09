@@ -72,6 +72,16 @@ public class TaskFailureStreakRepository {
                 .map(TaskFailureStreak::toData);
     }
 
+    public List<TaskFailureStreakData> findForProfile(long profileId) {
+        return store.executeQuery(
+                        "SELECT s FROM TaskFailureStreak s WHERE s.profileId = :profileId",
+                        TaskFailureStreak.class,
+                        Map.of("profileId", profileId))
+                .stream()
+                .map(TaskFailureStreak::toData)
+                .toList();
+    }
+
     public boolean clear(long profileId, String taskKey) {
         return store.withinTransaction(entityManager -> {
             List<String> matches = entityManager.createQuery(

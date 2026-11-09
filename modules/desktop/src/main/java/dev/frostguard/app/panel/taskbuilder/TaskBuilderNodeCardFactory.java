@@ -187,13 +187,13 @@ public class TaskBuilderNodeCardFactory {
         VBox banner = createResultBanner("ocr-result-banner");
 
         Label titleLbl = new Label("▸ OCR Result");
-        titleLbl.setStyle("-fx-text-fill: #636a75; -fx-font-size: 9px; -fx-font-weight: 700;");
+        titleLbl.setStyle("-fx-text-fill: #636a75; -fx-font-size: 12px; -fx-font-weight: 700;");
 
         Label resultLbl = new Label(result.isEmpty() ? "(empty)" : result);
         resultLbl.setWrapText(true);
         resultLbl.setStyle(
             "-fx-text-fill: #59ba59;" +
-            "-fx-font-size: 11px;" +
+            "-fx-font-size: 12px;" +
             "-fx-font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;" +
             "-fx-background-color: #11141a;" +
             "-fx-background-radius: 4;" +
@@ -205,7 +205,7 @@ public class TaskBuilderNodeCardFactory {
         Label matchLbl = new Label(matchIcon + "  matches '" + expected + "'");
         matchLbl.setStyle(
             "-fx-text-fill: " + matchColor + ";" +
-            "-fx-font-size: 10px;" +
+            "-fx-font-size: 12px;" +
             "-fx-font-weight: 700;"
         );
 
@@ -236,14 +236,14 @@ public class TaskBuilderNodeCardFactory {
         VBox banner = createResultBanner("tpl-result-banner");
 
         Label titleLbl = new Label("▸ Search Result");
-        titleLbl.setStyle("-fx-text-fill: #636a75; -fx-font-size: 9px; -fx-font-weight: 700;");
+        titleLbl.setStyle("-fx-text-fill: #636a75; -fx-font-size: 12px; -fx-font-weight: 700;");
 
         String matchColor = found ? "#59ba59" : "#ef4444";
         String matchIcon  = found ? "✓ FOUND" : "✗ NOT FOUND";
         Label matchLbl = new Label(matchIcon + "  (match: " + matchPct + "%)");
         matchLbl.setStyle(
             "-fx-text-fill: " + matchColor + ";" +
-            "-fx-font-size: 11px;" +
+            "-fx-font-size: 12px;" +
             "-fx-font-weight: 700;" +
             "-fx-font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;" +
             "-fx-background-color: #11141a;" +
@@ -257,7 +257,7 @@ public class TaskBuilderNodeCardFactory {
             Label tapLbl = new Label("👆 Tapped at: " + tappedAt);
             tapLbl.setStyle(
                 "-fx-text-fill: #fcd176;" +
-                "-fx-font-size: 10px;" +
+                "-fx-font-size: 12px;" +
                 "-fx-font-weight: 700;"
             );
             banner.getChildren().add(tapLbl);

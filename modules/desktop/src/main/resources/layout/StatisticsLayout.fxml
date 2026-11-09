@@ -5,7 +5,7 @@
 <?import javafx.scene.layout.*?>
 
 <!-- Statistics — top: what the bot EARNED over time (telemetry); below: task run detail -->
-<BorderPane maxHeight="Infinity" maxWidth="Infinity"
+<BorderPane fx:id="statisticsRoot" maxHeight="Infinity" maxWidth="Infinity"
             HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
             xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
 
@@ -15,49 +15,42 @@
         <!-- Resources (what the bot earned) and Alliance Spend (what the alliance bought) are
              separate tabs: one is this account's own telemetry, the other other players' purchases. -->
         <TabPane fx:id="tabsStatistics" tabClosingPolicy="UNAVAILABLE" styleClass="horizontal-tab-pane">
-            <Tab text="Resources">
+            <Tab text="Overview">
                 <VBox>
-                    <HBox alignment="CENTER_RIGHT" spacing="12"
-                          style="-fx-padding: 10 16 6 16;">
-                        <Button fx:id="btnRefresh" mnemonicParsing="false"
-                                onAction="#handleRefresh" styleClass="action-button-timeline" text="Refresh" />
-                        <Button fx:id="btnReset" mnemonicParsing="false"
-                                onAction="#handleReset" styleClass="action-button-clear" text="Reset Statistics" />
-                    </HBox>
+                    <VBox spacing="6" style="-fx-padding: 10 16 6 16;">
+                        <HBox fx:id="windowButtons" spacing="2" styleClass="window-seg" />
+                        <HBox spacing="12" alignment="CENTER_LEFT">
+                            <Label fx:id="lblWindow" styleClass="stat-window-label" wrapText="true"
+                                   maxWidth="Infinity" HBox.hgrow="ALWAYS" />
+                            <Button fx:id="btnRefresh" mnemonicParsing="false" minWidth="-Infinity"
+                                    onAction="#handleRefresh" styleClass="action-button-timeline" text="Refresh" />
+                            <Button fx:id="btnReset" mnemonicParsing="false" minWidth="-Infinity"
+                                    onAction="#handleReset" styleClass="action-button-clear" text="Reset Statistics" />
+                        </HBox>
+                    </VBox>
                     <ScrollPane fitToWidth="true" VBox.vgrow="ALWAYS" style="-fx-background-color: transparent;">
-                        <VBox spacing="12" style="-fx-padding: 0 16 16 16;">
+                        <VBox spacing="10" style="-fx-padding: 0 16 16 16;">
 
-                            <!-- ================= WHAT THE BOT DID FOR YOU ================= -->
-                            <VBox styleClass="content-card" spacing="12">
-                                <HBox maxWidth="Infinity" styleClass="header-yellow">
-                                    <Label text="What the bot did for you" />
-                                </HBox>
+                            <Label fx:id="lblEarningsEmpty" styleClass="label-muted" wrapText="true"
+                                   text="Not enough telemetry yet. The bot samples every couple of hours while it runs, so a full 'last night' fills in after a night of running."
+                                   visible="false" managed="false" />
 
-                                <!-- Timeframe picker — drives both sections below. matt/2026-08-15: "a
-                                     dropdown where I can pick easy things: last night, last 24 hours,
-                                     last week, this month" (a custom range is explicitly out of scope for
-                                     now). ComboBox instead of the old button row: easier to scan and
-                                     room to grow without the row wrapping. -->
-                                <HBox spacing="8" alignment="CENTER_LEFT" style="-fx-padding: 4 4 0 4;">
-                                    <Label styleClass="task-field-label" text="Timeframe" />
-                                    <ComboBox fx:id="comboReportWindow" prefWidth="160" />
-                                </HBox>
-
-                                <!-- Prominent heading of the currently-selected window -->
-                                <Label fx:id="lblWindow" text="" style="-fx-font-size: 17px; -fx-font-weight: bold; -fx-text-fill: #e6edf3; -fx-padding: 2 0 0 4;" />
-
-                                <!-- RESOURCES & POWER (top) -->
-                                <Label text="RESOURCES &amp; POWER GAINED" styleClass="stat-title" style="-fx-padding: 6 0 0 4;" />
-                                <FlowPane fx:id="flowEarnings" hgap="8" vgap="8" style="-fx-padding: 0 4 4 4;" />
-
-                                <Separator style="-fx-opacity: 0.2; -fx-padding: 4 0 4 0;" />
-
-                                <!-- ACCOMPLISHED (below) -->
-                                <Label text="ACCOMPLISHED" styleClass="stat-title" style="-fx-padding: 2 0 0 4;" />
-                                <FlowPane fx:id="flowActivity" hgap="8" vgap="8" style="-fx-padding: 0 4 4 4;" />
-
-                                <Label fx:id="lblEarningsEmpty" styleClass="label-muted" wrapText="true"
-                                       text="Not enough telemetry yet — the bot samples every couple hours while it runs, so a full 'last night' fills in after a night of running."
+                            <VBox styleClass="stat-panel" spacing="6">
+                                <Label text="Speedups" styleClass="stat-panel-title" />
+                                <TilePane fx:id="tileSpeedups" hgap="8" vgap="6" />
+                            </VBox>
+                            <VBox styleClass="stat-panel" spacing="6">
+                                <Label text="Power and gems" styleClass="stat-panel-title" />
+                                <TilePane fx:id="tilePowerGems" hgap="8" vgap="6" />
+                            </VBox>
+                            <VBox styleClass="stat-panel" spacing="6">
+                                <Label text="Resources" styleClass="stat-panel-title" />
+                                <TilePane fx:id="tileResources" hgap="8" vgap="6" />
+                            </VBox>
+                            <VBox styleClass="stat-panel" spacing="6">
+                                <Label text="Done in this window" styleClass="stat-panel-title" />
+                                <TilePane fx:id="tileActivity" hgap="8" vgap="6" />
+                                <Label fx:id="lblActivityHint" styleClass="label-muted" wrapText="true"
                                        visible="false" managed="false" />
                             </VBox>
 

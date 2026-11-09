@@ -41,44 +41,24 @@
     <left>
         <VBox styleClass="nav-sidebar">
 
-            <VBox fx:id="sidebarHeader" alignment="CENTER" spacing="14"
-                  style="-fx-padding: 20 16 16 16;">
-
-                <!-- Logo -->
-                <VBox fx:id="logoContainer" alignment="CENTER"
-                      style="-fx-cursor: hand; -fx-padding: 0;" maxWidth="Infinity">
-                    <ImageView preserveRatio="true" fitWidth="158">
-                        <image>
-                            <Image url="@../icons/logo.png" />
-                        </image>
-                    </ImageView>
+            <VBox fx:id="sidebarHeader" spacing="6" style="-fx-padding: 8 10 6 10;">
+                <VBox fx:id="logoContainer" alignment="CENTER_LEFT" style="-fx-cursor: hand;" maxWidth="Infinity">
+                    <Label text="Bearguard" styleClass="sidebar-brand" />
                 </VBox>
-
-                <!-- Search bar positioned before profile selector -->
-                <VBox maxWidth="Infinity">
-                    <TextField fx:id="navSearchField" promptText="Search activities..."
-                               styleClass="search-field" maxWidth="Infinity" />
-                </VBox>
-
-                <!-- Profile selector below search -->
-                <VBox alignment="CENTER" spacing="8" maxWidth="Infinity">
-                    <Label text="Loaded profile"
-                           style="-fx-text-fill: #e2e8f0; -fx-font-size: 13px; -fx-font-weight: bold;" />
-                    <ComboBox fx:id="profileComboBox" maxWidth="Infinity" />
-                </VBox>
+                <TextField fx:id="navSearchField" promptText="Find a screen or setting"
+                           styleClass="search-field" maxWidth="Infinity" />
+                <ComboBox fx:id="profileComboBox" maxWidth="Infinity" />
             </VBox>
-
-            <Separator styleClass="sidebar-divider" />
 
             <!-- Scrollable navigation buttons -->
             <ScrollPane hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" fitToWidth="true"
                         VBox.vgrow="ALWAYS"
                         style="-fx-background-color: transparent; -fx-background: transparent;">
-                <VBox fx:id="buttonsContainer" styleClass="nav-button-container" spacing="8" />
+                <VBox fx:id="buttonsContainer" styleClass="nav-button-container" spacing="1" />
             </ScrollPane>
 
             <!-- Pinned buttons at sidebar bottom -->
-            <VBox fx:id="pinnedButtonsContainer" styleClass="sidebar-footer" spacing="8" />
+            <VBox fx:id="pinnedButtonsContainer" styleClass="sidebar-footer" spacing="1" />
         </VBox>
     </left>
 

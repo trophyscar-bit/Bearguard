@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import dev.frostguard.app.ApplicationTitle;
+import dev.frostguard.app.panel.today.TodayLayoutController;
 import dev.frostguard.engine.service.ProdInstanceGuard;
 import dev.frostguard.app.BuildMetadata;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
@@ -223,6 +224,13 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     private LauncherActionController actionController;
     private ConsoleLogLayoutController consoleLogLayoutController;
     private ProfileManagerLayoutController profileManagerLayoutController;
+    private TodayLayoutController todayController;
+    private StatisticsLayoutController statisticsController;
+    private TabPane configTabs;
+    private Button statisticsButton;
+    private Button configButton;
+    private final Map<Parent, Runnable> onShowActions = new HashMap<>();
+    private final Map<String, Parent> settingsPages = new java.util.LinkedHashMap<>();
     private boolean estado = false;
     private boolean updatingComboBox = false;
     private ProfileAux currentProfile = null;
@@ -637,20 +645,36 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         controlTabs.setMaxWidth(Double.MAX_VALUE);
         controlTabs.setMaxHeight(Double.MAX_VALUE);
 
-        // Statistics — pinned at the bottom, above Control and Config (the operator's layout request:
-        // "Statistics then Control then Config"). Wired to profile updates exactly like a module.
+        addNavGroupLabel("Watch");
+
+        todayController = new TodayLayoutController(taskCtrl, this::loadedProfileIdOrZero, this::openScreen);
+        profileManagerLayoutController.addProfileLoadListener(todayController);
+        Button todayButton = addWatchButton("Today", MaterialDesignC.CLOCK_OUTLINE, todayController.root());
+
         StatisticsLayoutController statsCtrl = new StatisticsLayoutController();
         if (statsCtrl instanceof IProfileObserverInjectable) {
             ((IProfileObserverInjectable) statsCtrl).attachProfileListener(profileManagerLayoutController);
         }
         Parent statsPane = loadNode("StatisticsLayout", statsCtrl);
         moduleControllers.put("Statistics", statsCtrl);
-        addPinnedButton("Statistics", MaterialDesignV.VIEW_DASHBOARD_OUTLINE, statsPane);
+        statisticsController = statsCtrl;
+        statisticsButton = addWatchButton("Statistics", MaterialDesignC.CHART_BAR, statsPane);
         if (statsCtrl instanceof IProfileLoadListener) {
             profileManagerLayoutController.addProfileLoadListener((IProfileLoadListener) statsCtrl);
         }
 
-        Button controlButton = addPinnedButton("Control", MaterialDesignC.CONTROLLER_CLASSIC, controlTabs);
+        Button controlButton = addWatchButton("Control", MaterialDesignF.FORMAT_LIST_BULLETED, controlTabs);
+        controlTabs.getTabs().forEach(tab -> indexTab(controlButton, controlTabs, tab, tab.getText(),
+                MaterialDesignF.FORMAT_LIST_BULLETED, Map.of()));
+
+        UpcomingEventsLayoutController upcomingEventsCtrl = new UpcomingEventsLayoutController();
+        Parent upcomingEventsPane = loadNode("UpcomingEventsLayout", upcomingEventsCtrl);
+        addWatchButton("Calendar", MaterialDesignC.CALENDAR_OUTLINE, upcomingEventsPane);
+
+        // Named "Deal Tracker", not "Deals": the Deals config module already owns that name in the nav.
+        DealTrackerLayoutController dealTrackerCtrl = new DealTrackerLayoutController();
+        Parent dealTrackerPane = loadNode("DealTrackerLayout", dealTrackerCtrl);
+        addWatchButton("Deal Tracker", MaterialDesignT.TAG_OUTLINE, dealTrackerPane);
 
         // Config pinned button with application-wide settings tabs.
         EmuConfigLayoutController configCtrl = new EmuConfigLayoutController();
@@ -665,19 +689,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         EventScheduleSettingsLayoutController eventScheduleSettingsCtrl = new EventScheduleSettingsLayoutController();
         Parent eventScheduleSettingsPane = loadNode("EventScheduleSettingsLayout", eventScheduleSettingsCtrl);
 
-        TabPane configTabs = new TabPane();
-        configTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        configTabs.getTabs().addAll(
-                makeTab("Emulators", configPane),
-                makeTab("Telegram", telegramPane),
-                makeTab("Updates", updatePane),
-                makeTab("Calendar", eventScheduleSettingsPane)
-        );
-        configTabs.setMaxWidth(Double.MAX_VALUE);
-        configTabs.setMaxHeight(Double.MAX_VALUE);
-
-        // Chat capture settings, pinned beneath Config. Settings only: chat is captured for the
-        // Discord digest and is not displayed in the app.
+        // Settings only: chat is captured for the Discord digest and is not displayed in the app.
         ChatCaptureLayoutController chatConfigCtrl = new ChatCaptureLayoutController();
         if (chatConfigCtrl instanceof IProfileObserverInjectable) {
             ((IProfileObserverInjectable) chatConfigCtrl).attachProfileListener(profileManagerLayoutController);
@@ -687,24 +699,57 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         if (chatConfigCtrl instanceof IProfileLoadListener) {
             profileManagerLayoutController.addProfileLoadListener((IProfileLoadListener) chatConfigCtrl);
         }
+        settingsPages.put("Chat", chatConfigPane);
 
-        addPinnedButton("Config", MaterialDesignC.COG_OUTLINE, configTabs);
-        addPinnedButton("Chat", MaterialDesignC.CHAT_OUTLINE, chatConfigPane);
+        configTabs = new TabPane();
+        configTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        configTabs.getTabs().addAll(
+                makeTab("Emulators", configPane),
+                makeTab("Telegram", telegramPane),
+                makeTab("Updates", updatePane),
+                makeTab("Calendar", eventScheduleSettingsPane),
+                makeTab("Chat", chatConfigPane)
+        );
+        configTabs.setMaxWidth(Double.MAX_VALUE);
+        configTabs.setMaxHeight(Double.MAX_VALUE);
+        configButton = addPinnedButton("Config", MaterialDesignT.TUNE, configTabs);
 
-        UpcomingEventsLayoutController upcomingEventsCtrl = new UpcomingEventsLayoutController();
-        Parent upcomingEventsPane = loadNode("UpcomingEventsLayout", upcomingEventsCtrl);
-        Button calendarButton = addPinnedButton("Calendar", MaterialDesignC.CALENDAR_OUTLINE, upcomingEventsPane);
-
-        // Named "Deal Tracker", not "Deals": the Deals config module already owns that name in the nav.
-        DealTrackerLayoutController dealTrackerCtrl = new DealTrackerLayoutController();
-        Parent dealTrackerPane = loadNode("DealTrackerLayout", dealTrackerCtrl);
-        addPinnedButton("Deal Tracker", MaterialDesignT.TAG_OUTLINE, dealTrackerPane);
-
-        // Open Bearguard on the Tasks view instead of the raw log. Select the first
-        // Control tab (Tasks) and fire the Control button so startup lands there with it highlighted.
         controlTabs.getSelectionModel().selectFirst();
-        controlButton.fire();
-        calendarButton.fire(); // TEMPORARY: land on Calendar while its redesign is being checked
+        todayButton.fire();
+    }
+
+    private long loadedProfileIdOrZero() {
+        Long id = profileManagerLayoutController.getLoadedProfileId();
+        return id == null ? 0L : id;
+    }
+
+    private void addNavGroupLabel(String text) {
+        Label label = new Label(text);
+        label.getStyleClass().add("nav-group-label");
+        buttonsContainer.getChildren().add(label);
+    }
+
+    private Button addWatchButton(String title, Ikon icon, Parent root) {
+        Button button = createAndConfigureButton(title, icon, root, null);
+        buttonsContainer.getChildren().add(button);
+        quickNavEntries.add(new QuickNavEntry(title, icon, button, Map.of(), button::fire));
+        return button;
+    }
+
+    private void indexTab(Button owner, TabPane tabs, Tab tab, String title, Ikon icon,
+                          Map<ConfigurationKeyEnum, String> settings) {
+        quickNavEntries.add(new QuickNavEntry(title, icon, owner, settings, () -> {
+            owner.fire();
+            tabs.getSelectionModel().select(tab);
+        }));
+    }
+
+    /** Opens a screen by the title it has in search, going through its hub when it has one. */
+    private void openScreen(String title) {
+        quickNavEntries.stream()
+                .filter(entry -> entry.title().equals(title))
+                .findFirst()
+                .ifPresent(entry -> entry.open().run());
     }
 
     private Tab makeTab(String title, Parent content) { /* internal */
@@ -719,6 +764,10 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         AnchorPane.setLeftAnchor(content, 0.0);
         AnchorPane.setRightAnchor(content, 0.0);
         mainContentPane.getChildren().add(content);
+        Runnable onShow = onShowActions.get(content);
+        if (onShow != null) {
+            onShow.run();
+        }
     }
 
     private void initializeProfileComboBox() { /* internal */
@@ -871,7 +920,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 "Training", "Healing", "Gather", "Intel", "Rally", "Beast Hunting", "Chief Order", "Pets", "Squads & Heroes");
         java.util.List<String> accountOrder = java.util.List.of(
                 "Character", "Skip Tutorial", "Experts");
-        java.util.Set<String> tucked = java.util.Set.of(
+        java.util.Set<String> devTools = java.util.Set.of(
                 "Dummy Task", "Debugging", "Task Builder");
 
         // Alliance Championship + Alliance Mobilization are shared between Events and Alliance --
@@ -882,7 +931,6 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         java.util.LinkedHashMap<String, Parent> economyRoots = new java.util.LinkedHashMap<>();
         java.util.LinkedHashMap<String, Parent> troopsRoots = new java.util.LinkedHashMap<>();
         java.util.LinkedHashMap<String, Parent> accountRoots = new java.util.LinkedHashMap<>();
-        java.util.List<Button> tuckedButtons = new java.util.ArrayList<>();
 
         for (ModuleDefinition module : modules) {
             consoleLogLayoutController.appendMessage(
@@ -908,11 +956,12 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 troopsRoots.put(title, loadNode(module.fxmlName(), controller));
             } else if (accountOrder.contains(title)) {
                 accountRoots.put(title, loadNode(module.fxmlName(), controller));
-            } else {
-                Button moduleButton = addButton(module.fxmlName(), title, module.icon(), controller);
-                if (tucked.contains(title)) {
-                    tuckedButtons.add(moduleButton);
-                }
+            } else if (devTools.contains(title)) {
+                Parent devToolPage = loadNode(module.fxmlName(), controller);
+                settingsPages.put(title, devToolPage);
+                configTabs.getTabs().add(makeTab(title, devToolPage));
+            } else if ("Game Data".equals(title)) {
+                moveGameDataToStatistics(loadNode(module.fxmlName(), controller));
             }
 
             if (controller instanceof IProfileLoadListener) {
@@ -927,13 +976,19 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         profileManagerLayoutController.addProfileLoadListener(labyrinthController);
         eventRoots.put("Labyrinth", loadNode("LabyrinthLayout", labyrinthController));
 
+        addNavGroupLabel("Set up");
         installEventsHub(eventOrder, eventRoots);
         installTabbedHub("City", MaterialDesignC.CITY_VARIANT_OUTLINE, cityOrder, cityRoots);
         installTabbedHub("Alliance", MaterialDesignA.ACCOUNT_GROUP_OUTLINE, allianceOrder, allianceRoots);
-        installTabbedHub("Economy", MaterialDesignS.STORE_OUTLINE, economyOrder, economyRoots);
-        installTabbedHub("Troops", MaterialDesignS.SWORD_CROSS, troopsOrder, troopsRoots);
+        installTabbedHub("Economy", MaterialDesignC.CASH_MULTIPLE, economyOrder, economyRoots);
+        installTabbedHub("Troops", MaterialDesignS.SHIELD_OUTLINE, troopsOrder, troopsRoots);
         installTabbedHub("Account", MaterialDesignA.ACCOUNT_OUTLINE, accountOrder, accountRoots);
-        installCollapsibleSection("More (Dev Tools)", tuckedButtons, false);
+        configTabs.getTabs().forEach(tab -> indexTab(configButton, configTabs, tab, configSearchTitle(tab),
+                MaterialDesignT.TUNE, tab.getContent() == settingsPages.get("Chat")
+                        ? settingsOf(moduleControllers.get("Chat"), settingsPages.get("Chat")) : Map.of()));
+        statisticsController.tabs().getTabs().forEach(tab -> indexTab(statisticsButton, statisticsController.tabs(), tab,
+                statisticsSearchTitle(tab), MaterialDesignC.CHART_BAR, Map.of()));
+        todayController.attachSettings(moduleControllers, settingsPages, moduleControllers.get("Events"));
 
         profileManagerLayoutController.addProfileLoadListener(this);
     }
@@ -953,12 +1008,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 entries.put(title, root);
             }
         }
-        Parent sideNav = buildSideNav(entries);
-        if (sideNav == null) {
-            return;
-        }
-        Button hubButton = createAndConfigureButton(hubName, icon, sideNav);
-        buttonsContainer.getChildren().add(hubButton);
+        installHub(hubName, icon, entries);
     }
 
     /**
@@ -989,32 +1039,90 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 flatEntries.put(title, root);
             }
         }
-        Parent sideNav = buildSideNav(flatEntries);
-        if (sideNav == null) {
+        installHub("Events", MaterialDesignC.CALENDAR_STAR, flatEntries);
+    }
+
+    private void installHub(String hubName, Ikon icon, java.util.LinkedHashMap<String, Parent> entries) {
+        if (entries.isEmpty()) {
             return;
         }
-        Button eventsButton = createAndConfigureButton("Events", MaterialDesignC.CALENDAR_STAR, sideNav);
-        buttonsContainer.getChildren().add(eventsButton);
+        SideNav nav = buildSideNav(entries);
+        onShowActions.put(nav.root(), nav.reattach());
+        Button hubButton = createAndConfigureButton(hubName, icon, nav.root(), String.valueOf(entries.size()));
+        buttonsContainer.getChildren().add(hubButton);
+        settingsPages.putAll(entries);
+        entries.forEach((title, root) -> {
+            // Alliance Championship and Mobilization sit in two hubs; one search result is enough.
+            if (quickNavEntries.stream().noneMatch(entry -> entry.title().equals(title))) {
+                quickNavEntries.add(new QuickNavEntry(title, icon, hubButton, settingsOf(title, root), () -> {
+                    hubButton.fire();
+                    nav.pages().get(title).fire();
+                }));
+            }
+        });
+    }
+
+    private Map<ConfigurationKeyEnum, String> settingsOf(String pageTitle, Parent root) {
+        // Screens flattened out of the Events page's tabs have no controller of their own.
+        return settingsOf(moduleControllers.getOrDefault(pageTitle, moduleControllers.get("Events")), root);
+    }
+
+    private static Map<ConfigurationKeyEnum, String> settingsOf(Object controller, Parent root) {
+        return controller instanceof AbstractProfileController profileController
+                ? profileController.getRegisteredSettingsWithin(root)
+                : Map.of();
+    }
+
+    private static String configSearchTitle(Tab tab) {
+        // Watch already has a Calendar and Chat stands alone; only this one needs telling apart.
+        return "Calendar".equals(tab.getText()) ? "Calendar settings" : tab.getText();
+    }
+
+    private static String statisticsSearchTitle(Tab tab) {
+        return "Alliance Spend".equals(tab.getText()) ? "Alliance Spend statistics" : tab.getText();
     }
 
     /**
-     * Shared side-nav builder — a named list on the left (reused `.nav-button` /
-     * `.nav-button.active` styling), the selected screen swapped into a StackPane on the right. The
-     * one navigation pattern for every grouped/hub screen in Bearguard now ("apply this style to all
-     * BG"), not just Events. Returns null if {@code entries} is empty (caller skips installing).
+     * Game Data's rankings become Statistics tabs. Its two notes about what the collector needs are
+     * shown on both tabs, bound so the controller's support message keeps updating them.
      */
-    private Parent buildSideNav(java.util.LinkedHashMap<String, Parent> entries) {
-        if (entries.isEmpty()) {
-            return null;
+    private void moveGameDataToStatistics(Parent gameDataRoot) {
+        BorderPane page = (BorderPane) gameDataRoot;
+        VBox notes = (VBox) page.getTop();
+        java.util.List<Label> labels = notes.getChildren().stream()
+                .filter(Label.class::isInstance).map(Label.class::cast)
+                .filter(label -> !label.getStyleClass().contains("module-title"))
+                .toList();
+        TabPane rankings = findNestedTabPane(gameDataRoot);
+        for (Tab tab : new java.util.ArrayList<>(rankings.getTabs())) {
+            rankings.getTabs().remove(tab);
+            VBox header = new VBox(4);
+            header.setStyle("-fx-padding: 12 16 0 16;");
+            for (Label source : labels) {
+                Label copy = new Label();
+                copy.textProperty().bind(source.textProperty());
+                copy.setWrapText(true);
+                header.getChildren().add(copy);
+            }
+            BorderPane wrapped = new BorderPane((Node) tab.getContent());
+            wrapped.setTop(header);
+            tab.setContent(wrapped);
+            statisticsController.tabs().getTabs().add(tab);
         }
+    }
 
+    /**
+     * Shared side-nav builder: a named list on the left (reused `.nav-button` /
+     * `.nav-button.active` styling), the selected screen swapped into a StackPane on the right.
+     */
+    private SideNav buildSideNav(java.util.LinkedHashMap<String, Parent> entries) {
         BorderPane sideNav = new BorderPane();
         sideNav.setMaxWidth(Double.MAX_VALUE);
         sideNav.setMaxHeight(Double.MAX_VALUE);
 
-        VBox navList = new VBox(4);
-        navList.setPrefWidth(160);
-        navList.setMinWidth(160);
+        VBox navList = new VBox(1);
+        navList.setPrefWidth(170);
+        navList.setMinWidth(170);
         navList.getStyleClass().add("events-side-nav");
         ScrollPane navScroll = new ScrollPane(navList);
         navScroll.setFitToWidth(true);
@@ -1026,28 +1134,37 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         content.setMaxHeight(Double.MAX_VALUE);
 
         java.util.List<Button> navButtons = new java.util.ArrayList<>();
-        boolean[] first = { true };
+        java.util.Map<String, Button> pageButtons = new java.util.LinkedHashMap<>();
+        Parent[] shown = { null };
         for (java.util.Map.Entry<String, Parent> entry : entries.entrySet()) {
             Button navButton = new Button(entry.getKey());
             navButton.setMaxWidth(Double.MAX_VALUE);
             navButton.getStyleClass().add("nav-button");
             navButton.setOnAction(e -> {
-                content.getChildren().setAll(entry.getValue());
+                shown[0] = entry.getValue();
+                content.getChildren().setAll(shown[0]);
                 navButtons.forEach(b -> b.getStyleClass().remove("active"));
                 navButton.getStyleClass().add("active");
             });
             navButtons.add(navButton);
+            pageButtons.put(entry.getKey(), navButton);
             navList.getChildren().add(navButton);
-            if (first[0]) {
-                content.getChildren().setAll(entry.getValue());
+            if (shown[0] == null) {
+                shown[0] = entry.getValue();
+                content.getChildren().setAll(shown[0]);
                 navButton.getStyleClass().add("active");
-                first[0] = false;
             }
         }
 
         sideNav.setLeft(navScroll);
         sideNav.setCenter(content);
-        return sideNav;
+        // A page shared by two hubs can only have one parent, so the hub that lost it takes it back.
+        Runnable reattach = () -> {
+            if (content.getChildren().isEmpty() || content.getChildren().get(0) != shown[0]) {
+                content.getChildren().setAll(shown[0]);
+            }
+        };
+        return new SideNav(sideNav, pageButtons, reattach);
     }
 
     /**
@@ -1075,52 +1192,6 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
             }
         }
         return null;
-    }
-
-    /**
-     * Groups the given module buttons under a single collapsible header ("More", …) on the sidebar.
-     * Nothing is deleted — the buttons are the same instances, simply re-parented under the
-     * header and shown/hidden when it's clicked, so every screen stays reachable.
-     *
-     * @param label        section title shown in the header (a count is appended)
-     * @param buttons      the module buttons to tuck under this header
-     * @param startExpanded whether the section is open on first render
-     */
-    private void installCollapsibleSection(String label, java.util.List<Button> buttons, boolean startExpanded) {
-        if (buttons.isEmpty()) {
-            return;
-        }
-
-        VBox box = new VBox(8);
-        box.setVisible(startExpanded);
-        box.setManaged(startExpanded);
-
-        for (Button b : buttons) {
-            buttonsContainer.getChildren().remove(b);
-            box.getChildren().add(b);
-        }
-
-        Label caret = new Label(startExpanded ? "▾" : "▸");
-        Label title = new Label(label + " (" + buttons.size() + ")");
-        title.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(title, Priority.ALWAYS);
-
-        HBox header = new HBox(10, caret, title);
-        header.setAlignment(Pos.CENTER_LEFT);
-        header.setMaxWidth(Double.MAX_VALUE);
-
-        Button toggle = new Button();
-        toggle.setGraphic(header);
-        toggle.setMaxWidth(Double.MAX_VALUE);
-        toggle.getStyleClass().add("nav-button");
-        toggle.setOnAction(e -> {
-            boolean showing = !box.isVisible();
-            box.setVisible(showing);
-            box.setManaged(showing);
-            caret.setText(showing ? "▾" : "▸");
-        });
-
-        buttonsContainer.getChildren().addAll(toggle, box);
     }
 
     @Override
@@ -1885,7 +1956,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
     // ==================== BUTTON FACTORY ====================
 
-    private Button createAndConfigureButton(String title, Ikon icon, Parent root) { /* internal */
+    private Button createAndConfigureButton(String title, Ikon icon, Parent root, String count) { /* internal */
         FontIcon btnIcon = new FontIcon(icon);
         btnIcon.setIconSize(16);
         btnIcon.getStyleClass().add("nav-button-icon");
@@ -1897,6 +1968,11 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         HBox content = new HBox(10, btnIcon, btnLabel);
         content.setAlignment(Pos.CENTER_LEFT);
         content.setMaxWidth(Double.MAX_VALUE);
+        if (count != null) {
+            Label countLabel = new Label(count);
+            countLabel.getStyleClass().add("nav-count");
+            content.getChildren().add(countLabel);
+        }
 
         Button button = new Button();
         button.setGraphic(content);
@@ -1935,20 +2011,8 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         }
     }
 
-    private Button addButton(String fxmlName, String title, Ikon icon, Object controller) { /* internal */
-        Parent root = loadNode(fxmlName, controller);
-        Button button = createAndConfigureButton(title, icon, root);
-        buttonsContainer.getChildren().add(button);
-        Map<ConfigurationKeyEnum, String> configs = new HashMap<>();
-        if (controller instanceof AbstractProfileController) {
-            configs = ((AbstractProfileController) controller).getRegisteredSettings();
-        }
-        quickNavEntries.add(new QuickNavEntry(title, icon, button, configs));
-        return button;
-    }
-
     private Button addPinnedButton(String title, Ikon icon, Parent root) { /* internal */
-        Button button = createAndConfigureButton(title, icon, root);
+        Button button = createAndConfigureButton(title, icon, root, null);
         if (null != pinnedButtonsContainer) {
             pinnedButtonsContainer.getChildren().add(button);
         }
@@ -2155,7 +2219,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         header.setCursor(javafx.scene.Cursor.HAND);
         header.setOnMouseClicked(e -> {
             navSearchField.clear();
-            entry.sidebarButton().fire();
+            entry.open().run();
         });
 
         VBox rowsBox = new VBox(0);
@@ -2186,7 +2250,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
             rowContent.setCursor(javafx.scene.Cursor.HAND);
             rowContent.setOnMouseClicked(e -> {
                 navSearchField.clear();
-                entry.sidebarButton().fire();
+                entry.open().run();
             });
 
             rowsBox.getChildren().add(rowContent);
@@ -2262,7 +2326,10 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
     // ==================== QUICK NAV OVERLAY ====================
 
-    private record QuickNavEntry(String title, Ikon icon, Button sidebarButton, Map<ConfigurationKeyEnum, String> configs) {}
+    private record QuickNavEntry(String title, Ikon icon, Button sidebarButton, Map<ConfigurationKeyEnum, String> configs,
+                                 Runnable open) {}
+
+    private record SideNav(BorderPane root, Map<String, Button> pages, Runnable reattach) {}
 
     private void initializeQuickNav() { /* internal */
         if (null != logoContainer) {
@@ -2356,7 +2423,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         card.setOnMouseClicked(e -> {
             e.consume();
             hideQuickNav();
-            entry.sidebarButton().fire();
+            entry.open().run();
         });
         return card;
     }

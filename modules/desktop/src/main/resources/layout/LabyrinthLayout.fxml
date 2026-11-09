@@ -91,7 +91,7 @@
                         </VBox>
 
                         <Label fx:id="labelRatioHint" wrapText="true"
-                               style="-fx-font-size: 11px; -fx-text-fill: #b9770e;" text="" />
+                               style="-fx-font-size: 12px; -fx-text-fill: #b9770e;" text="" />
                     </VBox>
                 </VBox>
 
@@ -142,7 +142,7 @@
                         </VBox>
 
                         <Label fx:id="labelCaveRatioHint" wrapText="true"
-                               style="-fx-font-size: 11px; -fx-text-fill: #b9770e;" text="" />
+                               style="-fx-font-size: 12px; -fx-text-fill: #b9770e;" text="" />
                     </VBox>
                 </VBox>
 
@@ -193,7 +193,7 @@
                         </VBox>
 
                         <Label fx:id="labelCharmRatioHint" wrapText="true"
-                               style="-fx-font-size: 11px; -fx-text-fill: #b9770e;" text="" />
+                               style="-fx-font-size: 12px; -fx-text-fill: #b9770e;" text="" />
                     </VBox>
                 </VBox>
 
@@ -266,7 +266,7 @@
                         </VBox>
 
                         <Label fx:id="labelGaiaRatioHint" wrapText="true"
-                               style="-fx-font-size: 11px; -fx-text-fill: #b9770e;" text="" />
+                               style="-fx-font-size: 12px; -fx-text-fill: #b9770e;" text="" />
                     </VBox>
                 </VBox>
 
@@ -294,7 +294,7 @@
                             </VBox>
                         </FlowPane>
                         <Label fx:id="labelResearchRatioHint" wrapText="true"
-                               style="-fx-font-size: 11px; -fx-text-fill: #b9770e;" text="" />
+                               style="-fx-font-size: 12px; -fx-text-fill: #b9770e;" text="" />
                     </VBox>
                 </VBox>
 
@@ -322,7 +322,7 @@
                             </VBox>
                         </FlowPane>
                         <Label fx:id="labelGearForgeRatioHint" wrapText="true"
-                               style="-fx-font-size: 11px; -fx-text-fill: #b9770e;" text="" />
+                               style="-fx-font-size: 12px; -fx-text-fill: #b9770e;" text="" />
                     </VBox>
                 </VBox>
 

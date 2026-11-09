@@ -130,7 +130,7 @@
     -fx-background-color: #12151c;
     -fx-border-color: #222631 transparent transparent transparent;
     -fx-border-width: 1 0 0 0;
-    -fx-padding: 12 10 16 10;
+    -fx-padding: 4 8 4 8;
 }
 
 /* Upcoming Events calendar page (its own pinned nav button, like Chat/Config). Uses the
@@ -166,7 +166,7 @@
 }
 
 .upcoming-events-ended-icon {
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
     -fx-opacity: 0.6;
 }
 
@@ -190,7 +190,7 @@
 .upcoming-events-badge-active,
 .upcoming-events-badge-upcoming,
 .upcoming-events-badge-ended {
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
     -fx-font-weight: bold;
     -fx-padding: 2 10;
     -fx-background-radius: 100;
@@ -268,13 +268,13 @@
 
 .upcoming-events-empty {
     -fx-text-fill: -fg-text-secondary;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
 }
 
 /* "Recently Ended" tail -- deliberately smaller/muted than the Active/Upcoming rows above it. */
 .upcoming-events-ended-header {
     -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
     -fx-font-weight: bold;
     -fx-padding: 8 0 0 2;
 }
@@ -288,7 +288,7 @@
 .upcoming-events-badge-ended-small {
     -fx-background-color: -color-neutral-muted;
     -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 9px;
+    -fx-font-size: 12px;
     -fx-font-weight: bold;
     -fx-padding: 1 7;
     -fx-background-radius: 100;
@@ -296,12 +296,12 @@
 
 .upcoming-events-ended-label {
     -fx-text-fill: -color-fg-muted;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
 }
 
 .upcoming-events-ended-dates {
     -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
 }
 
 /* The week, drawn the way the game draws it: seven day columns, one bar per event across the days
@@ -326,7 +326,7 @@
 
 .upcoming-events-chart-dow {
     -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
     -fx-font-weight: bold;
 }
 
@@ -387,23 +387,23 @@
 }
 
 .upcoming-events-badge-small {
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
 }
 
 /* ---------------------------------------------------------------------------
  * NAVIGATION ITEM (Pill shape, yellow active)
  * --------------------------------------------------------------------------- */
 .nav-button-container {
-    -fx-padding: 12 10 12 10;
+    -fx-padding: 2 8 4 8;
 }
 
 .nav-button {
     -fx-background-color: transparent;
-    -fx-border-color: #2a2e38;
+    -fx-border-color: transparent;
     -fx-border-radius: 6;
     -fx-border-width: 1;
     -fx-background-radius: 6;
-    -fx-padding: 9 10;
+    -fx-padding: 3 8;
     -fx-cursor: hand;
     -fx-text-fill: #e2e8f0;
     -fx-font-size: 12px;
@@ -463,7 +463,7 @@
 /* Statistics tiles: size the glyph via CSS. setIconSize() is overridden by ikonli's
    CSS pass, so the programmatic number never took — this class is what actually sizes it. */
 .stat-tile-glyph {
-    -fx-icon-size: 72;
+    -fx-icon-size: 34;
 }
 
 .nav-button:hover .ikonli-font-icon {
@@ -578,7 +578,7 @@
 .notification-state-recovered {
     -fx-background-radius: 4;
     -fx-padding: 3 7;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
     -fx-font-weight: bold;
 }
 
@@ -597,7 +597,7 @@
 .notification-time-key,
 .notification-drawer-footer {
     -fx-text-fill: -fg-text-secondary;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
 }
 
 .notification-card-title {
@@ -613,7 +613,7 @@
 
 .notification-time-value {
     -fx-text-fill: #d9e0e8;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
 }
 
 .notification-diagnostics-preview {
@@ -624,7 +624,7 @@
     -fx-padding: 10;
     -fx-text-fill: #d4dbe5;
     -fx-font-family: "Cascadia Mono", "Consolas", monospace;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
 }
 
 .notification-copy-button {
@@ -708,8 +708,7 @@
 .action-button-pause {
     /* Muted brown/yellow as seen in screenshot */
     -fx-background-color: -fg-yellow-dark;
-    -fx-text-fill: -fg-yellow;
-    /* It seems text is slight light yellow on dark */
+    -fx-text-fill: #11141a;
     -fx-font-weight: bold;
     -fx-font-size: 13px;
     -fx-padding: 0 12 0 12;
@@ -730,6 +729,17 @@
 
 .action-button-pause>.label {
     -fx-padding: 0 4 0 0;
+    -fx-text-fill: #11141a;
+}
+
+/* Stays readable while disabled: the default dimming took the label below legible contrast. */
+.action-button-pause:disabled {
+    -fx-opacity: 1;
+    -fx-background-color: #4a4420;
+}
+
+.action-button-pause:disabled>.label {
+    -fx-text-fill: #d8cfa0;
 }
 
 /* Full Stop — visually distinct (red) from Start/Pause so
@@ -1115,7 +1125,7 @@
 
 .label-muted {
     -fx-text-fill: -fg-text-secondary;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
 }
 
 /* Status Indicators */
@@ -1208,25 +1218,25 @@
 .task-info-panel-guide-header {
     -fx-text-fill: -fg-text-primary;
     -fx-font-weight: bold;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
 }
 
 .task-info-panel-bullet {
     -fx-text-fill: #b0b8c6;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
 }
 
 /* Description text directly below a card header */
 .task-card-description {
     -fx-text-fill: -fg-text-secondary;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
 }
 
 /* Warning/note label inside task cards */
 .task-card-note {
     -fx-text-fill: #ffcc00;
     -fx-font-style: italic;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1470,7 +1480,7 @@
 
 .profile-tag-overflow {
     -fx-text-fill: #8b949e;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
     -fx-padding: 2 4;
 }
 
@@ -1543,7 +1553,7 @@
     -fx-background-color: transparent;
     -fx-border-color: transparent;
     -fx-text-fill: -fg-text-secondary;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
     -fx-padding: 4 10;
     -fx-cursor: hand;
     -fx-background-radius: 0 6 6 0;
@@ -1819,7 +1829,7 @@
     -fx-background-color: transparent;
     -fx-border-color: transparent;
     -fx-text-fill: #9eaab6;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
     -fx-padding: 2 6;
     -fx-cursor: hand;
     -fx-background-radius: 12;
@@ -1878,7 +1888,7 @@
     -fx-background-color: transparent;
     -fx-border-color: transparent;
     -fx-text-fill: #9eaab6;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
     -fx-padding: 2 6;
     -fx-cursor: hand;
     -fx-background-radius: 12;
@@ -2052,7 +2062,7 @@
 
 .custom-task-card-path {
     -fx-text-fill: #636a75;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
 }
 
 .custom-task-card-divider .line {
@@ -2070,7 +2080,7 @@
     -fx-text-fill: #4ade80;
     -fx-padding: 4 10;
     -fx-background-radius: 12;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
     -fx-font-weight: bold;
 }
 
@@ -2079,7 +2089,7 @@
     -fx-text-fill: #a78bfa;
     -fx-padding: 4 10;
     -fx-background-radius: 12;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
     -fx-font-weight: bold;
 }
 
@@ -2091,7 +2101,7 @@
 
 .custom-task-field-label {
     -fx-text-fill: #636a75;
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
 }
 
 .custom-task-field {
@@ -2169,7 +2179,7 @@
 }
 .stat-title {
     -fx-text-fill: #94a3b8;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
     -fx-font-weight: bold;
 }
 .stat-value {
@@ -2294,7 +2304,7 @@
 }
 
 .setting-validation-message {
-    -fx-font-size: 11px;
+    -fx-font-size: 12px;
     -fx-text-fill: #ef4444;
 }
 
@@ -2310,6 +2320,250 @@
 
 .upcoming-events-agenda-continuing-label {
     -fx-text-fill: -color-fg-subtle;
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
     -fx-padding: 0 4 0 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * NEW UI SHELL
+ * --------------------------------------------------------------------------- */
+.sidebar-brand {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fg-text-primary;
+}
+
+.nav-group-label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fg-text-secondary;
+    -fx-padding: 5 8 1 8;
+}
+
+.nav-count {
+    -fx-font-size: 12px;
+    -fx-font-weight: normal;
+    -fx-text-fill: -fg-text-secondary;
+}
+
+.nav-button.active .nav-count {
+    -fx-text-fill: #000000;
+}
+
+.nav-sidebar .combo-box,
+.nav-sidebar .text-field {
+    -fx-font-size: 13px;
+    -fx-pref-height: 28;
+    -fx-min-height: 28;
+    -fx-padding: 0 8;
+}
+
+.nav-sidebar .combo-box > .list-cell {
+    -fx-padding: 0 4;
+}
+
+/* ---------------------------------------------------------------------------
+ * TODAY
+ * --------------------------------------------------------------------------- */
+.today-split {
+    -fx-background-color: -fg-bg-app;
+}
+
+.today-line {
+    -fx-padding: 10 12 12 12;
+}
+
+.today-verdict {
+    -fx-background-color: -fg-bg-card;
+    -fx-background-radius: 6;
+    -fx-padding: 8 10;
+}
+
+.today-summary {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fg-text-primary;
+}
+
+.today-summary-bad {
+    -fx-text-fill: #ff8078;
+}
+
+.today-note {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fg-text-secondary;
+}
+
+.today-row {
+    -fx-padding: 4 8;
+    -fx-background-radius: 5;
+    -fx-cursor: hand;
+}
+
+.today-row:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.05);
+}
+
+.today-row-selected,
+.today-row-selected:hover {
+    -fx-background-color: #2a303e;
+}
+
+.today-time {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fg-text-secondary;
+}
+
+.today-name {
+    -fx-font-size: 13px;
+    -fx-text-fill: -fg-text-primary;
+}
+
+.today-row-past .today-name {
+    -fx-text-fill: -fg-text-secondary;
+}
+
+.today-dot {
+    -fx-background-radius: 5;
+}
+
+.today-dot-run {
+    -fx-background-color: -fg-yellow;
+}
+
+.today-dot-bad {
+    -fx-background-color: #ff8078;
+}
+
+.today-dot-past {
+    -fx-background-color: #59ba59;
+}
+
+.today-dot-next {
+    -fx-background-color: #4a5264;
+}
+
+.today-mark-row {
+    -fx-padding: 5 8;
+}
+
+.today-mark {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fg-yellow;
+}
+
+.today-mark-reset {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #8fb2f5;
+}
+
+.today-mark-line,
+.today-mark-reset-line {
+    -fx-pref-height: 1;
+    -fx-max-height: 1;
+    -fx-background-color: #3b4254;
+}
+
+.today-inspector {
+    -fx-background-color: #14171f;
+    -fx-border-color: transparent transparent transparent -fg-border-subtle;
+    -fx-border-width: 0 0 0 1;
+    -fx-padding: 12;
+}
+
+.today-inspector-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fg-text-primary;
+}
+
+.today-value {
+    -fx-font-size: 13px;
+    -fx-text-fill: -fg-text-primary;
+}
+
+.today-section {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fg-text-secondary;
+}
+
+.today-failure {
+    -fx-font-size: 12px;
+    -fx-text-fill: #ffb3ad;
+}
+
+.today-setting-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fg-text-secondary;
+}
+
+.today-inspector .check-box,
+.today-inspector .radio-button {
+    -fx-font-size: 13px;
+    -fx-text-fill: -fg-text-primary;
+}
+
+.today-inspector .check-box .text,
+.today-inspector .radio-button .text {
+    -fx-fill: -fg-text-primary;
+}
+
+/* ---------------------------------------------------------------------------
+ * STATISTICS
+ * --------------------------------------------------------------------------- */
+.window-seg {
+    -fx-background-color: -fg-input-bg;
+    -fx-background-radius: 6;
+    -fx-padding: 2;
+    -fx-max-width: -fx-pref-width;
+}
+
+.window-seg-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 5;
+    -fx-text-fill: -fg-text-secondary;
+    -fx-font-size: 13px;
+    -fx-padding: 3 10;
+    -fx-cursor: hand;
+}
+
+.window-seg-button:selected {
+    -fx-background-color: #3b4254;
+    -fx-text-fill: -fg-text-primary;
+    -fx-font-weight: bold;
+}
+
+.stat-window-label {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fg-text-primary;
+}
+
+.stat-panel {
+    -fx-background-color: -fg-bg-card;
+    -fx-background-radius: 6;
+    -fx-padding: 8 10;
+}
+
+.stat-panel-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fg-text-secondary;
+}
+
+.stat-tile-value {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+}
+
+.stat-tile-value-quiet {
+    -fx-font-size: 13px;
+}
+
+.stat-tile-title {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fg-text-secondary;
 }

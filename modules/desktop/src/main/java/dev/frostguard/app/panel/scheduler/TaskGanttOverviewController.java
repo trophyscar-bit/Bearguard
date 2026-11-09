@@ -469,11 +469,11 @@ public class TaskGanttOverviewController implements TaskStatusChangeListener, St
         box.setMaxWidth(60);
 
         Label local = new Label("Local");
-        local.setStyle("-fx-text-fill: #ffb347; -fx-font-size: 9; -fx-font-weight: bold;");
+        local.setStyle("-fx-text-fill: #ffb347; -fx-font-size: 12px; -fx-font-weight: bold;");
         local.setAlignment(javafx.geometry.Pos.CENTER);
 
         Label utc = new Label("UTC");
-        utc.setStyle("-fx-text-fill: #ffb347; -fx-font-size: 8; -fx-font-weight: bold;");
+        utc.setStyle("-fx-text-fill: #ffb347; -fx-font-size: 12px; -fx-font-weight: bold;");
         utc.setAlignment(javafx.geometry.Pos.CENTER);
 
         box.getChildren().addAll(local, utc);
@@ -500,7 +500,7 @@ public class TaskGanttOverviewController implements TaskStatusChangeListener, St
                     h % 6 == 0 ? 10 : 9));
 
             Label lUtc = new Label(String.format("%02d", utcTick.getHour()));
-            lUtc.setStyle(String.format("-fx-text-fill: %s; -fx-font-size: 8;",
+            lUtc.setStyle(String.format("-fx-text-fill: %s; -fx-font-size: 12px;",
                     h % 6 == 0 ? "#666666" : "#555555"));
 
             col.getChildren().addAll(lLocal, lUtc);
@@ -543,7 +543,7 @@ public class TaskGanttOverviewController implements TaskStatusChangeListener, St
                     d == 0 ? "#ffb347" : "#888888", d == 0 ? 11 : 10, d == 0 ? "bold" : "normal"));
 
             Label lUtc = new Label(utcTxt);
-            lUtc.setStyle(String.format("-fx-text-fill: %s; -fx-font-size: 7;",
+            lUtc.setStyle(String.format("-fx-text-fill: %s; -fx-font-size: 12px;",
                     d == 0 ? "#ffaa44" : "#666666"));
 
             col.getChildren().addAll(lLocal, lUtc);
@@ -581,11 +581,11 @@ public class TaskGanttOverviewController implements TaskStatusChangeListener, St
             String uColor = isNow ? "#ffb347" : (isPast ? "#666666" : "#555555");
 
             Label lLocal = new Label(localTxt);
-            lLocal.setStyle(String.format("-fx-text-fill: %s; -fx-font-size: 10; -fx-font-weight: %s;",
+            lLocal.setStyle(String.format("-fx-text-fill: %s; -fx-font-size: 12px; -fx-font-weight: %s;",
                     lColor, isNow ? "bold" : "normal"));
 
             Label lUtc = new Label(utcTxt);
-            lUtc.setStyle(String.format("-fx-text-fill: %s; -fx-font-size: 8; -fx-font-weight: %s;",
+            lUtc.setStyle(String.format("-fx-text-fill: %s; -fx-font-size: 12px; -fx-font-weight: %s;",
                     uColor, isNow ? "bold" : "normal"));
 
             javafx.scene.layout.VBox col = new javafx.scene.layout.VBox(lLocal, lUtc);
@@ -974,7 +974,7 @@ public class TaskGanttOverviewController implements TaskStatusChangeListener, St
 
         int stamina = StaminaService.getServices().getCurrentStamina(profile.getId());
         Label staminaLabel = new Label(renderStamina(stamina));
-        staminaLabel.setStyle("-fx-text-fill: #cccccc; -fx-font-size: 10;");
+        staminaLabel.setStyle("-fx-text-fill: #cccccc; -fx-font-size: 12px;");
         staminaLabel.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         staminaLabelRegistry.put(profile.getId(), staminaLabel);
 
@@ -1096,7 +1096,7 @@ public class TaskGanttOverviewController implements TaskStatusChangeListener, St
         bg.setStrokeWidth(layout.look().borderWidth());
 
         Label lbl = new Label(layout.shortName());
-        lbl.setStyle("-fx-text-fill: #ffffff; -fx-font-size: 8; -fx-font-weight: bold;");
+        lbl.setStyle("-fx-text-fill: #ffffff; -fx-font-size: 12px; -fx-font-weight: bold;");
         lbl.setMaxWidth(layout.width() - 4);
 
         wireInteractions(stack, layout);

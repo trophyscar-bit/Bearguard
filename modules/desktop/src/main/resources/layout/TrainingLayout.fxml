@@ -18,7 +18,7 @@
                     <Label text="Enable Training" />
                     <Region HBox.hgrow="ALWAYS" />
                     <Label styleClass="label-muted"
-                           style="-fx-font-size: 11px; -fx-background-color: rgba(0,0,0,0.2); -fx-padding: 2 6; -fx-background-radius: 4;"
+                           style="-fx-font-size: 12px; -fx-background-color: rgba(0,0,0,0.2); -fx-padding: 2 6; -fx-background-radius: 4;"
                            text="Automatically Replenishes" />
                 </HBox>
                 <VBox spacing="10" styleClass="task-section-inner">

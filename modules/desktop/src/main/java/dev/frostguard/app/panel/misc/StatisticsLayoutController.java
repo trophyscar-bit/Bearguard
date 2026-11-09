@@ -41,10 +41,13 @@ import org.kordamp.ikonli.materialdesign2.MaterialDesignP;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignS;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignT;
 import org.kordamp.ikonli.materialdesign2.MaterialDesignW;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
 
 public class StatisticsLayoutController extends AbstractProfileController {
@@ -113,11 +116,16 @@ public class StatisticsLayoutController extends AbstractProfileController {
     @FXML private Label lblNoData;
 
     // "What the bot did for you" section
-    @FXML private FlowPane flowEarnings;
-    @FXML private FlowPane flowActivity;
+    @FXML private BorderPane statisticsRoot;
+    @FXML private TabPane tabsStatistics;
+    @FXML private HBox windowButtons;
+    @FXML private TilePane tileSpeedups;
+    @FXML private TilePane tilePowerGems;
+    @FXML private TilePane tileResources;
+    @FXML private TilePane tileActivity;
+    @FXML private Label lblActivityHint;
     @FXML private Label lblWindow;
     @FXML private Label lblEarningsEmpty;
-    @FXML private ComboBox<String> comboReportWindow;
 
     /** Display names + accent colours for the six telemetry metrics. */
     private static final Map<String, String> METRIC_LABELS = new LinkedHashMap<>();
@@ -224,8 +232,8 @@ public class StatisticsLayoutController extends AbstractProfileController {
         try {
             java.io.File ext = new java.io.File(System.getProperty("user.dir"), "stat-icons/" + key + ".png");
             if (ext.isFile()) {
-                ImageView iv = new ImageView(new Image(ext.toURI().toString(), 72, 72, true, true));
-                iv.setFitWidth(72); iv.setFitHeight(72); iv.setPreserveRatio(true);
+                ImageView iv = new ImageView(new Image(ext.toURI().toString(), TILE_ICON, TILE_ICON, true, true));
+                iv.setFitWidth(TILE_ICON); iv.setFitHeight(TILE_ICON); iv.setPreserveRatio(true);
                 return iv;
             }
         } catch (Exception ignored) { }
@@ -275,10 +283,13 @@ public class StatisticsLayoutController extends AbstractProfileController {
     }
 
     /**
-     * Which timeframe is currently shown. Defaults to All time so the page never opens blank, but
-     * once the user picks a segment, Refresh must stay on it instead of snapping back to All time.
+     * Which timeframe is currently shown. Refresh stays on it rather than snapping back to the default.
      */
-    private ReportWindow activeWindow = ReportWindow.TOTAL;
+    private ReportWindow activeWindow = ReportWindow.NIGHT;
+
+    private final ToggleGroup windowGroup = new ToggleGroup();
+    private boolean refreshPending;
+    private long loadGeneration;
 
     // ========================================================================
     // INITIALIZATION
@@ -294,22 +305,32 @@ public class StatisticsLayoutController extends AbstractProfileController {
         colAvgImg.setCellValueFactory(cellData -> new SimpleStringProperty(String.format("%.2f", cellData.getValue().getAverageTemplateFailures())));
         colLastRun.setCellValueFactory(cellData -> new SimpleStringProperty(cellData.getValue().getLastRunTime()));
 
-        // "stats page is just blank now" -- the old button row never fired
-        // anything until clicked, so showActiveWindow() only ever ran after onProfileLoad() had
-        // set currentProfile and reloaded telemetry. Selecting a ComboBox value fires its
-        // valueProperty listener immediately, so wiring the listener BEFORE this initial select
-        // made showActiveWindow() run during initialize() itself -- before the real profile/data
-        // exists. Listener attaches AFTER the initial select so it stays silent here and only
-        // fires on an actual user pick, matching the old button-row timing exactly.
-        comboReportWindow.getItems().setAll(WINDOW_LABELS.keySet());
-        comboReportWindow.getSelectionModel().select("All time");
-        comboReportWindow.valueProperty().addListener((obs, oldV, newV) -> {
-            ReportWindow selected = WINDOW_LABELS.get(newV);
-            if (selected != null) {
-                activeWindow = selected;
-                showActiveWindow();
+        WINDOW_LABELS.forEach((label, window) -> {
+            ToggleButton button = new ToggleButton(label);
+            button.setToggleGroup(windowGroup);
+            button.setUserData(window);
+            button.getStyleClass().add("window-seg-button");
+            button.setSelected(window == activeWindow);
+            windowButtons.getChildren().add(button);
+        });
+        // Attached after the initial selection: there is no data to show until a profile loads.
+        windowGroup.selectedToggleProperty().addListener((obs, previous, selected) -> {
+            if (selected == null) {
+                windowGroup.selectToggle(previous);
+                return;
+            }
+            activeWindow = (ReportWindow) selected.getUserData();
+            showActiveWindow();
+        });
+        statisticsRoot.sceneProperty().addListener((obs, previous, scene) -> {
+            if (scene != null && refreshPending) {
+                refreshStatisticsView();
             }
         });
+    }
+
+    public TabPane tabs() {
+        return tabsStatistics;
     }
 
     // ========================================================================
@@ -355,6 +376,12 @@ public class StatisticsLayoutController extends AbstractProfileController {
 
     private void refreshStatisticsView() {
         if (currentProfile == null) return;
+        // Nothing reads the page while it is off screen, and each refresh loads the whole telemetry store.
+        if (statisticsRoot.getScene() == null) {
+            refreshPending = true;
+            return;
+        }
+        refreshPending = false;
 
         refreshEarnings();
 
@@ -514,24 +541,28 @@ public class StatisticsLayoutController extends AbstractProfileController {
         // stable numeric ID instead, from its own workspace-local file.
         long profileId = currentProfile != null && currentProfile.getId() != null
                 ? currentProfile.getId() : NO_PROFILE_SELECTED_ID;
-        telemetry = TelemetryReport.load(profileId);
-        // Reload the data but stay on whatever timeframe the user last selected (defaults to All
-        // time on first open). Refresh must never yank the view back to All time.
-        showActiveWindow();
+        long generation = ++loadGeneration;
+        Thread.ofVirtual().name("statistics-load").start(() -> {
+            TelemetryReport loaded = TelemetryReport.load(profileId);
+            Platform.runLater(() -> {
+                if (generation == loadGeneration) {
+                    telemetry = loaded;
+                    showActiveWindow();
+                }
+            });
+        });
     }
 
-    /** Renders the currently-selected timeframe and keeps the dropdown's shown value in sync. */
+    /** Renders the currently-selected timeframe. */
     private void showActiveWindow() {
         switch (activeWindow) {
             case PAST_HOUR -> {
-                setActiveSegment("Past hour");
                 showWindow("Past hour",
                         telemetry.last(1, ChronoUnit.HOURS), telemetry.activityLast(1, ChronoUnit.HOURS),
                         telemetry.coverageForLast(1, ChronoUnit.HOURS),
                         telemetry.silenceForLast(1, ChronoUnit.HOURS));
             }
             case NIGHT -> {
-                setActiveSegment("Last night");
                 showWindow("Last night (" + SLEEP_START + "–" + WAKE_END + ")",
                         telemetry.lastNight(ZoneId.systemDefault(), SLEEP_START, WAKE_END),
                         telemetry.activityLastNight(ZoneId.systemDefault(), SLEEP_START, WAKE_END),
@@ -539,28 +570,24 @@ public class StatisticsLayoutController extends AbstractProfileController {
                         telemetry.silenceForLastNight(ZoneId.systemDefault(), SLEEP_START, WAKE_END));
             }
             case LAST_24H -> {
-                setActiveSegment("Last 24 hours");
                 showWindow("Last 24 hours",
                         telemetry.last(24, ChronoUnit.HOURS), telemetry.activityLast(24, ChronoUnit.HOURS),
                         telemetry.coverageForLast(24, ChronoUnit.HOURS),
                         telemetry.silenceForLast(24, ChronoUnit.HOURS));
             }
             case THIS_WEEK -> {
-                setActiveSegment("This week");
                 showWindow("This week (last 7 days)",
                         telemetry.last(7, ChronoUnit.DAYS), telemetry.activityLast(7, ChronoUnit.DAYS),
                         telemetry.coverageForLast(7, ChronoUnit.DAYS),
                         telemetry.silenceForLast(7, ChronoUnit.DAYS));
             }
             case THIS_MONTH -> {
-                setActiveSegment("This month");
                 showWindow("This month (last 30 days)",
                         telemetry.last(30, ChronoUnit.DAYS), telemetry.activityLast(30, ChronoUnit.DAYS),
                         telemetry.coverageForLast(30, ChronoUnit.DAYS),
                         telemetry.silenceForLast(30, ChronoUnit.DAYS));
             }
             case TOTAL -> {
-                setActiveSegment("All time");
                 showWindow("All recorded time", telemetry.total(), telemetry.activityTotal(),
                         telemetry.coverageForTotal(), telemetry.silenceForTotal());
             }
@@ -582,14 +609,6 @@ public class StatisticsLayoutController extends AbstractProfileController {
         ZonedDateTime from = ZonedDateTime.ofInstant(coverage.actualFrom(), zone);
         ZonedDateTime to = ZonedDateTime.ofInstant(coverage.actualTo(), zone);
         return "recorded " + from.format(COVERAGE_FORMATTER) + " → " + to.format(COVERAGE_FORMATTER);
-    }
-
-    /** Keeps the dropdown showing the active window without re-firing its change listener
-     *  (e.g. after Refresh reloads data but the user's selection hasn't changed). */
-    private void setActiveSegment(String label) {
-        if (comboReportWindow != null && !label.equals(comboReportWindow.getValue())) {
-            comboReportWindow.setValue(label);
-        }
     }
 
     /**
@@ -625,161 +644,108 @@ public class StatisticsLayoutController extends AbstractProfileController {
         boolean nothing = (earned == null || earned.isEmpty()) && (did == null || did.isEmpty());
         String silenceText = formatSilence(silence);
 
-        if (lblEarningsEmpty != null) {
-            lblEarningsEmpty.setVisible(nothing);
-            lblEarningsEmpty.setManaged(nothing);
-        }
-        if (lblWindow != null) {
-            String coverageSuffix = formatCoverage(coverage);
-            String label;
-            if (silenceText != null) {
-                label = windowLabel + " — " + silenceText;
-            } else if (nothing) {
-                label = windowLabel + " — not enough samples yet to measure a change.";
-            } else {
-                label = coverageSuffix != null ? windowLabel + "  (" + coverageSuffix + ")" : windowLabel;
-            }
-            lblWindow.setText(label);
+        boolean showEmptyNote = nothing && silenceText == null;
+        lblEarningsEmpty.setVisible(showEmptyNote);
+        lblEarningsEmpty.setManaged(showEmptyNote);
+
+        String coverageSuffix = formatCoverage(coverage);
+        if (silenceText != null) {
+            lblWindow.setText(windowLabel + ": " + silenceText);
+        } else {
+            lblWindow.setText(coverageSuffix != null ? windowLabel + "  (" + coverageSuffix + ")" : windowLabel);
         }
 
-        if (flowEarnings != null) {
-            flowEarnings.getChildren().clear();
-            // Always show every resource the bot captured (power, gems, meat, wood, coal, iron) —
-            // never drop one just because its delta is zero or it has a single data point. Value is
-            // the gain when we can measure it, otherwise the current amount.
-            Map<String, TelemetryReport.Delta> byMetric = new HashMap<>();
-            if (earned != null) {
-                for (TelemetryReport.Delta d : earned) byMetric.put(d.metric(), d);
-            }
-            TelemetryReport.Sample latest = telemetry.latest();
-            for (String metric : TelemetryReport.METRICS) {
-                Long current = latest == null ? null : latest.get(metric);
-                if (current == null) continue; // metric never captured
-                TelemetryReport.Delta d = byMetric.get(metric);
-                // Observed live: "measured" (we have a real
-                // start/end pair for this window, even if the value didn't move) is NOT the same
-                // as "changed" (start != end). The old code only distinguished changed vs.
-                // everything-else, so a genuinely zero-change metric fell into the same silent
-                // "show the raw current amount" fallback as a metric with NO data in this window
-                // at all -- with telemetry gapped for two days, EVERY metric hit that fallback and
-                // the tab displayed raw absolute power sitting in the "what did you earn" grid,
-                // read as "gained 24 million power" overnight. Now: measured+changed shows the
-                // signed delta, measured+unchanged shows an honest "steady", and only genuinely
-                // missing coverage falls back to the current amount -- clearly labeled as such.
-                boolean measured = d != null;
-                boolean changed = measured && d.change() != 0;
-                // Speedup metrics (sp_*) are DURATIONS in minutes, so they format as "6d 3h",
-                // "+3h 12m" (gained) / "-1d" (spent) — not the M/K resource formatter.
-                boolean isSpeedup = metric.startsWith("sp_");
-                String value;
-                String sub;
-                if (isSpeedup) {
-                    value = changed ? fmtMinutesSigned(d.change())
-                            : measured ? "steady" : NO_DATA_VALUE;
-                    sub = measured ? fmtMinutes(d.start()) + " → " + fmtMinutes(d.end())
-                            : "no data this window\ncurrent: " + fmtMinutes(current);
-                } else {
-                    // Measured change → show the before→after range (headline already carries the +/- gain).
-                    // Measured, no change → say so plainly rather than repeating the raw amount.
-                    // NO coverage at all → the headline must NOT be a number. Rendering the current
-                    // stockpile here put an absolute figure ("34.22M") in the accent colour under a
-                    // heading that reads "RESOURCES & POWER GAINED", and the one label that made it
-                    // honest was the subtitle — which the fixed card height clipped to "no data
-                    // this ...". Read exactly like "gained 34 million power overnight" when the truth
-                    // was a 12-hour telemetry gap. The headline is now a dash, and the current
-                    // amount lives in the subtitle where it cannot be mistaken for a gain.
-                    value = changed ? fmtSigned(d.change())
-                            : measured ? "steady" : NO_DATA_VALUE;
-                    sub = measured ? fmt(d.start()) + " → " + fmt(d.end())
-                            : "no data this window\ncurrent: " + fmt(current);
-                }
-                // An unmeasured tile also drops its accent colour, so a grid full of gaps reads as
-                // grey/absent at a glance instead of as a grid full of vivid headline numbers.
-                String accent = measured ? METRIC_COLORS.getOrDefault(metric, "#4fc3f7") : NO_DATA_ACCENT;
-                flowEarnings.getChildren().add(createStatCard(
-                        METRIC_ICONS.get(metric),
-                        METRIC_LABELS.getOrDefault(metric, metric),
-                        value, sub, accent));
-            }
+        tileSpeedups.getChildren().clear();
+        tilePowerGems.getChildren().clear();
+        tileResources.getChildren().clear();
+        Map<String, TelemetryReport.Delta> byMetric = new HashMap<>();
+        if (earned != null) {
+            for (TelemetryReport.Delta d : earned) byMetric.put(d.metric(), d);
+        }
+        TelemetryReport.Sample latest = telemetry.latest();
+        for (String metric : TelemetryReport.METRICS) {
+            Long current = latest == null ? null : latest.get(metric);
+            if (current == null) continue; // metric never captured
+            panelFor(metric).getChildren().add(metricTile(metric, byMetric.get(metric), current));
         }
 
-        if (flowActivity != null) {
-            flowActivity.getChildren().clear();
-            if (did != null && !did.isEmpty()) {
-                for (TelemetryReport.Activity a : did) {
-                    flowActivity.getChildren().add(createStatCard(
-                            ACTIVITY_ICONS.get(a.label()),
-                            a.label(), String.valueOf(a.change()), "", "#81c784"));
-                }
-            } else {
-                // Windowed views need two activity snapshots (~2h apart) before they can show a
-                // delta. Say so instead of leaving a blank section that looks broken -- unless the
-                // window is silent, in which case "filling in" is a flat lie and the outage is the
-                // thing worth reading.
-                Label hint = new Label(silenceText != null
-                        ? "No activity recorded — " + silenceText
-                        : "Filling in — this window needs a couple more sample cycles"
-                                + " (the bot snapshots roughly every 2 hours). “All time” shows totals now.");
-                hint.getStyleClass().add("label-muted");
-                hint.setWrapText(true);
-                flowActivity.getChildren().add(hint);
+        tileActivity.getChildren().clear();
+        boolean anyActivity = did != null && !did.isEmpty();
+        if (anyActivity) {
+            for (TelemetryReport.Activity a : did) {
+                tileActivity.getChildren().add(createStatTile(ACTIVITY_ICONS.get(a.label()), a.label(),
+                        String.valueOf(a.change()), null, "#81c784", true));
             }
         }
+        // A silent window gets the outage named, never "filling in", which would be false.
+        lblActivityHint.setText(silenceText != null
+                ? "No activity recorded: " + silenceText
+                : "Filling in. This window needs a couple more sample cycles (the bot snapshots roughly"
+                        + " every 2 hours). All time shows totals now.");
+        lblActivityHint.setVisible(!anyActivity);
+        lblActivityHint.setManaged(!anyActivity);
     }
 
-    private static final double CARD_W = 140;
-    // Raised from 176: at 176 the 72px icon slot + value + title consumed the box and the
-    // wrapping subtitle — the only thing distinguishing "gained 34.22M" from "currently has
-    // 34.22M" — was clipped to "no data this ...". The disclaimer can never be the part that
-    // gets truncated, so the card now carries two comfortable subtitle lines.
-    private static final double CARD_H = 208;
+    private TilePane panelFor(String metric) {
+        if (metric.startsWith("sp_")) {
+            return tileSpeedups;
+        }
+        return "power".equals(metric) || "gems".equals(metric) ? tilePowerGems : tileResources;
+    }
 
-    /** Headline for a metric with no coverage in the selected window. Never a number — see
-     *  the fallback branch in {@link #showWindow}. */
-    private static final String NO_DATA_VALUE = "—";
-    /** Muted accent for those same no-coverage tiles. */
-    private static final String NO_DATA_ACCENT = "#6b7480";
+    /**
+     * Three distinct states: a measured change, measured with no change, and no reading at all.
+     * Without a reading the headline is never a number, because the current stockpile shown there
+     * read as a gain. Spending shows its minus sign in the metric's own colour, since it is not a fault.
+     */
+    private HBox metricTile(String metric, TelemetryReport.Delta delta, Long current) {
+        boolean isSpeedup = metric.startsWith("sp_");
+        java.util.function.Function<Long, String> amount = isSpeedup ? StatisticsLayoutController::fmtMinutes : StatisticsLayoutController::fmt;
+        boolean measured = delta != null;
+        boolean changed = measured && delta.change() != 0;
 
-    private VBox createStatCard(String iconKey, String title, String value, String subtitle, String accent) {
-        VBox card = new VBox(3);
-        card.setAlignment(Pos.TOP_CENTER);
-        card.getStyleClass().add("stat-summary-card");
-        card.setPadding(new Insets(9, 8, 9, 8));
-        // Every card is exactly the same size — no more ragged rows.
-        card.setPrefSize(CARD_W, CARD_H);
-        card.setMinSize(CARD_W, CARD_H);
-        card.setMaxSize(CARD_W, CARD_H);
+        String value = changed
+                ? (isSpeedup ? fmtMinutesSigned(delta.change()) : fmtSigned(delta.change()))
+                : measured ? NO_CHANGE_VALUE : NO_DATA_VALUE;
+        String detail = measured
+                ? amount.apply(delta.start()) + " to " + amount.apply(delta.end())
+                : "No reading in this window. Current: " + amount.apply(current);
+        String accent = changed ? METRIC_COLORS.getOrDefault(metric, "#4fc3f7") : NO_DATA_ACCENT;
+        return createStatTile(METRIC_ICONS.get(metric), METRIC_LABELS.getOrDefault(metric, metric), value, detail, accent, changed);
+    }
 
-        // Fixed-height icon slot, present on every card (empty when there's no icon) so heights match.
+    private static final double TILE_ICON = 34;
+    /** Headline for a metric that was measured and did not move. */
+    private static final String NO_CHANGE_VALUE = "No change";
+    /** Headline for a metric with no reading in the selected window. Never a number. */
+    private static final String NO_DATA_VALUE = "no data";
+    /** Muted colour for the two states that have no change to report. */
+    private static final String NO_DATA_ACCENT = "#9eaab6";
+
+    /** Labels keep their preferred width, and TilePane sizes every tile to the widest, so no value is cut off. */
+    private HBox createStatTile(String iconKey, String title, String value, String detail, String accent, boolean strong) {
         StackPane iconSlot = new StackPane();
+        iconSlot.setMinSize(TILE_ICON, TILE_ICON);
+        iconSlot.setPrefSize(TILE_ICON, TILE_ICON);
         javafx.scene.Node iconNode = iconNodeFor(iconKey, accent);
         if (iconNode != null) iconSlot.getChildren().add(iconNode);
-        iconSlot.setPrefHeight(72);
-        iconSlot.setMinHeight(72);
-        iconSlot.setMaxHeight(72);
 
         Label lblValue = new Label(value);
-        lblValue.getStyleClass().add("stat-value");
+        lblValue.getStyleClass().add(strong ? "stat-tile-value" : "stat-tile-value-quiet");
         lblValue.setStyle("-fx-text-fill: " + accent + ";");
+        lblValue.setMinWidth(Region.USE_PREF_SIZE);
 
         Label lblTitle = new Label(title);
-        lblTitle.getStyleClass().add("stat-title");
-        lblTitle.setWrapText(true);
-        lblTitle.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
-        lblTitle.setAlignment(Pos.CENTER);
-        lblTitle.setMaxWidth(CARD_W - 20);
+        lblTitle.getStyleClass().add("stat-tile-title");
+        lblTitle.setMinWidth(Region.USE_PREF_SIZE);
 
-        card.getChildren().addAll(iconSlot, lblValue, lblTitle);
-        if (subtitle != null && !subtitle.isBlank()) {
-            Label lblSub = new Label(subtitle);
-            lblSub.getStyleClass().add("label-muted");
-            lblSub.setWrapText(true);
-            lblSub.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
-            lblSub.setAlignment(Pos.CENTER);
-            lblSub.setMaxWidth(CARD_W - 12);
-            card.getChildren().add(lblSub);
+        HBox tile = new HBox(8, iconSlot, new VBox(0, lblValue, lblTitle));
+        tile.setAlignment(Pos.CENTER_LEFT);
+        tile.getStyleClass().add("stat-tile");
+        if (detail != null) {
+            Tooltip.install(tile, new Tooltip(detail));
         }
-        return card;
+        return tile;
     }
 
     /** Abbreviates a large number for display: 15685506 → "15.69M". */

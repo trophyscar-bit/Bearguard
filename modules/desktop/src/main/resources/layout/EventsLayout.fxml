@@ -202,7 +202,7 @@
                                            fx:id="textfieldTundraActivationHour" />
                             </HBox>
                             <Label text=""
-                                   style="-fx-font-size: 11px; -fx-text-fill: #ff4444;"
+                                   style="-fx-font-size: 12px; -fx-text-fill: #ff4444;"
                                    fx:id="labelDateTimeError" />
                         </VBox>
                     </VBox>

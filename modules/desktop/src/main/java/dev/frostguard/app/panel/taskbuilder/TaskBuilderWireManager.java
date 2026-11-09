@@ -279,7 +279,7 @@ public class TaskBuilderWireManager {
     private void addWireLabel(CubicCurve wire, String text, String color) {
         Label label = new Label(text);
         label.setStyle(
-            "-fx-font-size: 9px; -fx-font-weight: 700; " +
+            "-fx-font-size: 12px; -fx-font-weight: 700; " +
             "-fx-text-fill: " + color + "; " +
             "-fx-background-color: #1e2233cc; " +
             "-fx-background-radius: 6; -fx-padding: 1 6;"

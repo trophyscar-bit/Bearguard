@@ -22,6 +22,7 @@ import dev.frostguard.app.panel.profile.IProfileChangeObserver;
 import dev.frostguard.app.panel.profile.IProfileLoadListener;
 import dev.frostguard.app.panel.profile.IProfileObserverInjectable;
 import dev.frostguard.app.panel.profile.ProfileAux;
+import javafx.scene.Node;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
@@ -154,6 +155,28 @@ public abstract class AbstractProfileController implements IProfileLoadListener,
 		checkComboBoxMappings.values().forEach(key -> settings.put(key, formatEnumName(key.name())));
 		priorityListMappings.values().forEach(key -> settings.put(key, formatEnumName(key.name())));
 		return settings;
+	}
+
+	/** Every control this page saves, with the setting it saves to. */
+	public Map<Node, ConfigurationKeyEnum> registeredControls() {
+		Map<Node, ConfigurationKeyEnum> controls = new HashMap<>();
+		List.of(checkBoxMappings, textFieldMappings, radioButtonMappings, comboBoxMappings, checkComboBoxMappings,
+				priorityListMappings).forEach(mapping -> mapping.forEach((control, key) -> {
+					if (control != null) {
+						controls.put(control, key);
+					}
+				}));
+		return controls;
+	}
+
+	/** The settings on one part of this page, for a page split across several screens. */
+	public Map<ConfigurationKeyEnum, String> getRegisteredSettingsWithin(Node root) {
+		Map<ConfigurationKeyEnum, String> all = getRegisteredSettings();
+		Map<Node, ConfigurationKeyEnum> controls = registeredControls();
+		Map<ConfigurationKeyEnum, String> within = new HashMap<>();
+		SceneGraphWalk.descendants(root).stream().filter(controls::containsKey).map(controls::get)
+				.forEach(key -> within.put(key, all.get(key)));
+		return within;
 	}
 
 	private String readable(String uiText, ConfigurationKeyEnum key) {
