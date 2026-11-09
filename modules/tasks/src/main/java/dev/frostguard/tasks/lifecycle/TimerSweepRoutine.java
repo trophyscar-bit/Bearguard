@@ -17,6 +17,7 @@ import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.ScheduleService;
+import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.vision.convert.GameTimeUtils;
 
 /**
@@ -212,9 +213,6 @@ public class TimerSweepRoutine extends DelayedTask {
     /** Time for the panel to slide in and paint its countdowns. */
     private static final long PANEL_SETTLE_MS = 1500L;
 
-    /** Short retry when the panel could not be opened at all, rather than waiting a full hour. */
-    private static final int PANEL_RETRY_MINUTES = 5;
-
     /** Never trust a sweep read that lands absurdly far out; a garbled OCR must not park a task. */
     private static final Duration SANITY_CEILING = Duration.ofDays(8);
 
@@ -233,16 +231,17 @@ public class TimerSweepRoutine extends DelayedTask {
         // Surface the phase so the launcher shows what it is doing instead of a generic "Active".
         dev.frostguard.engine.schedule.BotPhaseState.set("Refreshing timers");
 
+        if (!openCityPanelWithRetries()) {
+            dev.frostguard.engine.schedule.BotPhaseState.clear();
+            // Thrown rather than rescheduled: the queue then records a failure and retries in
+            // minutes, where a quiet return showed a sweep that read nothing as "Completed".
+            throw new IllegalStateException("City queue panel never rendered after " + PANEL_OPEN_ATTEMPTS
+                    + " attempts; no timers were refreshed; " + TaskDiagnosticSnapshots.capture(
+                            emuManager, EMULATOR_NUMBER, "timersweep", "panel-not-readable"));
+        }
+
         int recorded = 0;
         try {
-            if (!openCityPanelWithRetries()) {
-                logWarning("City queue panel never rendered after " + PANEL_OPEN_ATTEMPTS
-                        + " attempts — skipping this sweep rather than recording nothing silently.");
-                dev.frostguard.engine.schedule.BotPhaseState.clear();
-                reschedule(LocalDateTime.now().plusMinutes(PANEL_RETRY_MINUTES));
-                return;
-            }
-
             for (Map.Entry<String, PointData[]> row : CITY_PANEL_ROWS.entrySet()) {
                 String label = row.getKey();
                 Duration remaining = readRowTimer(row.getValue());
@@ -321,41 +320,28 @@ public class TimerSweepRoutine extends DelayedTask {
      * @return {@code true} once a readable panel is on screen
      */
     private boolean openCityPanelWithRetries() {
-        for (int attempt = 1; attempt <= PANEL_OPEN_ATTEMPTS; attempt++) {
-            // openLeftMenuCitySection throws when the sidebar does not open, and an
-            // uncaught throw here skipped every remaining attempt -- the retry loop
-            // could not run for the one failure it was written for. Observed on prod
-            // three times on 2026-09-01 (12:28, 19:03, 23:41): SidebarNavigator logged
-            // "requested=CITY observed=closed/unknown" and the sweep gave up on
-            // attempt 1 with "0 timer(s) refreshed". It also cost the shorter retry
-            // interval, because the escape landed in execute()'s catch, which
-            // reschedules on the normal interval instead of PANEL_RETRY_MINUTES.
-            // A sidebar that would not open is the same situation as a panel that
-            // rendered unreadably, so it is handled the same way: back out and retry.
-            try {
+        return new CityPanelOpener(new CityPanelOpener.Steps() {
+            @Override
+            public void closeSidebar() {
+                marchHelper.closeLeftMenu();
+            }
+
+            @Override
+            public void openCitySection() {
                 marchHelper.openLeftMenuCitySection(true);
-            } catch (IllegalStateException ex) {
-                logWarning("Sidebar did not open on attempt " + attempt + "/"
-                        + PANEL_OPEN_ATTEMPTS + " (" + ex.getMessage() + ") — returning home and retrying.");
-                pressBack();
-                sleepTask(800);
-                continue;
-            }
-            sleepTask(PANEL_SETTLE_MS);
-
-            for (PointData[] area : CITY_PANEL_ROWS.values()) {
-                if (readRowTimer(area) != null) {
-                    logDebug("City queue panel confirmed on attempt " + attempt + ".");
-                    return true;
-                }
             }
 
-            logWarning("City queue panel not readable on attempt " + attempt + "/"
-                    + PANEL_OPEN_ATTEMPTS + " — returning home and retrying.");
-            pressBack();
-            sleepTask(800);
-        }
-        return false;
+            @Override
+            public boolean panelReadable() {
+                sleepTask(PANEL_SETTLE_MS);
+                return CITY_PANEL_ROWS.values().stream().anyMatch(area -> readRowTimer(area) != null);
+            }
+
+            @Override
+            public void returnHome() {
+                navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
+            }
+        }, this::logWarning).open(PANEL_OPEN_ATTEMPTS);
     }
 
     /**

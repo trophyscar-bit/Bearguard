@@ -1,6 +1,7 @@
 package dev.frostguard.engine.helper;
 
 import java.awt.image.BufferedImage;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -10,6 +11,8 @@ import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.api.runtime.WorkspacePaths;
+import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.engine.emulator.EmulatorController;
 import dev.frostguard.engine.input.TapInteractionService;
 import dev.frostguard.engine.nav.CommonGameAreas;
@@ -36,6 +39,8 @@ public final class SidebarNavigator {
     private static final int SCROLL_DURATION_MS = 500;
     private static final int MAX_BOUNDARY_STEPS = 10;
     private static final int DESTINATION_SETTLE_MS = 2_000;
+    private static final int SCREEN_SWITCH_SETTLE_MS = 2_000;
+    private static final String SNAPSHOT_ACTIVITY = "sidebar";
     private static final int ROW_ICON_THRESHOLD = 88;
     private static final int ROW_ACTION_THRESHOLD = 88;
     private static final int GO_LEFT_OFFSET = 315;
@@ -48,6 +53,7 @@ public final class SidebarNavigator {
     private final ScreenStateReader screenStates;
     private final Waiter transitionWaiter;
     private final ProfileContextLogger log;
+    private final SidebarHomeFallback homeFallback;
 
     public SidebarNavigator(EmulatorController emu, String device, AccountDescriptor profile) {
         this.emu = emu;
@@ -56,10 +62,11 @@ public final class SidebarNavigator {
         this.screenStates = this::captureScreenState;
         this.transitionWaiter = this::interruptibleWait;
         this.log = new ProfileContextLogger(SidebarNavigator.class, profile);
+        this.homeFallback = new SidebarHomeFallback(new EmulatorScreens());
     }
 
     public boolean openSection(SidebarSection target) {
-        return openSectionInternal(target);
+        return homeFallback.open(() -> openSectionInternal(target));
     }
 
     public boolean navigateTo(SidebarDestination destination) {
@@ -86,6 +93,7 @@ public final class SidebarNavigator {
         log.info("Sidebar destination found: " + destination + " icon=" + rowIcon
                 + " action=" + action);
         taps.tapInside(action, 1, DESTINATION_SETTLE_MS);
+        homeFallback.forget();
         if (selectedSection().isEmpty()) {
             return true;
         }
@@ -146,11 +154,14 @@ public final class SidebarNavigator {
 
     public boolean close() {
         if (selectedSection().isEmpty()) {
+            homeFallback.restoreWorld();
             return true;
         }
         taps.tapInside(CommonGameAreas.LEFT_MENU_CLOSE, 1, SECTION_SETTLE_MS);
         boolean closed = selectedSection().isEmpty();
-        if (!closed) {
+        if (closed) {
+            homeFallback.restoreWorld();
+        } else {
             log.warn("Sidebar close control did not close the panel");
         }
         return closed;
@@ -293,6 +304,61 @@ public final class SidebarNavigator {
             }
         }
         return ImageSearchResultData.miss();
+    }
+
+    /** The real screen behind {@link SidebarHomeFallback}. */
+    private final class EmulatorScreens implements SidebarHomeFallback.Screens {
+
+        @Override
+        public void recordFailedOpen() {
+            RawImageData frame = emu.captureScreen(device);
+            if (frame == null) {
+                log.warn("Sidebar did not open and no frame could be captured for it");
+                return;
+            }
+            log.warn("Sidebar did not open; frame saved: " + new DiagnosticSnapshotStore(WorkspacePaths.current().root())
+                    .write(frame, SNAPSHOT_ACTIVITY, "open-failed", Instant.now())
+                    .map(Object::toString).orElse("(write failed)"));
+        }
+
+        @Override
+        public boolean sidebarClosedOnWorld() {
+            RawImageData frame = emu.captureScreen(device);
+            return frame != null && selectedSection(frame).isEmpty() && locateAnchor(frame, TemplatesEnum.GAME_HOME_WORLD).isFound();
+        }
+
+        @Override
+        public boolean switchToHome() {
+            log.warn("Sidebar will not open on World; opening it from Home instead");
+            return switchScreen(TemplatesEnum.GAME_HOME_WORLD, TemplatesEnum.GAME_HOME_FURNACE);
+        }
+
+        @Override
+        public boolean switchToWorld() {
+            boolean back = switchScreen(TemplatesEnum.GAME_HOME_FURNACE, TemplatesEnum.GAME_HOME_WORLD);
+            if (!back) {
+                log.warn("Could not return to World after using the sidebar from Home");
+            }
+            return back;
+        }
+
+        private boolean switchScreen(TemplatesEnum tapped, TemplatesEnum expected) {
+            RawImageData frame = emu.captureScreen(device);
+            if (frame == null) {
+                return false;
+            }
+            ImageSearchResultData anchor = locateAnchor(frame, tapped);
+            if (!anchor.isFound()) {
+                return false;
+            }
+            taps.tapInside(anchor, 1, SCREEN_SWITCH_SETTLE_MS);
+            RawImageData after = emu.captureScreen(device);
+            return after != null && locateAnchor(after, expected).isFound();
+        }
+
+        private ImageSearchResultData locateAnchor(RawImageData frame, TemplatesEnum anchor) {
+            return emu.locatePattern(device, frame, anchor, SearchConfigConstants.DEFAULT_SINGLE.getThreshold());
+        }
     }
 
     private ScreenState captureScreenState() {

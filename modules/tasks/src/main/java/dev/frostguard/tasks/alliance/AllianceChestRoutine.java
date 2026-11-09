@@ -519,12 +519,9 @@ private BufferedImage screenNow() {
 
 private void restoreHomeScreen() {
 		logInfo(routineLogAllianceChestLine("Returning to home screen."));
-		pressBack();
+		// Two fixed Backs raised the game's quit dialog whenever the screen was already Home.
+		navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
 		sleepTask(SHORT_WAIT_TIME_MS);
-		pressBack();
-		sleepTask(SHORT_WAIT_TIME_MS);
-
-
 	}
 
 private int gatherLootChests() {
