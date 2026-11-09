@@ -577,6 +577,8 @@ public enum ConfigurationKeyEnum {
     MERGEVENTURE_SAVE_FOR_SOJOURNER_BOOL ("true",    Boolean.class,  ConfigCategory.EVENTS),
     MERGEVENTURE_SPEND_HOURS_INT         ("4",       Integer.class,  ConfigCategory.EVENTS),
 
+    SIGN_IN_EARN_ENABLED_BOOL            ("false",   Boolean.class,  ConfigCategory.EVENTS),
+
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
     // weeks) -- checked once a day, no-ops when nothing's there.

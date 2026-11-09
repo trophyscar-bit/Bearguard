@@ -40,6 +40,27 @@
             </ScrollPane>
         </Tab>
 
+        <Tab text="Sign-in &amp; Earn" closable="false">
+            <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
+                <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">
+                    <VBox styleClass="content-card">
+                        <HBox styleClass="header-yellow" maxWidth="Infinity" alignment="CENTER_LEFT">
+                            <CheckBox text="Sign-in &amp; Earn" style="-fx-font-weight: bold;"
+                                      mnemonicParsing="false" fx:id="checkBoxSignInEarn" />
+                        </HBox>
+                        <VBox styleClass="task-section-inner">
+                            <Label wrapText="true" styleClass="task-card-description"
+                                   text="Claims the day's free reward a few minutes after each daily reset, while the calendar icon is on the City rail. Never touches the paid Epic column." />
+                            <Separator style="-fx-opacity: 0.25;" />
+                            <Label wrapText="true" style="-fx-font-style: italic;"
+                                   styleClass="task-card-description"
+                                   text="No additional configuration required" />
+                        </VBox>
+                    </VBox>
+                </VBox>
+            </ScrollPane>
+        </Tab>
+
         <Tab text="Mergeventure" closable="false">
             <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
                 <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">

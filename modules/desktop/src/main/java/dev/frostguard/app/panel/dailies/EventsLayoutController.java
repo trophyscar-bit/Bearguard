@@ -18,7 +18,7 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMercenaryEvent, checkBoxJourneyofLight, checkBoxJourneyofLightAssembleCommon,
         checkBoxJourneyofLightAssemblePremium, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour, checkBoxMergeventure, checkBoxMergeventureBoard,
         checkBoxMergeventureUseMax, checkBoxMergeventureMissions, checkBoxMergeventureAtlasPath,
-        checkBoxMergeventureHarvest, checkBoxMergeventureCaravan, checkBoxMergeventureSaveSojourner;
+        checkBoxMergeventureHarvest, checkBoxMergeventureCaravan, checkBoxMergeventureSaveSojourner, checkBoxSignInEarn;
 
     @FXML
     private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours;
@@ -63,6 +63,7 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxMergeventureCaravan, ConfigurationKeyEnum.MERGEVENTURE_CARAVAN_BOOL);
         checkBoxMappings.put(checkBoxMergeventureSaveSojourner, ConfigurationKeyEnum.MERGEVENTURE_SAVE_FOR_SOJOURNER_BOOL);
         textFieldMappings.put(textfieldMergeventureSpendHours, ConfigurationKeyEnum.MERGEVENTURE_SPEND_HOURS_INT);
+        checkBoxMappings.put(checkBoxSignInEarn, ConfigurationKeyEnum.SIGN_IN_EARN_ENABLED_BOOL);
 
         comboBoxMappings.put(comboBoxMercenaryFlag, ConfigurationKeyEnum.MERCENARY_FLAG_INT);
         comboBoxMappings.put(comboBoxHeroMissionFlag, ConfigurationKeyEnum.HERO_MISSION_FLAG_INT);

@@ -177,6 +177,7 @@ public enum TpDailyTaskEnum {
     EVENT_BROTHERS_IN_ARMS (915, "Event: Brothers in Arms",       ConfigurationKeyEnum.EVENT_BROTHERS_IN_ARMS_CLAIM_BOOL,      RoutineCategory.MILITARY),
     EVENT_ENDLESS_TRIAL    (917, "Event: Endless Trial",          ConfigurationKeyEnum.EVENT_ENDLESS_TRIAL_BOOL,               RoutineCategory.MILITARY),
     EVENT_MERGEVENTURE     (919, "Event: Mergeventure",           ConfigurationKeyEnum.MERGEVENTURE_ENABLED_BOOL,              RoutineCategory.EVENT),
+    EVENT_SIGN_IN_EARN     (920, "Event: Sign-in & Earn",         ConfigurationKeyEnum.SIGN_IN_EARN_ENABLED_BOOL,              RoutineCategory.EVENT),
 
     // Top-right cart-icon Shop panel, built tab by tab. Custom
     // Armament Chest's free Claimable badge is periodic -- once-a-day recheck.
