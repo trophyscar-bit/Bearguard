@@ -4,6 +4,7 @@ import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.FormationSlots;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
@@ -30,8 +31,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.Set;
 import static dev.frostguard.api.configs.ConfigurationKeyEnum.*;
 import static dev.frostguard.api.configs.TemplatesEnum.*;
 
@@ -47,7 +51,36 @@ private List<Integer> joinFlags = new ArrayList<>();
 
 private ResilientOcrExecutor<Duration> durationHelper;
 
+private BearMarchTally marchTally = new BearMarchTally();
+
+private BearRallyTargets rallyTargets = new BearRallyTargets();
+
+private final Set<String> savedJoinDiagnostics = new HashSet<>();
+
 private static final int MAX_MARCH_HEROES_VALUE = 3;
+
+private static final int JOIN_SESSION_LIMIT_SECONDS_VALUE = 20;
+
+private static final int JOIN_NO_RALLY_REENTRY_SECONDS_VALUE = 5;
+
+private static final int JOIN_SCAN_IDLE_MS_VALUE = 250;
+
+private static final int JOIN_WAR_SCREEN_SETTLE_MS_VALUE = 400;
+
+private static final int JOIN_DEPLOY_APPEAR_ATTEMPTS_VALUE = 4;
+
+private static final long JOIN_DEPLOY_SEARCH_DELAY_MS_VALUE = 100L;
+
+private static final int JOIN_DEPLOY_CLOSE_POLLS_VALUE = 6;
+
+private static final int JOIN_DEPLOY_CLOSE_POLL_MS_VALUE = 250;
+
+private static final int JOIN_PLUS_ICON_MAX_RESULTS_VALUE = 12;
+
+private static final int JOIN_FREE_MARCH_OCR_ATTEMPTS_VALUE = 2;
+
+private static final AreaData JOIN_RALLY_LIST_AREA_VALUE =
+            new AreaData(new PointData(0, 120), new PointData(720, 1280));
 
 private static final int TRAP_DURATION_MINUTES_VALUE = 30;
 
@@ -138,8 +171,6 @@ private static final boolean DEFAULT_JOIN_RALLY_VALUE = false;
 private static final boolean DEFAULT_USE_PETS_VALUE = false;
 
 private static final boolean DEFAULT_RECALL_TROOPS_VALUE = false;
-
-private static final int DEFAULT_FREE_MARCHES_FALLBACK_VALUE = 1;
 
 private boolean callOwnRally;
 
@@ -415,12 +446,12 @@ private void performTrapActivePhase(LocalDateTime trapEndTime) {
             long secondsRemaining = ChronoUnit.SECONDS.between(now, trapEndTime);
 
             tryStartOwnRallyFlow(secondsRemaining);
-            handleJoinRallies2();
+            handleJoinRallies2(trapEndTime);
 
             logPeriodicStatusFlow(iterationCount, secondsRemaining);
 
             now = LocalDateTime.now(ZoneId.of("UTC"));
-            sleepTask(1000);
+            sleepTask(joinRally ? JOIN_SCAN_IDLE_MS_VALUE : 1000);
 
         }
 
@@ -552,6 +583,9 @@ private void hydrateConfiguration() {
 
 
         this.joinFlags = decodeJoinFlags();
+        this.marchTally = new BearMarchTally();
+        this.rallyTargets = new BearRallyTargets();
+        this.savedJoinDiagnostics.clear();
         // Changed by pernerch | Date: 2026-07-02 | Why: resolve shared-emulator state at hydration for deterministic active-phase behavior.
         this.sharedEmulator = isSharedEmulatorProfile();
 
@@ -672,7 +706,7 @@ private MarchStatusShape inspectMarchStatus() {
                 marchSpeedup != null && marchSpeedup.isFound());
     }
 
-private int inspectFreeMarches() {
+private OptionalInt readFreeMarches() {
         checkPreemption();
 
         emuManager.captureScreen(EMULATOR_NUMBER);
@@ -682,7 +716,7 @@ private int inspectFreeMarches() {
         Integer used = frameReader.attemptRecognition(
                 FREE_MARCHES_OCR_TL_VALUE,
                 FREE_MARCHES_OCR_BR_VALUE,
-                5,
+                JOIN_FREE_MARCH_OCR_ATTEMPTS_VALUE,
                 10L,
                 FREE_MARCHES_OCR_SETTINGS_VALUE,
                 RegexNumberParser::hasFractionSyntax,
@@ -694,28 +728,19 @@ private int inspectFreeMarches() {
         Integer total = frameReader.attemptRecognition(
                 FREE_MARCHES_OCR_TL_VALUE,
                 FREE_MARCHES_OCR_BR_VALUE,
-                5,
+                JOIN_FREE_MARCH_OCR_ATTEMPTS_VALUE,
                 10L,
                 FREE_MARCHES_OCR_SETTINGS_VALUE,
                 RegexNumberParser::hasFractionSyntax,
                 RegexNumberParser::denominator);
 
-        int freeMarches;
-
-        if (used != null && total != null) {
-            freeMarches = total - used;
-            logInfo(routineLogBearTrapLine("Free marches: " + freeMarches));
-        } else {
-
-
-            freeMarches = DEFAULT_FREE_MARCHES_FALLBACK_VALUE;
-            logInfo(routineLogBearTrapLine("Could not read marches (counter may not be visible yet), using default value: " + freeMarches));
+        if (used == null || total == null) {
+            return OptionalInt.empty();
         }
-
-        return freeMarches;
+        return OptionalInt.of(total - used);
     }
 
-private void handleJoinRallies2() {
+private void handleJoinRallies2(LocalDateTime trapEndTime) {
 		// Changed by pernerch | Date: 2026-07-02 | Why: skip rally joining on shared emulators while keeping other Bear Trap actions active.
         if (!joinRally || sharedEmulator) {
             if (sharedEmulator) {
@@ -727,21 +752,19 @@ private void handleJoinRallies2() {
         }
 
         try {
-            int freeMarches = inspectFreeMarches();
+            ImageSearchResultData warButton = templateSearchHelper.locatePattern(
+                    GAME_HOME_WAR,
+                    SearchConfig.builder()
+                            .withThreshold(90)
+                            .withMaxAttempts(TEMPLATE_SEARCH_RETRIES_VALUE)
+                            .build());
 
-            if (freeMarches > 0) {
-                ImageSearchResultData warButton = templateSearchHelper.locatePattern(
-                        GAME_HOME_WAR,
-                        SearchConfig.builder()
-                                .withThreshold(90)
-                                .withMaxAttempts(TEMPLATE_SEARCH_RETRIES_VALUE)
-                                .build());
-
-                if (warButton.isFound()) {
-                    logInfo(routineLogBearTrapLine("Entering war section to check for rallies"));
-                    tapInside(warButton);
-                    manageJoinRallies(freeMarches);
-                }
+            if (warButton.isFound()) {
+                logDebug(routineLogBearTrapLine("Entering war section to check for rallies"));
+                tapInside(warButton);
+                sleepTask(JOIN_WAR_SCREEN_SETTLE_MS_VALUE);
+                runJoinSession(trapEndTime);
+                navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
             }
         } catch (dev.frostguard.engine.error.ADBConnectionException e) {
             logWarning(routineLogBearTrapLine("ADB connection error during rally joining (emulator may be lagging): " + e.getMessage()));
@@ -750,61 +773,171 @@ private void handleJoinRallies2() {
 
         } catch (Exception e) {
             logError(routineLogBearTrapLine("Unexpected error during rally joining: " + e.getMessage()), e);
-
-
+            returnToMapAfterJoinError();
         }
     }
 
-private void manageJoinRallies(int freeMarches) {
-        ImageSearchResultData plusIcon = templateSearchHelper.locatePattern(
+private void returnToMapAfterJoinError() {
+        try {
+            navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+        } catch (Exception e) {
+            logWarning(routineLogBearTrapLine("Could not return to the map after a join error: " + e.getMessage()));
+        }
+    }
+
+// Stays on the War screen so a newly opened rally is taken at once. It leaves only to refresh the
+// list: after a stretch with no rallies showing, and at the session limit.
+private void runJoinSession(LocalDateTime trapEndTime) {
+        Instant sessionStart = Instant.now();
+        Instant lastRallySeen = sessionStart;
+
+        while (LocalDateTime.now(ZoneId.of("UTC")).isBefore(trapEndTime)
+                && Duration.between(sessionStart, Instant.now()).getSeconds() < JOIN_SESSION_LIMIT_SECONDS_VALUE) {
+            checkPreemption();
+
+            OptionalInt freeMarches = readFreeMarches();
+            if (freeMarches.isPresent() && freeMarches.getAsInt() <= 0) {
+                sleepTask(JOIN_SCAN_IDLE_MS_VALUE);
+                continue;
+            }
+
+            List<PointData> plusIcons = locateOpenRallies();
+            Optional<PointData> target = rallyTargets.next(plusIcons, Instant.now());
+            if (target.isPresent()) {
+                lastRallySeen = Instant.now();
+                attemptRallyJoin(target.get(), freeMarches);
+                continue;
+            }
+
+            if (plusIcons.isEmpty()
+                    && Duration.between(lastRallySeen, Instant.now()).getSeconds() >= JOIN_NO_RALLY_REENTRY_SECONDS_VALUE) {
+                return;
+            }
+            sleepTask(JOIN_SCAN_IDLE_MS_VALUE);
+        }
+    }
+
+private List<PointData> locateOpenRallies() {
+        List<ImageSearchResultData> icons = templateSearchHelper.locateAllPatterns(
                 BEAR_JOIN_PLUS_ICON,
                 SearchConfig.builder()
+                        .withArea(JOIN_RALLY_LIST_AREA_VALUE)
                         .withThreshold(90)
-                        .withMaxAttempts(2)
+                        .withMaxResults(JOIN_PLUS_ICON_MAX_RESULTS_VALUE)
                         .build());
+        return icons == null ? List.of() : icons.stream().map(ImageSearchResultData::getPoint).toList();
+    }
 
-        if (!plusIcon.isFound()) {
-            logWarning(routineLogBearTrapLine("Zero joinable rallies detected (plus icon not present)"));
-            navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+private void attemptRallyJoin(PointData plusIcon, OptionalInt freeBefore) {
+        tapInside(plusIcon, plusIcon, 1, 100);
+
+        ImageSearchResultData deploy = findJoinDeployButton(JOIN_DEPLOY_APPEAR_ATTEMPTS_VALUE);
+        if (!deploy.isFound()) {
+            deploymentHelper.isMarchQueueFull();
+            recordFailedJoin(plusIcon, "deploy-screen-missing", "the rally filled up or closed before the march screen opened");
             return;
         }
 
-        tapInside(plusIcon.getPoint(), plusIcon.getPoint(), 1, 100);
-        sleepTask(300);
-
-
+        List<Integer> squadsToTry = marchTally.likelyHome(joinFlags, Instant.now());
         Optional<Integer> heroSquad = BearJoinSquadPicker.firstLoaded(
-                joinFlags,
+                squadsToTry,
                 squad -> marchHelper.selectFlag(squad),
-                this::selectedSquadHasHero);
+                this::selectedSquadHasHero,
+                squad -> marchTally.markSeenAway(squad, Instant.now()));
 
-        if (heroSquad.isPresent()) {
-            logInfo(routineLogBearTrapLine("Joining rally with squad #" + heroSquad.get()));
-        } else if (clearSelectedHeroes()) {
-            logInfo(routineLogBearTrapLine("Squads " + joinFlags + " are all out; joining rally with troops only"));
-        } else {
-            logWarning(routineLogBearTrapLine("Could not clear heroes for a troops-only join; cancelling this join"));
-            pressBack();
+        if (heroSquad.isEmpty()) {
+            if (!squadsToTry.isEmpty()) {
+                saveJoinDiagnostic("no-hero-loaded");
+            }
+            if (!clearSelectedHeroes()) {
+                pressBack();
+                recordFailedJoin(plusIcon, "heroes-not-cleared", "heroes could not be cleared for a troops-only join");
+                return;
+            }
+            if (deploymentHelper.hasNoDeployableTroops()) {
+                pressBack();
+                recordFailedJoin(plusIcon, "no-troops", "no troops are left to send");
+                return;
+            }
+        }
+
+        tapInside(deploy);
+        if (!confirmJoinDeployed(plusIcon)) {
             return;
         }
 
+        OptionalInt freeAfter = readFreeMarches();
+        if (freeBefore.isPresent() && freeAfter.isPresent() && freeAfter.getAsInt() >= freeBefore.getAsInt()) {
+            recordFailedJoin(plusIcon, "no-march-used", "Deploy closed but no march left, so the rally likely filled up");
+            return;
+        }
 
-        ImageSearchResultData deploy = templateSearchHelper.locatePattern(
+        rallyTargets.markJoined(plusIcon, Instant.now());
+        heroSquad.ifPresent(squad -> marchTally.markSent(squad, Instant.now()));
+        logInfo(routineLogBearTrapLine("Joined rally with "
+                + heroSquad.map(squad -> "squad #" + squad).orElse("troops only")
+                + (freeAfter.isPresent() ? " (" + freeAfter.getAsInt() + " marches free)" : "")));
+    }
+
+private ImageSearchResultData findJoinDeployButton(int attempts) {
+        return templateSearchHelper.locatePattern(
                 BEAR_DEPLOY_BUTTON,
                 SearchConfig.builder()
                         .withThreshold(90)
-                        .withMaxAttempts(TEMPLATE_SEARCH_RETRIES_MAX_VALUE)
+                        .withMaxAttempts(attempts)
+                        .withDelay(JOIN_DEPLOY_SEARCH_DELAY_MS_VALUE)
                         .build());
+    }
 
-        if (!deploy.isFound()) {
-            logWarning(routineLogBearTrapLine("Deploy button not detected after selecting flag."));
-        } else {
-            tapInside(deploy);
-            sleepTask(500);
-
+// A successful Deploy closes the march screen. Anything else means the game refused the join.
+private boolean confirmJoinDeployed(PointData plusIcon) {
+        boolean closed = false;
+        for (int poll = 0; poll < JOIN_DEPLOY_CLOSE_POLLS_VALUE && !closed; poll++) {
+            sleepTask(JOIN_DEPLOY_CLOSE_POLL_MS_VALUE);
+            closed = !findJoinDeployButton(1).isFound();
         }
 
-        navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+        if (deploymentHelper.isSameTargetDialog()) {
+            pressBack();
+            pressBack();
+            recordFailedJoin(plusIcon, "same-target-dialog", "the game asked to confirm a march to the same target");
+            return false;
+        }
+        if (!closed) {
+            deploymentHelper.isMarchQueueFull();
+            pressBack();
+            recordFailedJoin(plusIcon, "deploy-refused", "the march screen stayed open after Deploy");
+            return false;
+        }
+        return true;
+    }
+
+private void recordFailedJoin(PointData plusIcon, String label, String reason) {
+        logInfo(routineLogBearTrapLine("Join failed: " + reason + "; moving to the next rally"));
+        rallyTargets.markFailed(plusIcon, Instant.now());
+        saveJoinDiagnostic(label);
+    }
+
+// One screenshot per kind of problem per event, so the first real bear can be reviewed afterward.
+private void saveJoinDiagnostic(String label) {
+        if (!savedJoinDiagnostics.add(label)) {
+            return;
+        }
+        try {
+            java.nio.file.Path directory = dev.frostguard.api.runtime.WorkspacePaths.current().root().resolve("temp");
+            java.nio.file.Files.createDirectories(directory);
+            String profileName = profile.getName() == null ? "profile" : profile.getName();
+            java.nio.file.Path output = directory.resolve(
+                    "bear-join-" + label + "-" + profileName.replaceAll("[^A-Za-z0-9._-]", "_") + "-latest.png");
+            java.awt.image.BufferedImage image = dev.frostguard.vision.convert.ImageConverter.toBufferedImage(
+                    emuManager.captureScreen(EMULATOR_NUMBER));
+            if (!javax.imageio.ImageIO.write(image, "png", output.toFile())) {
+                throw new java.io.IOException("PNG writer unavailable");
+            }
+            logInfo(routineLogBearTrapLine("Join diagnostic saved: " + output));
+        } catch (Exception e) {
+            logWarning(routineLogBearTrapLine("Could not save join diagnostic: " + e.getMessage()));
+        }
     }
 
 private boolean selectedSquadHasHero() {
