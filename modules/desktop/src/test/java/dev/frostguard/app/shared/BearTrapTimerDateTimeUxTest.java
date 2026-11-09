@@ -25,7 +25,6 @@ import org.junit.jupiter.api.Test;
 import org.controlsfx.control.CheckComboBox;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
-import dev.frostguard.api.configs.BearTrapParticipationTriggerEnum;
 import dev.frostguard.app.panel.combat.BearTrapLayoutController;
 import dev.frostguard.app.panel.profile.ConfigAux;
 import dev.frostguard.app.panel.profile.ProfileAux;
@@ -33,8 +32,11 @@ import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Parent;
+import javafx.scene.Node;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Labeled;
 import javafx.scene.control.TextField;
 
 class BearTrapTimerDateTimeUxTest {
@@ -50,7 +52,6 @@ class BearTrapTimerDateTimeUxTest {
 
         assertEquals(expected, UtcDateTimeValue.parsePersisted("26-07-2026 00:30").orElseThrow());
         assertEquals("26-07-2026 00:30", UtcDateTimeValue.formatPersisted(expected));
-        assertEquals("Next activation: 26-07-2026 00:30 UTC", UtcDateTimeValue.formatUtcPreview(expected));
         assertTrue(UtcDateTimeValue.parsePersisted("").isEmpty());
         assertTrue(UtcDateTimeValue.parsePersisted("2026-07-26T00:30").isEmpty());
     }
@@ -61,7 +62,7 @@ class BearTrapTimerDateTimeUxTest {
                 LocalDateTime.of(2026, 7, 27, 0, 30),
                 ZoneId.of("America/New_York"));
 
-        assertEquals("Local time: 26-07-2026 20:30 EDT", preview);
+        assertEquals("Next: 26-07-2026 20:30 EDT", preview);
     }
 
     @Test
@@ -107,9 +108,7 @@ class BearTrapTimerDateTimeUxTest {
             assertTrue(commits.isEmpty(), "loading must not persist the existing value");
 
             editor.setDraft(LocalDate.of(2026, 7, 27), "00", "30");
-            assertEquals("Next activation: 29-07-2026 00:30 UTC",
-                    editor.getNextActivationPreviewText());
-            assertEquals("Local time: 28-07-2026 20:30 EDT", editor.getLocalPreviewText());
+            assertEquals("Next: 28-07-2026 20:30 EDT", editor.getLocalPreviewText());
             assertTrue(commits.isEmpty(), "individual control changes must remain a draft");
 
             editor.commitSelection();
@@ -198,237 +197,294 @@ class BearTrapTimerDateTimeUxTest {
         });
     }
 
-    @Test
-    void controllerLoadsBothTimersWithoutSavingAndResetsDraftsOnProfileSwitch() throws Exception {
+    private static List<Change> listen(LoadedBearView view) {
+        List<Change> changes = new ArrayList<>();
+        view.controller().attachProfileListener((key, value) -> changes.add(new Change(key, value)));
+        return changes;
+    }
+
+    private static ProfileAux liveProfile() {
+        return profile(1L,
+                config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_ICON_PARTICIPATION_FALLBACK_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, "1,2,3"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_RALLY_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOP_FLAG_STRING, "4,5,6"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_PREPARATION_TIME_INT, "10"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_RECALL_TROOPS_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "10-11-2026 19:00"));
+    }
+
+    /** Runs whatever the page queued for after the current change event. */
+    private static void settle() throws Exception {
+        runOnFxThread(() -> null);
+    }
+
+    private static void noWritesOnLoad(ProfileAux profile) throws Exception {
+        AtomicReference<List<Change>> seen = new AtomicReference<>();
         runOnFxThread(() -> {
             LoadedBearView view = loadBearView();
-            List<Change> changes = new ArrayList<>();
-            view.controller().attachProfileListener((key, value) -> changes.add(new Change(key, value)));
+            seen.set(listen(view));
+            view.controller().onProfileLoad(profile);
+            return null;
+        });
+        settle();
+        assertTrue(seen.get().isEmpty(), "loading must save nothing, saw " + seen.get());
+    }
 
-            ProfileAux first = profile(1L,
-                    config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "26-07-2026 19:30"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, "27-07-2026 05:45"));
-            view.controller().onProfileLoad(first);
+    @Test
+    void loadingTheLiveSettingsShowsThemAndSavesNothing() throws Exception {
+        noWritesOnLoad(liveProfile());
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            view.controller().onProfileLoad(liveProfile());
 
-            assertEquals(LocalDateTime.of(2026, 7, 26, 19, 30), view.timer1().getDateTime());
-            assertEquals(LocalDateTime.of(2026, 7, 27, 5, 45), view.timer2().getDateTime());
-            assertEquals(List.of(1, 2), view.trapNumber().getItems());
-            assertEquals("Both 48-hour event timers are configured.", view.timerRecommendation().getText());
-            assertFalse(view.timer1().isDisabled());
-            assertFalse(view.timer2().isDisabled());
-            assertEquals(BearTrapParticipationTriggerEnum.TIMER_ONLY,
-                    view.participationTrigger().getValue());
-            assertEquals(150.0,
-                    view.participationTriggerInfo().getTooltip().getShowDelay().toMillis());
-            assertTrue(view.participationTriggerInfo().getTooltip().getText()
-                    .startsWith("Bear icon detection always protects the event"));
-            assertFalse(view.participationTrigger().isDisabled());
-            assertEquals("Uses Timer 1's UTC schedule or Run now.",
-                    view.participationHelper().getText());
-            assertFalse(view.participationWarning().isVisible());
-            assertFalse(view.selectedTimerWarning().isVisible());
-            assertTrue(changes.isEmpty(), "profile loading must not save timer values");
-
-            view.participationTrigger().setValue(BearTrapParticipationTriggerEnum.TIMER_ICON_FALLBACK);
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_ICON_PARTICIPATION_FALLBACK_BOOL, true)));
-            assertEquals("Uses Timer 1's UTC schedule; a Bear Trap icon may also start participation.",
-                    view.participationHelper().getText());
-            assertTrue(view.participationWarning().isVisible());
-
-            view.timer1().setDraft(LocalDate.of(2026, 7, 28), "20", "05");
-            view.timer1().commitSelection();
-            view.timer2().setDraft(LocalDate.of(2026, 7, 29), "06", "10");
-            view.timer2().commitSelection();
-
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "28-07-2026 20:05")));
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, "29-07-2026 06:10")));
-
-            changes.clear();
-            ProfileAux second = profile(2L,
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, "false"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL, "false"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "30-07-2026 21:15"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, "31-07-2026 07:20"));
-            view.controller().onProfileLoad(second);
-
-            assertEquals(LocalDateTime.of(2026, 7, 30, 21, 15), view.timer1().getDateTime());
-            assertEquals(LocalDateTime.of(2026, 7, 31, 7, 20), view.timer2().getDateTime());
-            assertFalse(view.timer1().isDisabled(), "event timers must remain editable without protection");
-            assertFalse(view.timer2().isDisabled(), "event timers must remain editable without protection");
-            assertTrue(view.participationTrigger().isDisabled());
-            assertTrue(changes.isEmpty(), "profile switching must not persist stale drafts");
+            assertEquals(LocalDateTime.of(2026, 11, 10, 19, 0), view.start().getDateTime());
+            assertEquals("10", view.lead().getText());
+            assertEquals("Block rallies", String.valueOf(view.guard().getValue()));
+            assertEquals(List.of(1, 2, 3), view.hero().getCheckModel().getCheckedItems());
+            assertEquals(List.of(4, 5, 6), view.troop().getCheckModel().getCheckedItems());
+            assertTrue(view.icon().isSelected());
             return null;
         });
     }
 
     @Test
-    void explainsThatParticipationUsesTheSeparatelySelectedTimer() throws Exception {
+    void switchingProfilesKeepsEachProfilesOwnSquads() throws Exception {
         runOnFxThread(() -> {
             LoadedBearView view = loadBearView();
-            List<Change> changes = new ArrayList<>();
-            view.controller().attachProfileListener((key, value) -> changes.add(new Change(key, value)));
-            ProfileAux profile = profile(4L,
-                    config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT, "1"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, "false"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "30-07-2026 02:00"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, "29-07-2026 19:00"));
+            List<Change> changes = listen(view);
+            view.controller().onProfileLoad(liveProfile());
 
-            view.controller().onProfileLoad(profile);
+            view.controller().onProfileLoad(profile(2L,
+                    config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, "4,5"),
+                    config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOP_FLAG_STRING, "1")));
 
-            assertEquals("Bear Trap 1 (Timer 1)",
-                    view.trapNumber().getConverter().toString(view.trapNumber().getValue()));
-            assertEquals("Uses Timer 1's UTC schedule or Run now.", view.participationHelper().getText());
-            assertTrue(view.selectedTimerWarning().isVisible());
-            assertEquals("Timer 1 protection is disabled. Participation still uses its UTC schedule.",
-                    view.selectedTimerWarning().getText());
-            assertFalse(view.timer1().isDisabled(),
-                    "the selected participation schedule must remain editable without protection");
-            assertTrue(changes.isEmpty(), "loading the mismatched settings must not change them silently");
-
-            view.trapNumber().setValue(2);
-
-            assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT, 2)));
-            assertEquals("Bear Trap 2 (Timer 2)",
-                    view.trapNumber().getConverter().toString(view.trapNumber().getValue()));
-            assertEquals("Uses Timer 2's UTC schedule or Run now.", view.participationHelper().getText());
-            assertFalse(view.selectedTimerWarning().isVisible());
-            return null;
-        });
-    }
-
-    @Test
-    void enabledTimerWithMissingValueFallsBackToOffWithoutPersisting() throws Exception {
-        runOnFxThread(() -> {
-            LoadedBearView view = loadBearView();
-            List<Change> changes = new ArrayList<>();
-            view.controller().attachProfileListener((key, value) -> changes.add(new Change(key, value)));
-            ProfileAux profile = profile(3L,
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL, "false"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, ""));
-
-            view.controller().onProfileLoad(profile);
-
-            assertNull(view.timer1().getDateTime());
-            assertTrue(view.timer1().getValidationMessage().isEmpty());
-            assertTrue(view.timer2().getValidationMessage().isEmpty());
-            assertTrue(view.trapNumber().getItems().isEmpty());
-            assertTrue(view.trapNumber().isDisabled());
-            assertEquals("Set a complete UTC date and time above and click Apply first.",
-                    view.trapSelectionHelper().getText());
-            assertTrue(view.timerRecommendation().getText().startsWith("Strongly recommended:"));
+            assertEquals(List.of(4, 5), view.hero().getCheckModel().getCheckedItems());
+            assertEquals(List.of(1), view.troop().getCheckModel().getCheckedItems());
+            assertNull(view.start().getDateTime());
             assertTrue(changes.isEmpty());
             return null;
         });
     }
 
     @Test
-    void exposesATrapForParticipationOnlyAfterItsTimerIsApplied() throws Exception {
+    void thePageHasOneTimerUniqueCaptionsAndNoExplanatoryText() throws Exception {
         runOnFxThread(() -> {
             LoadedBearView view = loadBearView();
-            List<Change> changes = new ArrayList<>();
-            view.controller().attachProfileListener((key, value) -> changes.add(new Change(key, value)));
-            ProfileAux profile = profile(5L,
-                    config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT, "1"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, "false"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL, "false"));
+            List<String> captions = SceneGraphWalk.descendants(view.root()).stream()
+                    .filter(node -> node instanceof Labeled)
+                    .map(node -> ((Labeled) node).getText())
+                    .filter(text -> text != null && !text.isBlank())
+                    .filter(text -> !text.contains("Hero squad to join"))
+                    .toList();
 
-            view.controller().onProfileLoad(profile);
-
-            assertTrue(view.trapNumber().getItems().isEmpty());
-            assertNull(view.trapNumber().getValue());
-            assertTrue(view.trapNumber().isDisabled());
-            assertTrue(changes.isEmpty(), "an unavailable saved trap must not be replaced during load");
-
-            view.timer2().setDraft(LocalDate.of(2026, 8, 1), "19", "00");
-            assertTrue(view.trapNumber().getItems().isEmpty(), "a draft timer must not become selectable");
-            view.timer2().commitSelection();
-
-            assertEquals(List.of(2), view.trapNumber().getItems());
-            assertNull(view.trapNumber().getValue(), "applying a timer must not silently select it");
-            assertFalse(view.trapNumber().isDisabled());
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, "01-08-2026 19:00")));
-            assertEquals("Block rally-starting tasks (Recommended)",
-                    String.valueOf(view.protectionTimer2().getValue()));
-            assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL, true)));
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL, true)));
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL, false)));
-            assertFalse(changes.stream().anyMatch(change ->
-                    change.key() == ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT));
-
-            view.trapNumber().setValue(2);
-
-            assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT, 2)));
-            assertEquals("Uses Timer 2's UTC schedule or Run now.", view.participationHelper().getText());
-
-            changes.clear();
-            view.timer2().clearSelection();
-
-            assertTrue(view.trapNumber().getItems().isEmpty());
-            assertNull(view.trapNumber().getValue());
-            assertEquals("Off", String.valueOf(view.protectionTimer2().getValue()));
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, "")));
-            assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL, false)));
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL, false)));
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL, false)));
+            assertEquals(List.of("Auto bear", "Lead (min)", "Bear start", ":", "Apply", "Clear", "Next: —", "Guard",
+                    "Icon start", "Squads", "Join rallies", "Hero squads", "Troop squads", "Own rally", "Own squad",
+                    "Prep", "Recall gatherers", "Pets"), captions);
+            assertEquals(List.of("Off", "Block rallies", "Pause all"),
+                    view.guard().getItems().stream().map(String::valueOf).toList());
             return null;
         });
     }
 
     @Test
-    void presentsProtectionAsOneUnambiguousModeAndPersistsCompatibleKeys() throws Exception {
+    void leadAcceptsOneToSixtyAndABlankTakesTheDefault() throws Exception {
         runOnFxThread(() -> {
             LoadedBearView view = loadBearView();
-            List<Change> changes = new ArrayList<>();
-            view.controller().attachProfileListener((key, value) -> changes.add(new Change(key, value)));
-            ProfileAux profile = profile(6L,
+            List<Change> changes = listen(view);
+            view.controller().onProfileLoad(liveProfile());
+
+            for (String rejected : List.of("0", "61")) {
+                view.lead().setText(rejected);
+                view.lead().fireEvent(new ActionEvent());
+                assertTrue(changes.isEmpty(), rejected + " must not save");
+                assertTrue(view.lead().getStyleClass().contains("setting-field-error"));
+            }
+
+            view.lead().setText("60");
+            view.lead().fireEvent(new ActionEvent());
+            view.lead().setText("");
+            view.lead().fireEvent(new ActionEvent());
+
+            assertEquals(List.of(new Change(ConfigurationKeyEnum.BEAR_TRAP_PREPARATION_TIME_INT, 60),
+                    new Change(ConfigurationKeyEnum.BEAR_TRAP_PREPARATION_TIME_INT, 15)), changes);
+            return null;
+        });
+    }
+
+    @Test
+    void theGuardSavesAllThreeKeysAndAnIntentionalOffSurvivesEditingTheTime() throws Exception {
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            List<Change> changes = listen(view);
+            view.controller().onProfileLoad(profile(6L,
                     config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "02-08-2026 19:00"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, "03-08-2026 19:00"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, "false"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL, "true"),
-                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL, "true"));
+                    config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, "false")));
+            assertEquals("Off", String.valueOf(view.guard().getValue()));
 
-            view.controller().onProfileLoad(profile);
-
-            assertEquals("Off", String.valueOf(view.protectionTimer1().getValue()));
-            assertEquals("Pause all scheduled tasks", String.valueOf(view.protectionTimer2().getValue()));
-            assertTrue(changes.isEmpty(), "loading legacy protection booleans must not rewrite them");
-
-            view.timer1().setDraft(LocalDate.of(2026, 8, 4), "19", "30");
-            view.timer1().commitSelection();
-
-            assertEquals("Off", String.valueOf(view.protectionTimer1().getValue()),
-                    "editing an existing timer must preserve an intentional Off mode");
-            assertFalse(changes.stream().anyMatch(change ->
-                    change.key() == ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL));
+            view.start().setDraft(LocalDate.of(2026, 8, 4), "19", "30");
+            view.start().commitSelection();
+            assertEquals("Off", String.valueOf(view.guard().getValue()));
             changes.clear();
 
-            selectItemNamed(view.protectionTimer1(), "Block rally-starting tasks (Recommended)");
+            view.guard().setValue(view.guard().getItems().get(2));
 
-            assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, true)));
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL, true)));
-            assertTrue(changes.contains(new Change(
-                    ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL, false)));
-            assertEquals("Prevents Polar Terror, Hero Mission, and Mercenary from starting rallies.",
-                    view.protectionHelperTimer1().getText());
+            assertEquals(List.of(new Change(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, true),
+                    new Change(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL, false),
+                    new Change(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL, true)), changes);
+            return null;
+        });
+    }
+
+    @Test
+    void autoBearNeedsAStartTimeAndClearTurnsEverythingOff() throws Exception {
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            List<Change> changes = listen(view);
+            view.controller().onProfileLoad(profile(5L));
+            assertTrue(view.auto().isDisabled());
+            assertTrue(view.guard().isDisabled());
+
+            view.start().setDraft(LocalDate.of(2026, 8, 1), "19", "00");
+            view.start().commitSelection();
+            assertFalse(view.auto().isDisabled());
+            assertEquals("Block rallies", String.valueOf(view.guard().getValue()));
+
+            view.auto().setSelected(true);
+            changes.clear();
+            view.start().clearSelection();
+
+            assertFalse(view.auto().isSelected());
+            assertEquals("Off", String.valueOf(view.guard().getValue()));
+            assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "")));
+            assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, false)));
+            assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, false)));
+            return null;
+        });
+    }
+
+    @Test
+    void recallNeedsJoinOrOwnRally() throws Exception {
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            view.controller().onProfileLoad(liveProfile());
+            assertFalse(view.recall().isDisabled());
+
+            view.join().setSelected(false);
+            assertTrue(view.recall().isDisabled());
+            assertTrue(view.recall().isSelected(), "the stored choice is kept");
+            return null;
+        });
+    }
+
+    @Test
+    void iconStartAndOwnRallyCannotBeTurnedOnTogether() throws Exception {
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            view.controller().onProfileLoad(liveProfile());
+            assertTrue(view.own().isDisabled());
+
+            view.icon().setSelected(false);
+            assertFalse(view.own().isDisabled());
+            view.own().setSelected(true);
+            assertTrue(view.icon().isDisabled());
+
+            view.controller().onProfileLoad(profile(9L,
+                    config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
+                    config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "10-11-2026 19:00"),
+                    config(ConfigurationKeyEnum.BEAR_TRAP_ICON_PARTICIPATION_FALLBACK_BOOL, "true"),
+                    config(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, "true")));
+            assertFalse(view.icon().isDisabled(), "a saved pair must stay possible to undo");
+            assertFalse(view.own().isDisabled(), "a saved pair must stay possible to undo");
+            return null;
+        });
+    }
+
+    @Test
+    void ownSquadOnlyShowsWithOwnRally() throws Exception {
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            view.controller().onProfileLoad(liveProfile());
+            Node row = view.get("rowOwnSquad");
+            assertFalse(row.isManaged());
+
+            view.icon().setSelected(false);
+            view.own().setSelected(true);
+            assertTrue(row.isManaged());
+            return null;
+        });
+    }
+
+    @Test
+    void joinRalliesNeedsAHeroSquadAndTheLastOneCannotBeRemovedWhileJoining() throws Exception {
+        AtomicReference<LoadedBearView> shared = new AtomicReference<>();
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            shared.set(view);
+            view.controller().onProfileLoad(profile(3L,
+                    config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
+                    config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "10-11-2026 19:00")));
+            view.hero().getCheckModel().clearChecks();
+            return null;
+        });
+        settle();
+        runOnFxThread(() -> {
+            LoadedBearView view = shared.get();
+            assertTrue(view.join().isDisabled());
+            view.hero().getCheckModel().check(Integer.valueOf(2));
+            return null;
+        });
+        settle();
+        runOnFxThread(() -> {
+            LoadedBearView view = shared.get();
+            assertFalse(view.join().isDisabled());
+            view.join().setSelected(true);
+            view.hero().getCheckModel().clearCheck(Integer.valueOf(2));
+            return null;
+        });
+        settle();
+        runOnFxThread(() -> {
+            assertEquals(List.of(2), shared.get().hero().getCheckModel().getCheckedItems());
+            return null;
+        });
+    }
+
+    @Test
+    void aSquadPickedInOneGroupLeavesTheOthersChoices() throws Exception {
+        AtomicReference<LoadedBearView> shared = new AtomicReference<>();
+        AtomicReference<List<Change>> changes = new AtomicReference<>();
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            shared.set(view);
+            changes.set(listen(view));
+            view.controller().onProfileLoad(liveProfile());
+
+            assertFalse(view.troop().getItems().contains(1));
+            assertFalse(view.hero().getItems().contains(4));
+            assertTrue(view.hero().getItems().contains(1), "a group keeps its own picks");
+            view.hero().getCheckModel().check(Integer.valueOf(7));
+            return null;
+        });
+        settle();
+        runOnFxThread(() -> {
+            LoadedBearView view = shared.get();
+            assertFalse(view.troop().getItems().contains(7));
+            assertEquals(List.of(4, 5, 6), view.troop().getCheckModel().getCheckedItems());
+            assertEquals(List.of(1, 2, 3, 7), view.hero().getCheckModel().getCheckedItems());
+            assertEquals(List.of(new Change(ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, "1,2,3,7")), changes.get(),
+                    "rebuilding the lists must not save");
+            view.icon().setSelected(false);
+            view.ownSquad().setValue(1);
+            view.own().setSelected(true);
+            return null;
+        });
+        settle();
+        runOnFxThread(() -> {
+            LoadedBearView view = shared.get();
+            assertFalse(List.of(1, 2, 3, 4, 5, 6, 7).contains(view.ownSquad().getValue()),
+                    "Own rally must not lead with a squad already joining");
+            assertFalse(view.hero().getItems().contains(view.ownSquad().getValue()));
             return null;
         });
     }
@@ -444,25 +500,16 @@ class BearTrapTimerDateTimeUxTest {
 
             view.controller().onProfileLoad(profile);
 
-            assertEquals(List.of(2, 3, 4), view.joinFormations().getCheckModel().getCheckedItems());
+            assertEquals(List.of(2, 3, 4), view.hero().getCheckModel().getCheckedItems());
             assertTrue(changes.isEmpty(), "restoring saved formations must not rewrite the profile");
 
-            view.joinFormations().getCheckModel().clearCheck(Integer.valueOf(2));
-            view.joinFormations().getCheckModel().check(Integer.valueOf(7));
+            view.hero().getCheckModel().clearCheck(Integer.valueOf(2));
+            view.hero().getCheckModel().check(Integer.valueOf(7));
 
             assertEquals(new Change(ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, "3,4,7"),
                     changes.get(changes.size() - 1));
             return null;
         });
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static void selectItemNamed(ComboBox<?> comboBox, String label) {
-        Object item = comboBox.getItems().stream()
-                .filter(candidate -> label.equals(String.valueOf(candidate)))
-                .findFirst()
-                .orElseThrow();
-        ((ComboBox) comboBox).setValue(item);
     }
 
     @SuppressWarnings("unchecked")
@@ -472,24 +519,7 @@ class BearTrapTimerDateTimeUxTest {
         loader.setController(controller);
         Parent root = loader.load();
         Map<String, Object> namespace = loader.getNamespace();
-        return new LoadedBearView(
-                root,
-                controller,
-                (UtcDateTimeEditor) namespace.get("timer1DateTimeEditor"),
-                (UtcDateTimeEditor) namespace.get("timer2DateTimeEditor"),
-                (ComboBox<?>) namespace.get("comboBoxProtectionTimer1"),
-                (ComboBox<?>) namespace.get("comboBoxProtectionTimer2"),
-                (Label) namespace.get("labelProtectionHelperTimer1"),
-                (Label) namespace.get("labelProtectionHelperTimer2"),
-                (ComboBox<Integer>) namespace.get("comboBoxTrapNumber"),
-                (ComboBox<BearTrapParticipationTriggerEnum>) namespace.get("comboBoxParticipationTrigger"),
-                (Label) namespace.get("labelTimerRecommendation"),
-                (Label) namespace.get("labelTrapSelectionHelper"),
-                (Label) namespace.get("labelParticipationTriggerInfo"),
-                (Label) namespace.get("labelParticipationHelper"),
-                (Label) namespace.get("labelParticipationWarning"),
-                (Label) namespace.get("labelSelectedTimerWarning"),
-                (CheckComboBox<Integer>) namespace.get("checkComboBoxJoinFlag"));
+        return new LoadedBearView(root, controller, namespace);
     }
 
     private static ProfileAux profile(long id, ConfigAux... configs) {
@@ -542,23 +572,54 @@ class BearTrapTimerDateTimeUxTest {
         }
     }
 
-    private record LoadedBearView(
-            Parent root,
-            BearTrapLayoutController controller,
-            UtcDateTimeEditor timer1,
-            UtcDateTimeEditor timer2,
-            ComboBox<?> protectionTimer1,
-            ComboBox<?> protectionTimer2,
-            Label protectionHelperTimer1,
-            Label protectionHelperTimer2,
-            ComboBox<Integer> trapNumber,
-            ComboBox<BearTrapParticipationTriggerEnum> participationTrigger,
-            Label timerRecommendation,
-            Label trapSelectionHelper,
-            Label participationTriggerInfo,
-            Label participationHelper,
-            Label participationWarning,
-            Label selectedTimerWarning,
-            CheckComboBox<Integer> joinFormations) {
+    private record LoadedBearView(Parent root, BearTrapLayoutController controller, Map<String, Object> namespace) {
+        @SuppressWarnings("unchecked")
+        private <T> T get(String id) {
+            return (T) namespace.get(id);
+        }
+
+        private UtcDateTimeEditor start() {
+            return get("timerDateTimeEditor");
+        }
+
+        private ComboBox<Object> guard() {
+            return get("comboBoxGuard");
+        }
+
+        private CheckBox auto() {
+            return get("checkBoxEnableBearTrap");
+        }
+
+        private CheckBox icon() {
+            return get("checkBoxIconStart");
+        }
+
+        private CheckBox join() {
+            return get("checkBoxEnableJoin");
+        }
+
+        private CheckBox own() {
+            return get("checkBoxCallRally");
+        }
+
+        private CheckBox recall() {
+            return get("checkBoxRecallTroops");
+        }
+
+        private CheckComboBox<Integer> hero() {
+            return get("checkComboBoxJoinFlag");
+        }
+
+        private CheckComboBox<Integer> troop() {
+            return get("checkComboBoxTroopFlag");
+        }
+
+        private ComboBox<Integer> ownSquad() {
+            return get("comboBoxRallyFlag");
+        }
+
+        private TextField lead() {
+            return get("textFieldPreparationTime");
+        }
     }
 }

@@ -120,9 +120,7 @@ private static final PointData BEAR_TRAP_1_GO_BUTTON_TL_VALUE = new PointData(57
 
 private static final PointData BEAR_TRAP_1_GO_BUTTON_BR_VALUE = new PointData(620, 370);
 
-private static final PointData BEAR_TRAP_2_GO_BUTTON_TL_VALUE = new PointData(570, 530);
 
-private static final PointData BEAR_TRAP_2_GO_BUTTON_BR_VALUE = new PointData(620, 550);
 
 private static final PointData BEAR_CENTER_POINT_VALUE = new PointData(370, 507);
 
@@ -158,9 +156,8 @@ private static final PointData FREE_MARCHES_OCR_TL_VALUE = new PointData(203, 20
 
 private static final PointData FREE_MARCHES_OCR_BR_VALUE = new PointData(246, 226);
 
-private static final int DEFAULT_TRAP_NUMBER_VALUE = 1;
 
-private static final int DEFAULT_PREPARATION_TIME_MINUTES_MS = 10;
+private static final int DEFAULT_PREPARATION_TIME_MINUTES_MS = 15;
 
 private static final int DEFAULT_OWN_RALLY_FLAG_VALUE = 1;
 
@@ -185,7 +182,6 @@ private boolean recallTroops;
 // Changed by pernerch | Date: 2026-07-02 | Why: detect shared-emulator profiles to avoid rally contention across accounts.
 private boolean sharedEmulator;
 
-private int trapNumber;
 
 private int ownRallyFlag;
 
@@ -247,8 +243,8 @@ public BearTrapRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
                     logInfo(routineLogBearTrapLine("Activating pets..."));
                     enablePetsFlow();
                 }
-                logInfo(routineLogBearTrapLine("Moving camera to Bear Trap " + trapNumber));
-                reachBearTrap(trapNumber);
+                logInfo(routineLogBearTrapLine("Moving camera to Bear Trap"));
+                reachBearTrap();
                 sleepTask(1000);
 
             }
@@ -329,7 +325,7 @@ private void refreshNextWindowDateTime() {
 
         ConfigService.obtain().writeAccountSetting(
                 profile,
-                selectedTrapScheduleKey(),
+                BearTrapParticipationSchedule.SCHEDULE_KEY,
                 formattedDateTime);
     }
 
@@ -489,20 +485,6 @@ private boolean confirmExecutionWindow() {
         return true;
     }
 
-private boolean touchBearTrapGoButton(int trapNumber) {
-        switch (trapNumber) {
-            case 1:
-                tapInside(BEAR_TRAP_1_GO_BUTTON_TL_VALUE, BEAR_TRAP_1_GO_BUTTON_BR_VALUE, 1, 300);
-                return true;
-            case 2:
-                tapInside(BEAR_TRAP_2_GO_BUTTON_TL_VALUE, BEAR_TRAP_2_GO_BUTTON_BR_VALUE, 1, 300);
-                return true;
-            default:
-                logError(routineLogBearTrapLine("Invalid trap number: " + trapNumber));
-                return false;
-        }
-    }
-
 private LocalDateTime resolveConfigDateTime(ConfigurationKeyEnum key) {
         LocalDateTime value = profile.getConfig(key, LocalDateTime.class);
         if (value == null) {
@@ -574,8 +556,7 @@ private boolean resolveConfigBoolean(ConfigurationKeyEnum key, boolean defaultVa
     }
 
 private void hydrateConfiguration() {
-        this.trapNumber = resolveConfigInt(BEAR_TRAP_NUMBER_INT, DEFAULT_TRAP_NUMBER_VALUE);
-        this.referenceTrapTime = resolveConfigDateTime(selectedTrapScheduleKey());
+        this.referenceTrapTime = resolveConfigDateTime(BearTrapParticipationSchedule.SCHEDULE_KEY);
         this.trapPreparationTime = resolveConfigInt(BEAR_TRAP_PREPARATION_TIME_INT, DEFAULT_PREPARATION_TIME_MINUTES_MS);
         this.callOwnRally = resolveConfigBoolean(BEAR_TRAP_CALL_RALLY_BOOL, DEFAULT_CALL_OWN_RALLY_VALUE);
         this.joinRally = resolveConfigBoolean(BEAR_TRAP_JOIN_RALLY_BOOL, DEFAULT_JOIN_RALLY_VALUE);
@@ -594,13 +575,9 @@ private void hydrateConfiguration() {
 
 
         logDebug(routineLogBearTrapLine(String.format(
-                "Configuration loaded - Trap: %d, PrepTime: %dmin, OwnRally: %s (flag:%d), JoinRally: %s (flags:%s), Pets: %s, Recall: %s, SharedEmulator: %s",
-                trapNumber, trapPreparationTime, callOwnRally, ownRallyFlag, joinRally, joinFlags, usePets,
+                "Configuration loaded - PrepTime: %dmin, OwnRally: %s (flag:%d), JoinRally: %s (flags:%s), Pets: %s, Recall: %s, SharedEmulator: %s",
+                trapPreparationTime, callOwnRally, ownRallyFlag, joinRally, joinFlags, usePets,
                 recallTroops, sharedEmulator)));
-    }
-
-private ConfigurationKeyEnum selectedTrapScheduleKey() {
-        return BearTrapParticipationSchedule.scheduleKey(trapNumber);
     }
 
 private void queueRallyFlagReset(long marchSeconds) {
@@ -662,23 +639,27 @@ private BearTrapHelper.WindowResult resolveWindowState() {
 private void prepareForTrapFlow() {
         logInfo(routineLogBearTrapLine("Preparing for Bear Trap event..."));
 
-        logInfo(routineLogBearTrapLine("Disabling autojoin..."));
-        disableAutojoinFlow();
-
-        if (recallTroops) {
-            logInfo(routineLogBearTrapLine("Recalling all gather troops to the city..."));
-            recallGatherTroopsFlow();
+        for (BearTrapPreparationPlan.Step step : BearTrapPreparationPlan.atWindowOpen(recallTroops, usePets)) {
+            switch (step) {
+                case TURN_OFF_AUTOJOIN -> {
+                    logInfo(routineLogBearTrapLine("Disabling autojoin..."));
+                    disableAutojoinFlow();
+                }
+                case RECALL_GATHERERS -> {
+                    logInfo(routineLogBearTrapLine("Recalling all gather troops to the city..."));
+                    recallGatherTroopsFlow();
+                }
+                case ACTIVATE_PETS -> {
+                    logInfo(routineLogBearTrapLine("Activating pets..."));
+                    enablePetsFlow();
+                }
+                case MOVE_TO_TRAP -> {
+                    logInfo(routineLogBearTrapLine("Moving camera to Bear Trap"));
+                    reachBearTrap();
+                    sleepTask(1000);
+                }
+            }
         }
-
-        if (usePets) {
-            logInfo(routineLogBearTrapLine("Activating pets..."));
-            enablePetsFlow();
-        }
-
-        logInfo(routineLogBearTrapLine("Moving camera to Bear Trap " + trapNumber));
-        reachBearTrap(trapNumber);
-        sleepTask(1000);
-
     }
 
 private MarchStatusShape inspectMarchStatus() {
@@ -1150,7 +1131,7 @@ private long scanMarchTime() {
         return 0;
     }
 
-private boolean reachBearTrap(int trapNumber) {
+private boolean reachBearTrap() {
         tapInside(ALLIANCE_BUTTON_TL_VALUE, ALLIANCE_BUTTON_BR_VALUE);
         sleepTask(3000);
 
@@ -1174,14 +1155,9 @@ private boolean reachBearTrap(int trapNumber) {
         sleepTask(500);
 
 
-        boolean success = touchBearTrapGoButton(trapNumber);
-
-        if (success) {
-            sleepTask(2000);
-
-        }
-
-        return success;
+        tapInside(BEAR_TRAP_1_GO_BUTTON_TL_VALUE, BEAR_TRAP_1_GO_BUTTON_BR_VALUE, 1, 300);
+        sleepTask(2000);
+        return true;
     }
 
 private long beginOwnRally() {

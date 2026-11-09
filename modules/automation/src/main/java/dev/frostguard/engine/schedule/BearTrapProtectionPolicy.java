@@ -5,10 +5,6 @@ import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE
 import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL;
 import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL;
 import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL;
-import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL;
-import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL;
-import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL;
-import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -24,16 +20,16 @@ import dev.frostguard.engine.helper.BearTrapHelper;
 import dev.frostguard.engine.helper.TimeWindowHelper;
 
 /**
- * Resolves the two independent Bear Trap protection windows.
- *
- * <p>The protection window starts ten minutes before activation and ends
- * thirty minutes after activation. Each configured anchor repeats every
- * forty-eight hours, matching the Bear Trap event cadence.</p>
+ * Resolves the Bear Trap protection window: it opens the lead time before the event and ends
+ * {@link #RESUME_BUFFER_MINUTES} after the event's thirty minutes. The entered start repeats every
+ * forty-eight hours, matching the Bear Trap event cadence.
  */
 public final class BearTrapProtectionPolicy {
 
-    public static final int DEFAULT_LEAD_TIME_MINUTES = 10;
+    public static final int DEFAULT_LEAD_TIME_MINUTES = 15;
     public static final int ACTIVE_WINDOW_MINUTES = 30;
+    /** Tasks stay held this long after the event, so nothing starts while marches are coming home. */
+    public static final int RESUME_BUFFER_MINUTES = 2;
     public static final int RELEASE_BUFFER_SECONDS = 5;
 
     private BearTrapProtectionPolicy() {
@@ -106,31 +102,19 @@ public final class BearTrapProtectionPolicy {
         List<ActiveProtection> result = new ArrayList<>(2);
         BearTrapVisualProtection.releaseAt(profile.getId(), clock)
                 .ifPresent(releaseAt -> result.add(new ActiveProtection("icon", true, false, releaseAt)));
-        addIfActive(result, profile, clock, new TrapSettings(
-                1,
-                BEAR_TRAP_TIMER_1_ENABLED_BOOL,
-                BEAR_TRAP_SCHEDULE_DATETIME_STRING,
-                BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL,
-                BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL));
-        addIfActive(result, profile, clock, new TrapSettings(
-                2,
-                BEAR_TRAP_TIMER_2_ENABLED_BOOL,
-                BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING,
-                BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL,
-                BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL));
+        addIfActive(result, profile, clock);
         return result;
     }
 
     private static void addIfActive(
             List<ActiveProtection> result,
             AccountDescriptor profile,
-            Clock clock,
-            TrapSettings settings) {
-        if (!isTimerEnabled(profile, settings)) {
+            Clock clock) {
+        if (!isTimerEnabled(profile)) {
             return;
         }
 
-        LocalDateTime anchor = profile.getConfig(settings.scheduleKey(), LocalDateTime.class);
+        LocalDateTime anchor = profile.getConfig(BEAR_TRAP_SCHEDULE_DATETIME_STRING, LocalDateTime.class);
         if (anchor == null) {
             return;
         }
@@ -138,17 +122,19 @@ public final class BearTrapProtectionPolicy {
         BearTrapHelper.WindowResult window = BearTrapHelper.calculateWindow(
                 anchor.toInstant(ZoneOffset.UTC),
                 protectionLeadTimeMinutes(profile),
-                ACTIVE_WINDOW_MINUTES,
+                ACTIVE_WINDOW_MINUTES + RESUME_BUFFER_MINUTES,
                 2,
                 clock);
-        if (window.getState() != TimeWindowHelper.WindowState.INSIDE) {
+        // The window helper counts its closing instant as inside, but that instant is when tasks resume.
+        if (window.getState() != TimeWindowHelper.WindowState.INSIDE
+                || !clock.instant().isBefore(window.getCurrentWindowEnd())) {
             return;
         }
 
         result.add(new ActiveProtection(
-                Integer.toString(settings.trapNumber()),
-                Boolean.TRUE.equals(profile.getConfig(settings.blockRalliesKey(), Boolean.class)),
-                Boolean.TRUE.equals(profile.getConfig(settings.pauseAllTasksKey(), Boolean.class)),
+                "1",
+                Boolean.TRUE.equals(profile.getConfig(BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL, Boolean.class)),
+                Boolean.TRUE.equals(profile.getConfig(BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL, Boolean.class)),
                 window.getCurrentWindowEnd()));
     }
 
@@ -159,18 +145,15 @@ public final class BearTrapProtectionPolicy {
         return configured != null && configured >= 0 ? configured : DEFAULT_LEAD_TIME_MINUTES;
     }
 
-    private static boolean isTimerEnabled(AccountDescriptor profile, TrapSettings settings) {
+    private static boolean isTimerEnabled(AccountDescriptor profile) {
         boolean explicitlyConfigured = profile.getEntries().stream()
-                .anyMatch(entry -> settings.enabledKey().equals(entry.getSettingKey()));
+                .anyMatch(entry -> BEAR_TRAP_TIMER_1_ENABLED_BOOL.equals(entry.getSettingKey()));
         if (explicitlyConfigured) {
-            return Boolean.TRUE.equals(profile.getConfig(settings.enabledKey(), Boolean.class));
+            return Boolean.TRUE.equals(profile.getConfig(BEAR_TRAP_TIMER_1_ENABLED_BOOL, Boolean.class));
         }
 
-        // Before the independent timer switches existed, Bear automation itself
-        // activated the single configured window. Preserve that behavior once
-        // for timer 1; the UI writes the new switch on the next profile load.
-        return settings.trapNumber() == 1
-                && Boolean.TRUE.equals(profile.getConfig(BEAR_TRAP_EVENT_BOOL, Boolean.class));
+        // Before the guard switch existed, Bear automation itself activated the window.
+        return Boolean.TRUE.equals(profile.getConfig(BEAR_TRAP_EVENT_BOOL, Boolean.class));
     }
 
     public enum BlockReason {
@@ -182,14 +165,6 @@ public final class BearTrapProtectionPolicy {
         static Decision allowed() {
             return new Decision(false, null, "", null);
         }
-    }
-
-    private record TrapSettings(
-            int trapNumber,
-            ConfigurationKeyEnum enabledKey,
-            ConfigurationKeyEnum scheduleKey,
-            ConfigurationKeyEnum blockRalliesKey,
-            ConfigurationKeyEnum pauseAllTasksKey) {
     }
 
     private record ActiveProtection(

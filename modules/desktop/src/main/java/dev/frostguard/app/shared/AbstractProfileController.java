@@ -68,6 +68,26 @@ public abstract class AbstractProfileController implements IProfileLoadListener,
 		fieldValidationPresenters.put(textField, new FieldValidationPresenter(textField, messageLabel));
 	}
 
+	/** A blank entry takes the setting's default; a stored value is never rewritten by loading it. */
+	protected void registerRangedIntegerField(
+			TextField textField,
+			Label messageLabel,
+			ConfigurationKeyEnum configKey,
+			String caption,
+			int minimum,
+			int maximum) {
+		textField.setTextFormatter(nonNegativeIntegerTextFormatter());
+		ValidatedTextFieldBinding<Integer> binding = new ValidatedTextFieldBinding<>(
+				textField,
+				messageLabel,
+				SettingValidators.rangedInteger(caption, minimum, maximum),
+				String::valueOf,
+				value -> publishWhenReady(configKey, value),
+				text -> text == null || text.isBlank() ? configKey.getDefaultValue() : text);
+		textFieldMappings.put(textField, configKey);
+		validatedTextFieldBindings.put(textField, binding);
+	}
+
 	protected void registerTimeTextField(
 			TextField textField,
 			Label messageLabel,
@@ -180,7 +200,8 @@ public abstract class AbstractProfileController implements IProfileLoadListener,
 	}
 
 	private String readable(String uiText, ConfigurationKeyEnum key) {
-		return uiText == null || uiText.isBlank() ? formatEnumName(key.name()) : uiText;
+		// A prompt such as "60" is an example value, not a name for the setting.
+		return uiText == null || uiText.isBlank() || uiText.matches("[\\d.,% ]+") ? formatEnumName(key.name()) : uiText;
 	}
 
 	private String formatEnumName(String name) {

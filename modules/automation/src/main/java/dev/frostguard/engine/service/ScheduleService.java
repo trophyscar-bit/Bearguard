@@ -54,10 +54,8 @@ public class ScheduleService {
 	private static final DateTimeFormatter DISPLAY_TIME = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss");
 	private static final Set<ConfigurationKeyEnum> BEAR_SCHEDULE_KEYS = Set.of(
 			ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL,
-			ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT,
 			ConfigurationKeyEnum.BEAR_TRAP_PREPARATION_TIME_INT,
-			ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING,
-			ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING);
+			ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING);
 	private static volatile ScheduleService singleton;
 
 	private final TaskDispatcher dispatcher = new TaskDispatcher();
@@ -400,8 +398,7 @@ public class ScheduleService {
 			TaskManagementService.shared().recordTaskState(accountId, aligned);
 
 			log(TpMessageSeverityEnum.INFO, "Bear Trap Event", account.getName(),
-					"Participation schedule aligned with Timer " + plan.trapNumber()
-							+ " for " + formatTime(plan.nextRun())
+					"Participation schedule aligned for " + formatTime(plan.nextRun())
 							+ (queueUpdated ? "" : " (persisted for the next queue load)"));
 		}, () -> {
 			TaskQueue queue = dispatcher.getQueue(accountId);
@@ -679,8 +676,7 @@ public class ScheduleService {
 			state.setNextExecutionTime(plan.nextRun());
 			persistNextSchedule(account, TpDailyTaskEnum.BEAR_TRAP, plan.nextRun(), null);
 			log(TpMessageSeverityEnum.INFO, task.getTaskName(), account.getName(),
-					"Participation schedule aligned with Timer " + plan.trapNumber()
-							+ ": " + formatTime(plan.nextRun()));
+					"Participation schedule aligned: " + formatTime(plan.nextRun()));
 		} else if (saved == null) {
 			scheduleFreshTask(task, account);
 			state.setNextExecutionTime(task.getScheduled());

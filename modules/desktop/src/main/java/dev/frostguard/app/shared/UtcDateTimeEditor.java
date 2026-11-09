@@ -33,8 +33,7 @@ public final class UtcDateTimeEditor extends VBox {
     private final Spinner<Integer> minuteSpinner = createSpinner(0, 59);
     private final Button applyButton = new Button("Apply");
     private final Button clearButton = new Button("Clear");
-    private final Label nextActivationPreview = new Label("Next activation: —");
-    private final Label localPreview = new Label("Local time: —");
+    private final Label localPreview = new Label("Next: —");
     private final Label validationMessage = new Label();
     private final FieldValidationPresenter datePresenter = new FieldValidationPresenter(datePicker.getEditor());
     private final FieldValidationPresenter hourPresenter = new FieldValidationPresenter(hourSpinner.getEditor());
@@ -93,8 +92,6 @@ public final class UtcDateTimeEditor extends VBox {
         HBox inputRow = new HBox(5, datePicker, hourSpinner, separator, minuteSpinner, applyButton, clearButton);
         inputRow.setAlignment(Pos.CENTER_LEFT);
 
-        nextActivationPreview.getStyleClass().add("task-card-description");
-        nextActivationPreview.setWrapText(true);
         localPreview.getStyleClass().add("task-card-description");
         localPreview.setWrapText(true);
         validationMessage.getStyleClass().add("setting-validation-message");
@@ -102,7 +99,7 @@ public final class UtcDateTimeEditor extends VBox {
         validationMessage.setManaged(false);
         validationMessage.setVisible(false);
 
-        getChildren().setAll(inputRow, nextActivationPreview, localPreview, validationMessage);
+        getChildren().setAll(inputRow, localPreview, validationMessage);
     }
 
     private void configureListeners() {
@@ -197,7 +194,7 @@ public final class UtcDateTimeEditor extends VBox {
         minuteSpinner.setMaxWidth(62);
         HBox timeRow = new HBox(5, hourSpinner, new Label(":"), minuteSpinner, applyButton, clearButton);
         timeRow.setAlignment(Pos.CENTER_LEFT);
-        getChildren().setAll(datePicker, timeRow, nextActivationPreview, localPreview, validationMessage);
+        getChildren().setAll(datePicker, timeRow, localPreview, validationMessage);
     }
 
     public void setOnCommit(Consumer<LocalDateTime> handler) {
@@ -214,10 +211,6 @@ public final class UtcDateTimeEditor extends VBox {
 
     public String getLocalPreviewText() {
         return localPreview.getText();
-    }
-
-    public String getNextActivationPreviewText() {
-        return nextActivationPreview.getText();
     }
 
     public String getValidationMessage() {
@@ -269,11 +262,9 @@ public final class UtcDateTimeEditor extends VBox {
         UtcDateTimeValue.Selection selection = currentSelection();
         if (selection.isValid()) {
             LocalDateTime nextActivation = UtcDateTimeValue.nextActivation(selection.value(), clock);
-            nextActivationPreview.setText(UtcDateTimeValue.formatUtcPreview(nextActivation));
             localPreview.setText(UtcDateTimeValue.formatLocalPreview(nextActivation, localZone));
         } else {
-            nextActivationPreview.setText("Next activation: —");
-            localPreview.setText("Local time: —");
+            localPreview.setText("Next: —");
         }
 
         String error = timerEnabled.get() ? validationText(selection.validation()) : "";

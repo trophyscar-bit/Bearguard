@@ -14,11 +14,13 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.engine.helper.BearTrapHelper;
 import dev.frostguard.engine.helper.TimeWindowHelper.WindowState;
 
-/** Resolves the selected Bear Trap participation timer into a queue schedule. */
+/** Resolves the Bear Trap start time into a queue schedule. */
 public final class BearTrapParticipationSchedule {
 
-    private static final int DEFAULT_TRAP_NUMBER = 1;
-    private static final int DEFAULT_PREPARATION_MINUTES = 10;
+    /** The one start time. Settings left over from the former second timer are not read. */
+    public static final ConfigurationKeyEnum SCHEDULE_KEY = ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING;
+
+    private static final int DEFAULT_PREPARATION_MINUTES = 15;
     private static final DateTimeFormatter CONFIG_DATE_TIME =
             DateTimeFormatter.ofPattern("dd-MM-uuuu HH:mm");
 
@@ -34,9 +36,7 @@ public final class BearTrapParticipationSchedule {
             return Optional.empty();
         }
 
-        int trapNumber = selectedTrapNumber(profile);
-        ConfigurationKeyEnum scheduleKey = scheduleKey(trapNumber);
-        Optional<LocalDateTime> configuredActivation = configuredActivation(profile, scheduleKey);
+        Optional<LocalDateTime> configuredActivation = configuredActivation(profile);
         if (configuredActivation.isEmpty()) {
             return Optional.empty();
         }
@@ -60,30 +60,15 @@ public final class BearTrapParticipationSchedule {
                 : window.getNextWindowStart();
 
         return Optional.of(new Plan(
-                trapNumber,
-                scheduleKey,
                 activationUtc,
                 preparationMinutes,
                 LocalDateTime.ofInstant(nextRunInstant, queueZone)));
     }
 
-    public static ConfigurationKeyEnum scheduleKey(int trapNumber) {
-        return trapNumber == 2
-                ? ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING
-                : ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING;
-    }
-
-    private static int selectedTrapNumber(AccountDescriptor profile) {
-        Integer configured = profile.getConfig(ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT, Integer.class);
-        return configured != null && configured == 2 ? 2 : DEFAULT_TRAP_NUMBER;
-    }
-
-    private static Optional<LocalDateTime> configuredActivation(
-            AccountDescriptor profile,
-            ConfigurationKeyEnum scheduleKey) {
+    private static Optional<LocalDateTime> configuredActivation(AccountDescriptor profile) {
         return profile.getConfigs().stream()
-                .filter(config -> scheduleKey.equals(config.getSettingKey())
-                        || scheduleKey.name().equalsIgnoreCase(String.valueOf(config.getSettingKey())))
+                .filter(config -> SCHEDULE_KEY.equals(config.getSettingKey())
+                        || SCHEDULE_KEY.name().equalsIgnoreCase(String.valueOf(config.getSettingKey())))
                 .map(config -> config.getRawValue())
                 .filter(value -> value != null && !value.isBlank())
                 .findFirst()
@@ -99,8 +84,6 @@ public final class BearTrapParticipationSchedule {
     }
 
     public record Plan(
-            int trapNumber,
-            ConfigurationKeyEnum scheduleKey,
             LocalDateTime activationUtc,
             int preparationMinutes,
             LocalDateTime nextRun) {

@@ -6,10 +6,6 @@ import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE
 import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL;
 import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL;
 import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL;
-import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL;
-import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL;
-import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL;
-import static dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -23,13 +19,13 @@ import java.time.format.DateTimeFormatter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 
+import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 
 class BearTrapProtectionPolicyTest {
 
     private static final LocalDateTime TRAP_1 = LocalDateTime.of(2026, 7, 20, 18, 0);
-    private static final LocalDateTime TRAP_2 = LocalDateTime.of(2026, 7, 20, 18, 20);
     private static final DateTimeFormatter CONFIG_DATE_TIME = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm");
 
     @AfterEach
@@ -74,7 +70,7 @@ class BearTrapProtectionPolicyTest {
         assertTrue(atWindowStart.blocked());
         assertEquals(BearTrapProtectionPolicy.BlockReason.RALLY_START, atWindowStart.reason());
         assertEquals("1", atWindowStart.trapNumbers());
-        assertEquals(TRAP_1.plusMinutes(30).plusSeconds(5).toInstant(ZoneOffset.UTC),
+        assertEquals(TRAP_1.plusMinutes(32).plusSeconds(5).toInstant(ZoneOffset.UTC),
                 atWindowStart.releaseAt());
     }
 
@@ -122,20 +118,6 @@ class BearTrapProtectionPolicyTest {
     }
 
     @Test
-    void secondTimerWorksWithoutBearAutomationOrFirstTimer() {
-        AccountDescriptor profile = new AccountDescriptor(1L);
-        profile.setConfig(BEAR_TRAP_TIMER_2_ENABLED_BOOL, true);
-        profile.setConfig(BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL, true);
-        profile.setConfig(BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL, false);
-        profile.setConfig(BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, TRAP_2.format(CONFIG_DATE_TIME));
-
-        var decision = BearTrapProtectionPolicy.evaluateRallyStart(profile, clockAt(TRAP_2));
-
-        assertTrue(decision.blocked());
-        assertEquals("2", decision.trapNumbers());
-    }
-
-    @Test
     void legacyBearAutomationKeepsTimerOneProtectionUntilSwitchIsPersisted() {
         AccountDescriptor profile = new AccountDescriptor(1L);
         profile.setConfig(BEAR_TRAP_EVENT_BOOL, true);
@@ -150,23 +132,73 @@ class BearTrapProtectionPolicyTest {
     }
 
     @Test
-    void overlappingWindowsUseLatestReleaseAndStrongestMode() {
-        AccountDescriptor profile = profileWithTimer1();
-        profile.setConfig(BEAR_TRAP_TIMER_2_ENABLED_BOOL, true);
-        profile.setConfig(BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL, true);
-        profile.setConfig(BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL, true);
-        profile.setConfig(BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, TRAP_2.format(CONFIG_DATE_TIME));
+    void pauseAllHoldsFromLeadBeforeTheStartUntilTwoMinutesAfterTheEvent() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 10, 12, 0);
+        AccountDescriptor profile = pauseAllProfile(start);
 
-        var decision = BearTrapProtectionPolicy.evaluateTask(
-                profile,
-                TpDailyTaskEnum.EVENT_HERO_MISSION,
-                clockAt(TRAP_2.minusMinutes(5)));
+        assertPauseAt(profile, start, false, 11, 44);
+        assertPauseAt(profile, start, true, 11, 45);
+        assertPauseAt(profile, start, true, 12, 31);
+        assertPauseAt(profile, start, false, 12, 32);
+    }
 
-        assertTrue(decision.blocked());
-        assertEquals(BearTrapProtectionPolicy.BlockReason.ALL_TASKS, decision.reason());
-        assertEquals("1, 2", decision.trapNumbers());
-        assertEquals(TRAP_2.plusMinutes(30).plusSeconds(5).toInstant(ZoneOffset.UTC),
-                decision.releaseAt());
+    @Test
+    void theSameHoursRepeatFortyEightHoursLaterFromTheOneEnteredTime() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 10, 12, 0);
+        AccountDescriptor profile = pauseAllProfile(start);
+        LocalDateTime twoDaysLater = start.plusHours(48);
+
+        assertPauseAt(profile, twoDaysLater, false, 11, 44);
+        assertPauseAt(profile, twoDaysLater, true, 11, 45);
+        assertPauseAt(profile, twoDaysLater, true, 12, 31);
+        assertPauseAt(profile, twoDaysLater, false, 12, 32);
+    }
+
+    @Test
+    void heldTasksAreReleasedJustAfterTheWindowEnds() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 10, 12, 0);
+
+        var decision = BearTrapProtectionPolicy.evaluateTask(pauseAllProfile(start),
+                TpDailyTaskEnum.GATHER_RESOURCES, clockAt(start.plusMinutes(5)));
+
+        assertEquals(start.plusMinutes(32).plusSeconds(5).toInstant(ZoneOffset.UTC), decision.releaseAt());
+    }
+
+    @Test
+    void bearItselfIsNeverHeldByItsOwnPause() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 10, 12, 0);
+
+        assertFalse(BearTrapProtectionPolicy.evaluateTask(pauseAllProfile(start),
+                TpDailyTaskEnum.BEAR_TRAP, clockAt(start)).blocked());
+    }
+
+    @Test
+    void settingsLeftFromTheFormerSecondTimerPauseNothing() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 10, 12, 0);
+        AccountDescriptor profile = new AccountDescriptor(1L);
+        profile.setConfig(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL, true);
+        profile.setConfig(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL, true);
+        profile.setConfig(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL, true);
+        profile.setConfig(ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING, start.format(CONFIG_DATE_TIME));
+
+        assertFalse(BearTrapProtectionPolicy.evaluateTask(profile,
+                TpDailyTaskEnum.EVENT_HERO_MISSION, clockAt(start)).blocked());
+    }
+
+    private static AccountDescriptor pauseAllProfile(LocalDateTime start) {
+        AccountDescriptor profile = new AccountDescriptor(1L);
+        profile.setConfig(BEAR_TRAP_TIMER_1_ENABLED_BOOL, true);
+        profile.setConfig(BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL, false);
+        profile.setConfig(BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL, true);
+        profile.setConfig(BEAR_TRAP_PREPARATION_TIME_INT, 15);
+        profile.setConfig(BEAR_TRAP_SCHEDULE_DATETIME_STRING, start.format(CONFIG_DATE_TIME));
+        return profile;
+    }
+
+    private static void assertPauseAt(AccountDescriptor profile, LocalDateTime day, boolean paused, int hour, int minute) {
+        LocalDateTime when = day.withHour(hour).withMinute(minute);
+        assertEquals(paused, BearTrapProtectionPolicy.evaluateTask(profile, TpDailyTaskEnum.GATHER_RESOURCES,
+                clockAt(when)).blocked(), when.toString());
     }
 
     private static AccountDescriptor profileWithTimer1() {

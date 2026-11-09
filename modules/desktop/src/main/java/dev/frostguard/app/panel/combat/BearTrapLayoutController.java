@@ -1,49 +1,44 @@
 package dev.frostguard.app.panel.combat;
 
-import dev.frostguard.api.configs.BearTrapParticipationTriggerEnum;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.domain.FormationSlots;
 import dev.frostguard.app.panel.profile.ProfileAux;
 import dev.frostguard.app.shared.AbstractProfileController;
 import dev.frostguard.app.shared.UtcDateTimeEditor;
 import dev.frostguard.app.shared.UtcDateTimeValue;
+import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
+import javafx.beans.binding.BooleanBinding;
 import javafx.beans.binding.BooleanExpression;
+import javafx.beans.property.BooleanProperty;
+import javafx.beans.property.SimpleBooleanProperty;
+import javafx.collections.ListChangeListener;
 import javafx.fxml.FXML;
+import javafx.scene.Node;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
-import javafx.scene.control.Tooltip;
-import javafx.util.Duration;
-import javafx.util.StringConverter;
+import javafx.scene.layout.HBox;
 import org.controlsfx.control.CheckComboBox;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 public class BearTrapLayoutController extends AbstractProfileController {
 
+    private static final int MIN_LEAD_MINUTES = 1;
+    private static final int MAX_LEAD_MINUTES = 60;
+    private static final ConfigurationKeyEnum START_KEY = ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING;
+    private static final ConfigurationKeyEnum GUARD_ENABLED_KEY = ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL;
+    private static final ConfigurationKeyEnum GUARD_BLOCK_KEY = ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL;
+    private static final ConfigurationKeyEnum GUARD_PAUSE_KEY = ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL;
+
     @FXML
     private CheckBox checkBoxEnableBearTrap;
-
-    @FXML
-    private ComboBox<ProtectionMode> comboBoxProtectionTimer1;
-
-    @FXML
-    private Label labelProtectionHelperTimer1;
-
-    @FXML
-    private UtcDateTimeEditor timer1DateTimeEditor;
-
-    @FXML
-    private ComboBox<ProtectionMode> comboBoxProtectionTimer2;
-
-    @FXML
-    private Label labelProtectionHelperTimer2;
-
-    @FXML
-    private UtcDateTimeEditor timer2DateTimeEditor;
 
     @FXML
     private TextField textFieldPreparationTime;
@@ -52,40 +47,13 @@ public class BearTrapLayoutController extends AbstractProfileController {
     private Label labelPreparationTimeError;
 
     @FXML
-    private CheckBox checkBoxActivePets;
+    private UtcDateTimeEditor timerDateTimeEditor;
 
     @FXML
-    private CheckBox checkBoxRecallTroops;
+    private ComboBox<Guard> comboBoxGuard;
 
     @FXML
-    private ComboBox<Integer> comboBoxTrapNumber;
-
-    @FXML
-    private ComboBox<BearTrapParticipationTriggerEnum> comboBoxParticipationTrigger;
-
-    @FXML
-    private Label labelParticipationHelper;
-
-    @FXML
-    private Label labelParticipationWarning;
-
-    @FXML
-    private Label labelSelectedTimerWarning;
-
-    @FXML
-    private Label labelTimerRecommendation;
-
-    @FXML
-    private Label labelTrapSelectionHelper;
-
-    @FXML
-    private Label labelParticipationTriggerInfo;
-
-    @FXML
-    private CheckBox checkBoxCallRally;
-
-    @FXML
-    private ComboBox<Integer> comboBoxRallyFlag;
+    private CheckBox checkBoxIconStart;
 
     @FXML
     private CheckBox checkBoxEnableJoin;
@@ -93,346 +61,284 @@ public class BearTrapLayoutController extends AbstractProfileController {
     @FXML
     private CheckComboBox<Integer> checkComboBoxJoinFlag;
 
-    private List<TimerBinding> timerBindings;
-    private boolean loadingParticipationTrigger;
-    private boolean loadingProtectionModes;
+    @FXML
+    private CheckComboBox<Integer> checkComboBoxTroopFlag;
+
+    @FXML
+    private Label labelJoinError;
+
+    @FXML
+    private CheckBox checkBoxCallRally;
+
+    @FXML
+    private HBox rowOwnSquad;
+
+    @FXML
+    private ComboBox<Integer> comboBoxRallyFlag;
+
+    @FXML
+    private CheckBox checkBoxRecallTroops;
+
+    @FXML
+    private CheckBox checkBoxActivePets;
+
+    private final BooleanProperty startSet = new SimpleBooleanProperty(false);
+    private boolean loadingGuard;
+    private boolean squadRulesPending;
+    private Integer lastHeroSquad;
 
     @FXML
     private void initialize() {
-        timerBindings = List.of(
-                new TimerBinding(timer1DateTimeEditor, comboBoxProtectionTimer1, labelProtectionHelperTimer1,
-                        ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING,
-                        ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL,
-                        ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL,
-                        ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL,
-                        1),
-                new TimerBinding(timer2DateTimeEditor, comboBoxProtectionTimer2, labelProtectionHelperTimer2,
-                        ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_SCHEDULE_DATETIME_STRING,
-                        ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_ENABLED_BOOL,
-                        ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_BLOCK_RALLIES_BOOL,
-                        ConfigurationKeyEnum.BEAR_TRAP_TIMER_2_PAUSE_ALL_TASKS_BOOL,
-                        2));
         registerConfigurationFields();
-        populateFlagControls();
-        configureProtectionModes();
-        configureParticipationTrigger();
-        configureParticipationTriggerTooltip();
-        configureParticipationScheduleHelp();
-        configureDateTimeEditors();
-        refreshAvailableParticipationTimers();
+        showEverySquadChoice();
+        configureGuard();
+        configureBearStart();
         bindEnabledState();
         initializeChangeEvents();
+        watchSquads();
     }
 
     private void registerConfigurationFields() {
         checkBoxMappings.put(checkBoxEnableBearTrap, ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL);
+        checkBoxMappings.put(checkBoxIconStart, ConfigurationKeyEnum.BEAR_TRAP_ICON_PARTICIPATION_FALLBACK_BOOL);
         checkBoxMappings.put(checkBoxActivePets, ConfigurationKeyEnum.BEAR_TRAP_ACTIVE_PETS_BOOL);
         checkBoxMappings.put(checkBoxRecallTroops, ConfigurationKeyEnum.BEAR_TRAP_RECALL_TROOPS_BOOL);
         checkBoxMappings.put(checkBoxCallRally, ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL);
         checkBoxMappings.put(checkBoxEnableJoin, ConfigurationKeyEnum.BEAR_TRAP_JOIN_RALLY_BOOL);
 
-        registerTextField(textFieldPreparationTime, labelPreparationTimeError,
-                ConfigurationKeyEnum.BEAR_TRAP_PREPARATION_TIME_INT);
+        registerRangedIntegerField(textFieldPreparationTime, labelPreparationTimeError,
+                ConfigurationKeyEnum.BEAR_TRAP_PREPARATION_TIME_INT, "Lead", MIN_LEAD_MINUTES, MAX_LEAD_MINUTES);
 
-        comboBoxMappings.put(comboBoxTrapNumber, ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT);
         comboBoxMappings.put(comboBoxRallyFlag, ConfigurationKeyEnum.BEAR_TRAP_RALLY_FLAG_INT);
         checkComboBoxMappings.put(checkComboBoxJoinFlag, ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT);
+        checkComboBoxMappings.put(checkComboBoxTroopFlag, ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOP_FLAG_STRING);
     }
 
-    private void populateFlagControls() {
-        comboBoxTrapNumber.setConverter(new StringConverter<>() {
-            @Override
-            public String toString(Integer trapNumber) {
-                return trapNumber == null ? "" : "Bear Trap " + trapNumber + " (Timer " + trapNumber + ")";
-            }
-
-            @Override
-            public Integer fromString(String value) {
-                return comboBoxTrapNumber.getValue();
+    private void configureGuard() {
+        comboBoxGuard.getItems().setAll(Guard.values());
+        comboBoxGuard.setValue(Guard.OFF);
+        comboBoxGuard.valueProperty().addListener((obs, oldValue, newValue) -> {
+            if (newValue != null && !loadingGuard) {
+                publishGuard(newValue);
             }
         });
-        comboBoxRallyFlag.getItems().setAll(FormationSlots.numbers());
-        checkComboBoxJoinFlag.getItems().setAll(FormationSlots.numbers());
     }
 
-    private void configureParticipationTrigger() {
-        comboBoxParticipationTrigger.getItems().setAll(BearTrapParticipationTriggerEnum.values());
-        comboBoxParticipationTrigger.setValue(BearTrapParticipationTriggerEnum.TIMER_ONLY);
-        comboBoxParticipationTrigger.valueProperty().addListener((obs, oldValue, newValue) -> {
-            if (newValue == null) {
-                return;
+    private void publishGuard(Guard guard) {
+        publishWhenReady(GUARD_ENABLED_KEY, guard != Guard.OFF);
+        publishWhenReady(GUARD_BLOCK_KEY, guard == Guard.BLOCK_RALLIES);
+        publishWhenReady(GUARD_PAUSE_KEY, guard == Guard.PAUSE_ALL);
+    }
+
+    private void configureBearStart() {
+        timerDateTimeEditor.setOnCommit(value -> {
+            boolean firstStart = !startSet.get();
+            publishWhenReady(START_KEY, UtcDateTimeValue.formatPersisted(value));
+            startSet.set(true);
+            if (firstStart && comboBoxGuard.getValue() == Guard.OFF) {
+                comboBoxGuard.setValue(Guard.BLOCK_RALLIES);
             }
-            updateParticipationHelp();
-            if (!loadingParticipationTrigger) {
-                publishWhenReady(ConfigurationKeyEnum.BEAR_TRAP_ICON_PARTICIPATION_FALLBACK_BOOL,
-                        newValue.isIconFallbackEnabled());
+        });
+        timerDateTimeEditor.setOnClear(() -> {
+            publishWhenReady(START_KEY, "");
+            startSet.set(false);
+            loadingGuard = true;
+            try {
+                comboBoxGuard.setValue(Guard.OFF);
+            } finally {
+                loadingGuard = false;
             }
+            publishGuard(Guard.OFF);
+            checkBoxEnableBearTrap.setSelected(false);
         });
-        updateParticipationHelp();
-    }
-
-    private void configureParticipationTriggerTooltip() {
-        Tooltip tooltip = new Tooltip(
-                "Bear icon detection always protects the event by blocking unrelated rally-starting tasks. "
-                        + "This setting only controls whether the icon may also start Bear participation.");
-        tooltip.setWrapText(true);
-        tooltip.setMaxWidth(420);
-        tooltip.setShowDelay(Duration.millis(150));
-        tooltip.setShowDuration(Duration.seconds(20));
-        labelParticipationTriggerInfo.setTooltip(tooltip);
-    }
-
-    private void configureProtectionModes() {
-        timerBindings.forEach(binding -> {
-            binding.protectionMode().getItems().setAll(ProtectionMode.values());
-            binding.protectionMode().setValue(ProtectionMode.OFF);
-            binding.protectionMode().valueProperty().addListener((obs, oldValue, newValue) -> {
-                if (newValue == null) {
-                    return;
-                }
-                updateProtectionHelper(binding);
-                updateParticipationHelp();
-                if (!loadingProtectionModes) {
-                    publishProtectionMode(binding, newValue);
-                }
-            });
-            updateProtectionHelper(binding);
-        });
-    }
-
-    private void publishProtectionMode(TimerBinding binding, ProtectionMode mode) {
-        publishWhenReady(binding.enabledKey(), mode != ProtectionMode.OFF);
-        publishWhenReady(binding.blockRalliesKey(), mode == ProtectionMode.BLOCK_RALLIES);
-        publishWhenReady(binding.pauseAllKey(), mode == ProtectionMode.PAUSE_ALL);
-    }
-
-    private void configureParticipationScheduleHelp() {
-        comboBoxTrapNumber.valueProperty().addListener((obs, oldValue, newValue) -> updateParticipationHelp());
-        checkBoxEnableBearTrap.selectedProperty().addListener((obs, oldValue, newValue) -> updateParticipationHelp());
-        updateParticipationHelp();
-    }
-
-    private void updateParticipationHelp() {
-        BearTrapParticipationTriggerEnum trigger = comboBoxParticipationTrigger.getValue();
-        Integer trapNumber = comboBoxTrapNumber.getValue();
-        boolean iconFallback = trigger == BearTrapParticipationTriggerEnum.TIMER_ICON_FALLBACK;
-        if (trapNumber == null) {
-            labelParticipationHelper.setText("Select an applied event timer to schedule participation.");
-        } else {
-            labelParticipationHelper.setText(iconFallback
-                    ? "Uses Timer " + trapNumber + "'s UTC schedule; a Bear Trap icon may also start participation."
-                    : "Uses Timer " + trapNumber + "'s UTC schedule or Run now.");
-        }
-        labelParticipationWarning.setVisible(iconFallback);
-        labelParticipationWarning.setManaged(iconFallback);
-
-        ProtectionMode selectedMode = trapNumber == null
-                ? ProtectionMode.OFF
-                : timerBindings.get(trapNumber - 1).protectionMode().getValue();
-        boolean selectedProtectionEnabled = selectedMode != null && selectedMode != ProtectionMode.OFF;
-        boolean showProtectionWarning = checkBoxEnableBearTrap.isSelected()
-                && trapNumber != null
-                && !selectedProtectionEnabled;
-        labelSelectedTimerWarning.setText(trapNumber == null
-                ? ""
-                : "Timer " + trapNumber
-                        + " protection is disabled. Participation still uses its UTC schedule.");
-        labelSelectedTimerWarning.setVisible(showProtectionWarning);
-        labelSelectedTimerWarning.setManaged(showProtectionWarning);
-    }
-
-    private void updateProtectionHelper(TimerBinding binding) {
-        if (!binding.editor().hasCommittedDateTime()) {
-            binding.protectionHelper().setText("Apply this event timer before choosing protection.");
-            return;
-        }
-        ProtectionMode mode = binding.protectionMode().getValue();
-        binding.protectionHelper().setText(mode == null ? "" : mode.helperText());
-    }
-
-    private void refreshAvailableParticipationTimers() {
-        Integer selectedTrap = comboBoxTrapNumber.getValue();
-        List<Integer> availableTraps = timerBindings.stream()
-                .filter(binding -> binding.editor().hasCommittedDateTime())
-                .map(TimerBinding::trapNumber)
-                .toList();
-
-        boolean wasLoadingProfile = isLoadingProfile;
-        isLoadingProfile = true;
-        try {
-            comboBoxTrapNumber.getItems().setAll(availableTraps);
-            comboBoxTrapNumber.setValue(availableTraps.contains(selectedTrap) ? selectedTrap : null);
-        } finally {
-            isLoadingProfile = wasLoadingProfile;
-        }
-        comboBoxTrapNumber.setPromptText(availableTraps.isEmpty()
-                ? "Set an event timer first"
-                : "Select a configured timer");
-
-        boolean bothTimersConfigured = availableTraps.size() == timerBindings.size();
-        labelTimerRecommendation.setText(bothTimersConfigured
-                ? "Both 48-hour event timers are configured."
-                : "Strongly recommended: Set both UTC event timers, even without participation automation, so either Bear Trap can be protected or selected without reconfiguration.");
-        labelTimerRecommendation.setStyle(bothTimersConfigured
-                ? "-fx-background-color: rgba(34, 197, 94, 0.12); -fx-background-radius: 4; -fx-padding: 6 8; -fx-text-fill: #86efac; -fx-font-size: 12px;"
-                : "-fx-background-color: rgba(245, 158, 11, 0.14); -fx-background-radius: 4; -fx-padding: 6 8; -fx-text-fill: #fbbf24; -fx-font-size: 12px;");
-        labelTrapSelectionHelper.setText(availableTraps.isEmpty()
-                ? "Set a complete UTC date and time above and click Apply first."
-                : "Only event timers applied above can be selected.");
-        timerBindings.forEach(binding -> {
-            binding.protectionMode().setDisable(!binding.editor().hasCommittedDateTime());
-            updateProtectionHelper(binding);
-        });
-        updateParticipationHelp();
     }
 
     private void bindEnabledState() {
-        timerBindings.forEach(this::bindTimerState);
+        BooleanExpression autoOff = checkBoxEnableBearTrap.selectedProperty().not();
+        BooleanExpression joining = checkBoxEnableJoin.selectedProperty();
+        BooleanExpression ownRally = checkBoxCallRally.selectedProperty();
+        BooleanExpression iconStart = checkBoxIconStart.selectedProperty();
+        BooleanBinding noHeroSquad = Bindings.isEmpty(checkComboBoxJoinFlag.getCheckModel().getCheckedItems());
 
-        BooleanExpression disabledUntilEnabled = checkBoxEnableBearTrap.selectedProperty().not();
-        checkBoxActivePets.disableProperty().bind(disabledUntilEnabled);
-        checkBoxRecallTroops.disableProperty().bind(disabledUntilEnabled);
-        comboBoxTrapNumber.disableProperty().bind(
-                disabledUntilEnabled.or(Bindings.isEmpty(comboBoxTrapNumber.getItems())));
-        comboBoxParticipationTrigger.disableProperty().bind(disabledUntilEnabled);
-        checkBoxCallRally.disableProperty().bind(disabledUntilEnabled);
-        checkBoxEnableJoin.disableProperty().bind(disabledUntilEnabled);
+        // Each rule leaves a control that is already on free to be switched off, so a saved
+        // combination the page would no longer allow can always be undone.
+        checkBoxEnableBearTrap.disableProperty().bind(startSet.not().and(autoOff));
+        comboBoxGuard.disableProperty().bind(startSet.not());
+        timerDateTimeEditor.timerEnabledProperty().bind(autoOff.not().or(
+                Bindings.createBooleanBinding(() -> comboBoxGuard.getValue() != Guard.OFF, comboBoxGuard.valueProperty())));
 
-        comboBoxRallyFlag.disableProperty().bind(disabledUntilEnabled.or(checkBoxCallRally.selectedProperty().not()));
-        checkComboBoxJoinFlag.disableProperty().bind(disabledUntilEnabled.or(checkBoxEnableJoin.selectedProperty().not()));
+        checkBoxIconStart.disableProperty().bind(autoOff.or(ownRally.and(iconStart.not())));
+        checkBoxCallRally.disableProperty().bind(autoOff.or(iconStart.and(ownRally.not())));
+        checkBoxEnableJoin.disableProperty().bind(autoOff.or(noHeroSquad.and(joining.not())));
+        checkComboBoxJoinFlag.disableProperty().bind(autoOff);
+        checkComboBoxTroopFlag.disableProperty().bind(autoOff);
+        comboBoxRallyFlag.disableProperty().bind(autoOff);
+        checkBoxActivePets.disableProperty().bind(autoOff);
+        checkBoxRecallTroops.disableProperty().bind(autoOff.or(joining.not().and(ownRally.not())));
 
-        bindManagedVisibility(comboBoxRallyFlag, checkBoxCallRally.selectedProperty());
-        bindManagedVisibility(checkComboBoxJoinFlag, checkBoxEnableJoin.selectedProperty());
+        bindManagedVisibility(rowOwnSquad, ownRally);
+        bindManagedVisibility(labelJoinError, joining.and(noHeroSquad));
     }
 
-    private void bindTimerState(TimerBinding timer) {
-        BooleanExpression selectedForParticipation = Bindings.createBooleanBinding(
-                () -> checkBoxEnableBearTrap.isSelected()
-                        && Integer.valueOf(timer.trapNumber()).equals(comboBoxTrapNumber.getValue()),
-                checkBoxEnableBearTrap.selectedProperty(),
-                comboBoxTrapNumber.valueProperty());
-        BooleanExpression protectionEnabled = Bindings.createBooleanBinding(
-                () -> timer.protectionMode().getValue() != null
-                        && timer.protectionMode().getValue() != ProtectionMode.OFF,
-                timer.protectionMode().valueProperty());
-        BooleanExpression timerInUse = protectionEnabled.or(selectedForParticipation);
-        timer.editor().timerEnabledProperty().bind(timerInUse);
+    private void watchSquads() {
+        ListChangeListener<Integer> squadsChanged = change -> scheduleSquadRules();
+        checkComboBoxJoinFlag.getCheckModel().getCheckedItems().addListener(squadsChanged);
+        checkComboBoxTroopFlag.getCheckModel().getCheckedItems().addListener(squadsChanged);
+        comboBoxRallyFlag.valueProperty().addListener((obs, oldValue, newValue) -> scheduleSquadRules());
+        checkBoxCallRally.selectedProperty().addListener((obs, oldValue, newValue) -> scheduleSquadRules());
+        checkBoxEnableJoin.selectedProperty().addListener((obs, oldValue, newValue) -> scheduleSquadRules());
     }
 
-    private void configureDateTimeEditors() {
-        timerBindings.forEach(binding -> {
-            binding.editor().setOnCommit(value -> {
-                boolean firstConfiguration = !comboBoxTrapNumber.getItems().contains(binding.trapNumber());
-                publishWhenReady(binding.scheduleKey(), UtcDateTimeValue.formatPersisted(value));
-                if (firstConfiguration && binding.protectionMode().getValue() == ProtectionMode.OFF) {
-                    binding.protectionMode().setValue(ProtectionMode.BLOCK_RALLIES);
-                }
-                refreshAvailableParticipationTimers();
-            });
-            binding.editor().setOnClear(() -> {
-                publishWhenReady(binding.scheduleKey(), "");
-                loadingProtectionModes = true;
-                try {
-                    binding.protectionMode().setValue(ProtectionMode.OFF);
-                } finally {
-                    loadingProtectionModes = false;
-                }
-                publishProtectionMode(binding, ProtectionMode.OFF);
-                refreshAvailableParticipationTimers();
-            });
+    /** Waits a turn because the lists cannot be rebuilt from inside their own change event. */
+    private void scheduleSquadRules() {
+        if (isLoadingProfile || squadRulesPending) {
+            return;
+        }
+        squadRulesPending = true;
+        Platform.runLater(() -> {
+            squadRulesPending = false;
+            keepAHeroSquadWhileJoining();
+            moveOwnSquadOffAPickedOne();
+            refreshSquadChoices();
         });
+    }
+
+    private void keepAHeroSquadWhileJoining() {
+        List<Integer> checked = checkComboBoxJoinFlag.getCheckModel().getCheckedItems();
+        if (!checked.isEmpty()) {
+            lastHeroSquad = checked.getLast();
+        } else if (checkBoxEnableJoin.isSelected() && lastHeroSquad != null) {
+            checkComboBoxJoinFlag.getCheckModel().check(lastHeroSquad);
+        }
+    }
+
+    private void moveOwnSquadOffAPickedOne() {
+        Set<Integer> joining = joinSquads();
+        if (checkBoxCallRally.isSelected() && joining.contains(comboBoxRallyFlag.getValue())) {
+            FormationSlots.numbers().stream()
+                    .filter(squad -> !joining.contains(squad))
+                    .findFirst()
+                    .ifPresent(comboBoxRallyFlag::setValue);
+        }
+    }
+
+    private Set<Integer> joinSquads() {
+        Set<Integer> squads = new HashSet<>(checkComboBoxJoinFlag.getCheckModel().getCheckedItems());
+        squads.addAll(checkComboBoxTroopFlag.getCheckModel().getCheckedItems());
+        return squads;
+    }
+
+    /** Updating which choices are offered is not an edit, so it never saves anything. */
+    private void refreshSquadChoices() {
+        boolean wasLoading = isLoadingProfile;
+        isLoadingProfile = true;
+        try {
+            Set<Integer> hero = Set.copyOf(checkComboBoxJoinFlag.getCheckModel().getCheckedItems());
+            Set<Integer> troop = Set.copyOf(checkComboBoxTroopFlag.getCheckModel().getCheckedItems());
+            Set<Integer> own = checkBoxCallRally.isSelected() && comboBoxRallyFlag.getValue() != null
+                    ? Set.of(comboBoxRallyFlag.getValue())
+                    : Set.of();
+            offer(checkComboBoxJoinFlag, available(hero, troop, own));
+            offer(checkComboBoxTroopFlag, available(troop, hero, own));
+            Integer current = comboBoxRallyFlag.getValue();
+            comboBoxRallyFlag.getItems().setAll(available(own, hero, troop));
+            comboBoxRallyFlag.setValue(current);
+        } finally {
+            isLoadingProfile = wasLoading;
+        }
+    }
+
+    /** A squad another group took is left out, unless a saved overlap already has it picked here too. */
+    private static List<Integer> available(Set<Integer> mine, Set<Integer> first, Set<Integer> second) {
+        return FormationSlots.numbers().stream()
+                .filter(squad -> mine.contains(squad) || (!first.contains(squad) && !second.contains(squad)))
+                .toList();
+    }
+
+    private static void offer(CheckComboBox<Integer> combo, List<Integer> choices) {
+        if (combo.getItems().equals(choices)) {
+            return;
+        }
+        List<Integer> checked = List.copyOf(combo.getCheckModel().getCheckedItems());
+        combo.getCheckModel().clearChecks();
+        combo.getItems().setAll(choices);
+        checked.forEach(combo.getCheckModel()::check);
+    }
+
+    private void showEverySquadChoice() {
+        offer(checkComboBoxJoinFlag, FormationSlots.numbers());
+        offer(checkComboBoxTroopFlag, FormationSlots.numbers());
+        comboBoxRallyFlag.getItems().setAll(FormationSlots.numbers());
     }
 
     @Override
     public void onProfileLoad(ProfileAux profile) {
-        super.onProfileLoad(profile);
         isLoadingProfile = true;
-        loadingParticipationTrigger = true;
-        loadingProtectionModes = true;
         try {
-            boolean iconFallback = Boolean.TRUE.equals(profile.<Boolean>getConfiguration(
-                    ConfigurationKeyEnum.BEAR_TRAP_ICON_PARTICIPATION_FALLBACK_BOOL));
-            comboBoxParticipationTrigger.setValue(
-                    BearTrapParticipationTriggerEnum.fromIconFallbackEnabled(iconFallback));
-            timerBindings.forEach(binding -> binding.editor().setDateTime(
-                    loadSavedDateTime(profile, binding.scheduleKey())));
-            timerBindings.forEach(binding -> binding.protectionMode().setValue(
-                    binding.editor().hasCommittedDateTime() ? loadProtectionMode(profile, binding) : ProtectionMode.OFF));
-            refreshAvailableParticipationTimers();
+            // The last profile may have narrowed the lists, which would drop this profile's picks.
+            showEverySquadChoice();
         } finally {
-            loadingProtectionModes = false;
-            loadingParticipationTrigger = false;
             isLoadingProfile = false;
         }
-        updateParticipationHelp();
+        super.onProfileLoad(profile);
+        isLoadingProfile = true;
+        loadingGuard = true;
+        try {
+            timerDateTimeEditor.setDateTime(loadSavedStart(profile));
+            startSet.set(timerDateTimeEditor.hasCommittedDateTime());
+            comboBoxGuard.setValue(startSet.get() ? loadGuard(profile) : Guard.OFF);
+            List<Integer> heroSquads = checkComboBoxJoinFlag.getCheckModel().getCheckedItems();
+            lastHeroSquad = heroSquads.isEmpty() ? null : heroSquads.getLast();
+            refreshSquadChoices();
+        } finally {
+            loadingGuard = false;
+            isLoadingProfile = false;
+        }
     }
 
-    private ProtectionMode loadProtectionMode(ProfileAux profile, TimerBinding binding) {
-        boolean explicitlyEnabled = Boolean.TRUE.equals(
-                profile.<Boolean>getConfiguration(binding.enabledKey()));
-        boolean legacyTimer1Enabled = binding.trapNumber() == 1
-                && !profileHasConfiguration(profile, binding.enabledKey())
+    private Guard loadGuard(ProfileAux profile) {
+        boolean explicitlyEnabled = Boolean.TRUE.equals(profile.<Boolean>getConfiguration(GUARD_ENABLED_KEY));
+        boolean legacyEnabled = !profileHasConfiguration(profile, GUARD_ENABLED_KEY)
                 && Boolean.TRUE.equals(profile.<Boolean>getConfiguration(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL));
-        if (!explicitlyEnabled && !legacyTimer1Enabled) {
-            return ProtectionMode.OFF;
+        if (!explicitlyEnabled && !legacyEnabled) {
+            return Guard.OFF;
         }
-        if (Boolean.TRUE.equals(profile.<Boolean>getConfiguration(binding.pauseAllKey()))) {
-            return ProtectionMode.PAUSE_ALL;
+        if (Boolean.TRUE.equals(profile.<Boolean>getConfiguration(GUARD_PAUSE_KEY))) {
+            return Guard.PAUSE_ALL;
         }
-        if (legacyTimer1Enabled
-                || Boolean.TRUE.equals(profile.<Boolean>getConfiguration(binding.blockRalliesKey()))) {
-            return ProtectionMode.BLOCK_RALLIES;
-        }
-        return ProtectionMode.OFF;
+        return legacyEnabled || Boolean.TRUE.equals(profile.<Boolean>getConfiguration(GUARD_BLOCK_KEY))
+                ? Guard.BLOCK_RALLIES
+                : Guard.OFF;
     }
 
     private boolean profileHasConfiguration(ProfileAux profile, ConfigurationKeyEnum key) {
         return profile.getConfigs().stream().anyMatch(config -> key.name().equalsIgnoreCase(config.getName()));
     }
 
-    private LocalDateTime loadSavedDateTime(ProfileAux profile, ConfigurationKeyEnum key) {
+    private LocalDateTime loadSavedStart(ProfileAux profile) {
         return profile.getConfigs().stream()
-                .filter(config -> key.name().equalsIgnoreCase(config.getName()))
+                .filter(config -> START_KEY.name().equalsIgnoreCase(config.getName()))
                 .map(config -> config.getValue())
                 .map(UtcDateTimeValue::parsePersisted)
-                .flatMap(java.util.Optional::stream)
+                .flatMap(Optional::stream)
                 .findFirst()
                 .orElse(null);
     }
 
-    private static void bindManagedVisibility(javafx.scene.Node node, javafx.beans.value.ObservableBooleanValue visible) {
+    private static void bindManagedVisibility(Node node, javafx.beans.value.ObservableBooleanValue visible) {
         node.visibleProperty().bind(visible);
         node.managedProperty().bind(node.visibleProperty());
     }
 
-    private record TimerBinding(
-            UtcDateTimeEditor editor,
-            ComboBox<ProtectionMode> protectionMode,
-            Label protectionHelper,
-            ConfigurationKeyEnum scheduleKey,
-            ConfigurationKeyEnum enabledKey,
-            ConfigurationKeyEnum blockRalliesKey,
-            ConfigurationKeyEnum pauseAllKey,
-            int trapNumber) {
-    }
-
-    private enum ProtectionMode {
-        OFF("Off", "No scheduled tasks are blocked for this timer."),
-        BLOCK_RALLIES("Block rally-starting tasks (Recommended)",
-                "Prevents Polar Terror, Hero Mission, and Mercenary from starting rallies."),
-        PAUSE_ALL("Pause all scheduled tasks",
-                "Prevents all non-essential scheduled tasks from starting during the protection window.");
+    private enum Guard {
+        OFF("Off"),
+        BLOCK_RALLIES("Block rallies"),
+        PAUSE_ALL("Pause all");
 
         private final String label;
-        private final String helperText;
 
-        ProtectionMode(String label, String helperText) {
+        Guard(String label) {
             this.label = label;
-            this.helperText = helperText;
-        }
-
-        String helperText() {
-            return helperText;
         }
 
         @Override

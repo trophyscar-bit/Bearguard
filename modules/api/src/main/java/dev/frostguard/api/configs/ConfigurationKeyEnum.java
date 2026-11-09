@@ -212,7 +212,7 @@ public enum ConfigurationKeyEnum {
     BEAR_TRAP_JOIN_TROOP_FLAG_STRING            ("",        String.class,        ConfigCategory.EVENTS),
     BEAR_TRAP_JOIN_RALLY_BOOL                   ("false",   Boolean.class,       ConfigCategory.EVENTS),
     BEAR_TRAP_NUMBER_INT                        ("1",       Integer.class,       ConfigCategory.EVENTS),
-    BEAR_TRAP_PREPARATION_TIME_INT              ("10",      Integer.class,       ConfigCategory.EVENTS),
+    BEAR_TRAP_PREPARATION_TIME_INT              ("15",      Integer.class,       ConfigCategory.EVENTS),
     BEAR_TRAP_RALLY_FLAG_INT                    ("1",       Integer.class,       ConfigCategory.EVENTS),
     BEAR_TRAP_RECALL_TROOPS_BOOL                ("false",   Boolean.class,       ConfigCategory.EVENTS),
     BEAR_TRAP_TIMER_1_ENABLED_BOOL              ("false",   Boolean.class,       ConfigCategory.EVENTS),

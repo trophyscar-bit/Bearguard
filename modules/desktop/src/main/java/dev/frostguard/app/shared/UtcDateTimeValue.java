@@ -47,10 +47,6 @@ public final class UtcDateTimeValue {
         return utcDateTime.format(PERSISTED_FORMAT);
     }
 
-    public static String formatUtcPreview(LocalDateTime utcDateTime) {
-        return "Next activation: " + formatPersisted(utcDateTime) + " UTC";
-    }
-
     public static LocalDateTime nextActivation(LocalDateTime anchor, Clock clock) {
         Instant anchorInstant = anchor.toInstant(ZoneOffset.UTC);
         Instant now = Instant.now(clock);
@@ -104,7 +100,7 @@ public final class UtcDateTimeValue {
     }
 
     public static String formatLocalPreview(LocalDateTime utcDateTime, ZoneId localZone) {
-        return "Local time: " + utcDateTime
+        return "Next: " + utcDateTime
                 .atZone(ZoneOffset.UTC)
                 .withZoneSameInstant(localZone)
                 .format(LOCAL_PREVIEW_FORMAT);
