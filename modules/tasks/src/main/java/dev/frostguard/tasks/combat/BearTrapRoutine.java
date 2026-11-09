@@ -49,6 +49,8 @@ private ScheduledFuture<?> rallyResetTask;
 
 private List<Integer> joinFlags = new ArrayList<>();
 
+private List<Integer> troopFlags = new ArrayList<>();
+
 private ResilientOcrExecutor<Duration> durationHelper;
 
 private BearMarchTally marchTally = new BearMarchTally();
@@ -583,6 +585,7 @@ private void hydrateConfiguration() {
 
 
         this.joinFlags = decodeJoinFlags();
+        this.troopFlags = parseFlagList(BEAR_TRAP_JOIN_TROOP_FLAG_STRING);
         this.marchTally = new BearMarchTally();
         this.rallyTargets = new BearRallyTargets();
         this.savedJoinDiagnostics.clear();
@@ -845,10 +848,12 @@ private void attemptRallyJoin(PointData plusIcon, OptionalInt freeBefore) {
                 this::selectedSquadHasHero,
                 squad -> marchTally.markSeenAway(squad, Instant.now()));
 
+        Optional<Integer> troopSquad = Optional.empty();
         if (heroSquad.isEmpty()) {
             if (!squadsToTry.isEmpty()) {
                 saveJoinDiagnostic("no-hero-loaded");
             }
+            troopSquad = selectTroopSquad();
             if (!clearSelectedHeroes()) {
                 pressBack();
                 recordFailedJoin(plusIcon, "heroes-not-cleared", "heroes could not be cleared for a troops-only join");
@@ -873,10 +878,22 @@ private void attemptRallyJoin(PointData plusIcon, OptionalInt freeBefore) {
         }
 
         rallyTargets.markJoined(plusIcon, Instant.now());
-        heroSquad.ifPresent(squad -> marchTally.markSent(squad, Instant.now()));
-        logInfo(routineLogBearTrapLine("Joined rally with "
-                + heroSquad.map(squad -> "squad #" + squad).orElse("troops only")
+        Optional<Integer> sentSquad = heroSquad.isPresent() ? heroSquad : troopSquad;
+        sentSquad.ifPresent(squad -> marchTally.markSent(squad, Instant.now()));
+        String marchLabel = heroSquad.isPresent() ? "squad #" + heroSquad.get()
+                : troopSquad.isPresent() ? "troop squad #" + troopSquad.get()
+                : "troops only";
+        logInfo(routineLogBearTrapLine("Joined rally with " + marchLabel
                 + (freeAfter.isPresent() ? " (" + freeAfter.getAsInt() + " marches free)" : "")));
+    }
+
+private Optional<Integer> selectTroopSquad() {
+        for (int squad : marchTally.troopSquadsToTry(troopFlags, Instant.now())) {
+            if (marchHelper.selectFlag(squad)) {
+                return Optional.of(squad);
+            }
+        }
+        return Optional.empty();
     }
 
 private ImageSearchResultData findJoinDeployButton(int attempts) {
@@ -1047,7 +1064,17 @@ private boolean hasInsideWindow() {
     }
 
 private List<Integer> decodeJoinFlags() {
-        String flagConfig = profile.getConfig(BEAR_TRAP_JOIN_FLAG_INT, String.class);
+        List<Integer> flags = parseFlagList(BEAR_TRAP_JOIN_FLAG_INT);
+
+        if (flags.isEmpty()) {
+            flags.add(DEFAULT_JOIN_RALLY_FLAG_VALUE);
+        }
+
+        return flags;
+    }
+
+private List<Integer> parseFlagList(ConfigurationKeyEnum key) {
+        String flagConfig = profile.getConfig(key, String.class);
         List<Integer> flags = new ArrayList<>();
 
         if (flagConfig != null && !flagConfig.trim().isEmpty()) {
@@ -1062,11 +1089,6 @@ private List<Integer> decodeJoinFlags() {
                     logWarning(routineLogBearTrapLine("Invalid join flag value: " + part));
                 }
             }
-        }
-
-
-        if (flags.isEmpty()) {
-            flags.add(DEFAULT_JOIN_RALLY_FLAG_VALUE);
         }
 
 

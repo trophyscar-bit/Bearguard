@@ -34,6 +34,20 @@ class BearMarchTallyTest {
     }
 
     @Test
+    void troopSquadsGoOutInOrder() {
+        List<Integer> troops = List.of(4, 5, 6);
+        tally.markSent(4, T0);
+        assertEquals(List.of(5, 6), tally.troopSquadsToTry(troops, T0.plusSeconds(1)));
+    }
+
+    @Test
+    void aFreeMarchStillGetsATroopSquadWhenTheTallyThinksAllAreAway() {
+        List<Integer> troops = List.of(4, 5, 6);
+        troops.forEach(squad -> tally.markSent(squad, T0));
+        assertEquals(troops, tally.troopSquadsToTry(troops, T0.plusSeconds(1)));
+    }
+
+    @Test
     void squadSeenAwayIsCheckedAgainSooner() {
         tally.markSeenAway(2, T0);
         assertEquals(List.of(1, 3), tally.likelyHome(SQUADS, T0.plusSeconds(14)));

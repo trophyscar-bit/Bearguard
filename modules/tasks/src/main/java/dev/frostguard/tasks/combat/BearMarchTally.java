@@ -28,6 +28,15 @@ final class BearMarchTally {
         awayUntil.put(squad, now.plus(SEEN_AWAY));
     }
 
+    /**
+     * The troop squads to try for a free march. They are interchangeable, so when the tally thinks
+     * all of them are away the free march proves one is home and every squad stays a candidate.
+     */
+    List<Integer> troopSquadsToTry(List<Integer> squads, Instant now) {
+        List<Integer> home = likelyHome(squads, now);
+        return home.isEmpty() ? squads : home;
+    }
+
     /** The squads worth trying now, keeping the configured priority order. */
     List<Integer> likelyHome(List<Integer> squads, Instant now) {
         return squads.stream()
