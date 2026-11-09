@@ -140,7 +140,7 @@ count box under them; an album with none shows a `Complete Album Missions ...
 Obtain` panel instead. Rows shift as packs are consumed, and the list runs about
 four screens, so packs are found by colour on every frame and the list is swiped
 until a swipe no longer moves it (mean grey diff 31-43 while moving, 0.07 at the
-end). Pack art is the only 80-200px blob of saturated gold/red/purple; banners and
+end). Pack art is the only 100-200px blob of gold/red/purple/blue-silver; banners and
 planks are list-wide and Obtain is blue. Do not OCR the count: a lone `1` never
 read, which left a Mythic General pack unopened on 2026-10-28.
 

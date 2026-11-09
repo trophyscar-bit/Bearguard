@@ -1225,67 +1225,33 @@ public class MonumentRoutine extends DelayedTask {
         }
     }
 
-    // Caught live -- the Tundra Albums hub has its own fragment-count milestone
-    // chest track at the top (separate from the per-category Atlas rewards handled above) that this
-    // routine's own header comment had flagged as a known, unhandled gap. Live-verified by hand: the
-    // currently-claimable chest is visually lit/glowing; tapping it opens a real "Rewards" popup
-    // (confirmed: 100 diamonds + 2 mystery chests on a live claim), and the whole row scrolls left
-    // afterward as the next threshold becomes the new rightmost slot. Only one calibration pass was
-    // possible tonight, so this scans a few plausible slot positions along the row rather than
-    // trusting a single fixed point -- the row's exact scroll offset at any given moment isn't fully
-    // characterized yet.
-    // Measured off a real native 720x1280 capture of the Tundra Albums hub
-    // (ocr-debug/albums-hub/tundra-albums-hub-live.png, saved as a test fixture). The six chest
-    // sprites were located by column profile against the flat orange panel background:
+    // The hub's milestone chest track: six fixed slots at the top of the panel. The slots never move;
+    // the milestone VALUES scroll through them as chests are claimed, so a slot cannot be identified
+    // by its number.
     //
-    //     chest 1  x 173-209  centre 191      chest 4  x 433-480  centre 456
-    //     chest 2  x 252-299  centre 275      chest 5  x 524-570  centre 547
-    //     chest 3  x 342-389  centre 365      chest 6  x 614-660  centre 637
+    // Only a chest that is sparkling may be tapped. Tapping any other chest opens a contents tooltip,
+    // and the next tap anywhere only closes that tooltip without acting on what is under it. This
+    // used to tap all six slots left to right, so on 2026-11-09 slot 1 opened a tooltip, slot 2 closed
+    // it, slot 3 opened one, and slot 4 -- the sparkling 1,400 chest -- only closed it. No retained
+    // log has ever recorded a claim from that loop.
     //
-    // all on the same row, sprite centre y = 173.
-    //
-    // The previous list was (245,178), (340,178), (428,178): only three entries, and every one of
-    // them landed in a GAP BETWEEN two chests -- 245 sits between chests 1 and 2, 340 between 2 and
-    // 3, 428 between 3 and 4. So the track was tapped three times per pass and could never claim
-    // anything. Reported as "there's a treasure chest at the top that has to be clicked" while the
-    // log cheerfully said "No milestone chest currently ready".
-    //
-    // On the captured frame the account is at 940/1347 with milestones at 815/855/895/935/975/1015,
-    // so chest 4 (935) is genuinely claimable and renders gold with sparkles while the rest are
-    // grey -- and chest 4's real centre, 456, was not covered by any old candidate.
-    private static final PointData[] MILESTONE_CHEST_CANDIDATES = {
-            new PointData(191, 173),
-            new PointData(275, 173),
-            new PointData(365, 173),
-            new PointData(456, 173),
-            new PointData(547, 173),
-            new PointData(637, 173),
-    };
+    // Claimability is the sparkle rays OUTSIDE the chest silhouette, sampled as a ring about the slot
+    // centre. Measured live over ten frames of the animation: claimable 0.218-0.323, already-claimed
+    // open lid 0.050, locked 0.000-0.001. A gold-art chest is gold inside its own outline and has no
+    // rays, which is why the ring is used instead of a box.
+    static final int[] MILESTONE_CHEST_SLOT_X = {192, 277, 363, 459, 545, 635};
+    static final int MILESTONE_CHEST_SLOT_Y = 169;
+    private static final int MILESTONE_RING_INNER = 30;
+    private static final int MILESTONE_RING_OUTER = 46;
+    private static final double MILESTONE_RING_MIN_RATIO = 0.12;
     private static final PointData MILESTONE_REWARDS_TAP_ANYWHERE = new PointData(360, 1198);
     private static final int MAX_MILESTONE_CHEST_CLAIMS = 6;
 
     private void claimMilestoneChestsIfReady() {
         for (int claimed = 0; claimed < MAX_MILESTONE_CHEST_CLAIMS; claimed++) {
-            boolean claimedThisPass = false;
-            for (PointData candidate : MILESTONE_CHEST_CANDIDATES) {
-                tapNear(candidate);
-                sleepTask(600);
-
-                String popupTitle = stringHelper.attemptRecognition(
-                        new PointData(200, 260), new PointData(520, 340),
-                        2, 150L, PANEL_TITLE_OCR_SETTINGS,
-                        s -> s != null && !s.isBlank(),
-                        s -> s);
-                if (popupTitle != null && popupTitle.toLowerCase().contains("reward")) {
-                    logInfo(logLine("Milestone chest ready at " + candidate + " -- claimed. Rewards: '"
-                            + popupTitle + "'."));
-                    tapNear(MILESTONE_REWARDS_TAP_ANYWHERE);
-                    sleepTask(ACTION_SETTLE_MS);
-                    claimedThisPass = true;
-                    break;
-                }
-            }
-            if (!claimedThisPass) {
+            BufferedImage hub = captureFrame();
+            PointData chest = hub == null ? null : findClaimableChest(hub);
+            if (chest == null) {
                 if (claimed == 0) {
                     logInfo(logLine("No milestone chest currently ready."));
                 } else {
@@ -1293,8 +1259,63 @@ public class MonumentRoutine extends DelayedTask {
                 }
                 return;
             }
+
+            logInfo(logLine("Milestone chest sparkling at " + chest + " -- claiming it."));
+            tapNear(chest);
+            sleepTask(ACTION_SETTLE_MS);
+            tapNear(MILESTONE_REWARDS_TAP_ANYWHERE);
+            sleepTask(ACTION_SETTLE_MS);
+            if (!isOnAlbumsHub()) {
+                logWarning(logLine("Not back on the Albums hub after claiming the chest at " + chest
+                        + " -- stopping the chest pass rather than tapping an unidentified screen. "
+                        + dumpDiagnosticFrame("milestone-chest-off-hub")));
+                return;
+            }
         }
         logWarning(logLine("Hit the milestone-chest safety cap (" + MAX_MILESTONE_CHEST_CLAIMS + ")."));
+    }
+
+    /**
+     * The chest with the strongest sparkle on the hub, or {@code null} if none clears the threshold.
+     * Strongest rather than leftmost because a sparkling chest's stray star lands in its neighbour's
+     * ring (0.067 on the slot beside the 1,400 chest). Native 720x1280 only.
+     */
+    static PointData findClaimableChest(BufferedImage img) {
+        if (img.getWidth() != 720 || img.getHeight() != 1280) {
+            return null;
+        }
+        PointData best = null;
+        double bestGlow = MILESTONE_RING_MIN_RATIO;
+        for (int x : MILESTONE_CHEST_SLOT_X) {
+            double glow = chestRingGlow(img, x);
+            if (glow > bestGlow) {
+                bestGlow = glow;
+                best = new PointData(x, MILESTONE_CHEST_SLOT_Y);
+            }
+        }
+        return best;
+    }
+
+    /** Share of the ring about a chest slot that is sparkle-yellow. */
+    static double chestRingGlow(BufferedImage img, int centreX) {
+        int ringPixels = 0;
+        int glowPixels = 0;
+        for (int y = MILESTONE_CHEST_SLOT_Y - MILESTONE_RING_OUTER; y < MILESTONE_CHEST_SLOT_Y + MILESTONE_RING_OUTER; y++) {
+            for (int x = centreX - MILESTONE_RING_OUTER; x < centreX + MILESTONE_RING_OUTER; x++) {
+                double distance = Math.hypot(x - centreX, y - MILESTONE_CHEST_SLOT_Y);
+                if (distance < MILESTONE_RING_INNER || distance > MILESTONE_RING_OUTER
+                        || x < 0 || x >= img.getWidth()) {
+                    continue;
+                }
+                ringPixels++;
+                int rgb = img.getRGB(x, y);
+                int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+                if (r > 200 && g > 150 && b < 120 && Math.min(r, g) - b > 70) {
+                    glowPixels++;
+                }
+            }
+        }
+        return ringPixels == 0 ? 0.0 : (double) glowPixels / ringPixels;
     }
 
     // Caught live -- ALBUMS_FRAGMENT_BACKPACK_BTN was documented as the Tundra
@@ -1310,15 +1331,15 @@ public class MonumentRoutine extends DelayedTask {
     // panel instead. The list runs about four screens. Fixed icon slots with an OCR'd count never
     // worked here: on 2026-10-28 a lone "1" under the General Album pack never read as a number,
     // and nothing below the first screen was ever looked at. Packs are found by colour instead --
-    // saturated gold/red/purple art, the only icon-sized blob of it on the panel. Banners and
-    // planks of the same colours are list-wide and the Obtain buttons are blue, so neither passes
-    // the size and hue gates (saved frames: packs 100-120px square; nothing else 80-200px both ways).
+    // gold/red/purple/blue-silver art, the only icon-sized blob of it on the panel. Banners and
+    // planks are list-wide, and the blue Obtain buttons are only 80px tall as blobs, so neither
+    // passes the size gate (saved frames: packs at least 100px both ways, up to 120x140).
     private static final int BACKPACK_LIST_LEFT_X = 40;
     private static final int BACKPACK_LIST_RIGHT_X = 680;
     private static final int BACKPACK_LIST_TOP_Y = 170;
     private static final int BACKPACK_LIST_BOTTOM_Y = 1120;
     private static final int PACK_SCAN_CELL = 20;
-    private static final int PACK_ICON_MIN_SIZE = 80;
+    private static final int PACK_ICON_MIN_SIZE = 100;
     private static final int PACK_ICON_MAX_SIZE = 200;
     private static final PointData BACKPACK_SCROLL_FROM = new PointData(360, 950);
     private static final PointData BACKPACK_SCROLL_TO = new PointData(360, 350);
@@ -1743,14 +1764,18 @@ public class MonumentRoutine extends DelayedTask {
         return packs;
     }
 
-    /** Pack art: bright saturated gold/red, or the purple packs. Wood is too dull, the Obtain button
-     *  is blue (green above red), and the dark panels are neither. */
+    /** Pack art: bright saturated gold/red, purple, or the blue-and-silver packs. Wood is warm and
+     *  dull, and the dark panels are neither. A blue-silver Nature's Strength pack sat unopened on
+     *  2026-11-09 while this accepted only saturated warm art. */
     private static boolean isPackArt(int r, int g, int b) {
         if (b > g + 50 && r > g + 30 && Math.max(r, b) > 140) {
             return true;
         }
         int max = Math.max(r, Math.max(g, b));
         int min = Math.min(r, Math.min(g, b));
+        if (min >= 175 || (b >= r && b >= g && max >= 120 && max - min >= 25)) {
+            return true;
+        }
         if (max < 200 || max - min < 120) {
             return false;
         }
