@@ -26,6 +26,7 @@ import dev.frostguard.api.configs.TpMessageSeverityEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ActionRequiredIncidentReport;
 import dev.frostguard.api.domain.TaskFailureReport;
+import dev.frostguard.api.domain.TaskFailureStreakData;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.ProfileStatusData;
 import dev.frostguard.api.domain.TaskQueueStatusData;
@@ -836,16 +837,12 @@ public class TaskQueue {
             LocalDateTime scheduledAfterRun = task.getScheduled();
             emitInfoTask(task, "Completed: " + task.getTaskName() + " scheduled="
                     + (scheduledAfterRun != null ? scheduledAfterRun.format(TS_FMT) : "none"));
-            AnalyticsService.getInstance().trackTaskCompleted(task.getTaskName(), "success", elapsed);
+            String failedAttempt = task.failedAttemptReason();
+            AnalyticsService.getInstance().trackTaskCompleted(
+                    task.getTaskName(), failedAttempt == null ? "success" : "failed", elapsed);
             ok = true;
             checkDailyMissionFollow(task);
-            try {
-                TaskFailureIncidentService.obtain().recordSuccess(
-                        profile.getId(), incidentTaskKey(task));
-            } catch (RuntimeException exception) {
-                emitWarnTask(task, "Could not reset persistent task-failure state: "
-                        + exception.getMessage());
-            }
+            recordAttemptOutcome(task, failedAttempt);
         } catch (dev.frostguard.engine.error.TaskPreemptedException ex) {
             emitWarnTask(task, "PREEMPTED: " + ex.getReasoning());
             AnalyticsService.getInstance().trackTaskCompleted(task.getTaskName(), "preempted", (System.currentTimeMillis()-t0)/1000);
@@ -873,12 +870,36 @@ public class TaskQueue {
             ok = false;
         } finally {
             synchronized (this) { if (runningContext != null) runningContext.clear(); runningContext = null; }
+            task.clearFailedAttempt();
             if (!shuttingDown) {
                 handleReschedule(task, priorSchedule);
                 recordPostExecution(task, st);
             }
         }
         return ok;
+    }
+
+    /** A routine that retries its own failure returns normally, so only its report tells the two apart. */
+    private void recordAttemptOutcome(DelayedTask task, String failedAttempt) {
+        try {
+            if (failedAttempt == null) {
+                TaskFailureIncidentService.obtain().recordSuccess(profile.getId(), incidentTaskKey(task));
+            } else {
+                TaskFailureIncidentService.obtain().recordFailure(failedAttemptReport(task, failedAttempt));
+            }
+        } catch (RuntimeException exception) {
+            emitWarnTask(task, "Could not update persistent task-failure state: " + exception.getMessage());
+        }
+    }
+
+    // The threshold never trips: these show in the failing list and do not raise an incident.
+    private TaskFailureReport failedAttemptReport(DelayedTask task, String reason) {
+        return new TaskFailureReport(
+                profile.getId(), profile.getName(), incidentTaskKey(task), task.getTaskName(),
+                TaskFailureStreakData.handledSignature(reason),
+                "Task attempt failed", reason, "", "", "", "", "",
+                task.getScheduled() != null ? task.getScheduled() : LocalDateTime.now(),
+                Integer.MAX_VALUE, "");
     }
 
     private boolean deferForBearTrapProtection(DelayedTask task) {

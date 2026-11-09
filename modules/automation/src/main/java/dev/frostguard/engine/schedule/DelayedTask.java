@@ -50,6 +50,7 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
 
     // ── core fields ─────────────────────────────────────────────────
     protected volatile boolean recurring = true;
+    private volatile String failedAttemptReason;
     protected LocalDateTime lastExecutionTime;
     protected LocalDateTime scheduledTime;
     protected String taskName;
@@ -620,6 +621,14 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
 
     // ── getters & setters ───────────────────────────────────────────
 
+    /**
+     * For a routine that catches its own failure and returns with a retry. Without this the queue
+     * counts the return as a success and clears the task's failure streak. Keep the text the same
+     * from attempt to attempt, because a different text starts a new streak.
+     */
+    protected final void reportFailedAttempt(String reason) { failedAttemptReason = reason; }
+    public final String failedAttemptReason() { return failedAttemptReason; }
+    final void clearFailedAttempt() { failedAttemptReason = null; }
     public boolean isRecurring() { return recurring; }
     public void setRecurring(boolean recurring) { this.recurring = recurring; }
     public LocalDateTime getLastExecutionTime() { return lastExecutionTime; }

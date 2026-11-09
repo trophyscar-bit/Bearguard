@@ -546,6 +546,7 @@ public class PetAdventureChestRoutine extends DelayedTask {
 	 */
 	private void rescheduleForNavigationRetry() {
 		LocalDateTime retryTime = LocalDateTime.now().plusMinutes(NAVIGATION_RETRY_MINUTES);
+		reportFailedAttempt("Could not reach Pet Adventures");
 		reschedule(retryTime);
 		logWarning("Navigation failed. Retrying at " + retryTime.format(TIME_FORMATTER));
 	}

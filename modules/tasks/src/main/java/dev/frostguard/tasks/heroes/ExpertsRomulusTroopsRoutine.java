@@ -412,6 +412,7 @@ public class ExpertsRomulusTroopsRoutine extends DelayedTask {
      */
     private void rescheduleForNavigationRetry() {
         LocalDateTime retryTime = LocalDateTime.now().plusMinutes(NAVIGATION_RETRY_MINUTES);
+        reportFailedAttempt("Could not reach the Romulus view");
         reschedule(retryTime);
         logWarning("Navigation failed. Retrying at " + retryTime.format(TIME_FORMATTER));
     }

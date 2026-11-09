@@ -17,6 +17,12 @@ public final class TaskDiagnosticSnapshots {
         return capture(() -> emulator.captureScreen(emulatorNumber), activity, type);
     }
 
+    /** For a failure that cannot be diagnosed without its frame, whatever the snapshot setting says. */
+    public static String captureAlways(EmulatorController emulator, String emulatorNumber, String activity, String type) {
+        return capture(() -> emulator.captureScreen(emulatorNumber), activity, type,
+                DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace());
+    }
+
     static String capture(Supplier<RawImageData> takeFrame, String activity, String type) {
         return capture(takeFrame, activity, type, DiagnosticSnapshotStore.forCurrentWorkspace());
     }

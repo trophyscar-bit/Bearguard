@@ -387,7 +387,8 @@ public class TimerSweepRoutine extends DelayedTask {
 
         if (!aligned) {
             logWarning("Neither scrolled-panel anchor was readable — its timers will be logged "
-                    + "but not scheduled this pass.");
+                    + "but not scheduled this pass; "
+                    + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "timersweep", "anchors-unreadable"));
         }
 
         int recorded = 0;

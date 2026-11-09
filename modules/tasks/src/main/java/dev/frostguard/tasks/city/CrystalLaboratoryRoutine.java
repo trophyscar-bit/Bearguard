@@ -313,6 +313,7 @@ private void scheduleNavigationRetry() {
         logWarning(routineLogCrystalLaboratoryLine(
                 "Navigation failed " + consecutiveNavigationFailures + " time(s). Next attempt at "
                         + retryAt.format(DATETIME_FORMATTER) + "."));
+        reportFailedAttempt("Could not reach the Crystal Laboratory");
         reschedule(retryAt);
     }
 

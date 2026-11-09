@@ -148,7 +148,10 @@ public final class SidebarNavigator {
         }
         log.info("Sidebar destination unavailable after bounded icon scan: " + destination
                 + " bottomBoundary=" + bottomScan.boundaryReached()
-                + " topBoundary=" + topScan.boundaryReached());
+                + " topBoundary=" + topScan.boundaryReached() + "; frame saved: "
+                + new DiagnosticSnapshotStore(WorkspacePaths.current().root())
+                        .write(topScan.frame(), SNAPSHOT_ACTIVITY, "row-unavailable", Instant.now())
+                        .map(Object::toString).orElse("(write failed)"));
         return SidebarRowLookup.fromRow(ImageSearchResultData.miss());
     }
 

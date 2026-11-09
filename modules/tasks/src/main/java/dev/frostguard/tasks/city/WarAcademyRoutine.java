@@ -45,6 +45,14 @@ private static final int BUILDING_TAP_DELAY_MS = 100;
 
 private static final int RETRY_DELAY_MINUTES_MS = 5;
 
+enum Route { REACHED, WAR_ACADEMY_NOT_LISTED, NAVIGATION_FAILED }
+
+private static final String NOT_LISTED_FAILURE = "War Academy has no row in the City sidebar";
+
+private static final String NAVIGATION_FAILURE = "Could not open War Academy";
+
+private static final String SHARD_READ_FAILURE = "War Academy shard count could not be confirmed";
+
 private static final int ADDITIONAL_SHARDS_DELAY_HOURS_MS = 2;
 
 private static final OcrSettingsData SHARDS_OCR_SETTINGS_VALUE = OcrSettingsData.assembler()
@@ -60,9 +68,11 @@ public WarAcademyRoutine(AccountDescriptor profile, TpDailyTaskEnum tpDailyTask)
 @Override
     protected void execute() {
 
-        if (!reachWarAcademy()) {
+        Route route = reachWarAcademy();
+        if (route != Route.REACHED) {
             logWarning(routineLogWarAcademyLine("Could not navigate to War Academy."));
-            reschedule(LocalDateTime.now().plusMinutes(RETRY_DELAY_MINUTES_MS));
+            reportFailedAttempt(route == Route.WAR_ACADEMY_NOT_LISTED ? NOT_LISTED_FAILURE : NAVIGATION_FAILURE);
+            reschedule(retryAt(route, LocalDateTime.now(), GameTimeUtils.dailyResetTime()));
             return;
         }
 
@@ -158,6 +168,7 @@ private void scheduleOcrRetry(String reason, String type) {
         String snapshot = TaskDiagnosticSnapshots.capture(emuManager, EMULATOR_NUMBER, "waracademy", type);
         logWarning(routineLogWarAcademyLine(reason + "; retrying at "
                 + retryAt.format(DATETIME_FORMATTER) + "; " + snapshot + "."));
+        reportFailedAttempt(SHARD_READ_FAILURE);
         reschedule(retryAt);
     }
 
@@ -192,7 +203,7 @@ private boolean openUpRedeemSection() {
         return true;
     }
 
-private boolean reachWarAcademy() {
+private Route reachWarAcademy() {
         logInfo(routineLogWarAcademyLine("Moving to War Academy."));
 
         marchHelper.openLeftMenuCitySection(true);
@@ -208,9 +219,10 @@ private boolean reachWarAcademy() {
                 SearchConfigConstants.MULTIPLE_RESULTS);
 
         if (researchCenters.size() < MIN_RESEARCH_CENTERS_REQUIRED_FLOOR) {
-            logError(routineLogWarAcademyLine(String.format("Only detected %d Research Centers, need at least %d.",
-                    researchCenters.size(), MIN_RESEARCH_CENTERS_REQUIRED_FLOOR)));
-            return false;
+            logError(routineLogWarAcademyLine(String.format("Only detected %d Research Centers, need at least %d; %s.",
+                    researchCenters.size(), MIN_RESEARCH_CENTERS_REQUIRED_FLOOR,
+                    TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "waracademy", "row-not-listed"))));
+            return Route.WAR_ACADEMY_NOT_LISTED;
         }
 
         logInfo(routineLogWarAcademyLine(String.format("Detected %d Research Centers.", researchCenters.size())));
@@ -236,7 +248,7 @@ private boolean reachWarAcademy() {
 
         if (!researchButton.isFound()) {
             logError(routineLogWarAcademyLine("Research button not detected."));
-            return false;
+            return Route.NAVIGATION_FAILED;
         }
 
         logDebug(routineLogWarAcademyLine("Entering Research section"));
@@ -250,12 +262,21 @@ private boolean reachWarAcademy() {
 
         if (!warAcademyUI.isFound()) {
             logError(routineLogWarAcademyLine("War Academy UI validation did not complete."));
-            return false;
+            return Route.NAVIGATION_FAILED;
         }
 
         logInfo(routineLogWarAcademyLine("Successfully navigated to War Academy."));
-        return true;
+        return Route.REACHED;
     }
+
+/**
+ * A row that is not listed will not appear within five minutes: every saved City sidebar frame shows
+ * one Tech Research row, and 1,932 logged attempts all stopped here. Once a day keeps a built War
+ * Academy from being missed without opening the sidebar 288 times.
+ */
+static LocalDateTime retryAt(Route route, LocalDateTime now, LocalDateTime dailyReset) {
+        return route == Route.WAR_ACADEMY_NOT_LISTED ? dailyReset : now.plusMinutes(RETRY_DELAY_MINUTES_MS);
+}
 
 static boolean redemptionMadeProgress(int initialShards, int finalShards) {
         return initialShards > 0 && finalShards < initialShards;

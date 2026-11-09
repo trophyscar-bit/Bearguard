@@ -221,6 +221,7 @@ public class GatherSpeedRoutine extends DelayedTask {
 		LocalDateTime retry = LocalDateTime.now().plusMinutes(15);
 		logWarning("Gather speed boost not confirmed: " + reason + ". Retrying at " + retry.format(DATETIME_FORMATTER)
 				+ "; " + snapshot + ".");
+		reportFailedAttempt("Gather speed boost not confirmed");
 		reschedule(retry);
 	}
 

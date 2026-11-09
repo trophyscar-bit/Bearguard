@@ -88,6 +88,35 @@ class TaskQueueFailureIncidentTest {
     }
 
     @Test
+    void aFailureTheRoutineHandledCountsAsFailedAndKeepsItsOwnRetry() {
+        AccountDescriptor profile = new AccountDescriptor(
+                null, "Handled failure " + UUID.randomUUID(), "3", false, 100L, 30L);
+        assertTrue(ProfileService.obtain().createAccount(profile));
+        HandledFailureTask task = new HandledFailureTask(profile);
+        RecordingQueue queue = new RecordingQueue(profile);
+        queue.enqueue(task);
+
+        queue.runSchedulerTick();
+        assertTrue(task.getScheduled().isAfter(LocalDateTime.now().plusHours(5)), "the routine's own retry stands");
+        assertEquals(1, streak(profile).orElseThrow().consecutiveFailures());
+        assertEquals("the row is missing", streak(profile).orElseThrow().handledReason());
+
+        for (int attempt = 2; attempt <= 4; attempt++) {
+            runDue(queue, task);
+            assertEquals(attempt, streak(profile).orElseThrow().consecutiveFailures());
+        }
+        assertTrue(incidents(profile).isEmpty(), "a handled failure shows in the list and raises no incident");
+
+        task.fail = false;
+        runDue(queue, task);
+        assertTrue(streak(profile).isEmpty(), "a clean return clears the streak");
+    }
+
+    private static java.util.Optional<dev.frostguard.api.domain.TaskFailureStreakData> streak(AccountDescriptor profile) {
+        return TaskFailureStreakRepository.getRepository().find(profile.getId(), TpDailyTaskEnum.GAME_ANALYTICS_LABYRINTH.name());
+    }
+
+    @Test
     void exhaustedStartupCaptureRetriesBecomeOneBoundedFailureAttempt() {
         AccountDescriptor profile = new AccountDescriptor(
                 null, "Capture failure " + UUID.randomUUID(), "1", false, 100L, 30L);
@@ -146,7 +175,7 @@ class TaskQueueFailureIncidentTest {
                 "the Error must count toward the task-failure streak");
     }
 
-    private static void runDue(RecordingQueue queue, AlternatingFailureTask task) {
+    private static void runDue(RecordingQueue queue, DelayedTask task) {
         task.reschedule(LocalDateTime.now().minusSeconds(1));
         queue.runSchedulerTick();
     }
@@ -189,6 +218,29 @@ class TaskQueueFailureIncidentTest {
         protected void execute() {
             executionCount++;
             throw new StackOverflowError("simulated recursion");
+        }
+    }
+
+    private static final class HandledFailureTask extends DelayedTask {
+        boolean fail = true;
+
+        HandledFailureTask(AccountDescriptor profile) {
+            super(profile, TpDailyTaskEnum.GAME_ANALYTICS_LABYRINTH);
+        }
+
+        @Override
+        public void run() {
+            execute();
+        }
+
+        @Override
+        protected void execute() {
+            if (fail) {
+                reportFailedAttempt("the row is missing");
+                reschedule(LocalDateTime.now().plusHours(6));
+            } else {
+                reschedule(LocalDateTime.now().plusHours(6));
+            }
         }
     }
 

@@ -110,6 +110,7 @@ private String routineLogMailRewardsLine(String note) {
     }
 
 private void manageMailMenuOpenFailure() {
+        reportFailedAttempt("Could not open the mail menu");
         logError(routineLogMailRewardsLine("Could not open mail menu. Retrying in " + ERROR_RETRY_MINUTES_VALUE + " minutes."));
         reschedule(LocalDateTime.now().plusMinutes(ERROR_RETRY_MINUTES_VALUE));
     }

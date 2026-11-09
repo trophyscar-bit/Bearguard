@@ -48,6 +48,7 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 		// Navigate to Life Essence menu
 		if (!navigateToLifeEssenceMenu()) {
 			logWarning("Failed to navigate to Life Essence menu. Retrying in " + retryOffsetMinutes + " minutes.");
+			reportFailedAttempt("Could not reach the Life Essence menu");
 			reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
 			return;
 		}

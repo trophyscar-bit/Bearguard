@@ -405,6 +405,7 @@ public class LifeEssenceRoutine extends DelayedTask {
 		Duration retryDelay = decision.retryDelay();
 		LocalDateTime nextAttempt = LocalDateTime.now().plus(retryDelay);
 
+		reportFailedAttempt(reason);
 		reschedule(nextAttempt);
 
 		logWarning(reason + ". Consecutive failures: " + consecutiveFailures

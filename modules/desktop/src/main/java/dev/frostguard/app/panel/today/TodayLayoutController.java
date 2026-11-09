@@ -303,7 +303,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
 
     private void apply(Long profileId, List<TaskManagerAux> rows, List<TaskFailureStreakData> streaks,
                        List<ActionRequiredIncidentData> incidents) {
-        Map<String, FailureInfo> failures = indexFailures(streaks, incidents);
+        Map<String, FailureInfo> failures = indexFailures(streaks, incidents, LocalDateTime.now());
         TaskQueue queue = ScheduleService.obtain().getCoordinator().getQueue(profileId);
         botRunning = queue != null && queue.isActive();
         botPaused = queue != null && queue.isPaused();
@@ -336,17 +336,23 @@ public final class TodayLayoutController implements IProfileLoadListener {
     }
 
     private Map<String, FailureInfo> indexFailures(List<TaskFailureStreakData> streaks,
-                                                   List<ActionRequiredIncidentData> incidents) {
+                                                   List<ActionRequiredIncidentData> incidents, LocalDateTime now) {
         Map<String, FailureInfo> failures = new LinkedHashMap<>();
         for (TaskFailureStreakData streak : streaks) {
-            if (streak.consecutiveFailures() > 0) {
+            if (FailingTaskFilter.isCurrent(streak, isOff(streak.taskKey()), now)) {
                 FailureInfo info = failures.computeIfAbsent(streak.taskKey(),
                         key -> new FailureInfo(displayNameOfKey(key), new ArrayList<>()));
                 info.lines().add(streak.consecutiveFailures() + " failed in a row, last at "
                         + dayClock(streak.lastFailureAt()));
+                if (streak.handledReason() != null) {
+                    info.lines().add(streak.handledReason());
+                }
             }
         }
         for (ActionRequiredIncidentData incident : incidents) {
+            if (isOff(incident.taskKey())) {
+                continue;
+            }
             FailureInfo info = failures.computeIfAbsent(incident.taskKey(),
                     key -> new FailureInfo(incident.taskName(), new ArrayList<>()));
             info.lines().add(incident.title());
@@ -358,6 +364,12 @@ public final class TodayLayoutController implements IProfileLoadListener {
             }
         }
         return failures;
+    }
+
+    /** Tasks with no switch, such as the one-shot analytics runs and custom tasks, are never off. */
+    private boolean isOff(String taskKey) {
+        ConfigurationKeyEnum key = FailingTaskFilter.switchOf(taskKey);
+        return key != null && profile != null && !Boolean.TRUE.equals(profile.<Boolean>getConfiguration(key));
     }
 
     private static String displayNameOfKey(String key) {
