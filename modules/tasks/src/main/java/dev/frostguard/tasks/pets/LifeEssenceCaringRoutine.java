@@ -35,6 +35,9 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 	// Configuration (loaded fresh each execution)
 	private int retryOffsetMinutes;
 
+	// Navigation failures in a row, for the short-backoff retry below.
+	private final LifeEssenceCaringRetry navigationRetry = new LifeEssenceCaringRetry();
+
 	public LifeEssenceCaringRoutine(AccountDescriptor profile, TpDailyTaskEnum dailyMission) {
 		super(profile, dailyMission);
 	}
@@ -47,10 +50,10 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 
 		// Navigate to Life Essence menu
 		if (!navigateToLifeEssenceMenu()) {
-			logWarning("Failed to navigate to Life Essence menu. Retrying in " + retryOffsetMinutes + " minutes.");
-			reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
+			rescheduleAfterNavigationFailure("Failed to navigate to Life Essence menu");
 			return;
 		}
+		navigationRetry.afterSuccess();
 
 		int islandsCared = 0;
 		for (int i = 0; i < 4; i++) {
@@ -59,9 +62,8 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 			// attempts check taps the Caring tab coordinate while the world map is up, finds nothing,
 			// and reports the day's attempts as spent after a single island.
 			if (i > 0 && !navigateToLifeEssenceMenu()) {
-				logWarning("Could not return to the Life Essence menu after caring for " + islandsCared
-						+ " island(s). Retrying in " + retryOffsetMinutes + " minutes.");
-				reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
+				rescheduleAfterNavigationFailure("Could not return to the Life Essence menu after caring for "
+						+ islandsCared + " island(s)");
 				return;
 			}
 
@@ -89,6 +91,18 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 
 		closeAllMenus();
 		reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
+	}
+
+	/**
+	 * Reschedules after a failed walk to the Life Essence menu, on the short backoff rather than
+	 * the configured hour. See {@link LifeEssenceCaringRetry} for why.
+	 */
+	private void rescheduleAfterNavigationFailure(String reason) {
+		LifeEssenceRetryPolicy.Decision decision = navigationRetry.afterNavigationFailure();
+		LocalDateTime next = LocalDateTime.now().plus(decision.retryDelay());
+		logWarning(reason + ". Consecutive navigation failures: " + navigationRetry.failures()
+				+ ". Retrying in " + decision.retryDelay().toMinutes() + " minutes at " + next + ".");
+		reschedule(next);
 	}
 
 	/**
