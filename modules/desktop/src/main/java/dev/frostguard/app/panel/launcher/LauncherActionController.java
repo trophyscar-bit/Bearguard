@@ -29,7 +29,7 @@ public class LauncherActionController implements BotStateListener, QueueStateLis
 
     public LauncherActionController(LauncherLayoutController launcherLayoutController) {
         this(Objects.requireNonNull(launcherLayoutController, "launcherLayoutController"),
-                ScheduleService.obtain()::launchEngine, launcherLayoutController::onBotStartRefused);
+                ScheduleService.obtain()::launchEngineAfterProductionCheck, launcherLayoutController::onBotStartRefused);
     }
 
     /** The two ends of {@link #startBot()} are parameters so its guard can be tested without an engine. */

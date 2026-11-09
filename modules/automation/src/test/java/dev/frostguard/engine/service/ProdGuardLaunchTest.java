@@ -92,6 +92,18 @@ class ProdGuardLaunchTest {
     }
 
     @Test
+    void onlyTheLauncherEntryTrustsACheckAlreadyMade() throws ReflectiveOperationException {
+        NoEmulatorScheduleService service = new NoEmulatorScheduleService();
+        force(ProdState.RUNNING);
+
+        service.launchEngineAfterProductionCheck();
+        assertEquals(1, service.bridgeAttempts);
+
+        service.launchEngine();
+        assertEquals(1, service.bridgeAttempts);
+    }
+
+    @Test
     void engineGetsAsFarAsTheEmulatorOnceProductionIsClosed() throws ReflectiveOperationException {
         NoEmulatorScheduleService service = new NoEmulatorScheduleService();
         force(ProdState.NOT_RUNNING);

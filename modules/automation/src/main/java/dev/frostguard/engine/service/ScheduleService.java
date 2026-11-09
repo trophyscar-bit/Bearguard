@@ -100,6 +100,19 @@ public class ScheduleService {
 			notifyBotState(false, false);
 			return;
 		}
+		startEngine(allowStartupRescan);
+	}
+
+	/**
+	 * For the launcher, which has just got the production check's answer itself. The check lists the
+	 * process table in about 12 seconds, and the short cache behind {@link #launchEngine(boolean)}
+	 * has expired by the time an auto-start countdown ends. Every other caller keeps its own check.
+	 */
+	public synchronized void launchEngineAfterProductionCheck() {
+		startEngine(true);
+	}
+
+	private void startEngine(boolean allowStartupRescan) {
 		if (dispatcher.hasManagedQueues()) {
 			log(TpMessageSeverityEnum.ERROR, "ScheduleService", "-",
 					"Engine launch blocked because a previous queue shutdown is incomplete");
