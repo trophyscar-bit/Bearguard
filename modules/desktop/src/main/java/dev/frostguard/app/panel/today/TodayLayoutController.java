@@ -8,6 +8,7 @@ import dev.frostguard.api.domain.TaskFailureStreakData;
 import dev.frostguard.api.domain.TaskStateData;
 import dev.frostguard.app.panel.profile.IProfileLoadListener;
 import dev.frostguard.app.panel.profile.ProfileAux;
+import dev.frostguard.app.panel.custom.CustomTasksLayoutController;
 import dev.frostguard.app.panel.scheduler.TaskManagerAux;
 import dev.frostguard.app.panel.scheduler.TaskManagerLayoutController;
 import dev.frostguard.app.panel.today.TodayTimeline.Item;
@@ -31,17 +32,18 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.util.Duration;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -56,21 +58,26 @@ import java.util.function.LongSupplier;
  */
 public final class TodayLayoutController implements IProfileLoadListener {
 
-    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm");
-    private static final DateTimeFormatter DAY_CLOCK = DateTimeFormatter.ofPattern("EEE HH:mm", Locale.ENGLISH);
-    private static final DateTimeFormatter DATE_CLOCK = DateTimeFormatter.ofPattern("MMM d HH:mm", Locale.ENGLISH);
-    private static final int WEEKDAY_NAME_RANGE_DAYS = 6;
+    private static final int MAX_SEARCH_RESULTS = 30;
     private static final double ROWS_ABOVE_NOW = 2.5;
     private static final int RELOAD_EVERY_SECONDS = 30;
 
     private final TaskManagerLayoutController taskManager;
     private final LongSupplier loadedProfileId;
-    private final HBox root = new HBox();
+    private final VBox root = new VBox();
+    private final HBox timelineView = new HBox();
+    private final StackPane controlSlot = new StackPane();
+    private final ToggleButton timelineTab = new ToggleButton("Timeline");
+    private final ToggleButton controlTab = new ToggleButton("Control");
+    private final TodaySearchBar search;
     private final Label summary = new Label();
     private final Label summaryNote = new Label();
     private final VBox timeline = new VBox(1);
     private final TaskInspectorPanel inspector;
     private ScrollPane lineScroll;
+    private Parent controlScreen;
+    private boolean botRunning;
+    private boolean botPaused;
     private final PauseTransition reloadDebounce = new PauseTransition(Duration.millis(250));
     private final Timeline clock = new Timeline(new KeyFrame(Duration.seconds(1), event -> onClockTick()));
     private final Map<String, LocalDateTime> startedAt = new HashMap<>();
@@ -93,10 +100,11 @@ public final class TodayLayoutController implements IProfileLoadListener {
         this.taskManager = taskManager;
         this.loadedProfileId = loadedProfileId;
         inspector = new TaskInspectorPanel(openScreen, this::resumeFollowing, this::runSelected);
+        search = new TodaySearchBar(this::searchTasks, this::selectFromSearch, this::runFromSearch);
         buildLayout();
         clock.setCycleCount(Animation.INDEFINITE);
         reloadDebounce.setOnFinished(event -> reload());
-        root.sceneProperty().addListener((observable, previous, scene) -> onVisibilityChanged(scene != null));
+        root.sceneProperty().addListener((observable, previous, scene) -> onVisibilityChanged(timelineShowing()));
         registerListeners();
     }
 
@@ -105,12 +113,46 @@ public final class TodayLayoutController implements IProfileLoadListener {
     }
 
     /** Supplied once the settings pages have loaded, which happens after this page is created. */
-    public void attachSettings(Map<String, Object> controllers, Map<String, Parent> pages, Object eventsController) {
-        inspector.attachSettings(new TaskSettingsIndex(controllers, pages, eventsController));
+    public void attachSettings(Map<String, Object> controllers, Map<String, Parent> pages, Object eventsController,
+                               CustomTasksLayoutController customTasks) {
+        inspector.attachSettings(new TaskSettingsIndex(controllers, pages, eventsController, customTasks));
+    }
+
+    /** The Control screen is one node shared with its sidebar item, so it moves between the two. */
+    public void attachControlScreen(Parent screen) {
+        controlScreen = screen;
+    }
+
+    /** Called when Today is shown again, in case the sidebar's Control item took the screen away. */
+    public void reattachControlScreen() {
+        if (controlTab.isSelected() && controlScreen != null) {
+            controlSlot.getChildren().setAll(controlScreen);
+        }
+    }
+
+    private void showTab(boolean timeline) {
+        setShown(timelineView, timeline);
+        setShown(controlSlot, !timeline);
+        if (timeline) {
+            controlSlot.getChildren().clear();
+        } else {
+            search.close();
+            reattachControlScreen();
+        }
+        onVisibilityChanged(timelineShowing());
+    }
+
+    private boolean timelineShowing() {
+        return root.getScene() != null && timelineTab.isSelected();
+    }
+
+    private static void setShown(Node node, boolean shown) {
+        node.setVisible(shown);
+        node.setManaged(shown);
     }
 
     private void buildLayout() {
-        root.getStyleClass().add("today-split");
+        timelineView.getStyleClass().add("today-split");
 
         summary.getStyleClass().add("today-summary");
         summaryNote.getStyleClass().add("today-note");
@@ -125,9 +167,38 @@ public final class TodayLayoutController implements IProfileLoadListener {
         lineScroll.setFitToWidth(true);
         lineScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         lineScroll.getStyleClass().add("task-page-scroll");
-        HBox.setHgrow(lineScroll, Priority.ALWAYS);
+        VBox.setVgrow(lineScroll, Priority.ALWAYS);
 
-        root.getChildren().addAll(lineScroll, inspector.root());
+        // The results float over the timeline rather than pushing it down as they change.
+        StackPane lineArea = new StackPane(lineScroll, search.results());
+        StackPane.setAlignment(search.results(), Pos.TOP_CENTER);
+        VBox.setVgrow(lineArea, Priority.ALWAYS);
+        VBox left = new VBox(6, search.field(), lineArea);
+        left.getStyleClass().add("today-left");
+        HBox.setHgrow(left, Priority.ALWAYS);
+        timelineView.getChildren().addAll(left, inspector.root());
+
+        ToggleGroup tabs = new ToggleGroup();
+        timelineTab.setToggleGroup(tabs);
+        controlTab.setToggleGroup(tabs);
+        timelineTab.setSelected(true);
+        timelineTab.getStyleClass().add("today-tab");
+        controlTab.getStyleClass().add("today-tab");
+        // A tab group must always have one selected, so a click on the open tab is undone.
+        tabs.selectedToggleProperty().addListener((observable, previous, selected) -> {
+            if (selected == null) {
+                previous.setSelected(true);
+            } else {
+                showTab(selected == timelineTab);
+            }
+        });
+        HBox tabStrip = new HBox(4, timelineTab, controlTab);
+        tabStrip.getStyleClass().add("today-tabs");
+
+        StackPane content = new StackPane(timelineView, controlSlot);
+        VBox.setVgrow(content, Priority.ALWAYS);
+        setShown(controlSlot, false);
+        root.getChildren().addAll(tabStrip, content);
     }
 
     private void registerListeners() {
@@ -145,6 +216,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         profile = loaded;
         selectedKey = null;
         following = true;
+        search.close();
         requestReload();
     }
 
@@ -170,7 +242,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
 
     private void onClockTick() {
         if (nowLabel != null) {
-            nowLabel.setText("Now " + LocalDateTime.now().format(CLOCK));
+            nowLabel.setText("Now " + TodayTimeline.clock(LocalDateTime.now()));
         }
         if (++secondsSinceReload >= RELOAD_EVERY_SECONDS) {
             reload();
@@ -178,7 +250,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
     }
 
     private void requestReload() {
-        if (root.getScene() == null) {
+        if (!timelineShowing()) {
             dirty = true;
         } else {
             reloadDebounce.playFromStart();
@@ -195,7 +267,8 @@ public final class TodayLayoutController implements IProfileLoadListener {
 
     private void reload() {
         Long profileId = currentProfileId();
-        if (profileId == null || root.getScene() == null) {
+        if (profileId == null || !timelineShowing()) {
+            dirty = true;
             return;
         }
         dirty = false;
@@ -219,7 +292,8 @@ public final class TodayLayoutController implements IProfileLoadListener {
                        List<ActionRequiredIncidentData> incidents) {
         Map<String, FailureInfo> failures = indexFailures(streaks, incidents);
         TaskQueue queue = ScheduleService.obtain().getCoordinator().getQueue(profileId);
-        boolean botRunning = queue != null && queue.isActive();
+        botRunning = queue != null && queue.isActive();
+        botPaused = queue != null && queue.isPaused();
 
         LocalDateTime now = LocalDateTime.now();
         rowsByKey.clear();
@@ -246,7 +320,8 @@ public final class TodayLayoutController implements IProfileLoadListener {
         }
         renderSummary(failures);
         renderTimeline(items, now);
-        showInspector(profileId, botRunning, queue != null && queue.isPaused(), now);
+        showInspector(profileId, now);
+        search.refresh();
     }
 
     private record FailureInfo(String name, List<String> lines) {
@@ -350,7 +425,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         for (Item item : items) {
             switch (item.kind()) {
                 case NOW -> {
-                    nowLabel = new Label("Now " + now.format(CLOCK));
+                    nowLabel = new Label("Now " + TodayTimeline.clock(now));
                     nodes.add(marker(nowLabel, "today-mark"));
                 }
                 case RESET -> nodes.add(marker(new Label("Daily reset " + rowTime(item.time(), now)), "today-mark-reset"));
@@ -455,16 +530,11 @@ public final class TodayLayoutController implements IProfileLoadListener {
 
     private String startedClock(Task task, LocalDateTime now) {
         LocalDateTime started = startedAt.get(currentProfileId() + "/" + task.key());
-        return started == null ? now.format(CLOCK) : started.format(CLOCK);
+        return TodayTimeline.clock(started == null ? now : started);
     }
 
     private static String rowTime(LocalDateTime time, LocalDateTime now) {
-        long days = Math.abs(ChronoUnit.DAYS.between(time.toLocalDate(), LocalDate.from(now)));
-        if (days == 0) {
-            return time.format(CLOCK);
-        }
-        // A weekday name alone would make a schedule that is a week stale look like today's.
-        return time.format(days <= WEEKDAY_NAME_RANGE_DAYS ? DAY_CLOCK : DATE_CLOCK);
+        return TodayTimeline.clockWithDay(time, now);
     }
 
     private static String dayClock(LocalDateTime time) {
@@ -493,16 +563,69 @@ public final class TodayLayoutController implements IProfileLoadListener {
         }
     }
 
-    private void showInspector(Long profileId, boolean botRunning, boolean paused, LocalDateTime now) {
+    private RunNowPolicy.Decision runDecision(Task task, TaskManagerAux row) {
+        return RunNowPolicy.decide(botRunning, botPaused, task.executing(), row.isScheduled());
+    }
+
+    private List<TodaySearchBar.Hit> searchTasks(String text) {
+        String wanted = text.trim().toLowerCase(Locale.ROOT);
+        LocalDateTime now = LocalDateTime.now();
+        return tasksByKey.values().stream()
+                .filter(task -> task.name().toLowerCase(Locale.ROOT).contains(wanted))
+                .sorted(Comparator.comparing((Task task) -> !task.name().toLowerCase(Locale.ROOT).startsWith(wanted))
+                        .thenComparing(Task::name))
+                .limit(MAX_SEARCH_RESULTS)
+                .map(task -> new TodaySearchBar.Hit(task.key(), task.name(), searchState(task, now),
+                        runDecision(task, rowsByKey.get(task.key()))))
+                .toList();
+    }
+
+    private static String searchState(Task task, LocalDateTime now) {
+        if (task.executing()) {
+            return "Running";
+        }
+        if (!task.scheduled() || task.next() == null) {
+            return "Off";
+        }
+        return "Next " + rowTime(task.next(), now);
+    }
+
+    private void selectFromSearch(String key) {
+        following = false;
+        selectedKey = key;
+        showInspector(currentProfileId(), LocalDateTime.now());
+    }
+
+    /** Uses the same guards and the same run path as the panel's button. */
+    private boolean runFromSearch(String key) {
+        Task task = tasksByKey.get(key);
+        TaskManagerAux row = rowsByKey.get(key);
+        if (task == null || row == null) {
+            return false;
+        }
+        RunNowPolicy.Decision decision = runDecision(task, row);
+        if (!decision.enabled()) {
+            return false;
+        }
+        selectedKey = key;
+        following = false;
+        taskManager.runTaskNow(row);
+        inspector.showRunNote(decision.afterRun());
+        requestReload();
+        return true;
+    }
+
+    private void showInspector(Long profileId, LocalDateTime now) {
         Task task = selectedKey == null ? null : tasksByKey.get(selectedKey);
         if (task == null) {
             inspector.showNothing();
             return;
         }
         TaskManagerAux row = rowsByKey.get(selectedKey);
-        RunNowPolicy.Decision runNow = RunNowPolicy.decide(botRunning, paused, task.executing(), row.isScheduled());
+        RunNowPolicy.Decision runNow = runDecision(task, row);
         inspector.show(new TaskInspectorPanel.Detail(
-                task.key(), task.name(), row.getTaskEnum(), statusOf(task, botRunning, now),
+                task.key(), task.name(), row.getTaskEnum(), row.isCustomTask() ? row.getCustomTaskName() : null,
+                statusOf(task, botRunning, now),
                 task.executing() ? "Started" : "Scheduled",
                 task.executing() ? startedText(profileId, task) : scheduledText(task, now),
                 task.last() == null ? "Never" : dayClock(task.last()),

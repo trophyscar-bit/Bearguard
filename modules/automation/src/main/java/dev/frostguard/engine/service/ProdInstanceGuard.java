@@ -31,7 +31,8 @@ public final class ProdInstanceGuard {
 
     private static final Path PROD_ROOT = Paths.get("C:\\Bearguard");
     private static final Duration CACHE_TTL = Duration.ofSeconds(3);
-    private static final Duration QUERY_TIMEOUT = Duration.ofSeconds(10);
+    // The process table takes this PC about 12 seconds to list, and a timeout reads as "cannot tell".
+    private static final Duration QUERY_TIMEOUT = Duration.ofSeconds(30);
     // Only Bearguard command lines are printed: BoundedProcessRunner decodes output as strict UTF-8,
     // and an unrelated process with a non-ASCII command line would otherwise fail the whole check.
     private static final String QUERY = "Get-CimInstance Win32_Process | Where-Object { "

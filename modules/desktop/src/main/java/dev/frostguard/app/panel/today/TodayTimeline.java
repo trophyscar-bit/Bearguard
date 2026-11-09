@@ -1,5 +1,8 @@
 package dev.frostguard.app.panel.today;
 
+import java.util.Locale;
+import java.time.temporal.ChronoUnit;
+import java.time.format.DateTimeFormatter;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -8,6 +11,11 @@ import java.util.List;
 
 /** Orders one profile's tasks into the Today timeline. Pure, so the ordering rules can be tested. */
 public final class TodayTimeline {
+
+    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm");
+    private static final DateTimeFormatter DAY_CLOCK = DateTimeFormatter.ofPattern("EEE HH:mm", Locale.ENGLISH);
+    private static final DateTimeFormatter DATE_CLOCK = DateTimeFormatter.ofPattern("MMM d HH:mm", Locale.ENGLISH);
+    private static final int WEEKDAY_NAME_RANGE_DAYS = 6;
 
     public enum Kind { PAST, NOW, RUNNING, UPCOMING, RESET }
 
@@ -70,6 +78,21 @@ public final class TodayTimeline {
     }
 
     /** "in 3h 12m" for a future time and "Due now" for one that has passed. */
+    /** Every time on Today is 24-hour; these are the only formats the page uses. */
+    public static String clock(LocalDateTime time) {
+        return time.format(CLOCK);
+    }
+
+    /** A clock time, with the day added when it is not today. */
+    public static String clockWithDay(LocalDateTime time, LocalDateTime now) {
+        long days = Math.abs(ChronoUnit.DAYS.between(time.toLocalDate(), now.toLocalDate()));
+        if (days == 0) {
+            return time.format(CLOCK);
+        }
+        // A weekday name alone would make a schedule that is a week stale look like today's.
+        return time.format(days <= WEEKDAY_NAME_RANGE_DAYS ? DAY_CLOCK : DATE_CLOCK);
+    }
+
     public static String relative(LocalDateTime now, LocalDateTime when) {
         long minutes = Duration.between(now, when).toMinutes();
         if (minutes <= 0) {

@@ -6,7 +6,7 @@ import javafx.scene.control.Tooltip;
 
 public final class FieldValidationPresenter {
 
-    private static final String ERROR_CLASS = "setting-field-error";
+    public static final String ERROR_CLASS = "setting-field-error";
 
     private final TextField field;
     private final Label messageLabel;

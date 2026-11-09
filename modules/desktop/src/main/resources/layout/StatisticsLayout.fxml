@@ -55,7 +55,7 @@
                             </VBox>
 
                             <!-- ================= TASK RUN DETAIL (secondary) ================= -->
-                            <TitledPane text="Task run detail" expanded="false" styleClass="stat-titled-pane">
+                            <TitledPane fx:id="taskRunDetailPane" text="Task run detail" expanded="false" visible="false" managed="false" styleClass="stat-titled-pane">
                                 <VBox spacing="10">
 
                                     <!-- Summary Cards -->

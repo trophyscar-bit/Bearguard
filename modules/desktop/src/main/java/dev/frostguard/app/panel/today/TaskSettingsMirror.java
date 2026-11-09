@@ -1,7 +1,9 @@
 package dev.frostguard.app.panel.today;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
+import dev.frostguard.app.shared.FieldValidationPresenter;
 import dev.frostguard.app.shared.PriorityListView;
+import dev.frostguard.app.shared.UtcDateTimeEditor;
 import javafx.beans.binding.Bindings;
 import javafx.beans.binding.BooleanBinding;
 import javafx.beans.value.ObservableValue;
@@ -36,23 +38,28 @@ final class TaskSettingsMirror {
     record Result(CheckBox toggle, List<Node> rows) {
     }
 
+    private static final String TAB_CONTENT_CLASS = "tab-content-area";
+
     private final Map<ToggleGroup, ToggleGroup> mirroredGroups = new HashMap<>();
     private final Map<Node, ConfigurationKeyEnum> registered;
     private final Map<ConfigurationKeyEnum, String> settingNames;
+    private final Map<Node, String> labels;
+    private final Map<String, Integer> captionUses = new HashMap<>();
 
     private TaskSettingsMirror(TaskSettingsIndex.Source source) {
-        registered = source.controller().registeredControls();
-        settingNames = source.controller().getRegisteredSettings();
+        registered = source.keys();
+        settingNames = source.names();
+        labels = source.labels();
+        for (Node control : source.controls()) {
+            captionUses.merge(labelFor(control), 1, Integer::sum);
+        }
     }
 
     static Result build(TaskSettingsIndex.Source source) {
         TaskSettingsMirror mirror = new TaskSettingsMirror(source);
         List<Node> rows = new ArrayList<>();
         for (Node control : source.controls()) {
-            Node row = mirror.rowFor(control);
-            if (row != null) {
-                rows.add(row);
-            }
+            rows.add(mirror.rowFor(control));
         }
         CheckBox toggle = source.activation() instanceof CheckBox real ? mirrorCheckBox(real, "") : null;
         return new Result(toggle, rows);
@@ -72,15 +79,18 @@ final class TaskSettingsMirror {
             row = labelled(control, mirrorCheckCombo(real));
         } else if (control instanceof PriorityListView real) {
             row = labelled(control, new PriorityListView(real));
+        } else if (control instanceof UtcDateTimeEditor real) {
+            row = labelled(control, real.compactMirror());
         } else {
-            return null;
+            // A row per control keeps a new control type visible instead of quietly missing.
+            row = new Label("Change this on the full settings page");
         }
         bindPresence(row, control);
         return row;
     }
 
     private Node labelled(Node control, Node mirror) {
-        Label label = new Label(labelFor(control));
+        Label label = new Label(captionFor(control));
         label.setWrapText(true);
         label.getStyleClass().add("today-setting-label");
         mirror.disableProperty().bind(control.disabledProperty());
@@ -114,6 +124,16 @@ final class TaskSettingsMirror {
     private static TextField mirrorTextField(TextField real) {
         TextField mirror = new TextField(real.getText());
         mirror.setPromptText(real.getPromptText());
+        // The page's error text is not in the panel, so a rejected value at least shows as invalid.
+        real.getStyleClass().addListener((ListChangeListener<String>) change -> {
+            if (real.getStyleClass().contains(FieldValidationPresenter.ERROR_CLASS)) {
+                if (!mirror.getStyleClass().contains(FieldValidationPresenter.ERROR_CLASS)) {
+                    mirror.getStyleClass().add(FieldValidationPresenter.ERROR_CLASS);
+                }
+            } else {
+                mirror.getStyleClass().remove(FieldValidationPresenter.ERROR_CLASS);
+            }
+        });
         real.textProperty().addListener((observable, previous, text) -> {
             if (!Objects.equals(mirror.getText(), text)) {
                 mirror.setText(text);
@@ -190,7 +210,10 @@ final class TaskSettingsMirror {
     private static void bindPresence(Node row, Node control) {
         List<ObservableValue<Boolean>> chain = new ArrayList<>();
         for (Node node = control; node != null; node = node.getParent()) {
-            chain.add(node.visibleProperty());
+            // A tab pane hides its unselected tabs, which says nothing about the option itself.
+            if (!node.getStyleClass().contains(TAB_CONTENT_CLASS)) {
+                chain.add(node.visibleProperty());
+            }
         }
         BooleanBinding visible = Bindings.createBooleanBinding(
                 () -> chain.stream().allMatch(ObservableValue::getValue), chain.toArray(new ObservableValue[0]));
@@ -198,7 +221,18 @@ final class TaskSettingsMirror {
         row.managedProperty().bind(visible);
     }
 
+    /** A caption repeated per squad relies on page headings the panel does not have. */
+    private String captionFor(Node control) {
+        String caption = labelFor(control);
+        ConfigurationKeyEnum key = registered.get(control);
+        String full = key == null ? null : settingNames.get(key);
+        return captionUses.get(caption) > 1 && full != null ? withoutTypeSuffix(full) : caption;
+    }
+
     private String labelFor(Node control) {
+        if (labels.containsKey(control)) {
+            return labels.get(control);
+        }
         if (control instanceof Labeled labeled && hasText(labeled.getText())) {
             return labeled.getText();
         }
@@ -207,7 +241,11 @@ final class TaskSettingsMirror {
             return beside;
         }
         String named = settingNames.get(registered.get(control));
-        return named == null ? "" : named.replaceFirst(" (Int|Bool|String|Json)$", "");
+        return named == null ? "" : withoutTypeSuffix(named);
+    }
+
+    private static String withoutTypeSuffix(String name) {
+        return name.replaceFirst(" (Int|Bool|String|Json)$", "");
     }
 
     private static String labelBeside(Node control) {

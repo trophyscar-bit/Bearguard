@@ -24,7 +24,7 @@ import java.util.function.Consumer;
 /** The 310px panel beside the timeline: one task's status, failure reasons, Run now and settings. */
 final class TaskInspectorPanel {
 
-    record Detail(String key, String name, TpDailyTaskEnum type, String status, String timeCaption, String timeText,
+    record Detail(String key, String name, TpDailyTaskEnum type, String customTask, String status, String timeCaption, String timeText,
                   String lastRun, List<String> failure, RunNowPolicy.Decision runNow, boolean following) {
     }
 
@@ -37,6 +37,7 @@ final class TaskInspectorPanel {
     private final Consumer<String> openScreen;
     private final Runnable onRun;
     private final Map<TpDailyTaskEnum, Prepared> preparedByTask = new HashMap<>();
+    private final Map<Node, Prepared> preparedByCustomCard = new HashMap<>();
     private final Button followButton = new Button("Follow running task");
     private final Label title = new Label();
     private final HBox header = new HBox(8);
@@ -51,7 +52,7 @@ final class TaskInspectorPanel {
     private final Label settingsCaption = sectionLabel("Settings");
     private final VBox settings = new VBox(7);
     private final Hyperlink allSettings = new Hyperlink();
-    private final Label noSettings = new Label("This task has no settings.");
+    private final Label noSettings = new Label();
 
     private TaskSettingsIndex index;
     private String shownKey;
@@ -107,6 +108,7 @@ final class TaskInspectorPanel {
     void attachSettings(TaskSettingsIndex settingsIndex) {
         index = settingsIndex;
         preparedByTask.clear();
+        preparedByCustomCard.clear();
         shownKey = null;
     }
 
@@ -147,7 +149,7 @@ final class TaskInspectorPanel {
         }
         runAfterNote = detail.runNow().afterRun();
         if (!sameTask) {
-            showSettings(detail.type());
+            showSettings(detail.type(), detail.customTask());
             shownKey = detail.key();
         }
     }
@@ -171,15 +173,16 @@ final class TaskInspectorPanel {
         }).toList());
     }
 
-    private void showSettings(TpDailyTaskEnum type) {
-        Optional<Prepared> prepared = prepare(type);
+    private void showSettings(TpDailyTaskEnum type, String customTask) {
+        Optional<Prepared> prepared = prepare(type, customTask);
         boolean hasRows = prepared.isPresent() && !prepared.get().mirror().rows().isEmpty();
         setShown(settingsCaption, hasRows);
         setShown(settings, hasRows);
         settings.getChildren().setAll(hasRows ? prepared.get().mirror().rows() : List.of());
-        setShown(noSettings, !hasRows && prepared.isEmpty());
-
         CheckBox toggle = prepared.map(value -> value.mirror().toggle()).orElse(null);
+        setShown(noSettings, !hasRows);
+        noSettings.setText(toggle == null ? "No settings for this task" : "No other settings for this task");
+
         if (toggle == null) {
             header.getChildren().setAll(title);
         } else {
@@ -193,9 +196,21 @@ final class TaskInspectorPanel {
         });
     }
 
-    private Optional<Prepared> prepare(TpDailyTaskEnum type) {
+    /** Run from the search box rather than this panel's button, so the note is set from outside. */
+    void showRunNote(String note) {
+        if (note != null) {
+            runNote.setText(note);
+        }
+    }
+
+    private Optional<Prepared> prepare(TpDailyTaskEnum type, String customTask) {
         if (index == null) {
             return Optional.empty();
+        }
+        if (customTask != null) {
+            // Keyed by the card's own switch, so a re-imported task gets a mirror of its new card.
+            return index.findCustom(customTask).map(source -> preparedByCustomCard.computeIfAbsent(
+                    source.activation(), card -> new Prepared(TaskSettingsMirror.build(source), source.pageTitle())));
         }
         Prepared cached = preparedByTask.get(type);
         if (cached != null) {

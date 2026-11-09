@@ -225,6 +225,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     private ConsoleLogLayoutController consoleLogLayoutController;
     private ProfileManagerLayoutController profileManagerLayoutController;
     private TodayLayoutController todayController;
+    private CustomTasksLayoutController customTasksCtrl;
     private StatisticsLayoutController statisticsController;
     private TabPane configTabs;
     private Button statisticsButton;
@@ -624,7 +625,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         ConsoleLogLayoutController logsCtrl = consoleLogLayoutController;
         ProfileManagerLayoutController profilesCtrl = profileManagerLayoutController;
         TaskManagerLayoutController taskCtrl = new TaskManagerLayoutController();
-        CustomTasksLayoutController customTasksCtrl = new CustomTasksLayoutController();
+        customTasksCtrl = new CustomTasksLayoutController();
 
         Parent logsPane = loadNode("ConsoleLogLayout", logsCtrl);
         Parent profilesPane = loadNode("ProfileManagerLayout", profilesCtrl);
@@ -649,6 +650,8 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
         todayController = new TodayLayoutController(taskCtrl, this::loadedProfileIdOrZero, this::openScreen);
         profileManagerLayoutController.addProfileLoadListener(todayController);
+        todayController.attachControlScreen(controlTabs);
+        onShowActions.put(todayController.root(), todayController::reattachControlScreen);
         Button todayButton = addWatchButton("Today", MaterialDesignC.CLOCK_OUTLINE, todayController.root());
 
         StatisticsLayoutController statsCtrl = new StatisticsLayoutController();
@@ -988,7 +991,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                         ? settingsOf(moduleControllers.get("Chat"), settingsPages.get("Chat")) : Map.of()));
         statisticsController.tabs().getTabs().forEach(tab -> indexTab(statisticsButton, statisticsController.tabs(), tab,
                 statisticsSearchTitle(tab), MaterialDesignC.CHART_BAR, Map.of()));
-        todayController.attachSettings(moduleControllers, settingsPages, moduleControllers.get("Events"));
+        todayController.attachSettings(moduleControllers, settingsPages, moduleControllers.get("Events"), customTasksCtrl);
 
         profileManagerLayoutController.addProfileLoadListener(this);
     }
@@ -1631,7 +1634,12 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
     @FXML
     public void handleButtonStartStop(ActionEvent event) { /* bind */
-        cancelAutoStart();
+        if (null != autoStartTimeline) {
+            // During the countdown this button is the way out, so the click must not start the bot.
+            cancelAutoStart();
+            setBotStatus("Auto-start cancelled");
+            return;
+        }
         Thread startStopThread = Thread.ofVirtual().unstarted(() -> {
             if (!estado) {
                 Platform.runLater(() -> {
@@ -1694,6 +1702,10 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         buttonStartStop.setText("Start Bot");
         buttonStartStop.setDisable(false);
         setBotStatus("Not started");
+        showStartRefusal(reason);
+    }
+
+    protected void showStartRefusal(String reason) {
         Alert alert = new Alert(Alert.AlertType.WARNING);
         alert.setTitle("Bot not started");
         alert.setHeaderText("The bot was not started");
@@ -1882,11 +1894,12 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         if (delaySeconds <= 0) return;
 
         autoStartSecondsRemaining = delaySeconds;
+        buttonStartStop.setText(countdownLabel(delaySeconds));
         autoStartTimeline = new Timeline(new KeyFrame(Duration.seconds(1), e -> {
             autoStartSecondsRemaining--;
             int mins = autoStartSecondsRemaining / 60;
             int secs = autoStartSecondsRemaining % 60;
-            buttonStartStop.setText(String.format("Start (%02d:%02d)", mins, secs));
+            buttonStartStop.setText(countdownLabel(autoStartSecondsRemaining));
             setBotStatus(String.format("Auto-start in %02d:%02d", mins, secs));
             if (autoStartSecondsRemaining <= 0) {
                 cancelAutoStart();
@@ -1904,6 +1917,11 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         }));
         autoStartTimeline.setCycleCount(Timeline.INDEFINITE);
         autoStartTimeline.play();
+    }
+
+    /** The button cancels the countdown, so it has to say so rather than offer to start. */
+    private static String countdownLabel(int seconds) {
+        return String.format("Cancel (%02d:%02d)", seconds / 60, seconds % 60);
     }
 
     private void cancelAutoStart() { /* internal */

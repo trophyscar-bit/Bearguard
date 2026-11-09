@@ -27,6 +27,15 @@ class TodayTimelineTest {
     }
 
     @Test
+    void everyClockOnThePageIsTwentyFourHour() {
+        LocalDateTime afternoon = LocalDateTime.of(2026, 11, 8, 13, 5);
+        assertEquals("13:05", TodayTimeline.clock(afternoon));
+        assertEquals("13:05", TodayTimeline.clockWithDay(afternoon, afternoon.plusHours(2)));
+        assertEquals("Sun 13:05", TodayTimeline.clockWithDay(afternoon, afternoon.plusDays(2)));
+        assertEquals("Nov 8 13:05", TodayTimeline.clockWithDay(afternoon, afternoon.plusDays(20)));
+    }
+
+    @Test
     void ordersPastThenNowThenRunningThenUpcomingAroundReset() {
         List<Item> items = TodayTimeline.build(List.of(
                 task("later", null, NOW.plusHours(3), false, false),

@@ -2567,3 +2567,60 @@
     -fx-font-size: 12px;
     -fx-text-fill: -fg-text-secondary;
 }
+
+.today-tabs {
+    -fx-padding: 8 12 4 12;
+}
+
+.today-tab {
+    -fx-font-size: 13px;
+    -fx-padding: 4 14;
+    -fx-background-radius: 6;
+    -fx-background-color: transparent;
+    -fx-text-fill: -fg-text-secondary;
+}
+
+.today-tab:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.06);
+}
+
+.today-tab:selected {
+    -fx-background-color: rgba(255, 255, 255, 0.12);
+    -fx-text-fill: -fg-text-primary;
+}
+
+.today-left {
+    -fx-padding: 8 8 0 12;
+}
+
+.today-search-results {
+    -fx-background-color: #1b1f29;
+    -fx-background-radius: 8;
+    -fx-border-color: -fg-border-subtle;
+    -fx-border-radius: 8;
+    -fx-padding: 6;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.5), 14, 0.2, 0, 3);
+}
+
+.today-search-scroll,
+.today-search-scroll > .viewport {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.today-search-row {
+    -fx-padding: 4 6;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+}
+
+.today-search-row:hover,
+.today-search-row-active {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+}
+
+.today-search-run {
+    -fx-font-size: 12px;
+    -fx-padding: 2 10;
+}

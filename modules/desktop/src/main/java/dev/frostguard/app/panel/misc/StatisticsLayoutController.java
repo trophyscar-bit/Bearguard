@@ -104,6 +104,7 @@ public class StatisticsLayoutController extends AbstractProfileController {
     @FXML private Button btnRefresh;
     @FXML private Button btnReset;
     @FXML private HBox hboxSummaryCards;
+    @FXML private TitledPane taskRunDetailPane;
     @FXML private TableView<JobMetrics> tableTasks;
     @FXML private TableColumn<JobMetrics, String> colTaskName;
     @FXML private TableColumn<JobMetrics, Number> colRuns;
@@ -384,6 +385,11 @@ public class StatisticsLayoutController extends AbstractProfileController {
         refreshPending = false;
 
         refreshEarnings();
+
+        // The section is hidden, so its cards and table are not built at all.
+        if (!taskRunDetailPane.isVisible()) {
+            return;
+        }
 
         String json = currentProfile.getConfiguration(ConfigurationKeyEnum.STATISTICS_JSON_STRING);
         ProfilesData stats = parseJsonToStats(json);

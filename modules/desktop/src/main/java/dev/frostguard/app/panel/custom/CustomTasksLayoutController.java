@@ -35,6 +35,8 @@ import java.util.*;
  */
 public class CustomTasksLayoutController {
 
+    private final Map<String, CustomTaskControls> controlsByTask = new HashMap<>();
+
     @FXML private VBox taskCardsContainer;
     @FXML private VBox emptyState;
     @FXML private ScrollPane tasksScrollPane;
@@ -63,6 +65,14 @@ public class CustomTasksLayoutController {
      * Restores previously imported/enabled custom tasks from CustomTaskService
      * persistence so the UI reflects the saved state on app restart.
      */
+    /** One task card's real controls, for the panels that show the same options elsewhere. */
+    public record CustomTaskControls(CheckBox enabled, Map<String, TextField> options) {
+    }
+
+    public Optional<CustomTaskControls> controlsFor(String className) {
+        return Optional.ofNullable(controlsByTask.get(className));
+    }
+
     private void restoreSavedTasks() {
         List<CustomTaskService.SavedTaskEntry> saved = customTaskService.getAllSavedEntries();
         for (CustomTaskService.SavedTaskEntry entry : saved) {
@@ -188,6 +198,7 @@ public class CustomTasksLayoutController {
         body.getStyleClass().add("custom-task-card-body");
 
         // Enable checkbox
+        Map<String, TextField> optionFields = new LinkedHashMap<>();
         CheckBox enableCheck = new CheckBox("Enable");
         enableCheck.getStyleClass().add("custom-task-checkbox");
         enableCheck.setSelected(initialEnabled);
@@ -214,12 +225,14 @@ public class CustomTasksLayoutController {
             Label firstExecutionLabel = new Label("First execution (UTC)");
             firstExecutionLabel.getStyleClass().add("custom-task-field-label");
             TextField firstExecutionField = new TextField(initialFirstExecutionUtc);
+            optionFields.put("First execution (UTC)", firstExecutionField);
             firstExecutionField.getStyleClass().add("custom-task-field");
             firstExecutionField.setPrefWidth(170);
             firstExecutionField.setMaxWidth(170);
             firstExecutionField.setPromptText("yyyy-MM-dd HH:mm");
 
             TextField followUpDelayField = new TextField(String.valueOf(initialFollowUpDelayHours));
+            optionFields.put("Follow-up delay (hours)", followUpDelayField);
 			followUpDelayField.setTextFormatter(nonNegativeIntegerFormatter());
             Label firstExecutionError = validationLabel();
             new ValidatedTextFieldBinding<>(
@@ -256,6 +269,7 @@ public class CustomTasksLayoutController {
         Label offsetLabel = new Label("Offset (minutes)");
         offsetLabel.getStyleClass().add("custom-task-field-label");
         TextField offsetField = new TextField(String.valueOf(initialOffset));
+        optionFields.put("Offset (minutes)", offsetField);
 		offsetField.setTextFormatter(nonNegativeIntegerFormatter());
         offsetField.getStyleClass().add("custom-task-field");
         offsetField.setPrefWidth(100);
@@ -277,6 +291,7 @@ public class CustomTasksLayoutController {
         Label priorityLabel = new Label("Priority");
         priorityLabel.getStyleClass().add("custom-task-field-label");
         TextField priorityField = new TextField(String.valueOf(initialPriority));
+        optionFields.put("Priority", priorityField);
         priorityField.getStyleClass().add("custom-task-field");
         priorityField.setPrefWidth(80);
         priorityField.setMaxWidth(80);
@@ -314,6 +329,7 @@ public class CustomTasksLayoutController {
         body.getChildren().addAll(enableBox, offsetBox, priorityBox, spacer, actionsBox);
 
         card.getChildren().addAll(header, divider, body);
+        controlsByTask.put(className, new CustomTaskControls(enableCheck, optionFields));
         taskCards.put(className, card);
 
         // Add the card before the empty state (which will be hidden)
@@ -335,6 +351,7 @@ public class CustomTasksLayoutController {
     }
 
     private void removeTask(String className) {
+        controlsByTask.remove(className);
         VBox card = taskCards.remove(className);
         if (card != null) {
             taskCardsContainer.getChildren().remove(card);
