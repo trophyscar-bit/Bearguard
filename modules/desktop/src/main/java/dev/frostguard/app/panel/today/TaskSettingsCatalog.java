@@ -33,6 +33,13 @@ final class TaskSettingsCatalog {
             TpDailyTaskEnum.ALLIANCE_SHOP, "Alliance Shop",
             TpDailyTaskEnum.TRAINING_TROOPS, "Training");
 
+    /**
+     * Pages holding unrelated features. A task on one of these lists only its own section; on
+     * every other page the panel lists the task's own options and then the rest of the page.
+     */
+    private static final Set<String> SHARED_PAGES = Set.of(
+            "City Events", "Extra City Events", "Alliance", "Deals", "General Shop", "Gem Shop");
+
     /** The task's own switch where {@link TpDailyTaskEnum#getConfigKey()} has none. */
     private static final Map<TpDailyTaskEnum, ConfigurationKeyEnum> SWITCH_OVERRIDES = Map.of(
             TpDailyTaskEnum.ALLIANCE_SHOP, ALLIANCE_SHOP_ENABLED_BOOL);
@@ -78,6 +85,10 @@ final class TaskSettingsCatalog {
 
     static boolean hasNoSettings(TpDailyTaskEnum task) {
         return NO_SETTINGS.contains(task);
+    }
+
+    static boolean isSharedPage(String title) {
+        return SHARED_PAGES.contains(title);
     }
 
     static String wholePage(TpDailyTaskEnum task) {

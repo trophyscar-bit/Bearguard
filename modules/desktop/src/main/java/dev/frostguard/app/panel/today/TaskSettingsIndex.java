@@ -117,7 +117,8 @@ final class TaskSettingsIndex {
         List<ConfigurationKeyEnum> exact = TaskSettingsCatalog.exactOptions(task);
         if (exact != null) {
             List<Node> controls = placed(exact);
-            return titleFor(placement, controls).map(title -> source(title, activation, controls));
+            return titleFor(placement, controls).map(title -> source(title, activation,
+                    withRestOfPage(controls, activation, title)));
         }
 
         String wholePage = TaskSettingsCatalog.wholePage(task);
@@ -127,7 +128,8 @@ final class TaskSettingsIndex {
             return Optional.empty();
         }
         List<Node> layoutControls = wholePage != null ? page.controls() : controlsOf(activation, page);
-        return Optional.of(source(page.title(), activation, withCatalogChanges(task, layoutControls, activation)));
+        return Optional.of(source(page.title(), activation,
+                withRestOfPage(withCatalogChanges(task, layoutControls, activation), activation, page.title())));
     }
 
     /** The options on the card of one custom task; custom tasks are not per-profile. */
@@ -141,6 +143,18 @@ final class TaskSettingsIndex {
             return new Source("Custom Tasks", Map.of(), Map.of(), labels, card.enabled(),
                     List.copyOf(card.options().values()));
         });
+    }
+
+    /** The task's own options first, so its quick-reference list starts with what it actually reads. */
+    private List<Node> withRestOfPage(List<Node> own, Node activation, String title) {
+        if (TaskSettingsCatalog.isSharedPage(title)) {
+            return own;
+        }
+        List<Node> all = new ArrayList<>(own);
+        pages.get(title).controls().stream()
+                .filter(control -> control != activation && !own.contains(control))
+                .forEach(all::add);
+        return all;
     }
 
     private Source source(String title, Node activation, List<Node> controls) {

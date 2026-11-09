@@ -41,12 +41,16 @@ final class TaskSettingsMirror {
     }
 
     private static final String TAB_CONTENT_CLASS = "tab-content-area";
+    private static final String CARD_CLASS = "content-card";
+    /** A longer label above a control is a description of the section, not its name. */
+    private static final int MAX_HEADING_LENGTH = 40;
 
     private final Map<ToggleGroup, ToggleGroup> mirroredGroups = new HashMap<>();
     private final Map<Node, ConfigurationKeyEnum> registered;
     private final Map<ConfigurationKeyEnum, String> settingNames;
     private final Map<Node, String> labels;
     private final Map<String, Integer> captionUses = new HashMap<>();
+    private final Map<String, Integer> headedCaptionUses = new HashMap<>();
     private final List<BooleanSupplier> dirtyChecks = new ArrayList<>();
 
     private TaskSettingsMirror(TaskSettingsIndex.Source source) {
@@ -55,6 +59,9 @@ final class TaskSettingsMirror {
         labels = source.labels();
         for (Node control : source.controls()) {
             captionUses.merge(labelFor(control), 1, Integer::sum);
+        }
+        for (Node control : source.controls()) {
+            headedCaptionUses.merge(headedCaption(control), 1, Integer::sum);
         }
     }
 
@@ -72,7 +79,7 @@ final class TaskSettingsMirror {
     private Node rowFor(Node control) {
         Node row;
         if (control instanceof CheckBox real) {
-            row = mirrorCheckBox(real, labelFor(control));
+            row = mirrorCheckBox(real, captionFor(control));
         } else if (control instanceof RadioButton real) {
             row = mirrorRadio(real);
         } else if (control instanceof TextField real) {
@@ -226,12 +233,55 @@ final class TaskSettingsMirror {
         row.managedProperty().bind(visible);
     }
 
-    /** A caption repeated per squad relies on page headings the panel does not have. */
+    /** A caption repeated per squad relies on page headings the panel does not have, so it gains them. */
     private String captionFor(Node control) {
         String caption = labelFor(control);
+        if (captionUses.get(caption) == 1) {
+            return caption;
+        }
+        String headed = headedCaption(control);
+        if (headedCaptionUses.get(headed) == 1) {
+            return headed;
+        }
         ConfigurationKeyEnum key = registered.get(control);
         String full = key == null ? null : settingNames.get(key);
-        return captionUses.get(caption) > 1 && full != null ? withoutTypeSuffix(full) : caption;
+        return full != null ? withoutTypeSuffix(full) : headed;
+    }
+
+    /** The control's caption after the headings above it on its page, such as "Land of Heroes, Squad 1: Infantry %". */
+    private String headedCaption(Node control) {
+        List<String> headings = new ArrayList<>();
+        boolean ownCaptionSkipped = labels.containsKey(control) || (control instanceof Labeled labeled && hasText(labeled.getText()));
+        for (Node node = control; node != null && node.getParent() instanceof Pane parent; node = parent) {
+            String above = parent instanceof GridPane grid ? labelInGridRow(grid, node) : lastLabelBefore(parent, node);
+            if (above != null && ownCaptionSkipped && above.length() <= MAX_HEADING_LENGTH) {
+                headings.add(0, shortHeading(above));
+            }
+            ownCaptionSkipped |= above != null;
+            if (parent.getStyleClass().contains(CARD_CLASS)) {
+                cardTitle(parent).ifPresent(title -> headings.add(0, shortHeading(title)));
+                break;
+            }
+        }
+        return headings.isEmpty() ? labelFor(control) : String.join(", ", headings) + ": " + labelFor(control);
+    }
+
+    private static java.util.Optional<String> cardTitle(Pane card) {
+        for (Node child : card.getChildren()) {
+            if (child instanceof Pane header && header.getStyleClass().stream().anyMatch(name -> name.startsWith("header-"))) {
+                return header.getChildren().stream()
+                        .filter(Labeled.class::isInstance)
+                        .map(node -> ((Labeled) node).getText())
+                        .filter(TaskSettingsMirror::hasText)
+                        .findFirst();
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** Headings carry a dash or bracket of description that a one-line caption has no room for. */
+    private static String shortHeading(String heading) {
+        return heading.replaceFirst("\\s*[\u2013\u2014].*$", "").replaceFirst("\\s*\\(.*\\)", "").trim();
     }
 
     private String labelFor(Node control) {

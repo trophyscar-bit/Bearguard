@@ -6,12 +6,19 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.app.shared.AbstractProfileController;
 import dev.frostguard.app.shared.JavaFxToolkit;
 import dev.frostguard.app.shared.SceneGraphWalk;
+import dev.frostguard.app.panel.combat.BearTrapLayoutController;
+import dev.frostguard.app.panel.dailies.LabyrinthLayoutController;
+import dev.frostguard.app.panel.profile.ConfigAux;
+import dev.frostguard.app.panel.profile.ProfileAux;
 import javafx.application.Platform;
+import javafx.fxml.FXMLLoader;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.Label;
+import javafx.scene.control.Labeled;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.VBox;
@@ -44,6 +51,10 @@ class TaskSettingsMirrorTest {
             textFieldMappings.put(field, key);
             root.getChildren().add(field);
             return field;
+        }
+
+        void startListening() {
+            initializeChangeEvents();
         }
 
         CheckBox check(ConfigurationKeyEnum key) {
@@ -148,7 +159,7 @@ class TaskSettingsMirrorTest {
             TaskSettingsIndex.Source source = indexOf("Labyrinth", page).find(TpDailyTaskEnum.LABYRINTH_RAID).orElseThrow();
 
             assertSame(raidSwitch, source.activation());
-            assertEquals(List.of(research, gearForge), source.controls());
+            assertEquals(List.of(research, gearForge, source.controls().get(2)), source.controls());
             assertEquals(LABYRINTH_RESEARCH_INFANTRY_INT, source.keys().get(research));
             assertEquals(LABYRINTH_GEARFORGE_MARKSMAN_INT, source.keys().get(gearForge));
         });
@@ -165,6 +176,99 @@ class TaskSettingsMirrorTest {
 
             assertSame(shopSwitch, source.activation());
         });
+    }
+
+    @Test
+    void aTaskListsItsOwnOptionsFirstThenTheRestOfThePage() throws Exception {
+        onFx(() -> {
+            FakePage page = new FakePage();
+            CheckBox food = page.check(PET_SKILL_FOOD_BOOL);
+            TextField resource = page.text(PET_SKILL_GATHERING_RESOURCE_STRING, "Wood");
+            CheckBox stamina = page.check(PET_SKILL_STAMINA_BOOL);
+
+            TaskSettingsIndex.Source source = indexOf("Pets", page).find(TpDailyTaskEnum.PET_SKILL_STAMINA).orElseThrow();
+
+            assertSame(stamina, source.activation());
+            assertEquals(List.of(food, resource), source.controls());
+        });
+    }
+
+    @Test
+    void aSharedPageKeepsATaskToItsOwnSection() throws Exception {
+        onFx(() -> {
+            FakePage page = new FakePage();
+            CheckBox chests = page.check(ALLIANCE_CHESTS_BOOL);
+            page.check(ALLIANCE_TECH_BOOL);
+
+            TaskSettingsIndex.Source source = indexOf("Alliance", page).find(TpDailyTaskEnum.ALLIANCE_CHESTS).orElseThrow();
+
+            assertSame(chests, source.activation());
+            assertTrue(source.controls().stream().noneMatch(CheckBox.class::isInstance));
+        });
+    }
+
+    @Test
+    void repeatedCaptionsTakeThePageHeadingsAndNeverAnExampleNumber() throws Exception {
+        onFx(() -> {
+            FXMLLoader loader = new FXMLLoader(TaskSettingsMirrorTest.class.getResource("/layout/LabyrinthLayout.fxml"));
+            LabyrinthLayoutController controller = new LabyrinthLayoutController();
+            loader.setController(controller);
+            Parent page = loader.load();
+
+            TaskSettingsIndex.Source source = new TaskSettingsIndex(Map.of("Labyrinth", controller), Map.of("Labyrinth", page), null, null)
+                    .find(TpDailyTaskEnum.LABYRINTH).orElseThrow();
+            TaskSettingsMirror.Result result = TaskSettingsMirror.build(source);
+
+            List<String> captions = result.rows().stream()
+                    .map(row -> row instanceof VBox box ? ((Label) box.getChildren().get(0)).getText() : ((Labeled) row).getText())
+                    .toList();
+            assertTrue(captions.contains("Land of Heroes, Squad 1: Infantry %"), captions.toString());
+            assertTrue(captions.stream().noneMatch(caption -> caption.matches("[\\d.,% ]*")), captions.toString());
+            assertEquals(captions.size(), captions.stream().distinct().count(), captions.toString());
+        });
+    }
+
+    /** Showing the Bear Trap page's options, swapping away and back, and loading profiles must save nothing. */
+    @Test
+    void showingAndSwappingPanelsWritesNothing() throws Exception {
+        List<String> writes = new ArrayList<>();
+        onFx(() -> {
+            FXMLLoader loader = new FXMLLoader(TaskSettingsMirrorTest.class.getResource("/layout/BearTrapLayout.fxml"));
+            BearTrapLayoutController bear = new BearTrapLayoutController();
+            loader.setController(bear);
+            Parent bearRoot = loader.load();
+            bear.attachProfileListener((key, value) -> writes.add("bear " + key + "=" + value));
+            FakePage pets = new FakePage();
+            pets.attachProfileListener((key, value) -> writes.add("pets " + key + "=" + value));
+            pets.check(PET_SKILL_FOOD_BOOL);
+            pets.check(PET_SKILL_STAMINA_BOOL);
+            pets.startListening();
+            ProfileAux profile = new ProfileAux(1L, "One", "1", true, 50L, "", 0L);
+            profile.setConfigs(List.of(
+                    new ConfigAux(BEAR_TRAP_EVENT_BOOL.name(), "true"),
+                    new ConfigAux(BEAR_TRAP_JOIN_RALLY_BOOL.name(), "true"),
+                    new ConfigAux(BEAR_TRAP_JOIN_FLAG_INT.name(), "1,2,3"),
+                    new ConfigAux(BEAR_TRAP_JOIN_TROOP_FLAG_STRING.name(), "4,5,6"),
+                    new ConfigAux(BEAR_TRAP_PREPARATION_TIME_INT.name(), "10"),
+                    new ConfigAux(BEAR_TRAP_SCHEDULE_DATETIME_STRING.name(), "10-11-2026 19:00")));
+            bear.onProfileLoad(profile);
+            pets.onProfileLoad(profile);
+
+            Map<String, Parent> roots = Map.of("Bear Trap", bearRoot, "Pets", pets.root);
+            TaskSettingsIndex index = new TaskSettingsIndex(Map.of("Bear Trap", bear, "Pets", pets), roots, null, null);
+            withPanel(panel -> {
+                inFocusedWindow(panel.root());
+                panel.show(detail("bear", TpDailyTaskEnum.BEAR_TRAP));
+                panel.show(detail("pet", TpDailyTaskEnum.PET_SKILL_STAMINA));
+                panel.show(detail("bear", TpDailyTaskEnum.BEAR_TRAP));
+                panel.root().applyCss();
+                bear.onProfileLoad(profile);
+                panel.show(detail("pet", TpDailyTaskEnum.PET_SKILL_STAMINA));
+            }, new ArrayList<>(), index);
+        });
+        onFx(() -> { });
+
+        assertEquals(List.of(), writes);
     }
 
     private static TaskInspectorPanel.Detail detail(String key, TpDailyTaskEnum type) {

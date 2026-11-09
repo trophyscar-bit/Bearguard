@@ -127,7 +127,8 @@ final class TaskInspectorPanel {
      * A focused checkbox does not count: it has nothing half-done and would stall following forever.
      */
     boolean editInProgress() {
-        if (shownMirror != null && shownMirror.dirty().getAsBoolean()) {
+        // The list is long enough that swapping it under the pointer would land a click on another option.
+        if (settings.isHover() || (shownMirror != null && shownMirror.dirty().getAsBoolean())) {
             return true;
         }
         Scene scene = root.getScene();
