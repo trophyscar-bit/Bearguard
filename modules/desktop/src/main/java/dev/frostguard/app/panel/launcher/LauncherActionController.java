@@ -10,12 +10,16 @@ import dev.frostguard.engine.service.ProdInstanceGuard;
 import dev.frostguard.engine.service.ScheduleService;
 import javafx.application.Platform;
 import javafx.collections.ObservableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 
 public class LauncherActionController implements BotStateListener, QueueStateListener {
+
+    private static final Logger logger = LoggerFactory.getLogger(LauncherActionController.class);
 
     private final LauncherLayoutController layoutController;
     private final ScheduleService scheduleService;
@@ -50,6 +54,7 @@ public class LauncherActionController implements BotStateListener, QueueStateLis
             Platform.runLater(() -> onStartRefused.accept(refusal));
             return;
         }
+        logger.info("Start guard passed: no production instance is running");
         launchEngine.run();
     }
 

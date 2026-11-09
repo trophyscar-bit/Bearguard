@@ -187,6 +187,7 @@ final class TaskInspectorPanel {
         if (!sameTask) {
             showSettings(detail.type(), detail.customTask());
             shownKey = detail.key();
+            root.setVvalue(0);
         }
     }
 

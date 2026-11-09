@@ -2428,6 +2428,21 @@
     -fx-text-fill: -fg-text-secondary;
 }
 
+.today-row-past {
+    -fx-padding: 1 8;
+}
+
+.today-row-past .today-name,
+.today-row-past .today-time,
+.today-row-past .today-note {
+    -fx-font-size: 11px;
+}
+
+.today-row-pulse {
+    -fx-background-color: #81c784;
+    -fx-background-radius: 5;
+}
+
 .today-dot {
     -fx-background-radius: 5;
 }

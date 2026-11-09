@@ -143,6 +143,14 @@ class TodayTimelineTest {
     }
 
     @Test
+    void aScrolledViewKeepsItsPixelOffsetWhenRowsComeAndGo() {
+        assertEquals(0.25, TodayTimeline.sameScrollOffset(0.5, 100, 200), 0.0001);
+        assertEquals(0.0, TodayTimeline.sameScrollOffset(0.0, 100, 200), 0.0001);
+        assertEquals(1.0, TodayTimeline.sameScrollOffset(1.0, 200, 100), 0.0001);
+        assertEquals(0.0, TodayTimeline.sameScrollOffset(0.5, 100, -5), 0.0001);
+    }
+
+    @Test
     void aPlaceholderDateIsNotAnUpcomingRun() {
         Task placeholder = task("never", null, LocalDateTime.of(2098, 12, 31, 0, 0), false, false);
 

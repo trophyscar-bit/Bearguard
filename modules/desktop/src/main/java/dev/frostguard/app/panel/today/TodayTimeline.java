@@ -27,6 +27,9 @@ public final class TodayTimeline {
     public record Item(Kind kind, LocalDateTime time, Task task) {
     }
 
+    /** The one wording for a task that is executing, on its row, in search and in the panel. */
+    public static final String RUNNING_NOW = "Running now";
+
     private static final int MAX_PAST = 10;
     private static final Duration OVERDUE_AFTER = Duration.ofMinutes(15);
     /** Tasks with no real next run hold a far-future placeholder such as 2098-12-31. */
@@ -51,7 +54,7 @@ public final class TodayTimeline {
     /** The "Last run" text, held to the same rule as the timeline's past section. */
     public static String lastRunText(Task task, LocalDateTime now) {
         if (task.executing()) {
-            return "Running now";
+            return RUNNING_NOW;
         }
         if (task.dueNow()) {
             return "Waiting to run";
@@ -96,6 +99,11 @@ public final class TodayTimeline {
                 .filter(task -> !task.last().isBefore(lastReset) && !task.last().isAfter(now))
                 .sorted(Comparator.comparing(Task::last).reversed())
                 .toList();
+    }
+
+    /** The scroll fraction that leaves the view at the same pixel offset after the content height changed. */
+    public static double sameScrollOffset(double fraction, double overflowBefore, double overflowAfter) {
+        return overflowAfter <= 0 ? 0 : Math.min(1, fraction * overflowBefore / overflowAfter);
     }
 
     public static boolean hasNextRun(Task task, LocalDateTime now) {

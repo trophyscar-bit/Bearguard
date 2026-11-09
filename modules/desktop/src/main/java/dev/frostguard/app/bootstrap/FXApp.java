@@ -14,7 +14,9 @@ import javafx.fxml.FXMLLoader;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.control.Label;
 import javafx.scene.image.Image;
+import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
@@ -48,24 +50,57 @@ public class FXApp extends Application {
     }
 
     @Override
-    public void start(Stage stage) throws IOException {
+    public void start(Stage stage) {
         if (!ChannelOnboarding.showBeforeStartup()) {
             Platform.exit();
             return;
         }
-        Main.initializeRuntimeServices(false);
         preferences = WorkspacePreferences.currentNode("window");
         Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
+        showOpeningWindow(stage);
 
+        // Opening the database and compiling custom tasks takes seconds and needs no toolkit, so
+        // the window is on screen first and those run while it paints.
+        Thread services = new Thread(() -> {
+            try {
+                Main.initializeRuntimeServices(false);
+                Platform.runLater(() -> finishStartupOrExit(stage));
+            } catch (RuntimeException failure) {
+                exitAfterStartupFailure(failure);
+            }
+        }, "startup-services");
+        services.setDaemon(true);
+        services.start();
+    }
+
+    private void showOpeningWindow(Stage stage) {
+        Label opening = new Label("Opening Bearguard...");
+        opening.setTextFill(Color.web("#9aa5b8"));
+        Scene scene = new Scene(new StackPane(opening), DEFAULT_W, DEFAULT_H, Color.web("#12161f"));
+        configureStage(stage, scene);
+        restoreWindowBounds(stage);
+        stage.show();
+    }
+
+    private void finishStartupOrExit(Stage stage) {
+        try {
+            finishStartup(stage);
+        } catch (IOException | RuntimeException failure) {
+            exitAfterStartupFailure(failure);
+        }
+    }
+
+    private void exitAfterStartupFailure(Exception failure) {
+        logger.error("Startup failure: ", failure);
+        ApplicationLifecycle.exitNormally(1);
+    }
+
+    private void finishStartup(Stage stage) throws IOException {
         LauncherLayoutController controller = new LauncherLayoutController(stage);
         Parent root = loadLauncherRoot(controller);
-        Scene scene = createMainScene(root);
-
-        configureStage(stage, scene);
-        stage.show();
+        stage.setScene(createMainScene(root));
         GiftCodeAutomationService.getInstance().start();
         ScheduleService.obtain().addEngineObserver(new BotRunStateFileWriter());
-        restoreWindowBounds(stage);
         trackNormalWindowBounds(stage);
         WindowsWindowManager.install(stage).ifPresent(controller::enableNativeWindowing);
         maybeAutoStart(controller);
