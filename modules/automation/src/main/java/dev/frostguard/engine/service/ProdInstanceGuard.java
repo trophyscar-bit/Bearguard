@@ -115,6 +115,14 @@ public final class ProdInstanceGuard {
         };
     }
 
+    /** {@link #startRefusal()} without the short cache, for a check that must be as of now. */
+    public static String freshStartRefusal() {
+        synchronized (ProdInstanceGuard.class) {
+            cachedState = null;
+        }
+        return startRefusal();
+    }
+
     /** Whether this instance may do process-wide things that would disturb a running production. */
     public static boolean mayAffectSharedProcesses() {
         return !isSeparateInstance() || prodState() == ProdState.NOT_RUNNING;

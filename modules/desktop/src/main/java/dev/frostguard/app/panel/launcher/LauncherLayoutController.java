@@ -238,6 +238,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     private boolean allQueuesPaused = false;
     final private Map<Long, QueueProfileStateData> activeQueueStates = new HashMap<>();
     private Timeline autoStartTimeline;
+    private AutoStartGuardWatch autoStartGuard;
     private Timeline uptimeTimeline;
     private long uptimeStartedAtNanos;
     private int autoStartSecondsRemaining;
@@ -297,7 +298,6 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         buttonStartStop.setDisable(false);
         buttonPauseResume.setDisable(true);
         configurePauseMenu();
-        scheduleAutoStart();
         initializeQuickNav();
         initializeSearch();
         setupSocialIcons();
@@ -1892,13 +1892,18 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
         autoStartSecondsRemaining = delaySeconds;
         buttonStartStop.setText(countdownLabel(delaySeconds));
+        autoStartGuard = AutoStartGuardWatch.forProduction();
+        autoStartGuard.begin();
         autoStartTimeline = new Timeline(new KeyFrame(Duration.seconds(1), e -> {
             autoStartSecondsRemaining--;
             int mins = autoStartSecondsRemaining / 60;
             int secs = autoStartSecondsRemaining % 60;
             buttonStartStop.setText(countdownLabel(autoStartSecondsRemaining));
             setBotStatus(String.format("Auto-start in %02d:%02d", mins, secs));
+            autoStartGuard.onSecondsRemaining(autoStartSecondsRemaining);
             if (autoStartSecondsRemaining <= 0) {
+                AutoStartGuardWatch guardWatch = autoStartGuard;
+                autoStartGuard = null;
                 cancelAutoStart("the countdown finished");
                 startAttempted = true;
                 Thread autoStartThread = Thread.ofVirtual().unstarted(() -> {
@@ -1908,7 +1913,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                         buttonStartStop.setDisable(true);
                     });
                     try {
-                        actionController.startBot();
+                        actionController.startBot(guardWatch.verdict());
                     } catch (RuntimeException failure) {
                         // A throw on this thread reached nothing, leaving the button on "Starting...".
                         logger.error("Auto-start failed", failure);
@@ -1929,6 +1934,10 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     }
 
     private void cancelAutoStart(String reason) { /* internal */
+        if (null != autoStartGuard) {
+            autoStartGuard.stop();
+            autoStartGuard = null;
+        }
         if (null != autoStartTimeline) {
             logger.info("Auto-start countdown ended: {}", reason);
             autoStartTimeline.stop();

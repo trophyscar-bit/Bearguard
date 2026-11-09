@@ -49,7 +49,11 @@ public class LauncherActionController implements BotStateListener, QueueStateLis
 
     /** Runs on the start/stop worker thread, so the blocking production check stays off the FX thread. */
     public void startBot() {
-        String refusal = ProdInstanceGuard.startRefusal();
+        startBot(ProdInstanceGuard.startRefusal());
+    }
+
+    /** For a caller that already holds the production check's answer, so it is not asked twice. */
+    public void startBot(String refusal) {
         if (refusal != null) {
             Platform.runLater(() -> onStartRefused.accept(refusal));
             return;
