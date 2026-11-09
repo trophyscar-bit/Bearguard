@@ -504,7 +504,9 @@ public class TaskQueue {
             present.setProfile(profile);
             present.clearStaminaDeferral();
             present.reschedule(LocalDateTime.now());
-            present.setRecurring(recurring);
+            // A one-off request must not end a task's schedule. INITIALIZE is the exception: the
+            // slot handover queues it as a one-off on purpose.
+            present.setRecurring(recurring || (present.isRecurring() && kind != TpDailyTaskEnum.INITIALIZE));
             taskBacklog.offer(present);
             enqueued = present;
             emitInfoTask(present, "Rescheduled " + kind + " to NOW");

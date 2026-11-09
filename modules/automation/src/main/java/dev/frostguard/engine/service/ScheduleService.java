@@ -67,7 +67,7 @@ public class ScheduleService {
 	private final ProfileRepository profiles = ProfileRepository.getRepository();
 	private final ConfigRepository configs = ConfigRepository.getRepository();
 
-	private ScheduleService() {
+	ScheduleService() {
 	}
 
 	public static ScheduleService obtain() {
@@ -560,7 +560,7 @@ public class ScheduleService {
 		}
 	}
 
-	private boolean initializeBridge() {
+	boolean initializeBridge() {
 		try {
 			EmulatorController.getInstance().initialize();
 			return true;

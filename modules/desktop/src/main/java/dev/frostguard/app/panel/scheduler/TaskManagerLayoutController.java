@@ -452,7 +452,7 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 	 * Every custom task shares one task id, so the label is what tells their rows apart. A built-in
 	 * task can also carry a labelled row left by an older version; its unlabelled row is the current one.
 	 */
-	private static DailyTaskStatusData storedStatusFor(TpDailyTaskEnum task, String customTaskName,
+	static DailyTaskStatusData storedStatusFor(TpDailyTaskEnum task, String customTaskName,
 			List<DailyTaskStatusData> statuses) {
 		List<DailyTaskStatusData> sameTask = statuses.stream()
 				.filter(status -> status.getIdTpDailyTask() == task.getId())

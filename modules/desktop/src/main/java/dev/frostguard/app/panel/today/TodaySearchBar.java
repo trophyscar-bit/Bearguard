@@ -25,10 +25,12 @@ import java.util.function.Predicate;
 final class TodaySearchBar {
 
     /** One result: what the row shows and what its button may do. */
-    record Hit(String key, String name, String state, RunNowPolicy.Decision decision) {
+    record Hit(String key, String name, String state, boolean switchedOn, RunNowPolicy.Decision decision) {
     }
 
     private static final double MAX_RESULTS_HEIGHT = 300;
+    private static final String PICK_FIRST_HINT = "Several tasks match. Press the arrow keys to pick one, then Enter.";
+    private static final String SWITCHED_OFF_HINT = "This task is switched off. Use its Run once button to run it.";
 
     private final Function<String, List<Hit>> search;
     private final Consumer<String> onSelect;
@@ -40,6 +42,7 @@ final class TodaySearchBar {
 
     private List<Hit> hits = List.of();
     private int highlighted = -1;
+    private boolean pickedWithArrows;
 
     /**
      * @param search   the results for what was typed
@@ -94,7 +97,9 @@ final class TodaySearchBar {
         if (isOpen()) {
             String keep = highlighted >= 0 && highlighted < hits.size() ? hits.get(highlighted).key() : null;
             hits = search.apply(field.getText());
-            highlighted = indexOf(keep);
+            int kept = indexOf(keep);
+            pickedWithArrows &= kept >= 0;
+            highlighted = kept >= 0 ? kept : soleMatchIndex();
             render();
         }
     }
@@ -103,6 +108,7 @@ final class TodaySearchBar {
         setShown(dropdown, false);
         hits = List.of();
         highlighted = -1;
+        pickedWithArrows = false;
     }
 
     private int indexOf(String key) {
@@ -111,7 +117,12 @@ final class TodaySearchBar {
                 return index;
             }
         }
-        return hits.isEmpty() ? -1 : 0;
+        return -1;
+    }
+
+    /** Only an unambiguous match is highlighted unasked, because the highlight is what Enter runs. */
+    private int soleMatchIndex() {
+        return hits.size() == 1 ? 0 : -1;
     }
 
     private void onTextChanged(String text) {
@@ -120,17 +131,17 @@ final class TodaySearchBar {
             return;
         }
         hits = search.apply(text);
-        highlighted = hits.isEmpty() ? -1 : 0;
+        highlighted = soleMatchIndex();
+        pickedWithArrows = false;
         setShown(dropdown, true);
         render();
-        selectHighlighted();
     }
 
     private void onKeyPressed(KeyEvent event) {
         switch (event.getCode()) {
             case DOWN -> move(1);
             case UP -> move(-1);
-            case ENTER -> runHighlighted();
+            case ENTER -> runOnEnter();
             case ESCAPE -> close();
             default -> {
                 return;
@@ -143,7 +154,8 @@ final class TodaySearchBar {
         if (!isOpen() || hits.isEmpty()) {
             return;
         }
-        highlighted = Math.floorMod(highlighted + step, hits.size());
+        highlighted = highlighted < 0 && step < 0 ? hits.size() - 1 : Math.floorMod(highlighted + step, hits.size());
+        pickedWithArrows = true;
         render();
         selectHighlighted();
     }
@@ -154,10 +166,26 @@ final class TodaySearchBar {
         }
     }
 
-    private void runHighlighted() {
-        if (isOpen() && highlighted >= 0) {
-            run(hits.get(highlighted));
+    /** Enter acts on the live account, so a partial name must not be enough to start a task. */
+    private void runOnEnter() {
+        if (!isOpen() || hits.isEmpty()) {
+            return;
         }
+        if (hits.size() > 1 && !pickedWithArrows) {
+            showHint(PICK_FIRST_HINT);
+            return;
+        }
+        Hit hit = hits.get(highlighted);
+        if (hit.switchedOn()) {
+            run(hit);
+        } else {
+            showHint(SWITCHED_OFF_HINT);
+        }
+    }
+
+    private void showHint(String hint) {
+        footer.setText(hint);
+        setShown(footer, true);
     }
 
     private void run(Hit hit) {
@@ -208,6 +236,7 @@ final class TodaySearchBar {
         }
         row.setOnMouseClicked(event -> {
             highlighted = index;
+            pickedWithArrows = false;
             render();
             selectHighlighted();
         });

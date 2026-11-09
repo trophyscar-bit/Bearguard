@@ -126,7 +126,7 @@ public class TaskManagerActionController implements TaskStatusChangeListener {
 			return;
 		}
 
-		if (task.scheduledProperty().get()) {
+		if (isOnSchedule(task, queue)) {
 			scheduleTaskInQueue(queue, task, LocalDateTime.now(), true, profile);
 			emitTaskLog(profile, "TaskExecutor",
 					"Executed scheduled task " + task.getTaskEnum().getName() + " and marked as recurring");
@@ -135,6 +135,16 @@ public class TaskManagerActionController implements TaskStatusChangeListener {
 
 		executeTaskNow(task, false);
 		emitTaskLog(profile, "TaskExecutor", "Executed task " + task.getTaskEnum().getName() + " one time");
+	}
+
+	/** Asks the queue as well: the row can be a reload behind it, and a one-off run ends a task's schedule. */
+	static boolean isOnSchedule(TaskManagerAux task, TaskQueue queue) {
+		if (task.scheduledProperty().get()) {
+			return true;
+		}
+		return task.getTaskEnum() == TpDailyTaskEnum.CUSTOM_TASK
+				? queue.isTaskQueued(task.getCustomTaskName())
+				: queue.isTaskQueued(task.getTaskEnum());
 	}
 
 	public void removeTask(TaskManagerAux task, Runnable onSuccess) {

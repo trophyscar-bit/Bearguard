@@ -104,4 +104,17 @@ class TodayTimelineTest {
         assertEquals("Run once", RunNowPolicy.decide(true, false, false, false).label());
         assertEquals("Run now", RunNowPolicy.decide(true, false, false, true).label());
     }
+
+    @Test
+    void lastRunIsNotShownWhileTheTaskIsQueuedOrRunning() {
+        LocalDateTime stamped = NOW.minusSeconds(5);
+        assertEquals("Running now", TodayTimeline.lastRunText(task("a", stamped, NOW, true, false), NOW));
+        assertEquals("Waiting to run", TodayTimeline.lastRunText(task("a", stamped, NOW, false, true), NOW));
+    }
+
+    @Test
+    void lastRunIsShownOnceTheTaskHasFinished() {
+        assertEquals("21:00", TodayTimeline.lastRunText(task("a", NOW.withHour(21).withMinute(0), NOW.plusHours(1), false, false), NOW));
+        assertEquals("Never", TodayTimeline.lastRunText(task("a", null, NOW.plusHours(1), false, false), NOW));
+    }
 }

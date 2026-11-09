@@ -87,10 +87,9 @@ public final class TodayLayoutController implements IProfileLoadListener {
 
     private Label nowLabel;
     private ProfileAux profile;
-    private String selectedKey;
+    private final TodayPanelSelection selection = new TodayPanelSelection();
     private String runningKey;
     private boolean scrollToNow = true;
-    private boolean following = true;
     private boolean dirty = true;
     private int secondsSinceReload;
     private long generation;
@@ -99,7 +98,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
                                  Consumer<String> openScreen) {
         this.taskManager = taskManager;
         this.loadedProfileId = loadedProfileId;
-        inspector = new TaskInspectorPanel(openScreen, this::resumeFollowing, this::runSelected);
+        inspector = new TaskInspectorPanel(openScreen, this::resumeFollowing, this::runSelected, this::requestReload);
         search = new TodaySearchBar(this::searchTasks, this::selectFromSearch, this::runFromSearch);
         buildLayout();
         clock.setCycleCount(Animation.INDEFINITE);
@@ -214,8 +213,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
     @Override
     public void onProfileLoad(ProfileAux loaded) {
         profile = loaded;
-        selectedKey = null;
-        following = true;
+        selection.reset();
         search.close();
         requestReload();
     }
@@ -308,16 +306,12 @@ public final class TodayLayoutController implements IProfileLoadListener {
         }
         String previousRunning = runningKey;
         runningKey = tasks.stream().filter(Task::executing).map(Task::key).findFirst().orElse(null);
-        scrollToNow |= following && runningKey != null && !runningKey.equals(previousRunning);
+        scrollToNow |= selection.following() && runningKey != null && !runningKey.equals(previousRunning);
 
         List<Item> items = TodayTimeline.build(tasks, now, GameTimeUtils.dailyResetTime());
-        if (following && runningKey != null) {
-            selectedKey = runningKey;
-        }
-        if (selectedKey == null || !tasksByKey.containsKey(selectedKey)) {
-            selectedKey = items.stream().filter(item -> item.task() != null && item.kind() != Kind.PAST)
-                    .map(item -> item.task().key()).findFirst().orElse(null);
-        }
+        selection.onReload(runningKey, inspector.editInProgress(), tasksByKey::containsKey,
+                () -> items.stream().filter(item -> item.task() != null && item.kind() != Kind.PAST)
+                        .map(item -> item.task().key()).findFirst().orElse(null));
         renderSummary(failures);
         renderTimeline(items, now);
         showInspector(profileId, now);
@@ -497,7 +491,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         if (item.kind() == Kind.PAST) {
             box.getStyleClass().add("today-row-past");
         }
-        if (task.key().equals(selectedKey)) {
+        if (task.key().equals(selection.selectedKey())) {
             box.getStyleClass().add("today-row-selected");
         }
         box.setOnMouseClicked(event -> onRowClicked(task.key()));
@@ -542,21 +536,17 @@ public final class TodayLayoutController implements IProfileLoadListener {
     }
 
     private void onRowClicked(String key) {
-        following = key.equals(runningKey);
-        selectedKey = key;
+        selection.clicked(key, runningKey);
         requestReload();
     }
 
     private void resumeFollowing() {
-        following = true;
-        if (runningKey != null) {
-            selectedKey = runningKey;
-        }
+        selection.resumeFollowing(runningKey);
         requestReload();
     }
 
     private void runSelected() {
-        TaskManagerAux row = rowsByKey.get(selectedKey);
+        TaskManagerAux row = rowsByKey.get(selection.selectedKey());
         if (row != null) {
             taskManager.runTaskNow(row);
             requestReload();
@@ -576,7 +566,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
                         .thenComparing(Task::name))
                 .limit(MAX_SEARCH_RESULTS)
                 .map(task -> new TodaySearchBar.Hit(task.key(), task.name(), searchState(task, now),
-                        runDecision(task, rowsByKey.get(task.key()))))
+                        rowsByKey.get(task.key()).isScheduled(), runDecision(task, rowsByKey.get(task.key()))))
                 .toList();
     }
 
@@ -591,8 +581,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
     }
 
     private void selectFromSearch(String key) {
-        following = false;
-        selectedKey = key;
+        selection.pin(key);
         showInspector(currentProfileId(), LocalDateTime.now());
     }
 
@@ -607,8 +596,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         if (!decision.enabled()) {
             return false;
         }
-        selectedKey = key;
-        following = false;
+        selection.pin(key);
         taskManager.runTaskNow(row);
         inspector.showRunNote(decision.afterRun());
         requestReload();
@@ -616,6 +604,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
     }
 
     private void showInspector(Long profileId, LocalDateTime now) {
+        String selectedKey = selection.selectedKey();
         Task task = selectedKey == null ? null : tasksByKey.get(selectedKey);
         if (task == null) {
             inspector.showNothing();
@@ -628,8 +617,8 @@ public final class TodayLayoutController implements IProfileLoadListener {
                 statusOf(task, botRunning, now),
                 task.executing() ? "Started" : "Scheduled",
                 task.executing() ? startedText(profileId, task) : scheduledText(task, now),
-                task.last() == null ? "Never" : dayClock(task.last()),
-                failureLines.getOrDefault(task.key(), List.of()), runNow, following));
+                TodayTimeline.lastRunText(task, now),
+                failureLines.getOrDefault(task.key(), List.of()), runNow, selection.following()));
     }
 
     private String startedText(Long profileId, Task task) {

@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 
 /**
  * Builds a compact second set of controls wired to a settings page's real ones. Each page is one
@@ -35,7 +36,8 @@ import java.util.Objects;
  */
 final class TaskSettingsMirror {
 
-    record Result(CheckBox toggle, List<Node> rows) {
+    /** @param dirty true while a text box holds typing that has not been saved to its real control */
+    record Result(CheckBox toggle, List<Node> rows, BooleanSupplier dirty) {
     }
 
     private static final String TAB_CONTENT_CLASS = "tab-content-area";
@@ -45,6 +47,7 @@ final class TaskSettingsMirror {
     private final Map<ConfigurationKeyEnum, String> settingNames;
     private final Map<Node, String> labels;
     private final Map<String, Integer> captionUses = new HashMap<>();
+    private final List<BooleanSupplier> dirtyChecks = new ArrayList<>();
 
     private TaskSettingsMirror(TaskSettingsIndex.Source source) {
         registered = source.keys();
@@ -62,7 +65,8 @@ final class TaskSettingsMirror {
             rows.add(mirror.rowFor(control));
         }
         CheckBox toggle = source.activation() instanceof CheckBox real ? mirrorCheckBox(real, "") : null;
-        return new Result(toggle, rows);
+        List<BooleanSupplier> dirtyChecks = mirror.dirtyChecks;
+        return new Result(toggle, rows, () -> dirtyChecks.stream().anyMatch(BooleanSupplier::getAsBoolean));
     }
 
     private Node rowFor(Node control) {
@@ -121,8 +125,9 @@ final class TaskSettingsMirror {
         return mirror;
     }
 
-    private static TextField mirrorTextField(TextField real) {
+    private TextField mirrorTextField(TextField real) {
         TextField mirror = new TextField(real.getText());
+        dirtyChecks.add(() -> !Objects.equals(mirror.getText(), real.getText()));
         mirror.setPromptText(real.getPromptText());
         // The page's error text is not in the panel, so a rejected value at least shows as invalid.
         real.getStyleClass().addListener((ListChangeListener<String>) change -> {

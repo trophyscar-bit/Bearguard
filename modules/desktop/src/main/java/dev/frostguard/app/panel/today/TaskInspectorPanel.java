@@ -4,11 +4,13 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Parent;
+import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextInputControl;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -55,12 +57,19 @@ final class TaskInspectorPanel {
     private final Label noSettings = new Label();
 
     private TaskSettingsIndex index;
+    private TaskSettingsMirror.Result shownMirror;
     private String shownKey;
     private String runAfterNote;
 
-    TaskInspectorPanel(Consumer<String> openScreen, Runnable onFollow, Runnable onRun) {
+    /** @param onEditEnded called when focus leaves the settings, so a deferred follow can resume */
+    TaskInspectorPanel(Consumer<String> openScreen, Runnable onFollow, Runnable onRun, Runnable onEditEnded) {
         this.openScreen = openScreen;
         this.onRun = onRun;
+        settings.focusWithinProperty().addListener((observable, wasWithin, within) -> {
+            if (!within) {
+                onEditEnded.run();
+            }
+        });
         followButton.setOnAction(event -> onFollow.run());
         followButton.setMaxWidth(Double.MAX_VALUE);
         followButton.getStyleClass().add("today-follow");
@@ -112,8 +121,35 @@ final class TaskInspectorPanel {
         shownKey = null;
     }
 
+    /**
+     * True while the settings hold a half-typed value. Replacing the rows then would blur the box,
+     * and blurring saves whatever is in it, so "12" of "120" would reach the real setting.
+     * A focused checkbox does not count: it has nothing half-done and would stall following forever.
+     */
+    boolean editInProgress() {
+        if (shownMirror != null && shownMirror.dirty().getAsBoolean()) {
+            return true;
+        }
+        Scene scene = root.getScene();
+        Node owner = scene == null ? null : scene.getFocusOwner();
+        return owner != null && owner.isFocused() && isSettingsTextBox(owner);
+    }
+
+    private boolean isSettingsTextBox(Node node) {
+        if (!(node instanceof TextInputControl)) {
+            return false;
+        }
+        for (Node ancestor = node; ancestor != null; ancestor = ancestor.getParent()) {
+            if (ancestor == settings) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     void showNothing() {
         shownKey = null;
+        shownMirror = null;
         title.setText("No task selected");
         header.getChildren().setAll(title);
         status.setText("");
@@ -175,6 +211,7 @@ final class TaskInspectorPanel {
 
     private void showSettings(TpDailyTaskEnum type, String customTask) {
         Optional<Prepared> prepared = prepare(type, customTask);
+        shownMirror = prepared.map(Prepared::mirror).orElse(null);
         boolean hasRows = prepared.isPresent() && !prepared.get().mirror().rows().isEmpty();
         setShown(settingsCaption, hasRows);
         setShown(settings, hasRows);

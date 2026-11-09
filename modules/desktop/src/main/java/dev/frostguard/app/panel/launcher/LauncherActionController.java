@@ -19,10 +19,21 @@ public class LauncherActionController implements BotStateListener, QueueStateLis
 
     private final LauncherLayoutController layoutController;
     private final ScheduleService scheduleService;
+    private final Runnable launchEngine;
+    private final Consumer<String> onStartRefused;
     private ProfileManagerLayoutController profileManagerLayoutController;
 
     public LauncherActionController(LauncherLayoutController launcherLayoutController) {
-        layoutController = Objects.requireNonNull(launcherLayoutController, "launcherLayoutController");
+        this(Objects.requireNonNull(launcherLayoutController, "launcherLayoutController"),
+                ScheduleService.obtain()::launchEngine, launcherLayoutController::onBotStartRefused);
+    }
+
+    /** The two ends of {@link #startBot()} are parameters so its guard can be tested without an engine. */
+    LauncherActionController(LauncherLayoutController launcherLayoutController, Runnable launchEngine,
+                             Consumer<String> onStartRefused) {
+        layoutController = launcherLayoutController;
+        this.launchEngine = launchEngine;
+        this.onStartRefused = onStartRefused;
         scheduleService = ScheduleService.obtain();
         scheduleService.addEngineObserver(this);
         scheduleService.addQueueObserver(this);
@@ -36,10 +47,10 @@ public class LauncherActionController implements BotStateListener, QueueStateLis
     public void startBot() {
         String refusal = ProdInstanceGuard.startRefusal();
         if (refusal != null) {
-            Platform.runLater(() -> layoutController.onBotStartRefused(refusal));
+            Platform.runLater(() -> onStartRefused.accept(refusal));
             return;
         }
-        scheduleService.launchEngine();
+        launchEngine.run();
     }
 
     public void stopBot() {

@@ -710,14 +710,21 @@ public class StatisticsLayoutController extends AbstractProfileController {
         boolean measured = delta != null;
         boolean changed = measured && delta.change() != 0;
 
-        String value = changed
-                ? (isSpeedup ? fmtMinutesSigned(delta.change()) : fmtSigned(delta.change()))
-                : measured ? NO_CHANGE_VALUE : NO_DATA_VALUE;
+        String value = headline(measured ? delta.change() : null,
+                isSpeedup ? StatisticsLayoutController::fmtMinutesSigned : StatisticsLayoutController::fmtSigned);
         String detail = measured
                 ? amount.apply(delta.start()) + " to " + amount.apply(delta.end())
                 : "No reading in this window. Current: " + amount.apply(current);
         String accent = changed ? METRIC_COLORS.getOrDefault(metric, "#4fc3f7") : NO_DATA_ACCENT;
         return createStatTile(METRIC_ICONS.get(metric), METRIC_LABELS.getOrDefault(metric, metric), value, detail, accent, changed);
+    }
+
+    /** @param change the measured change, or null when there was no reading in the window */
+    static String headline(Long change, java.util.function.Function<Long, String> signed) {
+        if (change == null) {
+            return NO_DATA_VALUE;
+        }
+        return change == 0 ? NO_CHANGE_VALUE : signed.apply(change);
     }
 
     private static final double TILE_ICON = 34;

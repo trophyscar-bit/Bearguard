@@ -44,11 +44,26 @@ public final class TodayTimeline {
         return items;
     }
 
-    /** Executing and due tasks are left out: Run now stamps last-run before the task has actually run. */
+    /** Run now stamps last-run before the task has actually run, so it means nothing until the run ends. */
+    private static boolean lastRunIsReal(Task task) {
+        return !task.executing() && !task.dueNow();
+    }
+
+    /** The "Last run" text, held to the same rule as the timeline's past section. */
+    public static String lastRunText(Task task, LocalDateTime now) {
+        if (task.executing()) {
+            return "Running now";
+        }
+        if (task.dueNow()) {
+            return "Waiting to run";
+        }
+        return task.last() == null ? "Never" : clockWithDay(task.last(), now);
+    }
+
     private static List<Item> pastItems(List<Task> tasks, LocalDateTime now) {
         LocalDateTime cutoff = now.minus(PAST_WINDOW);
         List<Task> past = tasks.stream()
-                .filter(task -> task.last() != null && !task.executing() && !task.dueNow())
+                .filter(task -> task.last() != null && lastRunIsReal(task))
                 .filter(task -> !task.last().isBefore(cutoff) && !task.last().isAfter(now))
                 .sorted(Comparator.comparing(Task::last))
                 .toList();
@@ -77,7 +92,6 @@ public final class TodayTimeline {
         return items;
     }
 
-    /** "in 3h 12m" for a future time and "Due now" for one that has passed. */
     /** Every time on Today is 24-hour; these are the only formats the page uses. */
     public static String clock(LocalDateTime time) {
         return time.format(CLOCK);
@@ -93,6 +107,7 @@ public final class TodayTimeline {
         return time.format(days <= WEEKDAY_NAME_RANGE_DAYS ? DAY_CLOCK : DATE_CLOCK);
     }
 
+    /** "in 3h 12m" for a future time and "Due now" for one that has passed. */
     public static String relative(LocalDateTime now, LocalDateTime when) {
         long minutes = Duration.between(now, when).toMinutes();
         if (minutes <= 0) {
