@@ -31,6 +31,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.List;
+import java.util.Optional;
 import static dev.frostguard.api.configs.ConfigurationKeyEnum.*;
 import static dev.frostguard.api.configs.TemplatesEnum.*;
 
@@ -44,9 +45,9 @@ private ScheduledFuture<?> rallyResetTask;
 
 private List<Integer> joinFlags = new ArrayList<>();
 
-private int currentJoinFlagIndex = 0;
-
 private ResilientOcrExecutor<Duration> durationHelper;
+
+private static final int MAX_MARCH_HEROES_VALUE = 3;
 
 private static final int TRAP_DURATION_MINUTES_VALUE = 30;
 
@@ -551,7 +552,6 @@ private void hydrateConfiguration() {
 
 
         this.joinFlags = decodeJoinFlags();
-        this.currentJoinFlagIndex = 0;
         // Changed by pernerch | Date: 2026-07-02 | Why: resolve shared-emulator state at hydration for deterministic active-phase behavior.
         this.sharedEmulator = isSharedEmulatorProfile();
 
@@ -564,17 +564,6 @@ private void hydrateConfiguration() {
 
 private ConfigurationKeyEnum selectedTrapScheduleKey() {
         return BearTrapParticipationSchedule.scheduleKey(trapNumber);
-    }
-
-private int resolveNextJoinFlag() {
-        if (joinFlags.isEmpty()) {
-            return DEFAULT_JOIN_RALLY_FLAG_VALUE;
-        }
-
-        int flag = joinFlags.get(currentJoinFlagIndex);
-        currentJoinFlagIndex = (currentJoinFlagIndex + 1) % joinFlags.size();
-
-        return flag;
     }
 
 private void queueRallyFlagReset(long marchSeconds) {
@@ -780,16 +769,21 @@ private void manageJoinRallies(int freeMarches) {
             return;
         }
 
-        int selectedFlag = resolveNextJoinFlag();
-        logInfo(routineLogBearTrapLine("Joining rally with flag #" + selectedFlag + " (rotation: " + joinFlags + ")"));
-
         tapInside(plusIcon.getPoint(), plusIcon.getPoint(), 1, 100);
         sleepTask(300);
 
 
-        if (!marchHelper.selectFlag(selectedFlag)) {
-            logWarning(routineLogBearTrapLine(
-                    "Configured join formation #" + selectedFlag + " is unavailable; cancelling this join"));
+        Optional<Integer> heroSquad = BearJoinSquadPicker.firstLoaded(
+                joinFlags,
+                squad -> marchHelper.selectFlag(squad),
+                this::selectedSquadHasHero);
+
+        if (heroSquad.isPresent()) {
+            logInfo(routineLogBearTrapLine("Joining rally with squad #" + heroSquad.get()));
+        } else if (clearSelectedHeroes()) {
+            logInfo(routineLogBearTrapLine("Squads " + joinFlags + " are all out; joining rally with troops only"));
+        } else {
+            logWarning(routineLogBearTrapLine("Could not clear heroes for a troops-only join; cancelling this join"));
             pressBack();
             return;
         }
@@ -811,6 +805,29 @@ private void manageJoinRallies(int freeMarches) {
         }
 
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+    }
+
+private boolean selectedSquadHasHero() {
+        sleepTask(300);
+        return !locateSelectedHeroRemoveButtons().isEmpty();
+    }
+
+private boolean clearSelectedHeroes() {
+        for (int taps = 0; taps < MAX_MARCH_HEROES_VALUE; taps++) {
+            List<ImageSearchResultData> buttons = locateSelectedHeroRemoveButtons();
+            if (buttons.isEmpty()) {
+                return true;
+            }
+            tapInside(buttons.getFirst());
+            sleepTask(500);
+        }
+        return locateSelectedHeroRemoveButtons().isEmpty();
+    }
+
+private List<ImageSearchResultData> locateSelectedHeroRemoveButtons() {
+        return templateSearchHelper.locateAllPatterns(
+                RALLY_REMOVE_HERO_BUTTON,
+                SearchConfig.builder().withThreshold(90).withMaxResults(MAX_MARCH_HEROES_VALUE).build());
     }
 
 private void logTrapTimingFlow(TrapTimingShape timing) {
