@@ -716,7 +716,6 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
 
     private static final int PANEL_SETTLE_MS = 1200;
 
-    private static final int DEFAULT_TRAP_NUMBER = 1;
 
     private static final int DEFAULT_TRAP_PREPARATION_MINUTES = 10;
 
@@ -754,10 +753,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      *  navigation needed, just the same math BearTrapRoutine itself uses. */
     private void scanBearTrapWindow() {
         try {
-            Integer trapNumber = profile.getConfig(ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT, Integer.class);
-            int resolvedTrapNumber = trapNumber == null ? DEFAULT_TRAP_NUMBER : trapNumber;
             LocalDateTime referenceTrapTime = profile.getConfig(
-                    BearTrapParticipationSchedule.scheduleKey(resolvedTrapNumber), LocalDateTime.class);
+                    BearTrapParticipationSchedule.SCHEDULE_KEY, LocalDateTime.class);
             if (referenceTrapTime == null) {
                 logInfo("bg_telemetry | Bear Trap reference time not configured; skipping its calendar entry.");
                 return;
