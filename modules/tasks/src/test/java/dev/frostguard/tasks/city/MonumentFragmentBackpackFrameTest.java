@@ -51,11 +51,20 @@ class MonumentFragmentBackpackFrameTest {
     }
 
     @Test
+    void findsTheBlueSilverPackThatWasSkipped() throws Exception {
+        // 2026-11-09: Nature's Strength, count 5, left unopened while the list was reported empty.
+        List<PointData> packs = MonumentRoutine.findPackIcons(frame("fragment-backpack-silver-pack-20261109.png"));
+        assertEquals(1, packs.size(), "packs: " + packs);
+        assertInside(packs.get(0), 295, 510, 425, 650);
+    }
+
+    @Test
     void obtainPanelsBannersAndPlanksAreNotPacks() throws Exception {
         assertTrue(MonumentRoutine.findPackIcons(frame("fragment-backpack-no-packs-20261028.png")).isEmpty());
         assertTrue(MonumentRoutine.findPackIcons(frame("fragment-backpack-scrolled-20261028.png")).isEmpty());
         assertTrue(MonumentRoutine.findPackIcons(frame("fragment-backpack-list-end-b-20261028.png")).isEmpty());
         assertTrue(MonumentRoutine.findPackIcons(frame("tundra-albums-hub-20261028.png")).isEmpty());
+        assertTrue(MonumentRoutine.findPackIcons(frame("fragment-backpack-empty-rows-20261109.png")).isEmpty());
     }
 
     @Test
