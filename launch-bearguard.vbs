@@ -1,3 +1,5 @@
 Set sh = CreateObject("WScript.Shell")
-sh.CurrentDirectory = "C:\Bearguard"
-sh.Run """C:\Bearguard\Start Bearguard.bat""", 0, False
+Set fso = CreateObject("Scripting.FileSystemObject")
+root = fso.GetParentFolderName(WScript.ScriptFullName)
+sh.CurrentDirectory = root
+sh.Run """" & root & "\Start Bearguard.bat""", 0, False

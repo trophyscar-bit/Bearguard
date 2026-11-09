@@ -11,14 +11,16 @@
 #
 #   .\launch-bearguard.ps1        start it (no-op if Bearguard is already up)
 $ErrorActionPreference = 'Stop'
+# The trailing separator matters: C:\Bearguard is a prefix of every sibling install.
+$workspacePattern = 'frostguard\.workspace="?' + [regex]::Escape($PSScriptRoot + '\')
 $running = @(Get-CimInstance Win32_Process -Filter "Name='javaw.exe'" |
-    Where-Object { $_.CommandLine -match 'frostguard\.workspace="?C:\\Bearguard' })
+    Where-Object { $_.CommandLine -match $workspacePattern })
 if ($running) { Write-Host "Bearguard is already running (pid $($running[0].ProcessId))."; exit 0 }
-Start-Process explorer.exe -ArgumentList '"C:\Bearguard\launch-bearguard.vbs"'
+Start-Process explorer.exe -ArgumentList ('"' + (Join-Path $PSScriptRoot 'launch-bearguard.vbs') + '"')
 for ($i = 0; $i -lt 30; $i++) {
     Start-Sleep -Seconds 2
     $p = Get-CimInstance Win32_Process -Filter "Name='javaw.exe'" |
-        Where-Object { $_.CommandLine -match 'frostguard\.workspace="?C:\\Bearguard' } | Select-Object -First 1
+        Where-Object { $_.CommandLine -match $workspacePattern } | Select-Object -First 1
     if ($p) { Write-Host "Bearguard started (pid $($p.ProcessId)) via Explorer, outside any job."; exit 0 }
 }
 Write-Host 'Bearguard did not start within 60 s.'; exit 1

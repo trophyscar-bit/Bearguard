@@ -6,6 +6,7 @@ import dev.frostguard.app.panel.profile.ProfileAux;
 import dev.frostguard.app.panel.profile.ProfileManagerLayoutController;
 import dev.frostguard.engine.listener.BotStateListener;
 import dev.frostguard.engine.listener.QueueStateListener;
+import dev.frostguard.engine.service.ProdInstanceGuard;
 import dev.frostguard.engine.service.ScheduleService;
 import javafx.application.Platform;
 import javafx.collections.ObservableList;
@@ -31,7 +32,13 @@ public class LauncherActionController implements BotStateListener, QueueStateLis
         this.profileManagerLayoutController = profileManagerLayoutController;
     }
 
+    /** Runs on the start/stop worker thread, so the blocking production check stays off the FX thread. */
     public void startBot() {
+        String refusal = ProdInstanceGuard.startRefusal();
+        if (refusal != null) {
+            Platform.runLater(() -> layoutController.onBotStartRefused(refusal));
+            return;
+        }
         scheduleService.launchEngine();
     }
 

@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import dev.frostguard.app.ApplicationTitle;
+import dev.frostguard.engine.service.ProdInstanceGuard;
 import dev.frostguard.app.BuildMetadata;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
 import dev.frostguard.app.panel.alliance.AllianceLayoutController;
@@ -439,7 +440,8 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     }
 
     private void showVersion() { /* internal */
-        labelVersion.setText("Bearguard v" + BuildMetadata.current().version());
+        String product = ProdInstanceGuard.isSeparateInstance() ? "Bearguard New UI v" : "Bearguard v";
+        labelVersion.setText(product + BuildMetadata.current().version());
     }
 
     private void initializeEmulatorController() { /* internal */
@@ -1613,6 +1615,18 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         alert.setHeaderText("One or more tasks are still stopping");
         alert.setContentText(detail + "\n\nThe queues remain tracked and Bearguard will not start replacements. "
                 + "Try Stop again after the blocking operation returns.");
+        alert.showAndWait();
+    }
+
+    /** The start was refused before the engine was touched, so no engine callback will reset the button. */
+    void onBotStartRefused(String reason) {
+        buttonStartStop.setText("Start Bot");
+        buttonStartStop.setDisable(false);
+        setBotStatus("Not started");
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        alert.setTitle("Bot not started");
+        alert.setHeaderText("The bot was not started");
+        alert.setContentText(reason);
         alert.showAndWait();
     }
 

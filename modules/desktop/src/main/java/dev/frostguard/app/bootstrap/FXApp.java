@@ -118,7 +118,7 @@ public class FXApp extends Application {
         stage.setScene(scene);
         stage.setMinWidth(680);
         stage.setMinHeight(460);
-        stage.setTitle("Bearguard Control Center");
+        stage.setTitle(ApplicationTitle.current());
         stage.getIcons().add(loadAppIcon());
         WindowResizer.makeResizable(stage);
     }

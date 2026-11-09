@@ -28,6 +28,7 @@ import dev.frostguard.app.panel.misc.GiftCodeRedeemer.RedeemResult;
 import dev.frostguard.app.panel.misc.GiftCodeRedeemer.RedeemOutcome;
 import dev.frostguard.app.panel.misc.GiftCodeStore.LegacyClaim;
 import dev.frostguard.app.panel.misc.GiftCodeStore.GiftCodeRecipient;
+import dev.frostguard.engine.service.ProdInstanceGuard;
 import dev.frostguard.engine.service.ProfileService;
 
 public final class GiftCodeAutomationService {
@@ -228,6 +229,11 @@ public final class GiftCodeAutomationService {
 
     private void runAutomatedCheck() {
         submitExclusive(() -> {
+            // Production redeems for the same accounts. Checked every hour because it can start after this app.
+            if (!ProdInstanceGuard.mayAffectSharedProcesses()) {
+                LOG.info("Automated gift code check skipped: production Bearguard may be running");
+                return;
+            }
             LocalDate today = LocalDate.now(ZoneOffset.UTC);
             List<AccountDescriptor> due = profiles().stream()
                     .filter(this::isAutoEnabledAndValid)

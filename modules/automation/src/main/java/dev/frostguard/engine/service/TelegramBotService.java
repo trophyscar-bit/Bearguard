@@ -103,6 +103,10 @@ public class TelegramBotService implements BotStateListener {
      * @param allowedChatId The only Telegram chat-ID that is allowed to issue commands
      */
     public synchronized void start(String token, long allowedChatId) {
+        if (!ProdInstanceGuard.mayAffectSharedProcesses()) {
+            logger.warn("TelegramBotService not started: production Bearguard may be polling the same token");
+            return;
+        }
         if (commandServer != null) {
             logger.info("TelegramBotService already running – restarting with new credentials");
             stop();

@@ -4,6 +4,7 @@ import dev.frostguard.app.panel.misc.GiftCodeAutomationService;
 import dev.frostguard.data.access.DataStore;
 import dev.frostguard.engine.service.AnalyticsService;
 import dev.frostguard.engine.service.CustomTaskService;
+import dev.frostguard.engine.service.ProdInstanceGuard;
 import dev.frostguard.engine.service.ScheduleService;
 import dev.frostguard.engine.service.TelegramBotService;
 import dev.frostguard.vision.logging.ProfileContextLogger;
@@ -97,6 +98,11 @@ public final class ApplicationLifecycle {
 
     private static void terminateAdbProcess() throws IOException {
         if (!System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")) {
+            return;
+        }
+        // adb.exe is shared by every install on the machine; killing it would cut a running production bot off.
+        if (!ProdInstanceGuard.mayAffectSharedProcesses()) {
+            LOG.info("adb.exe left running: production Bearguard may be using it");
             return;
         }
         new ProcessBuilder("taskkill", "/F", "/IM", "adb.exe").start();

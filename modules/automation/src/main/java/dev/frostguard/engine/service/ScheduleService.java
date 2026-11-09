@@ -96,6 +96,12 @@ public class ScheduleService {
 	 *        schedule that has nothing to do with the game's actual timers.
 	 */
 	public synchronized void launchEngine(boolean allowStartupRescan) {
+		String refusal = ProdInstanceGuard.startRefusal();
+		if (refusal != null) {
+			log(TpMessageSeverityEnum.ERROR, "ScheduleService", "-", "Engine launch refused: " + refusal);
+			notifyBotState(false, false);
+			return;
+		}
 		if (dispatcher.hasManagedQueues()) {
 			log(TpMessageSeverityEnum.ERROR, "ScheduleService", "-",
 					"Engine launch blocked because a previous queue shutdown is incomplete");

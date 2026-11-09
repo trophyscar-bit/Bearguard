@@ -105,3 +105,4 @@ chat-debug/
 # The venv exists only to convert models and is rebuilt from requirements when it is needed.
 # The converted weights themselves are committed -- see the note in tools/ocr/onnx/README.md.
 tools/ocr/convert-venv/
+newui-verify/

@@ -22,6 +22,10 @@ public class TelegramWatcherLauncher {
     private static final String WATCHER_LAUNCHER_PROPERTY = "frostguard.watcher.launcher";
 
     public static void startWatcherIfNotRunning() {
+        if (!ProdInstanceGuard.mayAffectSharedProcesses()) {
+            logger.warn("Telegram Watcher not started: production Bearguard may be polling the same token");
+            return;
+        }
         if (isWatcherRunning()) {
             logger.info("Telegram Watcher is already running.");
             return;
