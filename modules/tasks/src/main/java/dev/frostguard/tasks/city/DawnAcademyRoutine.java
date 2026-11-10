@@ -107,6 +107,8 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData BACK_ARROW = new PointData(40, 38);
     private static final PointData SKILLS_TAB = new PointData(530, 1235);
     private static final PointData NEXT_EXPERT_ARROW = new PointData(671, 650);
+    /** Blank wall above the Expert; a tap here closes an open skill card. */
+    private static final PointData SKILL_CARD_DISMISS = new PointData(360, 200);
     private static final int[] SKILL_SLOT_X = {88, 270, 448, 625};
     private static final int SKILL_SLOT_Y = 1075;
 
@@ -204,6 +206,8 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final Duration MAX_RESCHEDULE = Duration.ofHours(12);
 
     private LocalDateTime nextRun;
+    /** Who lives in the Academy, scanned once per pass; each scan steps through every Expert. */
+    private Set<ExpertSkillItemEnum.Expert> academyExperts;
 
     public DawnAcademyRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
@@ -217,6 +221,7 @@ public class DawnAcademyRoutine extends DelayedTask {
     @Override
     protected void execute() {
         nextRun = GameTimeUtils.dailyResetTime().plusMinutes(5);
+        academyExperts = null;
 
         Optional<Duration> learningLeft = openAcademyFromSidebar();
         if (learningLeft == null) {
@@ -447,6 +452,9 @@ public class DawnAcademyRoutine extends DelayedTask {
 
     /** Steps through the Experts with the arrow and returns every one that lives in the Academy. */
     private Set<ExpertSkillItemEnum.Expert> expertsInAcademy() {
+        if (academyExperts != null) {
+            return academyExperts;
+        }
         Set<ExpertSkillItemEnum.Expert> present = EnumSet.noneOf(ExpertSkillItemEnum.Expert.class);
         for (int step = 0; step < ExpertSkillItemEnum.Expert.values().length + 1; step++) {
             ExpertSkillItemEnum.Expert shown = currentExpert();
@@ -457,6 +465,7 @@ public class DawnAcademyRoutine extends DelayedTask {
             sleepTask(700);
         }
         logInfo("Experts in the Academy: " + present + ".");
+        academyExperts = present;
         return present;
     }
 
@@ -491,6 +500,11 @@ public class DawnAcademyRoutine extends DelayedTask {
             ExpertSkillItemEnum.Expert shown = currentExpert();
             if (shown == wanted) {
                 return true;
+            }
+            if (step == 0) {
+                // An open skill card swallows the arrow taps: 16 taps never left Agnes (9 Nov).
+                tapNear(SKILL_CARD_DISMISS, 6);
+                sleepTask(600);
             }
             tapNear(NEXT_EXPERT_ARROW, 6);
             sleepTask(700);
