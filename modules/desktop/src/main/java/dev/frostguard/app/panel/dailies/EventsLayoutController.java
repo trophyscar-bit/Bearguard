@@ -18,13 +18,15 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMercenaryEvent, checkBoxJourneyofLight, checkBoxJourneyofLightAssembleCommon,
         checkBoxJourneyofLightAssemblePremium, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour, checkBoxMergeventure, checkBoxMergeventureBoard,
         checkBoxMergeventureUseMax, checkBoxMergeventureMissions, checkBoxMergeventureAtlasPath,
-        checkBoxMergeventureHarvest, checkBoxMergeventureCaravan, checkBoxMergeventureSaveSojourner, checkBoxSignInEarn, checkBoxWanderTheater, checkBoxWanderTheaterRally;
+        checkBoxMergeventureHarvest, checkBoxMergeventureCaravan, checkBoxMergeventureSaveSojourner, checkBoxSignInEarn, checkBoxWanderTheater, checkBoxWanderTheaterRally,
+        checkBoxWanderTheaterExplore;
 
     @FXML
-    private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours;
+    private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours,
+        textfieldWanderTheaterReserve, textfieldWanderTheaterRunHour;
 
     @FXML
-    private ComboBox<Integer> comboBoxMercenaryFlag, comboBoxHeroMissionFlag;
+    private ComboBox<Integer> comboBoxMercenaryFlag, comboBoxHeroMissionFlag, comboBoxWanderTheaterRallyFlag;
 
     @FXML
     private Label labelDateTimeError;
@@ -41,6 +43,7 @@ public class EventsLayoutController extends AbstractProfileController {
     private void fillFlagOptions() {
         comboBoxMercenaryFlag.getItems().setAll(FormationSlots.numbersWithNone(0));
         comboBoxHeroMissionFlag.getItems().setAll(FormationSlots.numbersWithNone(0));
+        comboBoxWanderTheaterRallyFlag.getItems().setAll(FormationSlots.numbers());
     }
 
     private void registerConfigurationFields() {
@@ -66,6 +69,10 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxSignInEarn, ConfigurationKeyEnum.SIGN_IN_EARN_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxWanderTheater, ConfigurationKeyEnum.WANDER_THEATER_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxWanderTheaterRally, ConfigurationKeyEnum.WANDER_THEATER_RALLY_BOOL);
+        checkBoxMappings.put(checkBoxWanderTheaterExplore, ConfigurationKeyEnum.WANDER_THEATER_EXPLORE_BOOL);
+        textFieldMappings.put(textfieldWanderTheaterReserve, ConfigurationKeyEnum.WANDER_THEATER_TALISMAN_RESERVE_INT);
+        textFieldMappings.put(textfieldWanderTheaterRunHour, ConfigurationKeyEnum.WANDER_THEATER_RUN_HOUR_INT);
+        comboBoxMappings.put(comboBoxWanderTheaterRallyFlag, ConfigurationKeyEnum.WANDER_THEATER_RALLY_FLAG_INT);
 
         comboBoxMappings.put(comboBoxMercenaryFlag, ConfigurationKeyEnum.MERCENARY_FLAG_INT);
         comboBoxMappings.put(comboBoxHeroMissionFlag, ConfigurationKeyEnum.HERO_MISSION_FLAG_INT);
@@ -92,6 +99,13 @@ public class EventsLayoutController extends AbstractProfileController {
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
         textfieldMergeventureSpendHours.disableProperty().bind(
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
+        checkBoxWanderTheaterRally.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());
+        checkBoxWanderTheaterExplore.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());
+        textfieldWanderTheaterRunHour.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());
+        comboBoxWanderTheaterRallyFlag.disableProperty().bind(
+            checkBoxWanderTheater.selectedProperty().not().or(checkBoxWanderTheaterRally.selectedProperty().not()));
+        textfieldWanderTheaterReserve.disableProperty().bind(
+            checkBoxWanderTheater.selectedProperty().not().or(checkBoxWanderTheaterExplore.selectedProperty().not()));
     }
 
     private void prepareActivationTimeField() {

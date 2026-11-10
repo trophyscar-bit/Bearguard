@@ -1,8 +1,13 @@
 package dev.frostguard.tasks.events;
 
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
@@ -12,10 +17,13 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.api.domain.OcrSettingsData;
+import dev.frostguard.data.entity.EventScheduleEntry;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.schedule.TroopSlotPolicy;
+import dev.frostguard.engine.service.EventScheduleService;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.tasks.combat.PolarTerrorHuntingRoutine;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -27,9 +35,17 @@ import dev.frostguard.vision.convert.ImageConverter;
  * of Ice, and launches the one Polar Terror rally its mission asks for. Alliance donations and troop
  * training fill their missions on their own through the day.
  *
- * <p>Never tapped: any "Go" button (the paid mission's included), the exploration buttons, Select on a
- * floor, and the Bazaar. The only taps inside the event are the Missions tab, green Claim buttons, and
- * the in-game back arrow (Android Back would leave the event through Deals).
+ * <p>Then it plays the theater the way the owner settled on: every round is the one guaranteed Floor-1
+ * Protected Exploration (5 Talismans), and the round is cashed out for the Wonderstar Coins of whatever
+ * floor it lands on. It never taps Regular Exploration or a Protected Exploration above Floor 1, and it
+ * only confirms a Select whose reward reads "Wonderstar Coin".
+ *
+ * <p>The State calendar (bg_calendar) gives the event's dates: before a window opens the task parks
+ * until it does. With no calendar row it falls back to looking for the rail icon each day.
+ *
+ * <p>Never tapped: any "Go" button (the paid mission's included), Regular Exploration, Protected
+ * Exploration above Floor 1, an item reward, and the Bazaar. Android Back is never used inside the event
+ * (it would leave through Deals); the in-game back arrow is.
  */
 public class WanderTheaterRoutine extends DelayedTask {
 
@@ -41,6 +57,34 @@ public class WanderTheaterRoutine extends DelayedTask {
     private static final PointData MISSIONS_TITLE_BOTTOM_RIGHT = new PointData(430, 270);
     private static final PointData MISSIONS_TAB = new PointData(335, 145);
     private static final PointData BACK_ARROW = new PointData(40, 40);
+    private static final PointData THEATER_TAB = new PointData(164, 140);
+
+    // The theater page, from live frames on 2026-11-09.
+    // The Talisman count is read in a wide and a tight box; both must agree (a lone wide read once took "0" for "6").
+    static final PointData TALISMANS_TOP_LEFT = new PointData(565, 268);
+    static final PointData TALISMANS_BOTTOM_RIGHT = new PointData(648, 305);
+    static final PointData TALISMANS_TIGHT_TOP_LEFT = new PointData(585, 272);
+    static final PointData TALISMANS_TIGHT_BOTTOM_RIGHT = new PointData(630, 300);
+    static final PointData FLOOR_ONE_TOP_LEFT = new PointData(180, 1070);
+    static final PointData FLOOR_ONE_BOTTOM_RIGHT = new PointData(540, 1170);
+    static final PointData SELECT_TOP_LEFT = new PointData(40, 420);
+    static final PointData SELECT_BOTTOM_RIGHT = new PointData(700, 1000);
+    static final PointData DIALOG_TITLE_TOP_LEFT = new PointData(200, 395);
+    static final PointData DIALOG_TITLE_BOTTOM_RIGHT = new PointData(520, 470);
+    static final PointData REWARD_NAME_TOP_LEFT = new PointData(230, 650);
+    static final PointData REWARD_NAME_BOTTOM_RIGHT = new PointData(520, 720);
+    private static final PointData FLOOR_ONE_PROTECTED = new PointData(360, 1195);
+    private static final PointData DIALOG_CONFIRM = new PointData(520, 810);
+    private static final PointData DIALOG_CANCEL = new PointData(200, 810);
+    static final OcrSettingsData TALISMAN_DIGITS = OcrSettingsData.configurator()
+            .textLayout(OcrSettingsData.TextLayout.SINGLE_WORD)
+            .isolateForeground(true)
+            .targetColor(Color.WHITE)
+            .allowedGlyphs("0123456789")
+            .build();
+    static final int PROTECTED_COST = 5;
+    private static final int MAX_ROUNDS = 12;
+    static final String CALENDAR_PREFIX = "STATE_GANTT_WANDER_THEATER_";
 
     // Mission rows: a row's purple title band sits 75 px above the centre of its button.
     private static final PointData ROWS_TOP_LEFT = new PointData(40, 630);
@@ -82,6 +126,9 @@ public class WanderTheaterRoutine extends DelayedTask {
     @Override
     protected void execute() {
         claimed = 0;
+        if (parkedUntilCalendarStart()) {
+            return;
+        }
         if (!openMissions()) {
             return;
         }
@@ -91,6 +138,9 @@ public class WanderTheaterRoutine extends DelayedTask {
         Optional<ButtonState> donations = rowState(TemplatesEnum.WANDER_THEATER_DONATE_ROW);
         logInfo("Wanderer Missions: claimed " + claimed + "; Polar Terror " + describe(polar)
                 + ", troop power " + describe(troops) + ", alliance contributions " + describe(donations) + ".");
+        if (!Boolean.FALSE.equals(profile.getConfig(ConfigurationKeyEnum.WANDER_THEATER_EXPLORE_BOOL, Boolean.class))) {
+            explore();
+        }
         tapNear(BACK_ARROW, 4);
         sleepTask(2000);
         if (claimed > 0) {
@@ -164,6 +214,142 @@ public class WanderTheaterRoutine extends DelayedTask {
             finish(withinWindow(LocalDateTime.now().plusMinutes(MISSION_RETRY_MINUTES)));
             return false;
         }
+        return true;
+    }
+
+    /**
+     * Before the event's calendar window opens, waits for it instead of looking for the icon every day.
+     * Inside a window, or with no calendar row at all, the pass goes ahead.
+     */
+    private boolean parkedUntilCalendarStart() {
+        LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
+        Optional<EventScheduleEntry> window = EventScheduleService.obtain().windowFor(CALENDAR_PREFIX, nowUtc);
+        if (window.isEmpty() || !window.get().getActiveSince().isAfter(nowUtc)) {
+            return false;
+        }
+        LocalDateTime start = window.get().getActiveSince().atOffset(ZoneOffset.UTC)
+                .atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+        LocalDateTime firstRun = start.with(LocalTime.of(runHour(), 0));
+        if (firstRun.isBefore(start)) {
+            firstRun = firstRun.plusDays(1);
+        }
+        logInfo("Wander Theater is not running; the calendar has it opening " + start.format(DATETIME_FORMATTER) + ".");
+        finish(firstRun);
+        return true;
+    }
+
+    /**
+     * Floor-1 rounds while Talismans last: one Protected Exploration from Floor 1 (it always climbs), then
+     * the coins of the floor it lands on. A round found mid-way (left by an interrupted pass) is cashed out
+     * first. Stops whenever a read is unsure.
+     */
+    private void explore() {
+        tapNear(THEATER_TAB, 6);
+        sleepTask(2500);
+        if (!found(TemplatesEnum.WANDER_THEATER_TITLE, TITLE_TOP_LEFT, TITLE_BOTTOM_RIGHT)) {
+            logWarning("Wander Theater page did not open; skipping exploration.");
+            return;
+        }
+        Integer reserveSetting = profile.getConfig(ConfigurationKeyEnum.WANDER_THEATER_TALISMAN_RESERVE_INT, Integer.class);
+        int reserve = reserveSetting == null ? 0 : Math.max(0, reserveSetting);
+        int rounds = 0;
+        for (int i = 0; i < MAX_ROUNDS; i++) {
+            if (!found(TemplatesEnum.WANDER_THEATER_FLOOR_ONE, FLOOR_ONE_TOP_LEFT, FLOOR_ONE_BOTTOM_RIGHT)) {
+                if (cashOutCoins()) {
+                    rounds++;
+                    continue;
+                }
+                logWarning("Wander Theater: not on Floor 1 and no coin reward to select; leaving the round as it is.");
+                break;
+            }
+            Integer before = readTalismans();
+            if (before == null) {
+                logWarning("Wander Theater: could not read the Talisman count; no exploration.");
+                break;
+            }
+            if (before < PROTECTED_COST + reserve) {
+                logInfo("Wander Theater: " + before + " Talismans, " + (PROTECTED_COST + reserve)
+                        + " needed for a Floor-1 roll; done.");
+                break;
+            }
+            tapNear(FLOOR_ONE_PROTECTED, 6);
+            if (!awaitSelect()) {
+                logWarning("Wander Theater: the Floor-1 Protected Exploration did not land on a floor with a reward.");
+                break;
+            }
+            if (!cashOutCoins()) {
+                break;
+            }
+            rounds++;
+        }
+        if (rounds > 0) {
+            logInfo("Wander Theater: cashed out " + rounds + " round" + (rounds == 1 ? "" : "s") + " for Wonderstar Coins.");
+            StatisticsService.obtain().addToCounter(profile, "Wander Theater Rounds Cashed", rounds);
+        }
+    }
+
+    /** Two boxes that must agree, so a misread never spends Talismans that are not there. */
+    private Integer readTalismans() {
+        Integer wide = integerHelper.attemptRecognition(TALISMANS_TOP_LEFT, TALISMANS_BOTTOM_RIGHT, 3, 200L,
+                TALISMAN_DIGITS, text -> talismanCount(text) != null, WanderTheaterRoutine::talismanCount);
+        Integer tight = integerHelper.attemptRecognition(TALISMANS_TIGHT_TOP_LEFT, TALISMANS_TIGHT_BOTTOM_RIGHT, 3, 200L,
+                TALISMAN_DIGITS, text -> talismanCount(text) != null, WanderTheaterRoutine::talismanCount);
+        return wide != null && wide.equals(tight) ? wide : null;
+    }
+
+    /** Digits only, at most four of them; anything else is no reading. */
+    static Integer talismanCount(String text) {
+        if (text == null) {
+            return null;
+        }
+        String digits = text.trim();
+        return digits.matches("\\d{1,4}") ? Integer.valueOf(digits) : null;
+    }
+
+    private boolean awaitSelect() {
+        sleepTask(5000);
+        for (int i = 0; i < 8; i++) {
+            if (!selectButtons().isEmpty()) {
+                return true;
+            }
+            sleepTask(1500);
+        }
+        return false;
+    }
+
+    private List<ImageSearchResultData> selectButtons() {
+        return templateSearchHelper.locateAllPatterns(TemplatesEnum.WANDER_THEATER_SELECT,
+                SearchConfig.builder()
+                        .withCoordinates(SELECT_TOP_LEFT, SELECT_BOTTOM_RIGHT)
+                        .withMaxAttempts(1)
+                        .withMaxResults(4)
+                        .build()).stream().filter(ImageSearchResultData::isFound).toList();
+    }
+
+    /**
+     * Taps the current floor's leftmost Select (the coin tile comes first) and confirms only when the
+     * dialog names Wonderstar Coins; anything else is cancelled.
+     */
+    private boolean cashOutCoins() {
+        Optional<ImageSearchResultData> leftmost = selectButtons().stream()
+                .min(Comparator.comparingInt(r -> r.getPoint().getX()));
+        if (leftmost.isEmpty()) {
+            return false;
+        }
+        tapNear(leftmost.get().getPoint(), 4);
+        sleepTask(1800);
+        if (!found(TemplatesEnum.WANDER_THEATER_SELECT_REWARDS, DIALOG_TITLE_TOP_LEFT, DIALOG_TITLE_BOTTOM_RIGHT)) {
+            logWarning("Wander Theater: Select did not open the Select Rewards dialog.");
+            return false;
+        }
+        if (!found(TemplatesEnum.WANDER_THEATER_COIN_REWARD, REWARD_NAME_TOP_LEFT, REWARD_NAME_BOTTOM_RIGHT)) {
+            logWarning("Wander Theater: the leftmost reward is not Wonderstar Coins; cancelled.");
+            tapNear(DIALOG_CANCEL, 6);
+            sleepTask(1500);
+            return false;
+        }
+        tapNear(DIALOG_CONFIRM, 6);
+        sleepTask(3000);
         return true;
     }
 

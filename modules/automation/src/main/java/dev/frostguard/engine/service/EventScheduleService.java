@@ -3,6 +3,7 @@ package dev.frostguard.engine.service;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import dev.frostguard.data.entity.EventScheduleEntry;
 import dev.frostguard.data.repository.EventScheduleRepository;
@@ -59,5 +60,34 @@ public final class EventScheduleService {
     /** All cached entries, for the sidebar widget to render. */
     public List<EventScheduleEntry> findAll() {
         return repository.findAll();
+    }
+
+    /**
+     * The calendar window for an event whose keys start with {@code keyPrefix} (State-calendar keys end
+     * in their start date, so callers match the prefix): the one containing {@code nowUtc}, else the
+     * next one to open. Empty when the calendar knows none, for example before its first read of the day.
+     */
+    public Optional<EventScheduleEntry> windowFor(String keyPrefix, LocalDateTime nowUtc) {
+        return windowFor(findAll(), keyPrefix, nowUtc);
+    }
+
+    static Optional<EventScheduleEntry> windowFor(List<EventScheduleEntry> entries, String keyPrefix,
+                                                  LocalDateTime nowUtc) {
+        EventScheduleEntry next = null;
+        for (EventScheduleEntry entry : entries) {
+            if (entry.getEventKey() == null || !entry.getEventKey().startsWith(keyPrefix)
+                    || entry.getActiveSince() == null) {
+                continue;
+            }
+            boolean started = !entry.getActiveSince().isAfter(nowUtc);
+            boolean ended = entry.getInactiveSince() != null && !nowUtc.isBefore(entry.getInactiveSince());
+            if (started && !ended) {
+                return Optional.of(entry);
+            }
+            if (!started && (next == null || entry.getActiveSince().isBefore(next.getActiveSince()))) {
+                next = entry;
+            }
+        }
+        return Optional.ofNullable(next);
     }
 }

@@ -584,6 +584,8 @@ public enum ConfigurationKeyEnum {
     WANDER_THEATER_RALLY_BOOL            ("true",    Boolean.class,  ConfigCategory.EVENTS),
     WANDER_THEATER_RALLY_FLAG_INT        ("8",       Integer.class,  ConfigCategory.EVENTS),
     WANDER_THEATER_RUN_HOUR_INT          ("16",      Integer.class,  ConfigCategory.EVENTS),
+    WANDER_THEATER_EXPLORE_BOOL          ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    WANDER_THEATER_TALISMAN_RESERVE_INT  ("0",       Integer.class,  ConfigCategory.EVENTS),
 
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
