@@ -4,31 +4,39 @@ import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.domain.FormationSlots;
 import dev.frostguard.app.panel.profile.ProfileAux;
 import dev.frostguard.app.shared.AbstractProfileController;
+import dev.frostguard.app.shared.SingleHomeSettingsPage;
 import dev.frostguard.app.shared.UtcDateTimeEditor;
 import dev.frostguard.app.shared.UtcDateTimeValue;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.beans.binding.BooleanBinding;
 import javafx.beans.binding.BooleanExpression;
-import javafx.beans.property.BooleanProperty;
-import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.binding.StringBinding;
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.value.ObservableStringValue;
 import javafx.collections.ListChangeListener;
+import javafx.css.PseudoClass;
 import javafx.fxml.FXML;
 import javafx.scene.Node;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextField;
-import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import org.controlsfx.control.CheckComboBox;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-public class BearTrapLayoutController extends AbstractProfileController {
+public class BearTrapLayoutController extends AbstractProfileController implements SingleHomeSettingsPage {
 
     private static final int MIN_LEAD_MINUTES = 1;
     private static final int MAX_LEAD_MINUTES = 60;
@@ -36,6 +44,8 @@ public class BearTrapLayoutController extends AbstractProfileController {
     private static final ConfigurationKeyEnum GUARD_ENABLED_KEY = ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL;
     private static final ConfigurationKeyEnum GUARD_BLOCK_KEY = ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_BLOCK_RALLIES_BOOL;
     private static final ConfigurationKeyEnum GUARD_PAUSE_KEY = ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_PAUSE_ALL_TASKS_BOOL;
+    private static final PseudoClass ROLE_ACTIVE = PseudoClass.getPseudoClass("role-active");
+    private static final String ACTIVE_BADGE = "ACTIVE";
 
     @FXML
     private CheckBox checkBoxEnableBearTrap;
@@ -71,10 +81,25 @@ public class BearTrapLayoutController extends AbstractProfileController {
     private Label labelJoinError;
 
     @FXML
-    private CheckBox checkBoxCallRally;
+    private RadioButton radioLeader;
 
     @FXML
-    private HBox rowOwnSquad;
+    private RadioButton radioJoiner;
+
+    @FXML
+    private Label labelRoleSummary;
+
+    @FXML
+    private VBox sectionLeader;
+
+    @FXML
+    private VBox sectionJoiner;
+
+    @FXML
+    private Label labelLeaderActive;
+
+    @FXML
+    private Label labelJoinerActive;
 
     @FXML
     private ComboBox<Integer> comboBoxRallyFlag;
@@ -85,7 +110,9 @@ public class BearTrapLayoutController extends AbstractProfileController {
     @FXML
     private CheckBox checkBoxActivePets;
 
-    private final BooleanProperty startSet = new SimpleBooleanProperty(false);
+    private final ObjectProperty<LocalDateTime> savedStart = new SimpleObjectProperty<>();
+    private final BooleanBinding startSet = savedStart.isNotNull();
+    private StringBinding settingsSummary;
     private boolean loadingGuard;
     private boolean squadRulesPending;
     private Integer lastHeroSquad;
@@ -93,12 +120,36 @@ public class BearTrapLayoutController extends AbstractProfileController {
     @FXML
     private void initialize() {
         registerConfigurationFields();
+        configureRole();
         showEverySquadChoice();
         configureGuard();
         configureBearStart();
         bindEnabledState();
         initializeChangeEvents();
         watchSquads();
+        settingsSummary = Bindings.createStringBinding(this::summarize, radioLeader.selectedProperty(),
+                comboBoxTrapNumber.valueProperty(), savedStart, checkBoxEnableBearTrap.selectedProperty());
+    }
+
+    @Override
+    public ObservableStringValue settingsSummary() {
+        return settingsSummary;
+    }
+
+    @Override
+    public String settingsHome() {
+        return "Events > Bear Trap";
+    }
+
+    private String summarize() {
+        List<String> parts = new ArrayList<>();
+        parts.add(radioLeader.isSelected() ? "Leader" : "Joiner");
+        parts.add("Trap " + Optional.ofNullable(comboBoxTrapNumber.getValue()).orElse(1));
+        LocalDateTime start = savedStart.get();
+        parts.add(start == null ? "No start time" : UtcDateTimeValue.formatLocalTime(
+                UtcDateTimeValue.nextActivation(start, Clock.systemUTC()), ZoneId.systemDefault()));
+        parts.add(checkBoxEnableBearTrap.isSelected() ? "Auto bear on" : "Auto bear off");
+        return String.join(" · ", parts);
     }
 
     private void registerConfigurationFields() {
@@ -106,7 +157,8 @@ public class BearTrapLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxIconStart, ConfigurationKeyEnum.BEAR_TRAP_ICON_PARTICIPATION_FALLBACK_BOOL);
         checkBoxMappings.put(checkBoxActivePets, ConfigurationKeyEnum.BEAR_TRAP_ACTIVE_PETS_BOOL);
         checkBoxMappings.put(checkBoxRecallTroops, ConfigurationKeyEnum.BEAR_TRAP_RECALL_TROOPS_BOOL);
-        checkBoxMappings.put(checkBoxCallRally, ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL);
+        // Joiner is the other half of one toggle group, so Leader alone carries the stored value.
+        radioButtonMappings.put(radioLeader, ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL);
         checkBoxMappings.put(checkBoxEnableJoin, ConfigurationKeyEnum.BEAR_TRAP_JOIN_RALLY_BOOL);
 
         registerRangedIntegerField(textFieldPreparationTime, labelPreparationTimeError,
@@ -117,6 +169,41 @@ public class BearTrapLayoutController extends AbstractProfileController {
         comboBoxMappings.put(comboBoxRallyFlag, ConfigurationKeyEnum.BEAR_TRAP_RALLY_FLAG_INT);
         checkComboBoxMappings.put(checkComboBoxJoinFlag, ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT);
         checkComboBoxMappings.put(checkComboBoxTroopFlag, ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOP_FLAG_STRING);
+    }
+
+    private void configureRole() {
+        createToggleGroup(radioLeader, radioJoiner);
+        radioJoiner.setSelected(true);
+        labelRoleSummary.textProperty().bind(Bindings.createStringBinding(this::roleSummary,
+                radioLeader.selectedProperty(), comboBoxRallyFlag.valueProperty(),
+                checkBoxEnableJoin.selectedProperty(), checkBoxIconStart.selectedProperty()));
+        radioLeader.selectedProperty().addListener((obs, oldValue, leading) -> showActiveSection(leading));
+        showActiveSection(radioLeader.isSelected());
+    }
+
+    /** The other role's card stays editable, so a switch of role finds its settings ready. */
+    private void showActiveSection(boolean leading) {
+        sectionLeader.pseudoClassStateChanged(ROLE_ACTIVE, leading);
+        sectionJoiner.pseudoClassStateChanged(ROLE_ACTIVE, !leading);
+        labelLeaderActive.setText(leading ? ACTIVE_BADGE : "");
+        labelJoinerActive.setText(leading ? "" : ACTIVE_BADGE);
+        labelLeaderActive.setVisible(leading);
+        labelJoinerActive.setVisible(!leading);
+    }
+
+    private String roleSummary() {
+        boolean joining = checkBoxEnableJoin.isSelected();
+        if (radioLeader.isSelected()) {
+            Integer squad = comboBoxRallyFlag.getValue();
+            String start = squad == null ? "You start the rally" : "You start the rally on squad " + squad;
+            return joining ? start + " and join others." : start + ".";
+        }
+        if (!joining) {
+            return "Join rallies is off, so you will not rally.";
+        }
+        return checkBoxIconStart.isSelected()
+                ? "You only join other rallies. Turn off Icon start to lead."
+                : "You only join other rallies.";
     }
 
     private void configureGuard() {
@@ -139,14 +226,14 @@ public class BearTrapLayoutController extends AbstractProfileController {
         timerDateTimeEditor.setOnCommit(value -> {
             boolean firstStart = !startSet.get();
             publishWhenReady(START_KEY, UtcDateTimeValue.formatPersisted(value));
-            startSet.set(true);
+            savedStart.set(value);
             if (firstStart && comboBoxGuard.getValue() == Guard.OFF) {
                 comboBoxGuard.setValue(Guard.BLOCK_RALLIES);
             }
         });
         timerDateTimeEditor.setOnClear(() -> {
             publishWhenReady(START_KEY, "");
-            startSet.set(false);
+            savedStart.set(null);
             loadingGuard = true;
             try {
                 comboBoxGuard.setValue(Guard.OFF);
@@ -161,7 +248,7 @@ public class BearTrapLayoutController extends AbstractProfileController {
     private void bindEnabledState() {
         BooleanExpression autoOff = checkBoxEnableBearTrap.selectedProperty().not();
         BooleanExpression joining = checkBoxEnableJoin.selectedProperty();
-        BooleanExpression ownRally = checkBoxCallRally.selectedProperty();
+        BooleanExpression ownRally = radioLeader.selectedProperty();
         BooleanExpression iconStart = checkBoxIconStart.selectedProperty();
         BooleanBinding noHeroSquad = Bindings.isEmpty(checkComboBoxJoinFlag.getCheckModel().getCheckedItems());
 
@@ -173,7 +260,8 @@ public class BearTrapLayoutController extends AbstractProfileController {
                 Bindings.createBooleanBinding(() -> comboBoxGuard.getValue() != Guard.OFF, comboBoxGuard.valueProperty())));
 
         checkBoxIconStart.disableProperty().bind(autoOff.or(ownRally.and(iconStart.not())));
-        checkBoxCallRally.disableProperty().bind(autoOff.or(iconStart.and(ownRally.not())));
+        radioLeader.disableProperty().bind(autoOff.or(iconStart.and(ownRally.not())));
+        radioJoiner.disableProperty().bind(autoOff);
         checkBoxEnableJoin.disableProperty().bind(autoOff.or(noHeroSquad.and(joining.not())));
         checkComboBoxJoinFlag.disableProperty().bind(autoOff);
         checkComboBoxTroopFlag.disableProperty().bind(autoOff);
@@ -181,7 +269,6 @@ public class BearTrapLayoutController extends AbstractProfileController {
         checkBoxActivePets.disableProperty().bind(autoOff);
         checkBoxRecallTroops.disableProperty().bind(autoOff.or(joining.not().and(ownRally.not())));
 
-        bindManagedVisibility(rowOwnSquad, ownRally);
         bindManagedVisibility(labelJoinError, joining.and(noHeroSquad));
     }
 
@@ -190,7 +277,7 @@ public class BearTrapLayoutController extends AbstractProfileController {
         checkComboBoxJoinFlag.getCheckModel().getCheckedItems().addListener(squadsChanged);
         checkComboBoxTroopFlag.getCheckModel().getCheckedItems().addListener(squadsChanged);
         comboBoxRallyFlag.valueProperty().addListener((obs, oldValue, newValue) -> scheduleSquadRules());
-        checkBoxCallRally.selectedProperty().addListener((obs, oldValue, newValue) -> scheduleSquadRules());
+        radioLeader.selectedProperty().addListener((obs, oldValue, newValue) -> scheduleSquadRules());
         checkBoxEnableJoin.selectedProperty().addListener((obs, oldValue, newValue) -> scheduleSquadRules());
     }
 
@@ -219,7 +306,7 @@ public class BearTrapLayoutController extends AbstractProfileController {
 
     private void moveOwnSquadOffAPickedOne() {
         Set<Integer> joining = joinSquads();
-        if (checkBoxCallRally.isSelected() && joining.contains(comboBoxRallyFlag.getValue())) {
+        if (radioLeader.isSelected() && joining.contains(comboBoxRallyFlag.getValue())) {
             FormationSlots.numbers().stream()
                     .filter(squad -> !joining.contains(squad))
                     .findFirst()
@@ -240,13 +327,15 @@ public class BearTrapLayoutController extends AbstractProfileController {
         try {
             Set<Integer> hero = Set.copyOf(checkComboBoxJoinFlag.getCheckModel().getCheckedItems());
             Set<Integer> troop = Set.copyOf(checkComboBoxTroopFlag.getCheckModel().getCheckedItems());
-            Set<Integer> own = checkBoxCallRally.isSelected() && comboBoxRallyFlag.getValue() != null
+            Set<Integer> own = radioLeader.isSelected() && comboBoxRallyFlag.getValue() != null
                     ? Set.of(comboBoxRallyFlag.getValue())
                     : Set.of();
             offer(checkComboBoxJoinFlag, available(hero, troop, own));
             offer(checkComboBoxTroopFlag, available(troop, hero, own));
             Integer current = comboBoxRallyFlag.getValue();
-            comboBoxRallyFlag.getItems().setAll(available(own, hero, troop));
+            // A joiner's unused rally squad may overlap a join squad, and must still show its value.
+            Set<Integer> rallyPick = current == null ? Set.of() : Set.of(current);
+            comboBoxRallyFlag.getItems().setAll(available(rallyPick, hero, troop));
             comboBoxRallyFlag.setValue(current);
         } finally {
             isLoadingProfile = wasLoading;
@@ -289,8 +378,12 @@ public class BearTrapLayoutController extends AbstractProfileController {
         isLoadingProfile = true;
         loadingGuard = true;
         try {
-            timerDateTimeEditor.setDateTime(loadSavedStart(profile));
-            startSet.set(timerDateTimeEditor.hasCommittedDateTime());
+            if (!radioLeader.isSelected()) {
+                radioJoiner.setSelected(true);
+            }
+            LocalDateTime start = loadSavedStart(profile);
+            timerDateTimeEditor.setDateTime(start);
+            savedStart.set(start);
             comboBoxGuard.setValue(startSet.get() ? loadGuard(profile) : Guard.OFF);
             List<Integer> heroSquads = checkComboBoxJoinFlag.getCheckModel().getCheckedItems();
             lastHeroSquad = heroSquads.isEmpty() ? null : heroSquads.getLast();

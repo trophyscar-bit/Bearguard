@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -24,19 +26,27 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.controlsfx.control.CheckComboBox;
 
+import javax.imageio.ImageIO;
+
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.app.panel.combat.BearTrapLayoutController;
 import dev.frostguard.app.panel.profile.ConfigAux;
 import dev.frostguard.app.panel.profile.ProfileAux;
+import atlantafx.base.theme.PrimerDark;
+import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.embed.swing.SwingFXUtils;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXMLLoader;
+import javafx.scene.Group;
 import javafx.scene.Parent;
+import javafx.scene.Scene;
 import javafx.scene.Node;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextField;
 
 class BearTrapTimerDateTimeUxTest {
@@ -62,7 +72,18 @@ class BearTrapTimerDateTimeUxTest {
                 LocalDateTime.of(2026, 7, 27, 0, 30),
                 ZoneId.of("America/New_York"));
 
-        assertEquals("Next: 26-07-2026 20:30 EDT", preview);
+        assertEquals("Next: 26-07-2026 20:30 EDT = 27-07-2026 00:30 UTC", preview);
+    }
+
+    @Test
+    void showsTheLocalTimeBesideTheStoredUtcTime() {
+        String preview = UtcDateTimeValue.formatLocalPreview(
+                LocalDateTime.of(2026, 11, 10, 19, 0),
+                ZoneId.of("America/New_York"));
+
+        assertEquals("Next: 10-11-2026 14:00 EST = 19:00 UTC", preview);
+        assertEquals("14:00 EST", UtcDateTimeValue.formatLocalTime(
+                LocalDateTime.of(2026, 11, 10, 19, 0), ZoneId.of("America/New_York")));
     }
 
     @Test
@@ -108,7 +129,7 @@ class BearTrapTimerDateTimeUxTest {
             assertTrue(commits.isEmpty(), "loading must not persist the existing value");
 
             editor.setDraft(LocalDate.of(2026, 7, 27), "00", "30");
-            assertEquals("Next: 28-07-2026 20:30 EDT", editor.getLocalPreviewText());
+            assertEquals("Next: 28-07-2026 20:30 EDT = 29-07-2026 00:30 UTC", editor.getLocalPreviewText());
             assertTrue(commits.isEmpty(), "individual control changes must remain a draft");
 
             editor.commitSelection();
@@ -269,7 +290,7 @@ class BearTrapTimerDateTimeUxTest {
     }
 
     @Test
-    void thePageHasOneTimerUniqueCaptionsAndNoExplanatoryText() throws Exception {
+    void thePageReadsRoleThenTrapThenTimeWithOneTimerAndUniqueCaptions() throws Exception {
         runOnFxThread(() -> {
             LoadedBearView view = loadBearView();
             List<String> captions = SceneGraphWalk.descendants(view.root()).stream()
@@ -279,9 +300,11 @@ class BearTrapTimerDateTimeUxTest {
                     .filter(text -> !text.contains("Hero squad to join"))
                     .toList();
 
-            assertEquals(List.of("Auto bear", "Lead (min)", "Bear start", ":", "Apply", "Clear", "Next: —", "Trap", "Guard",
-                    "Icon start", "Squads", "Join rallies", "Hero squads", "Troop squads", "Own rally", "Own squad",
-                    "Prep", "Recall gatherers", "Pets"), captions);
+            assertEquals(List.of("Auto bear", "Role", "LEADER", "JOINER", "Join rallies is off, so you will not rally.",
+                    "Trap", "Bear start (UTC)", ":", "UTC", "Apply", "Clear", "Next: —", "Lead (min)", "Guard",
+                    "Both roles", "Join rallies", "Hero squads", "Troop squads", "Recall gatherers", "Pets",
+                    "LEADER", "Starts your own rally.", "Rally squad",
+                    "JOINER", "ACTIVE", "Never starts a rally.", "Icon start"), captions);
             assertEquals(List.of("Off", "Block rallies", "Pause all"),
                     view.guard().getItems().stream().map(String::valueOf).toList());
             return null;
@@ -379,15 +402,16 @@ class BearTrapTimerDateTimeUxTest {
     }
 
     @Test
-    void iconStartAndOwnRallyCannotBeTurnedOnTogether() throws Exception {
+    void iconStartAndLeaderCannotBeTurnedOnTogether() throws Exception {
         runOnFxThread(() -> {
             LoadedBearView view = loadBearView();
             view.controller().onProfileLoad(liveProfile());
-            assertTrue(view.own().isDisabled());
+            assertTrue(view.leader().isDisabled());
+            assertEquals("You only join other rallies. Turn off Icon start to lead.", view.roleSummary().getText());
 
             view.icon().setSelected(false);
-            assertFalse(view.own().isDisabled());
-            view.own().setSelected(true);
+            assertFalse(view.leader().isDisabled());
+            view.leader().fire();
             assertTrue(view.icon().isDisabled());
 
             view.controller().onProfileLoad(profile(9L,
@@ -396,22 +420,94 @@ class BearTrapTimerDateTimeUxTest {
                     config(ConfigurationKeyEnum.BEAR_TRAP_ICON_PARTICIPATION_FALLBACK_BOOL, "true"),
                     config(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, "true")));
             assertFalse(view.icon().isDisabled(), "a saved pair must stay possible to undo");
-            assertFalse(view.own().isDisabled(), "a saved pair must stay possible to undo");
+            assertFalse(view.joiner().isDisabled(), "a saved pair must stay possible to undo");
             return null;
         });
     }
 
     @Test
-    void ownSquadOnlyShowsWithOwnRally() throws Exception {
+    void theSwitchLightsOneRoleSectionAndLeavesTheOtherEditable() throws Exception {
         runOnFxThread(() -> {
             LoadedBearView view = loadBearView();
             view.controller().onProfileLoad(liveProfile());
-            Node row = view.get("rowOwnSquad");
-            assertFalse(row.isManaged());
+            Node leaderSection = view.get("sectionLeader");
+            Node joinerSection = view.get("sectionJoiner");
+            Label leaderBadge = view.get("labelLeaderActive");
+            Label joinerBadge = view.get("labelJoinerActive");
+
+            assertFalse(isActive(leaderSection));
+            assertTrue(isActive(joinerSection));
+            assertEquals("ACTIVE", joinerBadge.getText());
+            assertFalse(leaderBadge.isVisible());
+            assertFalse(view.ownSquad().isDisabled(), "the dimmed Leader section stays editable");
+            assertEquals(Integer.valueOf(1), view.ownSquad().getValue());
+            assertTrue(view.ownSquad().getItems().contains(1), "a joiner's rally squad still shows its value");
 
             view.icon().setSelected(false);
-            view.own().setSelected(true);
-            assertTrue(row.isManaged());
+            view.leader().fire();
+            assertTrue(isActive(leaderSection));
+            assertFalse(isActive(joinerSection));
+            assertEquals("ACTIVE", leaderBadge.getText());
+            assertFalse(joinerBadge.isVisible());
+            assertTrue(view.join().isSelected(), "join settings stay on in both roles");
+            assertFalse(view.hero().isDisabled());
+            assertFalse(view.troop().isDisabled());
+            return null;
+        });
+    }
+
+    private static boolean isActive(Node section) {
+        return section.getPseudoClassStates().stream().anyMatch(state -> "role-active".equals(state.getPseudoClassName()));
+    }
+
+    @Test
+    void theRoleRoundTripsTheStoredOwnRallyValue() throws Exception {
+        ProfileAux leader = profile(11L,
+                config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "10-11-2026 19:00"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_RALLY_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, "1,2,3"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_RALLY_FLAG_INT, "8"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, "true"));
+        ProfileAux joiner = profile(12L,
+                config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "10-11-2026 19:00"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_RALLY_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, "1,2,3"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, "false"));
+        noWritesOnLoad(leader);
+        noWritesOnLoad(joiner);
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            List<Change> changes = listen(view);
+
+            view.controller().onProfileLoad(leader);
+            assertTrue(view.leader().isSelected());
+            assertFalse(view.joiner().isSelected());
+            assertEquals("You start the rally on squad 8 and join others.", view.roleSummary().getText());
+            renderWhenAsked(view, "bear-role-preview.png");
+
+            view.controller().onProfileLoad(joiner);
+            assertFalse(view.leader().isSelected());
+            assertTrue(view.joiner().isSelected());
+            assertEquals("You only join other rallies.", view.roleSummary().getText());
+            renderWhenAsked(view, "bear-role-preview-joiner.png");
+
+            view.controller().onProfileLoad(leader);
+            assertTrue(view.leader().isSelected());
+            assertTrue(changes.isEmpty(), "loading must save nothing, saw " + changes);
+
+            view.joiner().fire();
+            assertEquals(List.of(new Change(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, false)), changes);
+            view.joiner().fire();
+            assertEquals(1, changes.size(), "picking the role already chosen must not save again");
+
+            view.leader().fire();
+            assertEquals(List.of(new Change(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, false),
+                    new Change(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, true)), changes);
+
+            view.join().setSelected(false);
+            assertEquals("You start the rally on squad 8.", view.roleSummary().getText());
             return null;
         });
     }
@@ -476,7 +572,7 @@ class BearTrapTimerDateTimeUxTest {
                     "rebuilding the lists must not save");
             view.icon().setSelected(false);
             view.ownSquad().setValue(1);
-            view.own().setSelected(true);
+            view.leader().fire();
             return null;
         });
         settle();
@@ -510,6 +606,25 @@ class BearTrapTimerDateTimeUxTest {
                     changes.get(changes.size() - 1));
             return null;
         });
+    }
+
+    /** Saves the themed page as a PNG when -Dbear.render.dir is set, for reviewing the layout by eye. */
+    private static void renderWhenAsked(LoadedBearView view, String fileName) throws Exception {
+        String renderDir = System.getProperty("bear.render.dir");
+        if (renderDir == null) {
+            return;
+        }
+        // A scene that was already snapshotted can return its earlier image, so each render gets a new one.
+        if (view.root().getScene() != null) {
+            view.root().getScene().setRoot(new Group());
+        }
+        Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
+        Scene scene = new Scene(view.root(), 900, 960);
+        scene.getStylesheets().add(BearTrapLayoutController.class.getResource("/styles/style.css").toExternalForm());
+        view.root().applyCss();
+        view.root().layout();
+        File out = Path.of(renderDir, fileName).toFile();
+        ImageIO.write(SwingFXUtils.fromFXImage(scene.snapshot(null), null), "png", out);
     }
 
     @SuppressWarnings("unchecked")
@@ -598,8 +713,16 @@ class BearTrapTimerDateTimeUxTest {
             return get("checkBoxEnableJoin");
         }
 
-        private CheckBox own() {
-            return get("checkBoxCallRally");
+        private RadioButton leader() {
+            return get("radioLeader");
+        }
+
+        private RadioButton joiner() {
+            return get("radioJoiner");
+        }
+
+        private Label roleSummary() {
+            return get("labelRoleSummary");
         }
 
         private CheckBox recall() {

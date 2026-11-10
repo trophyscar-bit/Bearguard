@@ -6,6 +6,7 @@ import dev.frostguard.app.panel.custom.CustomTasksLayoutController;
 import dev.frostguard.app.shared.AbstractProfileController;
 import dev.frostguard.app.shared.PriorityListView;
 import dev.frostguard.app.shared.SceneGraphWalk;
+import dev.frostguard.app.shared.SingleHomeSettingsPage;
 import dev.frostguard.app.shared.UtcDateTimeEditor;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -33,9 +34,20 @@ final class TaskSettingsIndex {
      * @param keys   the setting each listed control saves to; a control that saves through its own
      *               handler has no entry
      * @param labels captions for controls that have no caption on their page to read
+     * @param home   set when the page must stay the only place to edit these options, so the panel
+     *               shows its summary instead of copies of its controls
      */
     record Source(String pageTitle, Map<Node, ConfigurationKeyEnum> keys, Map<ConfigurationKeyEnum, String> names,
-                  Map<Node, String> labels, Node activation, List<Node> controls) {
+                  Map<Node, String> labels, Node activation, List<Node> controls, SingleHomeSettingsPage home) {
+
+        Source(String pageTitle, Map<Node, ConfigurationKeyEnum> keys, Map<ConfigurationKeyEnum, String> names,
+               Map<Node, String> labels, Node activation, List<Node> controls) {
+            this(pageTitle, keys, names, labels, activation, controls, null);
+        }
+
+        private static Source readOnly(String pageTitle, SingleHomeSettingsPage home) {
+            return new Source(pageTitle, Map.of(), Map.of(), Map.of(), null, List.of(), home);
+        }
     }
 
     private record Placement(String pageTitle, Node control) {
@@ -45,6 +57,7 @@ final class TaskSettingsIndex {
     }
 
     private final Map<String, Page> pages = new LinkedHashMap<>();
+    private final Map<String, SingleHomeSettingsPage> singleHomes = new HashMap<>();
     private final Map<ConfigurationKeyEnum, Placement> placementByKey = new HashMap<>();
     private final Map<Node, ConfigurationKeyEnum> keyOfControl = new HashMap<>();
     private final Map<ConfigurationKeyEnum, String> nameOfKey = new HashMap<>();
@@ -77,6 +90,9 @@ final class TaskSettingsIndex {
                 .filter(node -> registered.containsKey(node) || isOwnHandlerOption(node))
                 .toList();
         pages.put(title, new Page(title, root, controls));
+        if (controller instanceof SingleHomeSettingsPage home) {
+            singleHomes.put(title, home);
+        }
         nameOfKey.putAll(controller.getRegisteredSettings());
         for (Node control : controls) {
             ConfigurationKeyEnum key = registered.get(control);
@@ -107,6 +123,12 @@ final class TaskSettingsIndex {
     }
 
     Optional<Source> find(TpDailyTaskEnum task) {
+        return findOnPage(task).map(source -> singleHomes.containsKey(source.pageTitle())
+                ? Source.readOnly(source.pageTitle(), singleHomes.get(source.pageTitle()))
+                : source);
+    }
+
+    private Optional<Source> findOnPage(TpDailyTaskEnum task) {
         if (TaskSettingsCatalog.hasNoSettings(task)) {
             return Optional.empty();
         }

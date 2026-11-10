@@ -22,32 +22,41 @@
                     </HBox>
                     <VBox spacing="10" styleClass="task-section-inner">
                         <HBox alignment="CENTER_LEFT" spacing="10">
-                            <Label minWidth="90.0" styleClass="task-field-label" text="Lead (min)" />
-                            <TextField fx:id="textFieldPreparationTime" prefWidth="100.0" promptText="15" />
+                            <Label minWidth="90.0" styleClass="task-field-label" text="Role" />
+                            <HBox styleClass="bear-role-toggle">
+                                <RadioButton fx:id="radioLeader" mnemonicParsing="false" text="LEADER"
+                                             styleClass="bear-role-choice, bear-role-choice-left" />
+                                <RadioButton fx:id="radioJoiner" mnemonicParsing="false" text="JOINER"
+                                             styleClass="bear-role-choice, bear-role-choice-right" />
+                            </HBox>
                         </HBox>
-                        <Label fx:id="labelPreparationTimeError" wrapText="true" />
-                        <VBox spacing="4">
-                            <Label styleClass="task-field-label" text="Bear start" />
-                            <UtcDateTimeEditor fx:id="timerDateTimeEditor" />
-                        </VBox>
+                        <Label fx:id="labelRoleSummary" styleClass="bear-role-summary" wrapText="true" />
                         <HBox alignment="CENTER_LEFT" spacing="10">
                             <Label minWidth="90.0" styleClass="task-field-label" text="Trap" />
                             <ComboBox fx:id="comboBoxTrapNumber" prefWidth="100.0" />
                         </HBox>
+                        <VBox spacing="4">
+                            <Label styleClass="task-field-label" text="Bear start (UTC)" />
+                            <UtcDateTimeEditor fx:id="timerDateTimeEditor" />
+                        </VBox>
+                        <HBox alignment="CENTER_LEFT" spacing="10">
+                            <Label minWidth="90.0" styleClass="task-field-label" text="Lead (min)" />
+                            <TextField fx:id="textFieldPreparationTime" prefWidth="100.0" promptText="15" />
+                        </HBox>
+                        <Label fx:id="labelPreparationTimeError" wrapText="true" />
                         <HBox alignment="CENTER_LEFT" spacing="10">
                             <Label minWidth="90.0" styleClass="task-field-label" text="Guard" />
                             <ComboBox fx:id="comboBoxGuard" prefWidth="160.0" />
                         </HBox>
-                        <CheckBox fx:id="checkBoxIconStart" mnemonicParsing="false" text="Icon start" />
                     </VBox>
                 </VBox>
 
-                <HBox alignment="TOP_LEFT" spacing="14">
-                    <VBox styleClass="content-card" HBox.hgrow="ALWAYS">
-                        <HBox maxWidth="Infinity" styleClass="header-red">
-                            <Label text="Squads" />
-                        </HBox>
-                        <VBox spacing="10" styleClass="task-section-inner">
+                <VBox styleClass="content-card">
+                    <HBox maxWidth="Infinity" styleClass="header-neutral">
+                        <Label text="Both roles" />
+                    </HBox>
+                    <HBox alignment="TOP_LEFT" spacing="24" styleClass="task-section-inner">
+                        <VBox spacing="10" HBox.hgrow="ALWAYS">
                             <CheckBox fx:id="checkBoxEnableJoin" mnemonicParsing="false" text="Join rallies" />
                             <HBox alignment="CENTER_LEFT" spacing="10">
                                 <Label minWidth="90.0" styleClass="task-field-label" text="Hero squads" />
@@ -59,23 +68,39 @@
                             </HBox>
                             <Label fx:id="labelJoinError" styleClass="setting-validation-message"
                                    text="Pick a Hero squad to join rallies." wrapText="true" />
-                            <CheckBox fx:id="checkBoxCallRally" mnemonicParsing="false" text="Own rally" />
+                        </VBox>
+                        <VBox spacing="10" HBox.hgrow="ALWAYS">
+                            <CheckBox fx:id="checkBoxRecallTroops" maxWidth="Infinity"
+                                      mnemonicParsing="false" text="Recall gatherers" />
+                            <CheckBox fx:id="checkBoxActivePets" maxWidth="Infinity"
+                                      mnemonicParsing="false" text="Pets" />
+                        </VBox>
+                    </HBox>
+                </VBox>
+
+                <HBox alignment="TOP_LEFT" spacing="14">
+                    <VBox fx:id="sectionLeader" prefWidth="200.0" styleClass="content-card, bear-role-section" HBox.hgrow="ALWAYS">
+                        <HBox alignment="CENTER_LEFT" maxWidth="Infinity" spacing="10" styleClass="header-blue">
+                            <Label text="LEADER" />
+                            <Label fx:id="labelLeaderActive" styleClass="bear-role-active-badge" />
+                        </HBox>
+                        <VBox spacing="10" styleClass="task-section-inner">
+                            <Label styleClass="task-card-description" text="Starts your own rally." wrapText="true" />
                             <HBox fx:id="rowOwnSquad" alignment="CENTER_LEFT" spacing="10">
-                                <Label minWidth="90.0" styleClass="task-field-label" text="Own squad" />
+                                <Label minWidth="90.0" styleClass="task-field-label" text="Rally squad" />
                                 <ComboBox fx:id="comboBoxRallyFlag" prefWidth="100.0" />
                             </HBox>
                         </VBox>
                     </VBox>
 
-                    <VBox styleClass="content-card" HBox.hgrow="ALWAYS">
-                        <HBox maxWidth="Infinity" styleClass="header-blue">
-                            <Label text="Prep" />
+                    <VBox fx:id="sectionJoiner" prefWidth="200.0" styleClass="content-card, bear-role-section" HBox.hgrow="ALWAYS">
+                        <HBox alignment="CENTER_LEFT" maxWidth="Infinity" spacing="10" styleClass="header-blue">
+                            <Label text="JOINER" />
+                            <Label fx:id="labelJoinerActive" styleClass="bear-role-active-badge" />
                         </HBox>
                         <VBox spacing="10" styleClass="task-section-inner">
-                            <CheckBox fx:id="checkBoxRecallTroops" maxWidth="Infinity"
-                                      mnemonicParsing="false" text="Recall gatherers" />
-                            <CheckBox fx:id="checkBoxActivePets" maxWidth="Infinity"
-                                      mnemonicParsing="false" text="Pets" />
+                            <Label styleClass="task-card-description" text="Never starts a rally." wrapText="true" />
+                            <CheckBox fx:id="checkBoxIconStart" mnemonicParsing="false" text="Icon start" />
                         </VBox>
                     </VBox>
                 </HBox>

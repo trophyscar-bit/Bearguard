@@ -17,12 +17,19 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBoxBase;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Spinner;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TextInputControl;
+import javafx.scene.control.ToggleButton;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import org.controlsfx.control.CheckComboBox;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -269,6 +276,57 @@ class TaskSettingsMirrorTest {
         onFx(() -> { });
 
         assertEquals(List.of(), writes);
+    }
+
+    /** Bear Trap is edited only on its own page; the task panel shows a summary and a way there. */
+    @Test
+    void bearTrapShowsAReadOnlySummaryAndAJumpToItsPage() throws Exception {
+        onFx(() -> {
+            FXMLLoader loader = new FXMLLoader(TaskSettingsMirrorTest.class.getResource("/layout/BearTrapLayout.fxml"));
+            BearTrapLayoutController bear = new BearTrapLayoutController();
+            loader.setController(bear);
+            Parent bearRoot = loader.load();
+            List<String> writes = new ArrayList<>();
+            bear.attachProfileListener((key, value) -> writes.add(key + "=" + value));
+            ProfileAux profile = new ProfileAux(1L, "One", "1", true, 50L, "", 0L);
+            profile.setConfigs(List.of(
+                    new ConfigAux(BEAR_TRAP_EVENT_BOOL.name(), "true"),
+                    new ConfigAux(BEAR_TRAP_CALL_RALLY_BOOL.name(), "true"),
+                    new ConfigAux(BEAR_TRAP_NUMBER_INT.name(), "2"),
+                    new ConfigAux(BEAR_TRAP_SCHEDULE_DATETIME_STRING.name(), "10-11-2026 19:00")));
+            bear.onProfileLoad(profile);
+
+            TaskSettingsIndex index = new TaskSettingsIndex(Map.of("Bear Trap", bear), Map.of("Bear Trap", bearRoot), null, null);
+            List<String> opened = new ArrayList<>();
+            TaskInspectorPanel panel = new TaskInspectorPanel(opened::add, () -> { }, () -> { }, () -> { });
+            panel.attachSettings(index);
+            panel.show(detail("bear", TpDailyTaskEnum.BEAR_TRAP));
+            Node body = ((ScrollPane) panel.root()).getContent();
+
+            List<Node> inputs = SceneGraphWalk.descendants(body).stream()
+                    .filter(node -> node instanceof CheckBox || node instanceof ToggleButton || node instanceof ComboBoxBase<?>
+                            || node instanceof TextInputControl || node instanceof CheckComboBox<?>
+                            || node instanceof Spinner<?>)
+                    .toList();
+            assertEquals(List.of(), inputs, "no Bear Trap setting may be editable in the task panel");
+
+            String summary = bear.settingsSummary().get();
+            assertTrue(summary.startsWith("Leader · Trap 2 · "), summary);
+            assertTrue(summary.endsWith(" · Auto bear on"), summary);
+            assertTrue(SceneGraphWalk.descendants(body).stream()
+                    .anyMatch(node -> node instanceof Label label && summary.equals(label.getText())));
+
+            Hyperlink edit = first(body, Hyperlink.class);
+            assertEquals("Edit in Events > Bear Trap", edit.getText());
+            edit.fire();
+            assertEquals(List.of("Bear Trap"), opened);
+
+            ((RadioButton) loader.getNamespace().get("radioJoiner")).fire();
+            assertTrue(SceneGraphWalk.descendants(body).stream()
+                    .anyMatch(node -> node instanceof Label label && label.getText().startsWith("Joiner · Trap 2 · ")),
+                    "the summary follows the page");
+            assertEquals(List.of(BEAR_TRAP_CALL_RALLY_BOOL + "=false"), writes);
+        });
     }
 
     private static TaskInspectorPanel.Detail detail(String key, TpDailyTaskEnum type) {

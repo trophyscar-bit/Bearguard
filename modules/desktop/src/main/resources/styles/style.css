@@ -1232,6 +1232,90 @@
     -fx-font-size: 12px;
 }
 
+/* Bear Trap role: two adjoining radio buttons drawn as one segmented switch, dot hidden. */
+.bear-role-toggle {
+    -fx-spacing: -1;
+}
+
+.bear-role-choice {
+    -fx-background-color: -color-bg-subtle;
+    -fx-text-fill: -color-fg-default;
+    -fx-border-color: -color-border-default;
+    -fx-padding: 8 0;
+    -fx-min-width: 120;
+    -fx-pref-width: 120;
+    -fx-alignment: center;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+}
+
+.bear-role-choice > .radio,
+.bear-role-choice > .radio > .dot {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-min-width: 0;
+    -fx-pref-width: 0;
+    -fx-max-width: 0;
+}
+
+.bear-role-choice-left {
+    -fx-background-radius: 6 0 0 6;
+    -fx-border-radius: 6 0 0 6;
+}
+
+.bear-role-choice-right {
+    -fx-background-radius: 0 6 6 0;
+    -fx-border-radius: 0 6 6 0;
+}
+
+.bear-role-choice:selected {
+    -fx-background-color: -color-accent-emphasis;
+    -fx-text-fill: -color-fg-emphasis;
+}
+
+/* The LEADER and JOINER cards: the one the switch picked is lit and badged, the other dimmed. */
+.bear-role-section {
+    -fx-opacity: 0.55;
+    -fx-border-width: 2;
+}
+
+.bear-role-section:role-active {
+    -fx-opacity: 1;
+    -fx-border-color: -fg-yellow;
+    -fx-border-width: 2;
+}
+
+.bear-role-section .header-blue .label {
+    -fx-font-size: 15px;
+}
+
+.bear-role-section .header-blue .bear-role-active-badge {
+    -fx-background-color: -fg-yellow;
+    -fx-text-fill: -fg-text-dark;
+    -fx-background-radius: 100;
+    -fx-padding: 1 10;
+    -fx-font-size: 12px;
+}
+
+.bear-role-summary {
+    -fx-text-fill: -fg-text-primary;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+/* The zone beside a UTC time entry, and the local = UTC line under it. */
+.utc-date-time-zone {
+    -fx-text-fill: -fg-text-primary;
+    -fx-font-weight: bold;
+}
+
+.utc-date-time-preview {
+    -fx-text-fill: -fg-text-primary;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
 /* Warning/note label inside task cards */
 .task-card-note {
     -fx-text-fill: #ffcc00;
@@ -1930,7 +2014,8 @@
 
 
 /* Unified Header Blocks */
-.header-yellow, .header-red, .header-blue, .header-orange, .header-teal, .header-purple, .header-green {
+.header-yellow, .header-red, .header-blue, .header-orange, .header-teal, .header-purple, .header-green,
+.header-neutral {
     -fx-padding: 10 14;
     -fx-background-radius: 6 6 0 0;
     -fx-font-weight: bold;
@@ -1944,6 +2029,14 @@
 .header-teal { -fx-background-color: -fg-teal; }
 .header-purple { -fx-background-color: -fg-purple; -fx-text-fill: white; }
 .header-green { -fx-background-color: -fg-green; }
+/* A plain section title that should not compete with the coloured headers around it. */
+.header-neutral {
+    -fx-background-color: -fg-border-subtle;
+}
+
+.header-neutral .label {
+    -fx-text-fill: -fg-text-primary;
+}
 
 /* Checkboxes and Labels in headers inherit appropriate contrast */
 .header-yellow .check-box, .header-orange .check-box, .header-teal .check-box, .header-green .check-box,
