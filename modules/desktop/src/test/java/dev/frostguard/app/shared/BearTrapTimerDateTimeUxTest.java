@@ -279,7 +279,7 @@ class BearTrapTimerDateTimeUxTest {
                     .filter(text -> !text.contains("Hero squad to join"))
                     .toList();
 
-            assertEquals(List.of("Auto bear", "Lead (min)", "Bear start", ":", "Apply", "Clear", "Next: —", "Guard",
+            assertEquals(List.of("Auto bear", "Lead (min)", "Bear start", ":", "Apply", "Clear", "Next: —", "Trap", "Guard",
                     "Icon start", "Squads", "Join rallies", "Hero squads", "Troop squads", "Own rally", "Own squad",
                     "Prep", "Recall gatherers", "Pets"), captions);
             assertEquals(List.of("Off", "Block rallies", "Pause all"),
