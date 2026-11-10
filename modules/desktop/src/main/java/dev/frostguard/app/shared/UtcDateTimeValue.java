@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
@@ -28,6 +29,8 @@ public final class UtcDateTimeValue {
             .withResolverStyle(ResolverStyle.STRICT);
     private static final DateTimeFormatter LOCAL_PREVIEW_FORMAT =
             DateTimeFormatter.ofPattern("dd-MM-uuuu HH:mm z", Locale.ENGLISH);
+    private static final DateTimeFormatter UTC_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
+    private static final DateTimeFormatter LOCAL_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm z", Locale.ENGLISH);
 
     private UtcDateTimeValue() {
     }
@@ -99,11 +102,18 @@ public final class UtcDateTimeValue {
         return isBlank(text) ? null : LocalDate.parse(text.trim(), DATE_FORMAT);
     }
 
+    /** The local time first, then the stored UTC time, with the UTC date only when the two dates differ. */
     public static String formatLocalPreview(LocalDateTime utcDateTime, ZoneId localZone) {
-        return "Next: " + utcDateTime
-                .atZone(ZoneOffset.UTC)
-                .withZoneSameInstant(localZone)
-                .format(LOCAL_PREVIEW_FORMAT);
+        ZonedDateTime local = utcDateTime.atZone(ZoneOffset.UTC).withZoneSameInstant(localZone);
+        String utc = local.toLocalDate().equals(utcDateTime.toLocalDate())
+                ? utcDateTime.format(UTC_TIME_FORMAT)
+                : utcDateTime.format(PERSISTED_FORMAT);
+        return "Next: " + local.format(LOCAL_PREVIEW_FORMAT) + " = " + utc + " UTC";
+    }
+
+    /** The time of day in the local zone, such as "14:00 EST". */
+    public static String formatLocalTime(LocalDateTime utcDateTime, ZoneId localZone) {
+        return utcDateTime.atZone(ZoneOffset.UTC).withZoneSameInstant(localZone).format(LOCAL_TIME_FORMAT);
     }
 
     private static boolean isBlank(String value) {

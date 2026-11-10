@@ -4,8 +4,6 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -33,6 +31,7 @@ public final class UtcDateTimeEditor extends VBox {
     private final Spinner<Integer> minuteSpinner = createSpinner(0, 59);
     private final Button applyButton = new Button("Apply");
     private final Button clearButton = new Button("Clear");
+    private final Label zoneLabel = new Label("UTC");
     private final Label localPreview = new Label("Next: —");
     private final Label validationMessage = new Label();
     private final FieldValidationPresenter datePresenter = new FieldValidationPresenter(datePicker.getEditor());
@@ -45,7 +44,6 @@ public final class UtcDateTimeEditor extends VBox {
     private Consumer<LocalDateTime> commitHandler = ignored -> { };
     private Runnable clearHandler = () -> { };
     private LocalDateTime committedValue;
-    private final List<UtcDateTimeEditor> mirrors = new ArrayList<>();
 
     public UtcDateTimeEditor() {
         this(ZoneId.systemDefault(), Clock.systemUTC());
@@ -89,10 +87,12 @@ public final class UtcDateTimeEditor extends VBox {
         clearButton.setMinWidth(58);
         clearButton.setOnAction(event -> clearSelection());
 
-        HBox inputRow = new HBox(5, datePicker, hourSpinner, separator, minuteSpinner, applyButton, clearButton);
+        zoneLabel.getStyleClass().add("utc-date-time-zone");
+        HBox inputRow = new HBox(5, datePicker, hourSpinner, separator, minuteSpinner, zoneLabel, applyButton,
+                clearButton);
         inputRow.setAlignment(Pos.CENTER_LEFT);
 
-        localPreview.getStyleClass().add("task-card-description");
+        localPreview.getStyleClass().add("utc-date-time-preview");
         localPreview.setWrapText(true);
         validationMessage.getStyleClass().add("setting-validation-message");
         validationMessage.setWrapText(true);
@@ -142,7 +142,6 @@ public final class UtcDateTimeEditor extends VBox {
 
     public void setDateTime(LocalDateTime value) {
         committedValue = value;
-        mirrors.forEach(mirror -> mirror.setDateTime(value));
         if (value == null) {
             datePicker.setValue(null);
             datePicker.getEditor().setText("");
@@ -164,37 +163,6 @@ public final class UtcDateTimeEditor extends VBox {
 
     public boolean hasCommittedDateTime() {
         return committedValue != null;
-    }
-
-    /**
-     * A second editor for the same timer, stacked to fit a narrow panel. Applying or clearing it
-     * goes through this editor's handlers, so the timer still has one owner and one save path.
-     */
-    public UtcDateTimeEditor compactMirror() {
-        UtcDateTimeEditor mirror = new UtcDateTimeEditor(localZone, clock);
-        mirror.stackInputs();
-        mirror.timerEnabled.bind(timerEnabled);
-        mirror.setDateTime(committedValue);
-        mirror.setOnCommit(value -> {
-            setDateTime(value);
-            commitHandler.accept(value);
-            refreshState();
-        });
-        mirror.setOnClear(this::clearSelection);
-        mirrors.add(mirror);
-        return mirror;
-    }
-
-    private void stackInputs() {
-        hourSpinner.setMinWidth(62);
-        hourSpinner.setPrefWidth(62);
-        hourSpinner.setMaxWidth(62);
-        minuteSpinner.setMinWidth(62);
-        minuteSpinner.setPrefWidth(62);
-        minuteSpinner.setMaxWidth(62);
-        HBox timeRow = new HBox(5, hourSpinner, new Label(":"), minuteSpinner, applyButton, clearButton);
-        timeRow.setAlignment(Pos.CENTER_LEFT);
-        getChildren().setAll(datePicker, timeRow, localPreview, validationMessage);
     }
 
     public void setOnCommit(Consumer<LocalDateTime> handler) {
@@ -239,7 +207,6 @@ public final class UtcDateTimeEditor extends VBox {
         committedValue = selection.value();
         setSpinnerValue(hourSpinner, committedValue.getHour());
         setSpinnerValue(minuteSpinner, committedValue.getMinute());
-        mirrors.forEach(mirror -> mirror.setDateTime(committedValue));
         commitHandler.accept(committedValue);
         refreshState();
     }
@@ -249,7 +216,6 @@ public final class UtcDateTimeEditor extends VBox {
             return;
         }
         committedValue = null;
-        mirrors.forEach(mirror -> mirror.setDateTime(null));
         datePicker.setValue(null);
         datePicker.getEditor().setText("");
         setSpinnerValue(hourSpinner, 0);

@@ -3,7 +3,7 @@ package dev.frostguard.app.panel.today;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.app.shared.FieldValidationPresenter;
 import dev.frostguard.app.shared.PriorityListView;
-import dev.frostguard.app.shared.UtcDateTimeEditor;
+import dev.frostguard.app.shared.SingleHomeSettingsPage;
 import javafx.beans.binding.Bindings;
 import javafx.beans.binding.BooleanBinding;
 import javafx.beans.value.ObservableValue;
@@ -66,6 +66,9 @@ final class TaskSettingsMirror {
     }
 
     static Result build(TaskSettingsIndex.Source source) {
+        if (source.home() != null) {
+            return summaryOnly(source.home());
+        }
         TaskSettingsMirror mirror = new TaskSettingsMirror(source);
         List<Node> rows = new ArrayList<>();
         for (Node control : source.controls()) {
@@ -74,6 +77,15 @@ final class TaskSettingsMirror {
         CheckBox toggle = source.activation() instanceof CheckBox real ? mirrorCheckBox(real, "") : null;
         List<BooleanSupplier> dirtyChecks = mirror.dirtyChecks;
         return new Result(toggle, rows, () -> dirtyChecks.stream().anyMatch(BooleanSupplier::getAsBoolean));
+    }
+
+    /** A read-only line for a page that must stay the only place its options are edited. */
+    private static Result summaryOnly(SingleHomeSettingsPage home) {
+        Label summary = new Label();
+        summary.textProperty().bind(home.settingsSummary());
+        summary.setWrapText(true);
+        summary.getStyleClass().add("today-value");
+        return new Result(null, List.of(summary), () -> false);
     }
 
     private Node rowFor(Node control) {
@@ -90,8 +102,6 @@ final class TaskSettingsMirror {
             row = labelled(control, mirrorCheckCombo(real));
         } else if (control instanceof PriorityListView real) {
             row = labelled(control, new PriorityListView(real));
-        } else if (control instanceof UtcDateTimeEditor real) {
-            row = labelled(control, real.compactMirror());
         } else {
             // A row per control keeps a new control type visible instead of quietly missing.
             row = new Label("Change this on the full settings page");

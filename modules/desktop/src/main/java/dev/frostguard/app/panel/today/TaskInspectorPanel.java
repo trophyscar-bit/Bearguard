@@ -30,7 +30,15 @@ final class TaskInspectorPanel {
                   String lastRun, List<String> failure, RunNowPolicy.Decision runNow, boolean following) {
     }
 
-    private record Prepared(TaskSettingsMirror.Result mirror, String pageTitle) {
+    /** @param linkText the jump to the page, which reads as the only way to edit a read-only summary */
+    private record Prepared(TaskSettingsMirror.Result mirror, String pageTitle, String linkText) {
+
+        static Prepared of(TaskSettingsIndex.Source source) {
+            String linkText = source.home() == null
+                    ? "All " + source.pageTitle() + " settings"
+                    : "Edit in " + source.home().settingsHome();
+            return new Prepared(TaskSettingsMirror.build(source), source.pageTitle(), linkText);
+        }
     }
 
     private static final double WIDTH = 310;
@@ -230,7 +238,7 @@ final class TaskInspectorPanel {
 
         setShown(allSettings, prepared.isPresent());
         prepared.ifPresent(value -> {
-            allSettings.setText("All " + value.pageTitle() + " settings");
+            allSettings.setText(value.linkText());
             allSettings.setOnAction(event -> openScreen.accept(value.pageTitle()));
         });
     }
@@ -249,14 +257,14 @@ final class TaskInspectorPanel {
         if (customTask != null) {
             // Keyed by the card's own switch, so a re-imported task gets a mirror of its new card.
             return index.findCustom(customTask).map(source -> preparedByCustomCard.computeIfAbsent(
-                    source.activation(), card -> new Prepared(TaskSettingsMirror.build(source), source.pageTitle())));
+                    source.activation(), card -> Prepared.of(source)));
         }
         Prepared cached = preparedByTask.get(type);
         if (cached != null) {
             return Optional.of(cached);
         }
         return index.find(type).map(source -> {
-            Prepared built = new Prepared(TaskSettingsMirror.build(source), source.pageTitle());
+            Prepared built = Prepared.of(source);
             preparedByTask.put(type, built);
             return built;
         });
