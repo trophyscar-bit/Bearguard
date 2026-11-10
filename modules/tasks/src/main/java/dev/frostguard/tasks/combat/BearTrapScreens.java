@@ -2,7 +2,6 @@ package dev.frostguard.tasks.combat;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,7 +32,8 @@ final class BearTrapScreens {
     static final PointData BATTLE_SKILLS_USE_CENTER = new PointData(512, 815);
 
     private static final Pattern TRAP_TITLE = Pattern.compile("hunt\\w*\\s*trap\\s*([0-9Il|!])", Pattern.CASE_INSENSITIVE);
-    private static final Pattern MAP_COORDS = Pattern.compile("x\\s*[:;.]?\\s*(\\d{2,4})\\D{0,3}y\\s*[:;.]?\\s*(\\d{2,4})", Pattern.CASE_INSENSITIVE);
+    // White coordinates over artwork read as "K:786. Y:236" or "x:.752 Y:234", so X may come back as K.
+    private static final Pattern MAP_COORDS = Pattern.compile("[xk]\\W{0,3}(\\d{2,4})\\D{0,3}y\\W{0,3}(\\d{2,4})", Pattern.CASE_INSENSITIVE);
     private static final Pattern RAGING_BEAR = Pattern.compile("lv\\W{0,2}\\s*\\d+\\s*raging\\s*bear", Pattern.CASE_INSENSITIVE);
     private static final Pattern NOT_ELIGIBLE = Pattern.compile("eligib|inelig", Pattern.CASE_INSENSITIVE);
     private static final Pattern BATTLE_SKILLS = Pattern.compile("use\\s*all\\s*available\\s*battle\\s*skill", Pattern.CASE_INSENSITIVE);
@@ -43,10 +43,29 @@ final class BearTrapScreens {
 
     /** Centre of the Go button on the row titled "Hunting Trap N", if that row is on screen. */
     static Optional<PointData> trapGoButton(List<TextLine> lines, int trapNumber) {
+        return trapTitle(lines, trapNumber).map(title -> new PointData(GO_X, title.top() + GO_BELOW_TITLE));
+    }
+
+    /**
+     * Where that row prints its trap's coordinates ("X:786, Y:236", white over the trap picture,
+     * about 115 px below the title). Read it with white-text OCR.
+     */
+    static Optional<AreaData> trapRowCoordinatesArea(List<TextLine> lines, int trapNumber) {
+        return trapTitle(lines, trapNumber).map(title -> new AreaData(
+                new PointData(40, title.top() + 100), new PointData(195, title.top() + 135)));
+    }
+
+    /**
+     * Where the Raging Bear popup prints the bear's coordinates ("X:752 Y:234", white over the bear
+     * picture, left of centre and about 45 px above the title). Read it with white-text OCR.
+     */
+    static Optional<AreaData> bearPopupCoordinatesArea(List<TextLine> lines) {
         for (TextLine line : lines) {
-            Matcher m = TRAP_TITLE.matcher(normalise(line.text()));
-            if (m.find() && trapDigit(m.group(1)) == trapNumber) {
-                return Optional.of(new PointData(GO_X, line.top() + GO_BELOW_TITLE));
+            if (RAGING_BEAR.matcher(normalise(line.text())).find()) {
+                int centre = line.left() + line.width() / 2;
+                return Optional.of(new AreaData(
+                        new PointData(Math.max(0, centre - 200), Math.max(0, line.top() - 50)),
+                        new PointData(centre - 30, line.top() - 10)));
             }
         }
         return Optional.empty();
@@ -78,8 +97,36 @@ final class BearTrapScreens {
         return anyMatches(lines, BATTLE_SKILLS);
     }
 
+    /**
+     * Whether the bear on screen is the configured trap's. Both traps' popups say "Lv. 1 Raging
+     * Bear", so only coordinates tell them apart: the popup's own, or failing that the camera bar
+     * read straight after Go. Without the trap's coordinates from its Special Buildings row there
+     * is nothing to compare against, and the answer is no.
+     */
+    static boolean isConfiguredTrap(Optional<PointData> trap, Optional<PointData> popup, Optional<PointData> camera) {
+        if (trap.isEmpty()) {
+            return false;
+        }
+        if (popup.isPresent()) {
+            return near(popup.get(), trap.get(), TRAP_TOLERANCE);
+        }
+        return camera.isPresent() && near(camera.get(), trap.get(), TRAP_TOLERANCE);
+    }
+
+    static final int TRAP_TOLERANCE = 2;
+
     static boolean near(PointData a, PointData b, int tolerance) {
         return Math.abs(a.getX() - b.getX()) <= tolerance && Math.abs(a.getY() - b.getY()) <= tolerance;
+    }
+
+    private static Optional<TextLine> trapTitle(List<TextLine> lines, int trapNumber) {
+        for (TextLine line : lines) {
+            Matcher m = TRAP_TITLE.matcher(normalise(line.text()));
+            if (m.find() && trapDigit(m.group(1)) == trapNumber) {
+                return Optional.of(line);
+            }
+        }
+        return Optional.empty();
     }
 
     private static boolean anyMatches(List<TextLine> lines, Pattern pattern) {

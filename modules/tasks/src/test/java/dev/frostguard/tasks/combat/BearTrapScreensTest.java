@@ -36,6 +36,25 @@ class BearTrapScreensTest {
         assertEquals(Optional.of(new PointData(786, 236)),
                 BearTrapScreens.mapCoordinates(List.of(line("X:786, Y:236", 380))));
         assertEquals(Optional.empty(), BearTrapScreens.mapCoordinates(List.of(line("#3001", 1054))));
+        // White-text reads from 2026-11-10: X misread as K, a stray dot, a stray bar.
+        assertEquals(Optional.of(new PointData(786, 236)),
+                BearTrapScreens.mapCoordinates(List.of(line("K:786. Y:236", 383))));
+        assertEquals(Optional.of(new PointData(752, 234)),
+                BearTrapScreens.mapCoordinates(List.of(line("| x:.752 Y:234", 780))));
+    }
+
+    @Test
+    void rallyOnlyWhenCoordinatesProveItIsTheConfiguredTrap() {
+        Optional<PointData> trap1 = Optional.of(new PointData(786, 236));
+        Optional<PointData> trap2 = Optional.of(new PointData(752, 234));
+        Optional<PointData> none = Optional.empty();
+
+        assertTrue(BearTrapScreens.isConfiguredTrap(trap1, Optional.of(new PointData(787, 236)), none));
+        assertFalse(BearTrapScreens.isConfiguredTrap(trap1, trap2, trap1)); // the popup outranks the camera
+        assertTrue(BearTrapScreens.isConfiguredTrap(trap1, none, Optional.of(new PointData(786, 235))));
+        assertFalse(BearTrapScreens.isConfiguredTrap(trap1, none, Optional.of(new PointData(761, 237))));
+        assertFalse(BearTrapScreens.isConfiguredTrap(trap1, none, none));
+        assertFalse(BearTrapScreens.isConfiguredTrap(none, trap1, trap1)); // nothing to compare against
     }
 
     @Test

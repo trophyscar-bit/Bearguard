@@ -56,6 +56,30 @@ class BearTrapScreensFrameTest {
     }
 
     @Test
+    void readsEachTrapsOwnCoordinatesFromItsRow() throws Exception {
+        List<TextLine> list = read("special-buildings-20261110.png", BearTrapScreens.SPECIAL_BUILDINGS_LIST);
+
+        assertEquals(Optional.of(new PointData(786, 236)), BearTrapScreens.mapCoordinates(readWhite(
+                "special-buildings-20261110.png", BearTrapScreens.trapRowCoordinatesArea(list, 1).orElseThrow())));
+        assertEquals(Optional.of(new PointData(752, 234)), BearTrapScreens.mapCoordinates(readWhite(
+                "special-buildings-20261110.png", BearTrapScreens.trapRowCoordinatesArea(list, 2).orElseThrow())));
+    }
+
+    @Test
+    void theBearPopupSaysWhichTrapItIs() throws Exception {
+        // Both traps' popups say "Lv. 1 Raging Bear"; this one, from Go on Trap 2, prints X:752 Y:234.
+        List<TextLine> popup = read("raging-bear-popup-20261110.png", BearTrapScreens.MAP_POPUP_TEXT);
+        Optional<PointData> bear = BearTrapScreens.mapCoordinates(readWhite(
+                "raging-bear-popup-20261110.png", BearTrapScreens.bearPopupCoordinatesArea(popup).orElseThrow()));
+
+        assertEquals(Optional.of(new PointData(752, 234)), bear);
+        assertTrue(BearTrapScreens.isConfiguredTrap(Optional.of(new PointData(752, 234)), bear, Optional.empty()));
+        assertFalse(BearTrapScreens.isConfiguredTrap(Optional.of(new PointData(786, 236)), bear, Optional.empty()));
+        assertEquals(Optional.empty(), BearTrapScreens.bearPopupCoordinatesArea(
+                read("tundra-popup-20261110.png", BearTrapScreens.MAP_POPUP_TEXT)));
+    }
+
+    @Test
     void readsTheQuickUseConfirmationQuestion() throws Exception {
         assertTrue(BearTrapScreens.isBattleSkillsConfirmation(
                 read("battle-skills-confirmation-20261110.png", BearTrapScreens.BATTLE_SKILLS_QUESTION)));
@@ -66,6 +90,13 @@ class BearTrapScreensFrameTest {
     private static void assertNear(PointData expected, PointData actual, int tolerance) {
         assertTrue(BearTrapScreens.near(expected, actual, tolerance),
                 "expected near " + expected.getX() + "," + expected.getY() + " but was " + actual.getX() + "," + actual.getY());
+    }
+
+    private List<TextLine> readWhite(String name, AreaData area) throws Exception {
+        BufferedImage image = ImageIO.read(Objects.requireNonNull(getClass().getResourceAsStream("/bear/" + name)));
+        OcrSettingsData white = OcrSettingsData.builder().textLayout(OcrSettingsData.TextLayout.SPARSE)
+                .isolateForeground(true).targetColor(java.awt.Color.WHITE).build();
+        return OcrEngine.recognizeLines(rgba(image), area.topLeft(), area.bottomRight(), white);
     }
 
     private List<TextLine> read(String name, AreaData area) throws Exception {

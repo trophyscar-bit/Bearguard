@@ -133,6 +133,10 @@ private static final PointData BEAR_TRAP_2_GO_BUTTON_BR_VALUE = new PointData(62
 
 private static final OcrSettingsData SPARSE_TEXT_OCR = OcrSettingsData.builder()
             .textLayout(OcrSettingsData.TextLayout.SPARSE).build();
+// White coordinates drawn over artwork (Special Buildings rows, the Raging Bear popup).
+private static final OcrSettingsData WHITE_TEXT_OCR = OcrSettingsData.builder()
+            .textLayout(OcrSettingsData.TextLayout.SPARSE)
+            .isolateForeground(true).targetColor(java.awt.Color.WHITE).build();
 
 private static final PointData BEAR_CENTER_POINT_VALUE = new PointData(370, 507);
 
@@ -177,7 +181,10 @@ private boolean callOwnRally;
 private boolean ownRallyNotEligible;
 private int ownRallyFailures;
 private Instant nextOwnRallyAttempt = Instant.EPOCH;
+// The configured trap's coordinates, read from its own Special Buildings row; kept for the event.
 private PointData trapCoordinates;
+// The camera bar read straight after the latest Go, if it could be read.
+private Optional<PointData> cameraAfterGo = Optional.empty();
 
 /** Which of the alliance's two traps this account fights: its Go button decides where the camera lands. */
 private int trapNumber = 1;
@@ -615,6 +622,7 @@ private void hydrateConfiguration() {
         this.ownRallyFailures = 0;
         this.nextOwnRallyAttempt = Instant.EPOCH;
         this.trapCoordinates = null;
+        this.cameraAfterGo = Optional.empty();
         // Changed by pernerch | Date: 2026-07-02 | Why: resolve shared-emulator state at hydration for deterministic active-phase behavior.
         this.sharedEmulator = isSharedEmulatorProfile();
 
@@ -1265,10 +1273,14 @@ private int countReadyCombatSkills(List<PointData> combatTiles) {
     }
 
 private List<dev.frostguard.vision.ocr.TextLine> readScreenText(AreaData area) {
+        return readScreenText(area, SPARSE_TEXT_OCR);
+    }
+
+private List<dev.frostguard.vision.ocr.TextLine> readScreenText(AreaData area, OcrSettingsData settings) {
         try {
             dev.frostguard.api.domain.RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
             return dev.frostguard.vision.ocr.OcrEngine.recognizeLines(
-                    frame, area.topLeft(), area.bottomRight(), SPARSE_TEXT_OCR);
+                    frame, area.topLeft(), area.bottomRight(), settings);
         } catch (Exception e) {
             logWarning(routineLogBearTrapLine("Could not read screen text: " + e.getMessage()));
             return List.of();
@@ -1317,8 +1329,20 @@ private boolean reachBearTrap() {
 
 
         sleepTask(500);
-        Optional<PointData> go = BearTrapScreens.trapGoButton(
-                readScreenText(BearTrapScreens.SPECIAL_BUILDINGS_LIST), trapNumber);
+        List<dev.frostguard.vision.ocr.TextLine> rows = readScreenText(BearTrapScreens.SPECIAL_BUILDINGS_LIST);
+        Optional<PointData> go = BearTrapScreens.trapGoButton(rows, trapNumber);
+        Optional<PointData> rowCoordinates = BearTrapScreens.trapRowCoordinatesArea(rows, trapNumber)
+                .flatMap(area -> BearTrapScreens.mapCoordinates(readScreenText(area, WHITE_TEXT_OCR)));
+        if (rowCoordinates.isPresent()) {
+            PointData t = rowCoordinates.get();
+            if (trapCoordinates == null || !BearTrapScreens.near(t, trapCoordinates, 0)) {
+                logInfo(routineLogBearTrapLine("Hunting Trap " + trapNumber + " is at X:" + t.getX() + " Y:" + t.getY()));
+            }
+            trapCoordinates = t;
+        } else if (go.isPresent() && trapCoordinates == null) {
+            saveJoinDiagnostic("trap-row-coords-not-read");
+            logWarning(routineLogBearTrapLine("Hunting Trap " + trapNumber + " coordinates not read from its row"));
+        }
         if (go.isPresent()) {
             PointData g = go.get();
             logInfo(routineLogBearTrapLine("Going to Bear Trap " + trapNumber + " (Go at " + g.getX() + "," + g.getY() + ")"));
@@ -1334,15 +1358,13 @@ private boolean reachBearTrap() {
         }
         sleepTask(2000);
 
-        Optional<PointData> camera = BearTrapScreens.mapCoordinates(
-                readScreenText(BearTrapScreens.MAP_COORDINATE_BAR));
-        if (camera.isPresent()) {
-            PointData c = camera.get();
-            if (trapCoordinates == null) {
-                trapCoordinates = c;
-            } else if (!BearTrapScreens.near(c, trapCoordinates, 2)) {
+        cameraAfterGo = BearTrapScreens.mapCoordinates(readScreenText(BearTrapScreens.MAP_COORDINATE_BAR));
+        if (cameraAfterGo.isPresent()) {
+            PointData c = cameraAfterGo.get();
+            if (trapCoordinates != null && !BearTrapScreens.near(c, trapCoordinates, BearTrapScreens.TRAP_TOLERANCE)) {
                 logWarning(routineLogBearTrapLine("Camera at X:" + c.getX() + " Y:" + c.getY()
-                        + " after Go, expected X:" + trapCoordinates.getX() + " Y:" + trapCoordinates.getY()));
+                        + " after Go, but Hunting Trap " + trapNumber + " is at X:" + trapCoordinates.getX()
+                        + " Y:" + trapCoordinates.getY()));
             }
             logDebug(routineLogBearTrapLine("Camera at X:" + c.getX() + " Y:" + c.getY()));
         }
@@ -1383,6 +1405,20 @@ private long beginOwnRally() {
             saveJoinDiagnostic("own-rally-not-bear");
             logWarning(routineLogBearTrapLine("Tapped the trap but no Raging Bear popup opened; read: "
                     + summarise(popup)));
+            navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+            ownRallyActive.set(false);
+            return 0;
+        }
+
+        // Both traps' popups say "Lv. 1 Raging Bear"; only coordinates say which bear this is.
+        Optional<PointData> bearAt = BearTrapScreens.bearPopupCoordinatesArea(popup)
+                .flatMap(area -> BearTrapScreens.mapCoordinates(readScreenText(area, WHITE_TEXT_OCR)));
+        Optional<PointData> trapAt = Optional.ofNullable(trapCoordinates);
+        if (!BearTrapScreens.isConfiguredTrap(trapAt, bearAt, cameraAfterGo)) {
+            saveJoinDiagnostic("own-rally-wrong-trap");
+            logWarning(routineLogBearTrapLine("Not rallying: cannot confirm this is Hunting Trap " + trapNumber
+                    + " (trap " + describe(trapAt) + ", popup " + describe(bearAt)
+                    + ", camera " + describe(cameraAfterGo) + ")"));
             navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
             ownRallyActive.set(false);
             return 0;
@@ -1481,6 +1517,10 @@ private void markOwnRallyNotEligible(String label) {
         logWarning(routineLogBearTrapLine(
                 "The game says this account is not eligible to rally this bear; no more own-rally attempts this event"));
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+    }
+
+private static String describe(Optional<PointData> at) {
+        return at.map(p -> "X:" + p.getX() + " Y:" + p.getY()).orElse("unread");
     }
 
 private static String summarise(List<dev.frostguard.vision.ocr.TextLine> lines) {
