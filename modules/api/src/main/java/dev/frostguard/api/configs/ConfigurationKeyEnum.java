@@ -587,6 +587,8 @@ public enum ConfigurationKeyEnum {
     WANDER_THEATER_EXPLORE_BOOL          ("true",    Boolean.class,  ConfigCategory.EVENTS),
     WANDER_THEATER_TALISMAN_RESERVE_INT  ("0",       Integer.class,  ConfigCategory.EVENTS),
 
+    DEAD_SHOT_SIGN_IN_ENABLED_BOOL       ("false",   Boolean.class,  ConfigCategory.EVENTS),
+
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
     // weeks) -- checked once a day, no-ops when nothing's there.

@@ -135,6 +135,17 @@ public final class CommonGameAreas {
         };
     }
 
+    // ── Deals panel ─────────────────────────────────────────────────
+
+    // The "Deals" header beside the back arrow, and the horizontal tab strip under it. The strip opens
+    // wherever it was left and its tabs change with live offers, so tabs are found by picture.
+    public static final AreaData DEALS_HEADER = region(70, 0, 300, 80);
+    public static final AreaData DEALS_TAB_STRIP = region(0, 95, 719, 190);
+    public static final PointData DEALS_BACK_ARROW = point(40, 40);
+    // About one 198 px tab per gesture: 500 px swipes skipped whole tabs between frames (deals scan).
+    public static final PointData DEALS_TAB_STRIP_SWIPE_FROM = point(560, 150);
+    public static final PointData DEALS_TAB_STRIP_SWIPE_TO = point(340, 150);
+
     // ── shop footer navigation ──────────────────────────────────────
 
     public static final int SHOP_TAB_VISIBLE_COUNT = 3;
