@@ -15,6 +15,7 @@ import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
+import dev.frostguard.engine.schedule.TroopSlotPolicy;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.tasks.combat.PolarTerrorHuntingRoutine;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -58,13 +59,16 @@ public class WanderTheaterRoutine extends DelayedTask {
     private static final int MAX_CLAIMS = 6;
     private static final int RALLY_SET_MINUTES = 3;
     private static final int RALLY_CHECK_MINUTES = 12;
-    private static final int RALLY_RETRY_MINUTES = 30;
+    private static final int RALLY_RETRY_MINUTES = 6;
+    private static final int MAX_RALLY_ATTEMPTS = 4;
+    private static final int LANE_CLAIM_MINUTES = 30;
     private static final int MISSION_RETRY_MINUTES = 60;
     private static final int RESET_GUARD_MINUTES = 20;
 
     enum ButtonState { CLAIM, GO, DONE }
 
     private int claimed;
+    private int rallyAttempts;
 
     public WanderTheaterRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
@@ -103,12 +107,26 @@ public class WanderTheaterRoutine extends DelayedTask {
             String failure = new PolarTerrorHuntingRoutine(profile, TpDailyTaskEnum.EVENT_POLAR_TERROR)
                     .launchOneRally(formation, RALLY_SET_MINUTES);
             if (failure == null) {
+                rallyAttempts = 0;
+                TroopSlotPolicy.release(profile, TpDailyTaskEnum.EVENT_WANDER_THEATER);
                 StatisticsService.obtain().addToCounter(profile, "Wander Theater Polar Rallies", 1);
-                finish(withinWindow(LocalDateTime.now().plusMinutes(RALLY_CHECK_MINUTES)));
-            } else {
-                logWarning("Polar Terror rally for Wander Theater not launched: " + failure);
-                finish(withinWindow(LocalDateTime.now().plusMinutes(RALLY_RETRY_MINUTES)));
+                finish(beforeCutoff(LocalDateTime.now().plusMinutes(RALLY_CHECK_MINUTES)));
+                return;
             }
+            rallyAttempts++;
+            logWarning("Polar Terror rally for Wander Theater not launched (attempt " + rallyAttempts + "/"
+                    + MAX_RALLY_ATTEMPTS + "): " + failure);
+            if (rallyAttempts >= MAX_RALLY_ATTEMPTS) {
+                rallyAttempts = 0;
+                TroopSlotPolicy.release(profile, TpDailyTaskEnum.EVENT_WANDER_THEATER);
+                finish(nextRunHour());
+                return;
+            }
+            // Gather holds five lanes and Alliance auto-join the sixth, so every lane is often busy.
+            // Claiming one makes Gather recall a single gathering march; the retry then has a free lane.
+            TroopSlotPolicy.claimAndMakeRoom(profile, TpDailyTaskEnum.EVENT_WANDER_THEATER, 1,
+                    LocalDateTime.now().plusMinutes(LANE_CLAIM_MINUTES));
+            finish(beforeCutoff(LocalDateTime.now().plusMinutes(RALLY_RETRY_MINUTES)));
             return;
         }
         if (troops.orElse(ButtonState.DONE) == ButtonState.GO || donations.orElse(ButtonState.DONE) == ButtonState.GO) {
@@ -252,6 +270,12 @@ public class WanderTheaterRoutine extends DelayedTask {
     private LocalDateTime nextRunHour() {
         LocalDateTime today = LocalDateTime.now().with(LocalTime.of(runHour(), 0));
         return LocalDateTime.now().isBefore(today) ? today : today.plusDays(1);
+    }
+
+    /** A rally retry may come any time before the reset guard, since the mission's day runs to the reset. */
+    private LocalDateTime beforeCutoff(LocalDateTime retry) {
+        LocalDateTime cutoff = GameTimeUtils.dailyResetTime().minusMinutes(RESET_GUARD_MINUTES);
+        return retry.isBefore(cutoff) ? retry : nextRunHour();
     }
 
     /**

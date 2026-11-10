@@ -73,6 +73,18 @@ public final class TroopSlotPolicy {
     }
 
     /**
+     * Claims slots and pulls Gather forward right away, so it recalls the shortfall now instead of on
+     * its next scheduled pass. For a task that already found every lane busy.
+     */
+    public static void claimAndMakeRoom(AccountDescriptor profile, TpDailyTaskEnum task, int slotsNeeded,
+                                        LocalDateTime expiresAt) {
+        claim(profile, task, slotsNeeded, expiresAt);
+        if (profile != null && profile.getId() != null && task != null && slotsNeeded > 0 && expiresAt != null) {
+            pullGatherForward(profile);
+        }
+    }
+
+    /**
      * Drops a task's claim and, if a claim was actually present, pulls Gather forward now
      * (grace-guarded) so the freed slots refill immediately. Releasing when nothing was claimed is a
      * cheap no-op — it never triggers spurious Gather churn.
