@@ -563,8 +563,10 @@ private void hydrateConfiguration() {
         this.trapNumber = resolveConfigInt(BEAR_TRAP_NUMBER_INT, 1) == 2 ? 2 : 1;
 
 
-        this.joinFlags = decodeJoinFlags();
-        this.troopFlags = parseFlagList(BEAR_TRAP_JOIN_TROOP_FLAG_STRING);
+        BearJoinSquadKeys squadKeys = BearJoinSquadKeys.forRole(callOwnRally,
+                profile.getConfig(BEAR_TRAP_LEADER_JOIN_FLAG_INT, String.class));
+        this.joinFlags = decodeJoinFlags(squadKeys.hero());
+        this.troopFlags = parseFlagList(squadKeys.troop());
         this.marchTally = new BearMarchTally();
         this.rallyTargets = new BearRallyTargets();
         this.savedJoinDiagnostics.clear();
@@ -1052,8 +1054,8 @@ private boolean hasInsideWindow() {
         return result.getState() == BearTrapHelper.WindowState.INSIDE;
     }
 
-private List<Integer> decodeJoinFlags() {
-        List<Integer> flags = parseFlagList(BEAR_TRAP_JOIN_FLAG_INT);
+private List<Integer> decodeJoinFlags(ConfigurationKeyEnum heroKey) {
+        List<Integer> flags = parseFlagList(heroKey);
 
         if (flags.isEmpty()) {
             flags.add(DEFAULT_JOIN_RALLY_FLAG_VALUE);

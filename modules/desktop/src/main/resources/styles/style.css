@@ -1232,49 +1232,8 @@
     -fx-font-size: 12px;
 }
 
-/* Bear Trap role: two adjoining radio buttons drawn as one segmented switch, dot hidden. */
-.bear-role-toggle {
-    -fx-spacing: -1;
-}
-
-.bear-role-choice {
-    -fx-background-color: -color-bg-subtle;
-    -fx-text-fill: -color-fg-default;
-    -fx-border-color: -color-border-default;
-    -fx-padding: 8 0;
-    -fx-min-width: 120;
-    -fx-pref-width: 120;
-    -fx-alignment: center;
-    -fx-font-size: 15px;
-    -fx-font-weight: bold;
-}
-
-.bear-role-choice > .radio,
-.bear-role-choice > .radio > .dot {
-    -fx-background-color: transparent;
-    -fx-border-color: transparent;
-    -fx-padding: 0;
-    -fx-min-width: 0;
-    -fx-pref-width: 0;
-    -fx-max-width: 0;
-}
-
-.bear-role-choice-left {
-    -fx-background-radius: 6 0 0 6;
-    -fx-border-radius: 6 0 0 6;
-}
-
-.bear-role-choice-right {
-    -fx-background-radius: 0 6 6 0;
-    -fx-border-radius: 0 6 6 0;
-}
-
-.bear-role-choice:selected {
-    -fx-background-color: -color-accent-emphasis;
-    -fx-text-fill: -color-fg-emphasis;
-}
-
-/* The LEADER and JOINER cards: the one the switch picked is lit and badged, the other dimmed. */
+/* Bear Trap LEADER and JOINER cards: clicking one picks that role. The picked card is lit and
+ * badged, the other dimmed but still editable. Each title is a radio button with its dot hidden. */
 .bear-role-section {
     -fx-opacity: 0.55;
     -fx-border-width: 2;
@@ -1286,8 +1245,28 @@
     -fx-border-width: 2;
 }
 
-.bear-role-section .header-blue .label {
-    -fx-font-size: 15px;
+.bear-role-section .bear-role-pick {
+    -fx-background-color: transparent;
+    -fx-text-fill: white;
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-padding: 0 0 1 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0 0 2 0;
+}
+
+.bear-role-section .bear-role-pick:focused {
+    -fx-border-color: white;
+}
+
+.bear-role-pick > .radio,
+.bear-role-pick > .radio > .dot {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-min-width: 0;
+    -fx-pref-width: 0;
+    -fx-max-width: 0;
 }
 
 .bear-role-section .header-blue .bear-role-active-badge {
@@ -1296,6 +1275,25 @@
     -fx-background-radius: 100;
     -fx-padding: 1 10;
     -fx-font-size: 12px;
+}
+
+/* The leader's rally squad is the one choice a leader must see first. */
+.bear-rally-squad-label {
+    -fx-text-fill: -fg-text-primary;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+}
+
+.bear-rally-squad {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+}
+
+.bear-join-with {
+    -fx-text-fill: -fg-text-secondary;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-padding: 4 0 0 0;
 }
 
 .bear-role-summary {

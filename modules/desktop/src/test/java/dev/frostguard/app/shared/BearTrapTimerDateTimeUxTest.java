@@ -48,8 +48,14 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
 import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextField;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 
 class BearTrapTimerDateTimeUxTest {
+
+    private static final String KEEP_RUNNING = "Keep everything running";
+    private static final String NO_NEW_RALLIES = "Keep other tasks running, but don't start new rallies";
+    private static final String PAUSE_OTHERS = "Pause all other tasks";
 
     @BeforeAll
     static void startJavaFx() throws Exception {
@@ -262,7 +268,7 @@ class BearTrapTimerDateTimeUxTest {
 
             assertEquals(LocalDateTime.of(2026, 11, 10, 19, 0), view.start().getDateTime());
             assertEquals("10", view.lead().getText());
-            assertEquals("Block rallies", String.valueOf(view.guard().getValue()));
+            assertEquals(NO_NEW_RALLIES, String.valueOf(view.guard().getValue()));
             assertEquals(List.of(1, 2, 3), view.hero().getCheckModel().getCheckedItems());
             assertEquals(List.of(4, 5, 6), view.troop().getCheckModel().getCheckedItems());
             assertTrue(view.icon().isSelected());
@@ -290,7 +296,7 @@ class BearTrapTimerDateTimeUxTest {
     }
 
     @Test
-    void thePageReadsRoleThenTrapThenTimeWithOneTimerAndUniqueCaptions() throws Exception {
+    void thePageReadsRolesThenTrapThenTimeInPlainWords() throws Exception {
         runOnFxThread(() -> {
             LoadedBearView view = loadBearView();
             List<String> captions = SceneGraphWalk.descendants(view.root()).stream()
@@ -300,12 +306,17 @@ class BearTrapTimerDateTimeUxTest {
                     .filter(text -> !text.contains("Hero squad to join"))
                     .toList();
 
-            assertEquals(List.of("Auto bear", "Role", "LEADER", "JOINER", "Join rallies is off, so you will not rally.",
-                    "Trap", "Bear start (UTC)", ":", "UTC", "Apply", "Clear", "Next: —", "Lead (min)", "Guard",
-                    "Both roles", "Join rallies", "Hero squads", "Troop squads", "Recall gatherers", "Pets",
-                    "LEADER", "Starts your own rally.", "Rally squad",
-                    "JOINER", "ACTIVE", "Never starts a rally.", "Icon start"), captions);
-            assertEquals(List.of("Off", "Block rallies", "Pause all"),
+            assertEquals(List.of(
+                    "LEADER", "Turn off \"Start when the bear icon appears\" to lead.", "Rally squad",
+                    "Join with", "Hero squads", "Troop squads",
+                    "JOINER", "ACTIVE", "Join rallies is off, so you will not rally.",
+                    "Join with", "Hero squads", "Troop squads", "Start when the bear icon appears",
+                    "Auto bear", "Trap", "Bear start (UTC)", ":", "UTC", "Apply", "Clear", "Next: —",
+                    "Get ready (minutes before)",
+                    "Stops auto-join, and recalls gatherers if ticked, this many minutes before the bear.",
+                    "During the bear",
+                    "Both roles", "Join rallies", "Recall gatherers", "Use pet skills"), captions);
+            assertEquals(List.of(KEEP_RUNNING, NO_NEW_RALLIES, PAUSE_OTHERS),
                     view.guard().getItems().stream().map(String::valueOf).toList());
             return null;
         });
@@ -344,11 +355,11 @@ class BearTrapTimerDateTimeUxTest {
             view.controller().onProfileLoad(profile(6L,
                     config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "02-08-2026 19:00"),
                     config(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, "false")));
-            assertEquals("Off", String.valueOf(view.guard().getValue()));
+            assertEquals(KEEP_RUNNING, String.valueOf(view.guard().getValue()));
 
             view.start().setDraft(LocalDate.of(2026, 8, 4), "19", "30");
             view.start().commitSelection();
-            assertEquals("Off", String.valueOf(view.guard().getValue()));
+            assertEquals(KEEP_RUNNING, String.valueOf(view.guard().getValue()));
             changes.clear();
 
             view.guard().setValue(view.guard().getItems().get(2));
@@ -372,14 +383,14 @@ class BearTrapTimerDateTimeUxTest {
             view.start().setDraft(LocalDate.of(2026, 8, 1), "19", "00");
             view.start().commitSelection();
             assertFalse(view.auto().isDisabled());
-            assertEquals("Block rallies", String.valueOf(view.guard().getValue()));
+            assertEquals(NO_NEW_RALLIES, String.valueOf(view.guard().getValue()));
 
             view.auto().setSelected(true);
             changes.clear();
             view.start().clearSelection();
 
             assertFalse(view.auto().isSelected());
-            assertEquals("Off", String.valueOf(view.guard().getValue()));
+            assertEquals(KEEP_RUNNING, String.valueOf(view.guard().getValue()));
             assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "")));
             assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, false)));
             assertTrue(changes.contains(new Change(ConfigurationKeyEnum.BEAR_TRAP_TIMER_1_ENABLED_BOOL, false)));
@@ -407,12 +418,14 @@ class BearTrapTimerDateTimeUxTest {
             LoadedBearView view = loadBearView();
             view.controller().onProfileLoad(liveProfile());
             assertTrue(view.leader().isDisabled());
-            assertEquals("You only join other rallies. Turn off Icon start to lead.", view.roleSummary().getText());
+            Label blocked = view.get("labelLeaderBlocked");
+            assertTrue(blocked.isVisible(), "the Leader card says why it cannot be picked");
 
             view.icon().setSelected(false);
             assertFalse(view.leader().isDisabled());
             view.leader().fire();
             assertTrue(view.icon().isDisabled());
+            assertFalse(blocked.isVisible());
 
             view.controller().onProfileLoad(profile(9L,
                     config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
@@ -426,7 +439,7 @@ class BearTrapTimerDateTimeUxTest {
     }
 
     @Test
-    void theSwitchLightsOneRoleSectionAndLeavesTheOtherEditable() throws Exception {
+    void clickingACardPicksItsRoleLightsItAndLeavesTheOtherEditable() throws Exception {
         runOnFxThread(() -> {
             LoadedBearView view = loadBearView();
             view.controller().onProfileLoad(liveProfile());
@@ -444,7 +457,13 @@ class BearTrapTimerDateTimeUxTest {
             assertTrue(view.ownSquad().getItems().contains(1), "a joiner's rally squad still shows its value");
 
             view.icon().setSelected(false);
-            view.leader().fire();
+            List<Change> changes = listen(view);
+            click(view.ownSquad());
+            assertFalse(view.leader().isSelected(), "using an input in a dimmed card does not switch role");
+            assertTrue(view.<Node>get("headerLeader").getCursor() == javafx.scene.Cursor.HAND);
+            click(leaderSection);
+            assertTrue(view.leader().isSelected());
+            assertEquals(List.of(new Change(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, true)), changes);
             assertTrue(isActive(leaderSection));
             assertFalse(isActive(joinerSection));
             assertEquals("ACTIVE", leaderBadge.getText());
@@ -454,6 +473,11 @@ class BearTrapTimerDateTimeUxTest {
             assertFalse(view.troop().isDisabled());
             return null;
         });
+    }
+
+    private static void click(Node target) {
+        target.fireEvent(new MouseEvent(MouseEvent.MOUSE_CLICKED, 0, 0, 0, 0, MouseButton.PRIMARY, 1,
+                false, false, false, false, true, false, false, false, false, true, null));
     }
 
     private static boolean isActive(Node section) {
@@ -484,13 +508,15 @@ class BearTrapTimerDateTimeUxTest {
             view.controller().onProfileLoad(leader);
             assertTrue(view.leader().isSelected());
             assertFalse(view.joiner().isSelected());
-            assertEquals("You start the rally on squad 8 and join others.", view.roleSummary().getText());
+            assertEquals("You start the rally on squad 8 and join others.", view.leaderSummary().getText());
+            assertEquals("", view.joinerSummary().getText());
             renderWhenAsked(view, "bear-role-preview.png");
 
             view.controller().onProfileLoad(joiner);
             assertFalse(view.leader().isSelected());
             assertTrue(view.joiner().isSelected());
-            assertEquals("You only join other rallies.", view.roleSummary().getText());
+            assertEquals("You only join other rallies.", view.joinerSummary().getText());
+            assertEquals("", view.leaderSummary().getText());
             renderWhenAsked(view, "bear-role-preview-joiner.png");
 
             view.controller().onProfileLoad(leader);
@@ -507,7 +533,7 @@ class BearTrapTimerDateTimeUxTest {
                     new Change(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, true)), changes);
 
             view.join().setSelected(false);
-            assertEquals("You start the rally on squad 8.", view.roleSummary().getText());
+            assertEquals("You start the rally on squad 8.", view.leaderSummary().getText());
             return null;
         });
     }
@@ -578,9 +604,55 @@ class BearTrapTimerDateTimeUxTest {
         settle();
         runOnFxThread(() -> {
             LoadedBearView view = shared.get();
-            assertFalse(List.of(1, 2, 3, 4, 5, 6, 7).contains(view.ownSquad().getValue()),
-                    "Own rally must not lead with a squad already joining");
-            assertFalse(view.hero().getItems().contains(view.ownSquad().getValue()));
+            assertEquals(List.of(1, 2, 3), view.leaderHero().getCheckModel().getCheckedItems());
+            assertFalse(List.of(1, 2, 3, 4, 5, 6).contains(view.ownSquad().getValue()),
+                    "the leader must not rally with a squad it joins with");
+            assertFalse(view.leaderHero().getItems().contains(view.ownSquad().getValue()));
+            return null;
+        });
+    }
+
+    @Test
+    void aLeaderJoinsWithTheJoinerSquadsUntilItSavesItsOwn() throws Exception {
+        ProfileAux unsaved = profile(21L,
+                config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "10-11-2026 19:00"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_RALLY_FLAG_INT, "8"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, "1,2,3"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOP_FLAG_STRING, "4,5,6"));
+        ProfileAux saved = profile(22L,
+                config(ConfigurationKeyEnum.BEAR_TRAP_EVENT_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_SCHEDULE_DATETIME_STRING, "10-11-2026 19:00"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, "true"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_RALLY_FLAG_INT, "8"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, "1,2,3"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOP_FLAG_STRING, "4,5,6"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_LEADER_JOIN_FLAG_INT, "5"),
+                config(ConfigurationKeyEnum.BEAR_TRAP_LEADER_JOIN_TROOP_FLAG_STRING, ""));
+        noWritesOnLoad(unsaved);
+        noWritesOnLoad(saved);
+        runOnFxThread(() -> {
+            LoadedBearView view = loadBearView();
+            List<Change> changes = listen(view);
+
+            view.controller().onProfileLoad(unsaved);
+            assertEquals(List.of(1, 2, 3), view.leaderHero().getCheckModel().getCheckedItems());
+            assertEquals(List.of(4, 5, 6), view.leaderTroop().getCheckModel().getCheckedItems());
+
+            view.leaderHero().getCheckModel().check(Integer.valueOf(7));
+            assertEquals(List.of(new Change(ConfigurationKeyEnum.BEAR_TRAP_LEADER_JOIN_FLAG_INT, "1,2,3,7"),
+                    new Change(ConfigurationKeyEnum.BEAR_TRAP_LEADER_JOIN_TROOP_FLAG_STRING, "4,5,6")), changes,
+                    "a leader edit saves both leader lists and never the joiner lists");
+            assertEquals(List.of(1, 2, 3), view.hero().getCheckModel().getCheckedItems());
+
+            view.controller().onProfileLoad(saved);
+            assertEquals(List.of(5), view.leaderHero().getCheckModel().getCheckedItems());
+            assertEquals(List.of(), view.leaderTroop().getCheckModel().getCheckedItems(),
+                    "no troop squads is a real leader choice");
+            assertEquals(List.of(1, 2, 3), view.hero().getCheckModel().getCheckedItems());
+            assertEquals(List.of(4, 5, 6), view.troop().getCheckModel().getCheckedItems());
+            assertEquals(Integer.valueOf(8), view.ownSquad().getValue());
             return null;
         });
     }
@@ -619,7 +691,7 @@ class BearTrapTimerDateTimeUxTest {
             view.root().getScene().setRoot(new Group());
         }
         Application.setUserAgentStylesheet(new PrimerDark().getUserAgentStylesheet());
-        Scene scene = new Scene(view.root(), 900, 960);
+        Scene scene = new Scene(view.root(), 900, 1060);
         scene.getStylesheets().add(BearTrapLayoutController.class.getResource("/styles/style.css").toExternalForm());
         view.root().applyCss();
         view.root().layout();
@@ -721,8 +793,20 @@ class BearTrapTimerDateTimeUxTest {
             return get("radioJoiner");
         }
 
-        private Label roleSummary() {
-            return get("labelRoleSummary");
+        private Label leaderSummary() {
+            return get("labelLeaderSummary");
+        }
+
+        private Label joinerSummary() {
+            return get("labelJoinerSummary");
+        }
+
+        private CheckComboBox<Integer> leaderHero() {
+            return get("checkComboBoxLeaderJoinFlag");
+        }
+
+        private CheckComboBox<Integer> leaderTroop() {
+            return get("checkComboBoxLeaderTroopFlag");
         }
 
         private CheckBox recall() {
