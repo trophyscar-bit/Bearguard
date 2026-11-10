@@ -1135,27 +1135,25 @@ private void enablePetsFlow() {
             logInfo(routineLogBearTrapLine("Used pet skill at " + tile.getX() + "," + tile.getY()));
             frame = capturePetFrame();
             if (frame == null || !BearPetCombatSkills.isPopupOpen(frame)) {
-                // Something covered the popup after Use, such as a confirmation. Record it, and press
-                // a blue Use on it if there is one, so the skill is not left half-used.
+                // Something nobody has seen yet covered the popup after Use. It could be a spend
+                // dialog, so nothing on it is tapped: record it, back out once, and stop.
                 saveJoinDiagnostic("pets-after-use");
-                ImageSearchResultData confirm = templateSearchHelper.locatePattern(
-                        PETS_SKILL_USE, SearchConfig.builder().withThreshold(90).withMaxAttempts(1).build());
-                if (confirm.isFound()) {
-                    tapInside(confirm.getPoint(), confirm.getPoint(), 1, 300);
-                    sleepTask(1200);
-                }
-                frame = capturePetFrame();
-                if (frame == null || !BearPetCombatSkills.isPopupOpen(frame)) {
-                    logWarning(routineLogBearTrapLine("Pet Skill popup not back after Use; stopping"));
-                    break;
-                }
+                logWarning(routineLogBearTrapLine(
+                        "Unknown screen after pet skill Use; pressing Back and stopping pet skills"));
+                pressBack();
+                sleepTask(800);
+                break;
             }
         }
         logInfo(routineLogBearTrapLine("Combat pet skills used: " + used + " of " + combatTiles.size()));
         saveJoinDiagnostic("pets-done");
 
-        pressBack();
-        sleepTask(300);
+        // Close the popup only if it is still up: an extra Back on Home opens "Quit game?".
+        java.awt.image.BufferedImage closing = capturePetFrame();
+        if (closing != null && BearPetCombatSkills.isPopupOpen(closing)) {
+            pressBack();
+            sleepTask(300);
+        }
 
 
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
