@@ -841,6 +841,12 @@ public class DawnAcademyRoutine extends DelayedTask {
      * unclaimed.
      */
     private void topOff(ExpertSkillItemEnum.Expert expert) {
+        // At a 10-level gate Relationship Advancement stands where Gift was, so there is nothing to
+        // top off; this used to log "Gift button not found" every pass (10 Nov).
+        if (found(TemplatesEnum.DAWN_ACADEMY_RELATIONSHIP_ADVANCE_BUTTON, 1)) {
+            logInfo(expert + " is at a 10-level gate; no top-off.");
+            return;
+        }
         if (!openGiftScreen(expert)) {
             return;
         }
