@@ -10,6 +10,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
 
 import javax.imageio.ImageIO;
@@ -243,6 +244,20 @@ class DawnAcademyFrameTest {
         assertFalse(find("learn-dialog-recon.png", TemplatesEnum.DAWN_ACADEMY_LEARN_MAX_OUT_TEXT).isFound());
         assertTrue(find("learning-started.png", TemplatesEnum.DAWN_ACADEMY_LEARNING_TIMER_BADGE).isFound());
         assertFalse(find("skill-upgrade-ready-red-dot.png", TemplatesEnum.DAWN_ACADEMY_LEARNING_TIMER_BADGE).isFound());
+    }
+
+    @Test
+    void theExpertArrowShowsOnlyWhenNoSkillCardCoversIt() throws Exception {
+        // The skill-card dismiss tap at (360,200) is only sent while this arrow is hidden. With no
+        // card it shows on Stats and Skills; an open card or the gift screen covers it.
+        for (String open : List.of("expert-advance-ready.png", "expert-after-advance.png", "learning-started.png")) {
+            assertTrue(find(open, TemplatesEnum.DAWN_ACADEMY_EXPERT_NEXT_ARROW).isFound(), open);
+        }
+        for (String covered : List.of("skill-card-lv2.png", "skill-card-learning.png", "skill-card-upgradable.png",
+                "skill-upgrade-grey-casual.png", "skill-upgrade-ready-red-dot.png", "skill-locked.png",
+                "skill-gated-by-relationship.png", "gift-screen.png", "gift-holger-two-stats.png")) {
+            assertFalse(find(covered, TemplatesEnum.DAWN_ACADEMY_EXPERT_NEXT_ARROW).isFound(), covered);
+        }
     }
 
     @Test

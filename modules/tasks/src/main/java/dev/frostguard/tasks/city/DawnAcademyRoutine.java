@@ -109,6 +109,9 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData NEXT_EXPERT_ARROW = new PointData(671, 650);
     /** Blank wall above the Expert; a tap here closes an open skill card. */
     private static final PointData SKILL_CARD_DISMISS = new PointData(360, 200);
+    /** Where the right Expert arrow sits; an open skill card covers it. */
+    private static final PointData EXPERT_ARROW_TOP_LEFT = new PointData(620, 590);
+    private static final PointData EXPERT_ARROW_BOTTOM_RIGHT = new PointData(712, 710);
     private static final int[] SKILL_SLOT_X = {88, 270, 448, 625};
     private static final int SKILL_SLOT_Y = 1075;
 
@@ -455,6 +458,8 @@ public class DawnAcademyRoutine extends DelayedTask {
         if (academyExperts != null) {
             return academyExperts;
         }
+        // The result is kept for the whole pass, so a card left open must not cut the scan short.
+        closeSkillCard();
         Set<ExpertSkillItemEnum.Expert> present = EnumSet.noneOf(ExpertSkillItemEnum.Expert.class);
         for (int step = 0; step < ExpertSkillItemEnum.Expert.values().length + 1; step++) {
             ExpertSkillItemEnum.Expert shown = currentExpert();
@@ -501,15 +506,36 @@ public class DawnAcademyRoutine extends DelayedTask {
             if (shown == wanted) {
                 return true;
             }
-            if (step == 0) {
-                // An open skill card swallows the arrow taps: 16 taps never left Agnes (9 Nov).
-                tapNear(SKILL_CARD_DISMISS, 6);
-                sleepTask(600);
-            }
+            closeSkillCard();
             tapNear(NEXT_EXPERT_ARROW, 6);
             sleepTask(700);
         }
         return currentExpert() == wanted;
+    }
+
+    /**
+     * An open skill card covers the Expert arrows and swallows their taps: 16 taps never left
+     * Agnes (9 Nov). A tap above the card, on the room art, closes it. Nothing is tapped while
+     * the arrow shows. If the arrow is still not seen after two taps, the caller taps it anyway,
+     * as before this check.
+     */
+    private void closeSkillCard() {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            if (expertArrowShown()) {
+                return;
+            }
+            tapNear(SKILL_CARD_DISMISS, 6);
+            sleepTask(600);
+        }
+        if (!expertArrowShown()) {
+            logInfo("The Expert arrow is still hidden after closing the skill card; tapping it anyway.");
+        }
+    }
+
+    private boolean expertArrowShown() {
+        return templateSearchHelper.locatePattern(TemplatesEnum.DAWN_ACADEMY_EXPERT_NEXT_ARROW,
+                SearchConfig.builder().withCoordinates(EXPERT_ARROW_TOP_LEFT, EXPERT_ARROW_BOTTOM_RIGHT)
+                        .withMaxAttempts(2).build()).isFound();
     }
 
     /**
