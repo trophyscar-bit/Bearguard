@@ -316,6 +316,12 @@ public class LifeEssenceRoutine extends DelayedTask {
 	 * 3. Click scroll to open purchase dialog
 	 * 4. Click buy button to confirm
 	 * 5. Update next available time to next Monday 00:00 UTC
+	 *
+	 * An absent offer is resolved without tapping anything: the offer disappears once taken, so
+	 * absence is the normal state for the rest of the week. The purchase path is gated on the two
+	 * "Free" templates and never reads a price, so an unknown read cannot lead to a gem purchase.
+	 *
+	 * @return false only when a tap may have happened and its outcome could not be confirmed
 	 */
 	private boolean buyWeeklyFreeScroll() {
 		logInfo("Attempting to buy weekly free scroll");
@@ -331,11 +337,14 @@ public class LifeEssenceRoutine extends DelayedTask {
 				SearchConfig.builder().build());
 
 		if (!scrollOffer.isFound()) {
-			logWarning("Weekly free scroll offer was not detected; availability is unknown. "
-					+ TaskDiagnosticSnapshots.capture(emuManager, EMULATOR_NUMBER, "lifeessence", "weekly-scroll-offer"));
+			LocalDateTime nextCheck = nextCheckAfterAbsentOffer(LocalDateTime.now());
+			writeProfileSetting(ConfigurationKeyEnum.LIFE_ESSENCE_NEXT_SCROLL_TIME_STRING, nextCheck.toString());
+			logInfo("Weekly free scroll is not on offer; nothing tapped. Next check at: " + nextCheck + ". "
+					+ TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "lifeessence", "weekly-scroll-offer"));
 
 			tapNear(EXIT_BUTTON);
-			return false;
+			sleepTask(500);
+			return true;
 		}
 
 		// Click scroll to open purchase dialog
@@ -350,7 +359,7 @@ public class LifeEssenceRoutine extends DelayedTask {
 
 		if (!buyButton.isFound()) {
 			logWarning("Weekly scroll purchase control was not detected; outcome is unknown. "
-					+ TaskDiagnosticSnapshots.capture(emuManager, EMULATOR_NUMBER, "lifeessence", "weekly-scroll-control"));
+					+ TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "lifeessence", "weekly-scroll-control"));
 			pressBack(); // Close dialog
 			sleepTask(500);
 			tapNear(EXIT_BUTTON); // Exit shop
@@ -375,10 +384,15 @@ public class LifeEssenceRoutine extends DelayedTask {
 		}
 
 		logWarning("Weekly scroll purchase tap was sent but the offer is still present. "
-				+ TaskDiagnosticSnapshots.capture(emuManager, EMULATOR_NUMBER, "lifeessence", "weekly-scroll-outcome"));
+				+ TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "lifeessence", "weekly-scroll-outcome"));
 		tapNear(EXIT_BUTTON);
 		sleepTask(500);
 		return false;
+	}
+
+	/** Twice a day: soon enough that a misread cannot lose the week, rare enough to keep frames few. */
+	static LocalDateTime nextCheckAfterAbsentOffer(LocalDateTime now) {
+		return now.plusHours(12);
 	}
 
 	static boolean countsAsCompletedRun(boolean weeklyScrollUnresolved) {

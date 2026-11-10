@@ -19,6 +19,13 @@ class LifeEssenceScrollOutcomeTest {
     }
 
     @Test
+    void anAbsentOfferIsCheckedAgainWithinTheDay() {
+        LocalDateTime now = LocalDateTime.of(2026, 11, 9, 17, 36);
+
+        assertEquals(LocalDateTime.of(2026, 11, 10, 5, 36), LifeEssenceRoutine.nextCheckAfterAbsentOffer(now));
+    }
+
+    @Test
     void storesTheNextMondayResetOnlyAsAConfirmedPurchaseTime() {
         ZonedDateTime tuesday = ZonedDateTime.of(2026, 9, 29, 15, 0, 0, 0, ZoneOffset.UTC);
 

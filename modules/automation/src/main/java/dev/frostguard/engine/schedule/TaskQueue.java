@@ -362,8 +362,7 @@ public class TaskQueue {
     }
 
     private void recordScheduleAdjustment(DelayedTask task) {
-        Object distinctKey = task.getDistinctKey();
-        String customName = distinctKey == null ? null : distinctKey.toString();
+        String customName = liveStateLabel(task.getTpTask(), task.getDistinctKey());
         TaskStateData state = TaskManagementService.shared().lookupTaskState(
                 profile.getId(), task.getTpDailyTaskId(), customName);
         if (state == null) {
@@ -377,7 +376,7 @@ public class TaskQueue {
         state.setNextExecutionTime(task.getScheduled());
         TaskManagementService.shared().recordTaskState(profile.getId(), state);
         ScheduleService.obtain().persistScheduleAdjustment(
-                profile, task.getTpTask(), task.getScheduled(), customName, task.getStaminaDeferral());
+                profile, task.getTpTask(), task.getScheduled(), distinctTaskLabel(task), task.getStaminaDeferral());
     }
 
     // ---- preemption --------------------------------------------------------
@@ -931,7 +930,7 @@ public class TaskQueue {
     }
 
     private void recordDeferredState(DelayedTask task) {
-        String customLabel = distinctTaskLabel(task);
+        String customLabel = liveStateLabel(task.getTpTask(), task.getDistinctKey());
         TaskStateData previous = TaskManagementService.shared().lookupTaskState(
                 profile.getId(), task.getTpDailyTaskId(), customLabel);
         TaskStateData deferred = TaskStateData.of(
@@ -948,6 +947,16 @@ public class TaskQueue {
     private String distinctTaskLabel(DelayedTask task) {
         Object key = task.getDistinctKey();
         return key != null ? key.toString() : null;
+    }
+
+    /**
+     * The label a task's live state is filed under. Only a user-named custom task has a row of its
+     * own; every built-in row reads the plain task id, so a built-in carrying a distinct key (Chat
+     * Capture, Cryptid Hosting) must not file its running state under that key or its row never
+     * sees it. The distinct key still names the task's database row.
+     */
+    static String liveStateLabel(TpDailyTaskEnum type, Object distinctKey) {
+        return type == TpDailyTaskEnum.CUSTOM_TASK && distinctKey != null ? distinctKey.toString() : null;
     }
 
     // ---- helpers -----------------------------------------------------------
@@ -974,10 +983,10 @@ public class TaskQueue {
     }
 
 
-    private TaskStateData recordPreExecution(DelayedTask task) {
+    TaskStateData recordPreExecution(DelayedTask task) {
         TaskStateData s = new TaskStateData();
         s.setProfileId(profile.getId()); s.setTaskId(task.getTpDailyTaskId());
-        Object k = task.getDistinctKey(); if (k != null) s.setCustomTaskName(k.toString());
+        s.setCustomTaskName(liveStateLabel(task.getTpTask(), task.getDistinctKey()));
         s.setScheduled(true); s.setExecuting(true);
         s.setLastExecutionTime(LocalDateTime.now()); s.setNextExecutionTime(task.getScheduled());
         TaskManagementService.shared().recordTaskState(profile.getId(), s);
@@ -991,11 +1000,10 @@ public class TaskQueue {
         }
         s.setExecuting(false); s.setScheduled(task.isRecurring());
         s.setLastExecutionTime(LocalDateTime.now()); s.setNextExecutionTime(task.getScheduled());
-        Object k = task.getDistinctKey(); if (k != null) s.setCustomTaskName(k.toString());
         TaskManagementService.shared().recordTaskState(profile.getId(), s);
         if (task.getScheduled() != null) {
             ScheduleService.obtain().persistDailyCompletion(
-                    profile, task.getTpTask(), task.getScheduled(), s.getCustomTaskName(), task.getStaminaDeferral());
+                    profile, task.getTpTask(), task.getScheduled(), distinctTaskLabel(task), task.getStaminaDeferral());
         }
     }
 

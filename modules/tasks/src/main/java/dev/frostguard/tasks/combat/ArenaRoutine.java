@@ -30,6 +30,7 @@ import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.nav.SidebarDestination;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.vision.color.GameColors;
 import dev.frostguard.vision.color.PixelStats;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -1514,7 +1515,8 @@ public class ArenaRoutine extends DelayedTask {
                 configMap);
 
         if (singleAttemptPrice == null) {
-            logWarning("Failed to read single attempt price");
+            logWarning("Failed to read single attempt price; nothing bought. "
+                    + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "arena", "extra-attempt-price"));
             return -1;
         }
 
@@ -1525,7 +1527,8 @@ public class ArenaRoutine extends DelayedTask {
             }
         }
 
-        logWarning(String.format("Unexpected attempt price: %d gems", singleAttemptPrice));
+        logWarning(String.format("Unexpected attempt price: %d gems; nothing bought. ", singleAttemptPrice)
+                + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "arena", "extra-attempt-price"));
         return -1;
     }
 

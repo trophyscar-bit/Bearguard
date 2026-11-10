@@ -98,6 +98,7 @@ public class InitializeRoutine extends DelayedTask {
 	private static final int MAX_WELCOME_BACK_DISMISSALS = 1;
 	private static final int MAX_CLOSEABLE_OVERLAY_DISMISSALS = 3;
 	private static final int MAX_TREK_EXIT_HINT_DISMISSALS = 3;
+	private static final int MAX_CHAT_SCREEN_CLOSES = 3;
 	private static final int UNKNOWN_BLOCKER_BACK_SETTLE_MS = 2000;
 	// The arrow scores 0.94-1.00 on full screens and about 0.8 on the darker Dawn Academy view;
 	// dimmed dialogs over it score about 0.7 and the city home screen 0.3.
@@ -116,6 +117,7 @@ public class InitializeRoutine extends DelayedTask {
 	private int welcomeBackDismissals = 0;
 	private int closeableOverlayDismissals = 0;
 	private int trekExitHintDismissals = 0;
+	private int chatScreenCloses = 0;
 	private String lastVerifiedStartupState = "initialization started";
 	private RawImageData lastStartupFrame;
 	private final DiagnosticSnapshotStore startupSnapshots = DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace();
@@ -359,6 +361,15 @@ public class InitializeRoutine extends DelayedTask {
 				break;
 			}
 
+			// Ahead of the overlay check: an Alliance Notice open on Chat has its own small cross,
+			// and closing only that would spend an overlay dismissal and leave Chat up.
+			if (closeChatScreenIfPresent()) {
+				logInfo("Chat screen close sent. Waiting for home/world postcondition.");
+				sleepTask(2000);
+				attempts++;
+				continue;
+			}
+
 			if (dismissCloseableStartupOverlayIfPresent()) {
 				logInfo("Verified closeable startup overlay dismissed. Waiting for home/world postcondition.");
 				sleepTask(2000);
@@ -587,6 +598,36 @@ public class InitializeRoutine extends DelayedTask {
 		}
 		lastVerifiedStartupState = "closeable startup overlay close action sent";
 		logInfo("Tapped the verified startup-overlay close control; waiting for a fresh home/world postcondition.");
+		return true;
+	}
+
+	/**
+	 * A restart during Chat Capture leaves the game on Chat, which the home search cannot see past.
+	 * Its own close control is used, and only with the Chat title on the same frame, so this can
+	 * never send input at Home.
+	 */
+	private boolean closeChatScreenIfPresent() {
+		if (chatScreenCloses >= MAX_CHAT_SCREEN_CLOSES) {
+			return false;
+		}
+
+		RawImageData capture = captureStartupFrame("Chat screen inspection");
+		if (capture == null) {
+			return false;
+		}
+		java.util.Optional<ImageSearchResultData> close = ChatScreenClassifier.locateCloseControl(capture);
+		if (close.isEmpty()) {
+			return false;
+		}
+
+		chatScreenCloses++;
+		lastVerifiedStartupState = "Chat screen and its close control";
+		logInfo("Chat screen verified from a fresh frame; close " + chatScreenCloses + "/" + MAX_CHAT_SCREEN_CLOSES + ".");
+		if (!tapInside(close.get())) {
+			logWarning("Verified Chat close area was unavailable for a safe tap; no fallback input sent.");
+			return false;
+		}
+		lastVerifiedStartupState = "Chat screen close action sent";
 		return true;
 	}
 
@@ -839,6 +880,17 @@ public class InitializeRoutine extends DelayedTask {
 		// (e.g. inside a ranking list); each Back is followed by a home check.
 		while (StartupRecoveryPolicy.forUnknownBlocker(gameForeground, unknownBlockerBackAttempts)
 				== StartupRecoveryPolicy.UnknownBlockerAction.TRY_GAME_BACK) {
+			if (closeChatScreenIfPresent()) {
+				sleepTask(UNKNOWN_BLOCKER_BACK_SETTLE_MS);
+				if (searchForHomeScreen()) {
+					lastVerifiedStartupState = "home/world screen after closing Chat";
+					logInfo("Home screen found after closing Chat.");
+					return true;
+				}
+				gameForeground = isGameForeground();
+				continue;
+			}
+
 			unknownBlockerBackAttempts++;
 			lastVerifiedStartupState = "unknown startup screen with Whiteout Survival foreground";
 			logWarning("Home/world remained unavailable after " + MAX_HOME_SCREEN_ATTEMPTS
