@@ -129,17 +129,6 @@ private static final PointData BEAR_TRAP_2_GO_BUTTON_BR_VALUE = new PointData(62
 
 private static final PointData BEAR_CENTER_POINT_VALUE = new PointData(370, 507);
 
-private static final PointData PET_RAZORBACK_TL_VALUE = new PointData(100, 410);
-
-private static final PointData PET_RAZORBACK_BR_VALUE = new PointData(160, 460);
-
-private static final PointData PET_QUICK_USE_BUTTON_TL_VALUE = new PointData(120, 1070);
-
-private static final PointData PET_QUICK_USE_BUTTON_BR_VALUE = new PointData(280, 1100);
-
-private static final PointData PET_USE_BUTTON_TL_VALUE = new PointData(460, 800);
-
-private static final PointData PET_USE_BUTTON_BR_VALUE = new PointData(550, 830);
 
 private static final PointData AUTOJOIN_BUTTON_TL_VALUE = new PointData(260, 1200);
 
@@ -947,6 +936,16 @@ private void saveJoinDiagnostic(String label) {
         }
     }
 
+private java.awt.image.BufferedImage capturePetFrame() {
+        try {
+            return dev.frostguard.vision.convert.ImageConverter.toBufferedImage(
+                    emuManager.captureScreen(EMULATOR_NUMBER));
+        } catch (Exception e) {
+            logWarning(routineLogBearTrapLine("Could not capture the Pet Skill popup: " + e.getMessage()));
+            return null;
+        }
+    }
+
 private boolean selectedSquadHasHero() {
         sleepTask(300);
         return !locateSelectedHeroRemoveButtons().isEmpty();
@@ -1087,7 +1086,10 @@ private List<Integer> parseFlagList(ConfigurationKeyEnum key) {
         return flags;
     }
 
+// Uses every ready combat (red crossed-swords) pet skill. The popup has no Quick Use any more:
+// each skill is tapped, and Use is pressed only when it turns blue. Growth skills are never touched.
 private void enablePetsFlow() {
+        navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
         ImageSearchResultData petsButton = templateSearchHelper.locatePattern(
                 GAME_HOME_PETS,
                 SearchConfig.builder()
@@ -1101,20 +1103,56 @@ private void enablePetsFlow() {
         }
 
         tapInside(petsButton.getPoint(), petsButton.getPoint(), 1, 500);
-        sleepTask(1000);
+        sleepTask(1200);
 
+        java.awt.image.BufferedImage frame = capturePetFrame();
+        if (frame == null || !BearPetCombatSkills.isPopupOpen(frame)) {
+            logError(routineLogBearTrapLine("Pet Skill popup did not open; no pet skills used"));
+            saveJoinDiagnostic("pets-no-popup");
+            navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+            return;
+        }
 
-        tapInside(PET_RAZORBACK_TL_VALUE, PET_RAZORBACK_BR_VALUE, 1, 500);
-        sleepTask(300);
-
-
-        tapInside(PET_QUICK_USE_BUTTON_TL_VALUE, PET_QUICK_USE_BUTTON_BR_VALUE, 1, 500);
-        sleepTask(300);
-
-
-        tapInside(PET_USE_BUTTON_TL_VALUE, PET_USE_BUTTON_BR_VALUE, 1, 100);
-        sleepTask(500);
-
+        List<PointData> combatTiles = BearPetCombatSkills.combatTiles(frame);
+        logInfo(routineLogBearTrapLine("Combat pet skills found: " + combatTiles.size()));
+        int used = 0;
+        for (PointData tile : combatTiles) {
+            tapInside(tile, tile, 1, 300);
+            sleepTask(600);
+            frame = capturePetFrame();
+            if (frame == null || !BearPetCombatSkills.isPopupOpen(frame)) {
+                logWarning(routineLogBearTrapLine("Pet Skill popup lost after selecting a skill; stopping"));
+                saveJoinDiagnostic("pets-popup-lost");
+                break;
+            }
+            if (!BearPetCombatSkills.isUseLive(frame)) {
+                logInfo(routineLogBearTrapLine("Pet skill at " + tile.getX() + "," + tile.getY() + " is on cooldown or running"));
+                continue;
+            }
+            tapInside(BearPetCombatSkills.USE_BUTTON_CENTER, BearPetCombatSkills.USE_BUTTON_CENTER, 1, 300);
+            sleepTask(1500);
+            used++;
+            logInfo(routineLogBearTrapLine("Used pet skill at " + tile.getX() + "," + tile.getY()));
+            frame = capturePetFrame();
+            if (frame == null || !BearPetCombatSkills.isPopupOpen(frame)) {
+                // Something covered the popup after Use, such as a confirmation. Record it, and press
+                // a blue Use on it if there is one, so the skill is not left half-used.
+                saveJoinDiagnostic("pets-after-use");
+                ImageSearchResultData confirm = templateSearchHelper.locatePattern(
+                        PETS_SKILL_USE, SearchConfig.builder().withThreshold(90).withMaxAttempts(1).build());
+                if (confirm.isFound()) {
+                    tapInside(confirm.getPoint(), confirm.getPoint(), 1, 300);
+                    sleepTask(1200);
+                }
+                frame = capturePetFrame();
+                if (frame == null || !BearPetCombatSkills.isPopupOpen(frame)) {
+                    logWarning(routineLogBearTrapLine("Pet Skill popup not back after Use; stopping"));
+                    break;
+                }
+            }
+        }
+        logInfo(routineLogBearTrapLine("Combat pet skills used: " + used + " of " + combatTiles.size()));
+        saveJoinDiagnostic("pets-done");
 
         pressBack();
         sleepTask(300);
