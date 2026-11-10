@@ -91,6 +91,9 @@ class WanderTheaterFrameTest {
     @Test
     void theRailIconIsFoundOnlyOnTheRail() throws Exception {
         assertTrue(find("rail-world.png", TemplatesEnum.WANDER_THEATER_CITY_ICON).isFound());
+        // The City view, with a red notification dot on the icon's corner: the first live pass missed it.
+        assertTrue(find("rail-city-dot.png", TemplatesEnum.WANDER_THEATER_CITY_ICON).isFound());
+        assertFalse(find("theater-floor2.png", TemplatesEnum.WANDER_THEATER_CITY_ICON).isFound());
         assertFalse(find("missions-claimable.png", TemplatesEnum.WANDER_THEATER_CITY_ICON).isFound());
     }
 
