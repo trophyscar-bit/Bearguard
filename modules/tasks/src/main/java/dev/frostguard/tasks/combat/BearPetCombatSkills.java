@@ -7,6 +7,7 @@ import dev.frostguard.vision.color.PixelStats;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Reads the Pet Skill popup for Bear Trap: which tiles are combat skills, and whether the selected
@@ -30,10 +31,17 @@ final class BearPetCombatSkills {
     private static final AreaData PANEL_STRIP = new AreaData(new PointData(70, 690), new PointData(649, 729));
     private static final double MIN_PANEL_SHARE = 0.9;
 
-    /** Body of the Use button. Blue when the selected skill is ready, grey or absent otherwise. */
-    static final AreaData USE_BUTTON = new AreaData(new PointData(230, 1060), new PointData(489, 1119));
-    static final PointData USE_BUTTON_CENTER = new PointData(360, 1090);
-    private static final double MIN_LIVE_USE_SHARE = 0.4;
+    // A selected growth skill shows one Use, centred. A selected COMBAT skill shows two buttons side
+    // by side: Quick Use on the left and Use on the right, with a gap where the single Use's centre
+    // would be. Quick Use opens a free "Use all available Battle Skills?" confirmation, which the
+    // routine reads before it presses that dialog's Use.
+    private static final AreaData LEFT_PROBE = new AreaData(new PointData(90, 1065), new PointData(180, 1115));
+    private static final AreaData CENTRE_PROBE = new AreaData(new PointData(300, 1065), new PointData(420, 1115));
+    private static final AreaData RIGHT_PROBE = new AreaData(new PointData(560, 1065), new PointData(650, 1115));
+    static final PointData SINGLE_USE_CENTER = new PointData(360, 1090);
+    static final PointData RIGHT_USE_CENTER = new PointData(520, 1090);
+    static final PointData QUICK_USE_CENTER = new PointData(200, 1090);
+    private static final AreaData QUICK_USE_PROBE = new AreaData(new PointData(60, 1062), new PointData(120, 1118));
 
     private BearPetCombatSkills() {
     }
@@ -69,13 +77,41 @@ final class BearPetCombatSkills {
         return tiles;
     }
 
-    /** Whether Use is blue, meaning the selected skill is ready. */
-    static boolean isUseLive(BufferedImage frame) {
-        int live = PixelStats.count(frame, USE_BUTTON, rgb -> {
+    /**
+     * Where to press Use for the selected skill, or empty when there is no blue Use (nothing
+     * selected, on cooldown, or its effect still running).
+     */
+    static Optional<PointData> liveUseButton(BufferedImage frame) {
+        double left = blueShare(frame, LEFT_PROBE);
+        double centre = blueShare(frame, CENTRE_PROBE);
+        double right = blueShare(frame, RIGHT_PROBE);
+        if (right >= 0.6 && left >= 0.4) {
+            return Optional.of(RIGHT_USE_CENTER);
+        }
+        if (right < 0.1 && left < 0.1 && centre >= 0.6) {
+            return Optional.of(SINGLE_USE_CENTER);
+        }
+        return Optional.empty();
+    }
+
+    /** True when the selected skill is a ready combat skill with a blue Quick Use beside its Use. */
+    static boolean offersQuickUse(BufferedImage frame) {
+        Optional<PointData> use = liveUseButton(frame);
+        return use.isPresent() && use.get().getX() == RIGHT_USE_CENTER.getX()
+                && blueShare(frame, QUICK_USE_PROBE) >= 0.6;
+    }
+
+    /** True when the Quick Use confirmation's own Use button is blue. */
+    static boolean confirmationUseIsBlue(BufferedImage frame) {
+        return blueShare(frame, BearTrapScreens.BATTLE_SKILLS_USE_BUTTON) >= 0.6;
+    }
+
+    static double blueShare(BufferedImage frame, AreaData probe) {
+        int live = PixelStats.count(frame, probe, rgb -> {
             int r = red(rgb), b = blue(rgb);
             return b >= 200 && r <= 130 && b - r >= 100;
         });
-        return live >= area(USE_BUTTON) * MIN_LIVE_USE_SHARE;
+        return (double) live / area(probe);
     }
 
     private static int area(AreaData a) {

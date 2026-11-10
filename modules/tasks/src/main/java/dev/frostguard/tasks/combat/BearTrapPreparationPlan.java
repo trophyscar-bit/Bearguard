@@ -7,8 +7,10 @@ import java.util.List;
 final class BearTrapPreparationPlan {
 
     enum Step {
+        /** Alliance auto-join off on its own, used only when gatherers are not recalled. */
         TURN_OFF_AUTOJOIN,
-        RECALL_GATHERERS,
+        /** Recall the gatherers, and turn alliance auto-join off while they walk home. */
+        RECALL_GATHERERS_AND_TURN_OFF_AUTOJOIN,
         ACTIVATE_PETS,
         MOVE_TO_TRAP
     }
@@ -18,10 +20,7 @@ final class BearTrapPreparationPlan {
 
     static List<Step> atWindowOpen(boolean recallGatherers, boolean usePets) {
         List<Step> steps = new ArrayList<>();
-        steps.add(Step.TURN_OFF_AUTOJOIN);
-        if (recallGatherers) {
-            steps.add(Step.RECALL_GATHERERS);
-        }
+        steps.add(recallGatherers ? Step.RECALL_GATHERERS_AND_TURN_OFF_AUTOJOIN : Step.TURN_OFF_AUTOJOIN);
         if (usePets) {
             steps.add(Step.ACTIVATE_PETS);
         }

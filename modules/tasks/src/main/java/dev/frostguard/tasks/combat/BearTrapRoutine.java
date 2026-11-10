@@ -91,6 +91,10 @@ private static final int TRAP_ACTIVATION_OFFSET_MINUTES_VALUE = 30;
 private static final int STATUS_LOG_INTERVAL_VALUE = 10;
 
 private static final int OWN_RALLY_MIN_REMAINING_SECONDS_VALUE = 360;
+// A failed own-rally attempt waits this long before the next, and the routine stops after this many.
+private static final int OWN_RALLY_RETRY_DELAY_SECONDS_VALUE = 20;
+private static final int OWN_RALLY_MAX_FAILURES_VALUE = 10;
+private static final AreaData WHOLE_MAP_TEXT_AREA = new AreaData(new PointData(0, 150), new PointData(720, 1100));
 
 private static final int RALLY_DURATION_BASE_MINUTES_VALUE = 5;
 
@@ -126,6 +130,9 @@ private static final PointData BEAR_TRAP_2_GO_BUTTON_TL_VALUE = new PointData(57
 private static final PointData BEAR_TRAP_2_GO_BUTTON_BR_VALUE = new PointData(620, 552);
 
 
+
+private static final OcrSettingsData SPARSE_TEXT_OCR = OcrSettingsData.builder()
+            .textLayout(OcrSettingsData.TextLayout.SPARSE).build();
 
 private static final PointData BEAR_CENTER_POINT_VALUE = new PointData(370, 507);
 
@@ -166,6 +173,11 @@ private static final boolean DEFAULT_USE_PETS_VALUE = false;
 private static final boolean DEFAULT_RECALL_TROOPS_VALUE = false;
 
 private boolean callOwnRally;
+// Set when the game says this account cannot lead a rally on this bear; no more attempts this event.
+private boolean ownRallyNotEligible;
+private int ownRallyFailures;
+private Instant nextOwnRallyAttempt = Instant.EPOCH;
+private PointData trapCoordinates;
 
 /** Which of the alliance's two traps this account fights: its Go button decides where the camera lands. */
 private int trapNumber = 1;
@@ -385,7 +397,10 @@ private String routineLogBearTrapLine(String note) {
         return "BearTrapRoutine | " + note;
     }
 
-private void recallGatherTroopsFlow() {
+// Recalls every gather march. With turnOffAutojoin, alliance auto-join is switched off as soon as
+// the last recall is pressed, while the troops are still walking home, so neither waits on the other.
+private void recallGatherTroopsFlow(boolean turnOffAutojoin) {
+        boolean autojoinOff = !turnOffAutojoin;
         // pernerch/2026-07-02: record recall timestamp in profile config BEFORE recalling.
         // GatherRoutine reads GATHER_LAST_RECALL_TIME_STRING on startup and uses it to wait
         // for troops to return home before re-deploying (checkTroopReturnPending).
@@ -395,6 +410,7 @@ private void recallGatherTroopsFlow() {
         logInfo(routineLogBearTrapLine("Gather recall timestamp stored for troop-return tracking."));
 
         int attempt = 0;
+        boolean allHome = false;
 
         while (attempt < MAX_GATHER_RECALL_ATTEMPTS_LIMIT) {
             attempt++;
@@ -407,11 +423,20 @@ private void recallGatherTroopsFlow() {
 
             if (status.noMarchesFound()) {
                 logInfo(routineLogBearTrapLine("Zero march indicators detected. All gather troops are recalled or none present."));
-                return;
+                allHome = true;
+                break;
             }
 
             if (status.hasRecallButton) {
                 recallMarchFlow();
+                continue;
+            }
+
+            if (!autojoinOff) {
+                logInfo(routineLogBearTrapLine("All gather marches recalled; disabling autojoin while they return"));
+                disableAutojoinFlow();
+                autojoinOff = true;
+                continue;
             }
 
             if (status.hasViewButton || status.hasSpeedupButton) {
@@ -424,8 +449,14 @@ private void recallGatherTroopsFlow() {
 
         }
 
-        logError(routineLogBearTrapLine("recallGatherTroopsFlow exceeded max attempts (" + MAX_GATHER_RECALL_ATTEMPTS_LIMIT +
-                "), exiting to avoid deadlock"));
+        if (!allHome) {
+            logError(routineLogBearTrapLine("recallGatherTroopsFlow exceeded max attempts (" + MAX_GATHER_RECALL_ATTEMPTS_LIMIT +
+                    "), exiting to avoid deadlock"));
+        }
+        if (!autojoinOff) {
+            logInfo(routineLogBearTrapLine("Disabling autojoin..."));
+            disableAutojoinFlow();
+        }
     }
 
 private void performTrapActivePhase(LocalDateTime trapEndTime) {
@@ -513,7 +544,10 @@ private void logPeriodicStatusFlow(long iterationCount, long secondsRemaining) {
     }
 
 private void tryStartOwnRallyFlow(long secondsRemaining) {
-        if (!callOwnRally || ownRallyActive.get() || secondsRemaining <= OWN_RALLY_MIN_REMAINING_SECONDS_VALUE) {
+        if (!callOwnRally || ownRallyNotEligible || ownRallyActive.get()
+                || secondsRemaining <= OWN_RALLY_MIN_REMAINING_SECONDS_VALUE
+                || ownRallyFailures >= OWN_RALLY_MAX_FAILURES_VALUE
+                || Instant.now().isBefore(nextOwnRallyAttempt)) {
             return;
         }
 
@@ -530,8 +564,15 @@ private void tryStartOwnRallyFlow(long secondsRemaining) {
                 queueRallyFlagReset(marchDurationSeconds);
                 sleepTask(500);
 
-            } else {
-                logWarning(routineLogBearTrapLine("Could not start rally (may already be active)"));
+            } else if (!ownRallyNotEligible) {
+                ownRallyFailures++;
+                nextOwnRallyAttempt = Instant.now().plusSeconds(OWN_RALLY_RETRY_DELAY_SECONDS_VALUE);
+                logWarning(routineLogBearTrapLine("Could not start own rally (attempt " + ownRallyFailures
+                        + " of " + OWN_RALLY_MAX_FAILURES_VALUE + ")"));
+                if (ownRallyFailures >= OWN_RALLY_MAX_FAILURES_VALUE) {
+                    logError(routineLogBearTrapLine("Own rally failed " + ownRallyFailures
+                            + " times; no more own-rally attempts this event"));
+                }
             }
         } catch (dev.frostguard.engine.error.ADBConnectionException e) {
             logWarning(routineLogBearTrapLine("ADB connection error during rally startup (emulator may be lagging): " + e.getMessage()));
@@ -570,6 +611,10 @@ private void hydrateConfiguration() {
         this.marchTally = new BearMarchTally();
         this.rallyTargets = new BearRallyTargets();
         this.savedJoinDiagnostics.clear();
+        this.ownRallyNotEligible = false;
+        this.ownRallyFailures = 0;
+        this.nextOwnRallyAttempt = Instant.EPOCH;
+        this.trapCoordinates = null;
         // Changed by pernerch | Date: 2026-07-02 | Why: resolve shared-emulator state at hydration for deterministic active-phase behavior.
         this.sharedEmulator = isSharedEmulatorProfile();
 
@@ -645,9 +690,9 @@ private void prepareForTrapFlow() {
                     logInfo(routineLogBearTrapLine("Disabling autojoin..."));
                     disableAutojoinFlow();
                 }
-                case RECALL_GATHERERS -> {
-                    logInfo(routineLogBearTrapLine("Recalling all gather troops to the city..."));
-                    recallGatherTroopsFlow();
+                case RECALL_GATHERERS_AND_TURN_OFF_AUTOJOIN -> {
+                    logInfo(routineLogBearTrapLine("Recalling all gather troops and disabling autojoin..."));
+                    recallGatherTroopsFlow(true);
                 }
                 case ACTIVATE_PETS -> {
                     logInfo(routineLogBearTrapLine("Activating pets..."));
@@ -1088,8 +1133,10 @@ private List<Integer> parseFlagList(ConfigurationKeyEnum key) {
         return flags;
     }
 
-// Uses every ready combat (red crossed-swords) pet skill. The popup has no Quick Use any more:
-// each skill is tapped, and Use is pressed only when it turns blue. Growth skills are never touched.
+// Uses every ready combat (red crossed-swords) pet skill in one go. Selecting a ready combat skill
+// shows Quick Use beside Use; Quick Use opens a free "Use all available Battle Skills?" dialog,
+// and that dialog's Use is pressed only after its question has been read. Growth skills are never
+// touched, and any screen the flow does not recognise is backed out of, never tapped.
 private void enablePetsFlow() {
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
         ImageSearchResultData petsButton = templateSearchHelper.locatePattern(
@@ -1117,7 +1164,7 @@ private void enablePetsFlow() {
 
         List<PointData> combatTiles = BearPetCombatSkills.combatTiles(frame);
         logInfo(routineLogBearTrapLine("Combat pet skills found: " + combatTiles.size()));
-        int used = 0;
+        boolean quickUsed = false;
         for (PointData tile : combatTiles) {
             tapInside(tile, tile, 1, 300);
             sleepTask(600);
@@ -1127,27 +1174,23 @@ private void enablePetsFlow() {
                 saveJoinDiagnostic("pets-popup-lost");
                 break;
             }
-            if (!BearPetCombatSkills.isUseLive(frame)) {
-                logInfo(routineLogBearTrapLine("Pet skill at " + tile.getX() + "," + tile.getY() + " is on cooldown or running"));
+            String at = tile.getX() + "," + tile.getY();
+            if (!BearPetCombatSkills.offersQuickUse(frame)) {
+                logInfo(routineLogBearTrapLine("Pet skill at " + at + " is on cooldown or running"));
                 continue;
             }
-            tapInside(BearPetCombatSkills.USE_BUTTON_CENTER, BearPetCombatSkills.USE_BUTTON_CENTER, 1, 300);
-            sleepTask(1500);
-            used++;
-            logInfo(routineLogBearTrapLine("Used pet skill at " + tile.getX() + "," + tile.getY()));
-            frame = capturePetFrame();
-            if (frame == null || !BearPetCombatSkills.isPopupOpen(frame)) {
-                // Something nobody has seen yet covered the popup after Use. It could be a spend
-                // dialog, so nothing on it is tapped: record it, back out once, and stop.
-                saveJoinDiagnostic("pets-after-use");
-                logWarning(routineLogBearTrapLine(
-                        "Unknown screen after pet skill Use; pressing Back and stopping pet skills"));
-                pressBack();
-                sleepTask(800);
-                break;
+            quickUsed = quickUseBattleSkills(at);
+            break;
+        }
+
+        int stillReady = countReadyCombatSkills(combatTiles);
+        if (stillReady >= 0) {
+            logInfo(routineLogBearTrapLine("Combat pet skills still ready after Quick Use: " + stillReady
+                    + " of " + combatTiles.size() + (quickUsed ? "" : " (Quick Use not pressed)")));
+            if (quickUsed && stillReady > 0) {
+                saveJoinDiagnostic("pets-still-ready");
             }
         }
-        logInfo(routineLogBearTrapLine("Combat pet skills used: " + used + " of " + combatTiles.size()));
         saveJoinDiagnostic("pets-done");
 
         // Close the popup only if it is still up: an extra Back on Home opens "Quit game?".
@@ -1159,6 +1202,77 @@ private void enablePetsFlow() {
 
 
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+    }
+
+// Presses Quick Use, reads the dialog it opens, and presses that dialog's Use only when it is the
+// known free "Use all available Battle Skills?" question with a blue Use.
+private boolean quickUseBattleSkills(String at) {
+        PointData quick = BearPetCombatSkills.QUICK_USE_CENTER;
+        tapInside(quick, quick, 1, 300);
+        sleepTask(1200);
+        logInfo(routineLogBearTrapLine("Pressed Quick Use from pet skill at " + at));
+
+        java.awt.image.BufferedImage dialog = capturePetFrame();
+        boolean asksForBattleSkills = BearTrapScreens.isBattleSkillsConfirmation(
+                readScreenText(BearTrapScreens.BATTLE_SKILLS_QUESTION));
+        if (dialog == null || !asksForBattleSkills || !BearPetCombatSkills.confirmationUseIsBlue(dialog)) {
+            // Not the dialog this flow knows. It could ask for gems, so nothing on it is tapped.
+            saveJoinDiagnostic("pets-quick-use-unknown");
+            logWarning(routineLogBearTrapLine(
+                    "Quick Use did not open the Battle Skills confirmation; pressing Back and stopping pet skills"));
+            pressBack();
+            sleepTask(800);
+            return false;
+        }
+
+        PointData use = BearTrapScreens.BATTLE_SKILLS_USE_CENTER;
+        tapInside(use, use, 1, 300);
+        sleepTask(1500);
+
+        java.awt.image.BufferedImage after = capturePetFrame();
+        if (after == null || !BearPetCombatSkills.isPopupOpen(after)) {
+            saveJoinDiagnostic("pets-after-use");
+            logWarning(routineLogBearTrapLine(
+                    "Unknown screen after confirming Battle Skills; pressing Back and stopping pet skills"));
+            pressBack();
+            sleepTask(800);
+            return false;
+        }
+        logInfo(routineLogBearTrapLine("Confirmed Use all available Battle Skills"));
+        return true;
+    }
+
+// How many of the combat tiles still show a blue Use, or -1 when the popup is gone.
+private int countReadyCombatSkills(List<PointData> combatTiles) {
+        int ready = 0;
+        for (PointData tile : combatTiles) {
+            java.awt.image.BufferedImage frame = capturePetFrame();
+            if (frame == null || !BearPetCombatSkills.isPopupOpen(frame)) {
+                return -1;
+            }
+            tapInside(tile, tile, 1, 300);
+            sleepTask(600);
+            frame = capturePetFrame();
+            if (frame == null || !BearPetCombatSkills.isPopupOpen(frame)) {
+                saveJoinDiagnostic("pets-popup-lost");
+                return -1;
+            }
+            if (BearPetCombatSkills.liveUseButton(frame).isPresent()) {
+                ready++;
+            }
+        }
+        return ready;
+    }
+
+private List<dev.frostguard.vision.ocr.TextLine> readScreenText(AreaData area) {
+        try {
+            dev.frostguard.api.domain.RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+            return dev.frostguard.vision.ocr.OcrEngine.recognizeLines(
+                    frame, area.topLeft(), area.bottomRight(), SPARSE_TEXT_OCR);
+        } catch (Exception e) {
+            logWarning(routineLogBearTrapLine("Could not read screen text: " + e.getMessage()));
+            return List.of();
+        }
     }
 
 private long scanMarchTime() {
@@ -1202,10 +1316,36 @@ private boolean reachBearTrap() {
         sleepTask(500);
 
 
-        PointData[] goButton = goButtonFor(trapNumber);
-        logInfo(routineLogBearTrapLine("Going to Bear Trap " + trapNumber));
-        tapInside(goButton[0], goButton[1], 1, 300);
+        sleepTask(500);
+        Optional<PointData> go = BearTrapScreens.trapGoButton(
+                readScreenText(BearTrapScreens.SPECIAL_BUILDINGS_LIST), trapNumber);
+        if (go.isPresent()) {
+            PointData g = go.get();
+            logInfo(routineLogBearTrapLine("Going to Bear Trap " + trapNumber + " (Go at " + g.getX() + "," + g.getY() + ")"));
+            tapInside(new PointData(g.getX() - 15, g.getY() - 8), new PointData(g.getX() + 15, g.getY() + 8), 1, 300);
+        } else {
+            // The row title was not read; fall back to where the row usually is. The bear popup
+            // check before Rally catches a wrong trap.
+            saveJoinDiagnostic("trap-row-not-read");
+            PointData[] goButton = goButtonFor(trapNumber);
+            logWarning(routineLogBearTrapLine("Hunting Trap " + trapNumber
+                    + " row not read; using its usual Go position"));
+            tapInside(goButton[0], goButton[1], 1, 300);
+        }
         sleepTask(2000);
+
+        Optional<PointData> camera = BearTrapScreens.mapCoordinates(
+                readScreenText(BearTrapScreens.MAP_COORDINATE_BAR));
+        if (camera.isPresent()) {
+            PointData c = camera.get();
+            if (trapCoordinates == null) {
+                trapCoordinates = c;
+            } else if (!BearTrapScreens.near(c, trapCoordinates, 2)) {
+                logWarning(routineLogBearTrapLine("Camera at X:" + c.getX() + " Y:" + c.getY()
+                        + " after Go, expected X:" + trapCoordinates.getX() + " Y:" + trapCoordinates.getY()));
+            }
+            logDebug(routineLogBearTrapLine("Camera at X:" + c.getX() + " Y:" + c.getY()));
+        }
         return true;
     }
 
@@ -1224,8 +1364,29 @@ private long beginOwnRally() {
 
         logInfo(routineLogBearTrapLine("Calling own rally..."));
 
+        // Joining rallies moves the camera, so the trap is found afresh before every attempt.
+        if (!reachBearTrap()) {
+            navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+            ownRallyActive.set(false);
+            return 0;
+        }
+
         tapInside(BEAR_CENTER_POINT_VALUE, BEAR_CENTER_POINT_VALUE, 1, 200);
-        sleepTask(500);
+        sleepTask(800);
+
+        List<dev.frostguard.vision.ocr.TextLine> popup = readScreenText(BearTrapScreens.MAP_POPUP_TEXT);
+        if (BearTrapScreens.saysNotEligible(popup)) {
+            markOwnRallyNotEligible("own-rally-not-eligible");
+            return 0;
+        }
+        if (!BearTrapScreens.isRagingBearPopup(popup)) {
+            saveJoinDiagnostic("own-rally-not-bear");
+            logWarning(routineLogBearTrapLine("Tapped the trap but no Raging Bear popup opened; read: "
+                    + summarise(popup)));
+            navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+            ownRallyActive.set(false);
+            return 0;
+        }
 
 
         ImageSearchResultData rallyButton = templateSearchHelper.locatePattern(
@@ -1236,7 +1397,13 @@ private long beginOwnRally() {
                         .build());
 
         if (!rallyButton.isFound()) {
-            logError(routineLogBearTrapLine("Rally button not detected!"));
+            saveJoinDiagnostic("own-rally-no-rally-button");
+            if (BearTrapScreens.saysNotEligible(readScreenText(WHOLE_MAP_TEXT_AREA))) {
+                markOwnRallyNotEligible("own-rally-not-eligible");
+                return 0;
+            }
+            logError(routineLogBearTrapLine("Rally button not detected on the Raging Bear popup"));
+            navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
             ownRallyActive.set(false);
             return 0;
         }
@@ -1254,7 +1421,13 @@ private long beginOwnRally() {
                         .build());
 
         if (!holdRallyButton.isFound()) {
+            saveJoinDiagnostic("own-rally-no-hold");
+            if (BearTrapScreens.saysNotEligible(readScreenText(WHOLE_MAP_TEXT_AREA))) {
+                markOwnRallyNotEligible("own-rally-not-eligible");
+                return 0;
+            }
             logError(routineLogBearTrapLine("Hold Rally button not detected!"));
+            navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
             ownRallyActive.set(false);
             return 0;
         }
@@ -1299,6 +1472,26 @@ private long beginOwnRally() {
 
         logInfo(routineLogBearTrapLine("Rally deployed finished cleanly. March time: " + marchSeconds + " seconds"));
         return marchSeconds;
+    }
+
+private void markOwnRallyNotEligible(String label) {
+        saveJoinDiagnostic(label);
+        ownRallyNotEligible = true;
+        ownRallyActive.set(false);
+        logWarning(routineLogBearTrapLine(
+                "The game says this account is not eligible to rally this bear; no more own-rally attempts this event"));
+        navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+    }
+
+private static String summarise(List<dev.frostguard.vision.ocr.TextLine> lines) {
+        StringBuilder text = new StringBuilder();
+        for (dev.frostguard.vision.ocr.TextLine line : lines) {
+            if (text.length() > 120) {
+                break;
+            }
+            text.append(text.length() == 0 ? "" : " | ").append(line.text().strip());
+        }
+        return text.length() == 0 ? "(nothing)" : text.toString();
     }
 
 private void cleanupFlow() {
