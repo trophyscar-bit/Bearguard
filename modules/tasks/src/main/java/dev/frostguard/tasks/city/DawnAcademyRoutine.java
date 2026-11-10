@@ -63,6 +63,9 @@ public class DawnAcademyRoutine extends DelayedTask {
      * skills: Entrapment (rally capacity), Weapon Master, Scavenging, Ursa's Bane. Then Holger's
      * Arena skills, Crowd Pleaser first. Optimization (Stamina) comes last. Locked slots are skipped.
      */
+    static final List<ExpertSkillItemEnum.Expert> GIFT_FALLBACK_ORDER = List.of(
+            ExpertSkillItemEnum.Expert.CYRILLE, ExpertSkillItemEnum.Expert.HOLGER);
+
     static final List<ExpertSkillItemEnum> RECOMMENDED_SKILL_ORDER = List.of(
             ExpertSkillItemEnum.AGNES_SLOT_1, ExpertSkillItemEnum.AGNES_SLOT_4, ExpertSkillItemEnum.AGNES_SLOT_3,
             ExpertSkillItemEnum.CYRILLE_SLOT_1, ExpertSkillItemEnum.CYRILLE_SLOT_3, ExpertSkillItemEnum.CYRILLE_SLOT_2,
@@ -660,9 +663,13 @@ public class DawnAcademyRoutine extends DelayedTask {
             }
         }
         boolean focusBlocked;
-        if (!present.contains(focus) || !showExpert(focus)) {
+        if (!present.contains(focus)) {
             logInfo(focus + " is not in the Academy yet; gifting the other Experts.");
             focusBlocked = true;
+        } else if (!showExpert(focus)) {
+            // A navigation miss is not a gate: gifts given to the others cannot be taken back.
+            logWarning(focus + " could not be shown; no gifts this pass.");
+            return;
         } else {
             focusBlocked = giftToGate(focus);
         }
@@ -672,7 +679,7 @@ public class DawnAcademyRoutine extends DelayedTask {
         if (!focusBlocked) {
             return;
         }
-        for (ExpertSkillItemEnum.Expert other : present) {
+        for (ExpertSkillItemEnum.Expert other : giftFallbackOrder(present)) {
             if (other == focus || !showExpert(other)) {
                 continue;
             }
@@ -680,6 +687,22 @@ public class DawnAcademyRoutine extends DelayedTask {
                 return;
             }
         }
+    }
+
+    /** Cyrille's Bear Hunt skills come before Holger's Arena ones; the rest follow. */
+    static List<ExpertSkillItemEnum.Expert> giftFallbackOrder(Set<ExpertSkillItemEnum.Expert> present) {
+        List<ExpertSkillItemEnum.Expert> order = new ArrayList<>();
+        for (ExpertSkillItemEnum.Expert preferred : GIFT_FALLBACK_ORDER) {
+            if (present.contains(preferred)) {
+                order.add(preferred);
+            }
+        }
+        for (ExpertSkillItemEnum.Expert expert : present) {
+            if (!order.contains(expert)) {
+                order.add(expert);
+            }
+        }
+        return order;
     }
 
     /**

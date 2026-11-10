@@ -260,6 +260,13 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void giftsPastAGatedFocusGoToCyrilleBeforeHolger() {
+        assertEquals(java.util.List.of(ExpertSkillItemEnum.Expert.CYRILLE, ExpertSkillItemEnum.Expert.HOLGER,
+                ExpertSkillItemEnum.Expert.AGNES), DawnAcademyRoutine.giftFallbackOrder(java.util.EnumSet.of(
+                ExpertSkillItemEnum.Expert.HOLGER, ExpertSkillItemEnum.Expert.AGNES, ExpertSkillItemEnum.Expert.CYRILLE)));
+    }
+
+    @Test
     void anAchievementsListWithOnlyGoHasNothingToClaim() throws Exception {
         assertTrue(find("achievements-all-go.png", TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENTS_TITLE).isFound());
         assertFalse(find("achievements-all-go.png", TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENT_CLAIM_BUTTON).isFound());
