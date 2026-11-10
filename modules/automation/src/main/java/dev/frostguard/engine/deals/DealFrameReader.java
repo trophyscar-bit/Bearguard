@@ -1051,8 +1051,14 @@ public final class DealFrameReader {
 
     /** The gems a card's banner grants: a large number with the banner diamond beside it. */
     private static Optional<DealItem> bannerGems(Text text, int top, int bottom) {
+        // The glyph read comes first because it does not depend on the Tesseract build: the Linux CI
+        // engine reads City Construction Pack's "2,500" as 2900 in the word pass, where Windows reads 2500.
+        Optional<DealItem> fromGlyphs = bannerBesideDiamond(text, top, bottom);
+        if (fromGlyphs.isPresent()) {
+            return fromGlyphs;
+        }
         // Words, not lines: the line pass reads the diamond into the number ("* 2500").
-        Optional<DealItem> fromWords = text.whiteWords().stream()
+        return text.whiteWords().stream()
                 .filter(l -> l.top() >= top && l.bottom() <= bottom)
                 .filter(l -> l.height() >= BANNER_MIN_HEIGHT)
                 .filter(l -> QUANTITY.matcher(clean(l.text()).replace(" ", "")).matches())
@@ -1063,7 +1069,6 @@ public final class DealFrameReader {
                 .filter(Objects::nonNull)
                 .findFirst()
                 .map(gems -> new DealItem(DealPriceTracker.GEMS, gems, "banner"));
-        return fromWords.isPresent() ? fromWords : bannerBesideDiamond(text, top, bottom);
     }
 
     /**
