@@ -24,11 +24,19 @@ $files = @(
     }
 )
 
+# Every launcher is hashed before failing, so one run reports all the bytes the build produced.
+$mismatches = @()
 foreach ($file in $files) {
     $sourceHash = (Get-FileHash -LiteralPath $file.Source -Algorithm SHA256).Hash
     if ($sourceHash -ine $file.Sha256) {
-        throw "Nightly compatibility bootstrap has unexpected SHA-256: $($file.Source)"
+        $mismatches += "$($file.Source): expected $($file.Sha256), got $($sourceHash.ToLowerInvariant())"
     }
+}
+if ($mismatches.Count -gt 0) {
+    throw "Nightly compatibility bootstrap has unexpected SHA-256:`n$($mismatches -join "`n")"
+}
+
+foreach ($file in $files) {
     Copy-Item -LiteralPath $file.Source -Destination $file.Destination -Force
     $destinationHash = (Get-FileHash -LiteralPath $file.Destination -Algorithm SHA256).Hash
     if ($destinationHash -ine $file.Sha256) {
