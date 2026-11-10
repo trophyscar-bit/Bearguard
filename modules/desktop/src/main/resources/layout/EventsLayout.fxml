@@ -61,6 +61,26 @@
             </ScrollPane>
         </Tab>
 
+        <Tab text="Wander Theater" closable="false">
+            <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
+                <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">
+                    <VBox styleClass="content-card">
+                        <HBox styleClass="header-yellow" maxWidth="Infinity" alignment="CENTER_LEFT">
+                            <CheckBox text="Wander Theater" style="-fx-font-weight: bold;"
+                                      mnemonicParsing="false" fx:id="checkBoxWanderTheater" />
+                        </HBox>
+                        <VBox styleClass="task-section-inner">
+                            <Label wrapText="true" styleClass="task-card-description"
+                                   text="Once a day at 4 PM it claims every finished Wanderer Mission for Talismans of Ice. Alliance donations and troop training fill their missions on their own. Never taps the paid mission, Select or any exploration button." />
+                            <Separator style="-fx-opacity: 0.25;" />
+                            <CheckBox text="Rally one Polar Terror for its mission (formation 8, 3-minute rally)"
+                                      mnemonicParsing="false" fx:id="checkBoxWanderTheaterRally" />
+                        </VBox>
+                    </VBox>
+                </VBox>
+            </ScrollPane>
+        </Tab>
+
         <Tab text="Mergeventure" closable="false">
             <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
                 <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">

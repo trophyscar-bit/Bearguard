@@ -100,8 +100,55 @@ private boolean useStaminaItems;
 
 private int staminaItemReserve;
 
+// Index into CommonGameAreas.RALLY_SET_TIME_MINUTES ticked before Hold Rally, or -1 to keep the
+// dialog's own choice. Only the one-rally entry point below sets it.
+private int forcedSetTimeIndex = -1;
+
 public PolarTerrorHuntingRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
+    }
+
+    /**
+     * Launches a single Polar Terror rally on behalf of another routine (a daily event mission that
+     * asks for one rally). Uses the profile's level and stamina-item settings, the given formation
+     * flag and rally set time, and never reschedules the Polar Terror task itself.
+     *
+     * @return null once the rally is on its way, otherwise why it was not launched
+     */
+    public String launchOneRally(int flagNumber, int setMinutes) {
+        hydrateConfiguration();
+        if (eventHelper.isBearRunning()) {
+            return "Bear Hunt is running";
+        }
+        forcedSetTimeIndex = -1;
+        for (int i = 0; i < CommonGameAreas.RALLY_SET_TIME_MINUTES.length; i++) {
+            if (CommonGameAreas.RALLY_SET_TIME_MINUTES[i] == setMinutes) {
+                forcedSetTimeIndex = i;
+            }
+        }
+        navigationHelper.ensureCorrectScreenLocation(getRequiredStartLocation());
+        staminaHelper.updateStaminaFromHud();
+        if (marchHelper.readMarchQueue().stream().noneMatch(MarchSlotState::isIdle)) {
+            return "no idle march slot";
+        }
+        int required = requiredStaminaForRally();
+        if (staminaHelper.getCurrentStamina() < required) {
+            if (!useStaminaItems) {
+                return "stamina " + staminaHelper.getCurrentStamina() + " below " + required
+                        + " and stamina items are off";
+            }
+            StaminaTopUpResult topUp = staminaHelper.topUpFromHud(required, staminaItemReserve);
+            if (PolarStaminaTopUpPolicy.decide(topUp) != PolarStaminaTopUpPolicy.Decision.CONTINUE) {
+                return "stamina top-up ended with " + topUp.status();
+            }
+        }
+        RallyLaunchResult result = launchSingleRallyFlow(polarTerrorLevel, true, flagNumber, false);
+        for (int attempt = 1; attempt <= TARGET_TAKEN_MAX_RETRIES
+                && result.outcome() == RallyLaunchOutcome.TARGET_ALREADY_TAKEN; attempt++) {
+            sleepTask(1000);
+            result = launchSingleRallyFlow(polarTerrorLevel, true, flagNumber, false);
+        }
+        return result.success() ? null : result.outcome() + ": " + result.detail();
     }
 
     private enum RallyLaunchOutcome {
@@ -817,6 +864,11 @@ private RallyLaunchResult openUpRallyMenu() {
                     "Hold Rally button was not found after pressing Rally");
         }
 
+        if (forcedSetTimeIndex >= 0) {
+            tapInside(CommonGameAreas.RALLY_SET_TIME_CHECKBOXES[forcedSetTimeIndex].topLeft(),
+                    CommonGameAreas.RALLY_SET_TIME_CHECKBOXES[forcedSetTimeIndex].bottomRight());
+            sleepTask(600);
+        }
         rallySetTimeSeconds = deploymentHelper.readRallySetTimeSeconds(DEFAULT_RALLY_SET_TIME_SECONDS);
         tapInside(holdRallyButton);
         sleepTask(1000);

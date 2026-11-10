@@ -580,6 +580,11 @@ public enum ConfigurationKeyEnum {
 
     SIGN_IN_EARN_ENABLED_BOOL            ("false",   Boolean.class,  ConfigCategory.EVENTS),
 
+    WANDER_THEATER_ENABLED_BOOL          ("false",   Boolean.class,  ConfigCategory.EVENTS),
+    WANDER_THEATER_RALLY_BOOL            ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    WANDER_THEATER_RALLY_FLAG_INT        ("8",       Integer.class,  ConfigCategory.EVENTS),
+    WANDER_THEATER_RUN_HOUR_INT          ("16",      Integer.class,  ConfigCategory.EVENTS),
+
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
     // weeks) -- checked once a day, no-ops when nothing's there.
