@@ -120,6 +120,11 @@ private static final PointData BEAR_TRAP_1_GO_BUTTON_TL_VALUE = new PointData(57
 
 private static final PointData BEAR_TRAP_1_GO_BUTTON_BR_VALUE = new PointData(620, 370);
 
+// Measured on a live Special Buildings frame (2026-11-09): Trap 2's Go sits one row, 182 px, below Trap 1's.
+private static final PointData BEAR_TRAP_2_GO_BUTTON_TL_VALUE = new PointData(570, 532);
+
+private static final PointData BEAR_TRAP_2_GO_BUTTON_BR_VALUE = new PointData(620, 552);
+
 
 
 private static final PointData BEAR_CENTER_POINT_VALUE = new PointData(370, 507);
@@ -172,6 +177,9 @@ private static final boolean DEFAULT_USE_PETS_VALUE = false;
 private static final boolean DEFAULT_RECALL_TROOPS_VALUE = false;
 
 private boolean callOwnRally;
+
+/** Which of the alliance's two traps this account fights: its Go button decides where the camera lands. */
+private int trapNumber = 1;
 
 private boolean joinRally;
 
@@ -563,6 +571,7 @@ private void hydrateConfiguration() {
         this.usePets = resolveConfigBoolean(BEAR_TRAP_ACTIVE_PETS_BOOL, DEFAULT_USE_PETS_VALUE);
         this.recallTroops = resolveConfigBoolean(BEAR_TRAP_RECALL_TROOPS_BOOL, DEFAULT_RECALL_TROOPS_VALUE);
         this.ownRallyFlag = resolveConfigInt(BEAR_TRAP_RALLY_FLAG_INT, DEFAULT_OWN_RALLY_FLAG_VALUE);
+        this.trapNumber = resolveConfigInt(BEAR_TRAP_NUMBER_INT, 1) == 2 ? 2 : 1;
 
 
         this.joinFlags = decodeJoinFlags();
@@ -575,8 +584,8 @@ private void hydrateConfiguration() {
 
 
         logDebug(routineLogBearTrapLine(String.format(
-                "Configuration loaded - PrepTime: %dmin, OwnRally: %s (flag:%d), JoinRally: %s (flags:%s), Pets: %s, Recall: %s, SharedEmulator: %s",
-                trapPreparationTime, callOwnRally, ownRallyFlag, joinRally, joinFlags, usePets,
+                "Configuration loaded - Trap: %d, PrepTime: %dmin, OwnRally: %s (flag:%d), JoinRally: %s (flags:%s), Pets: %s, Recall: %s, SharedEmulator: %s",
+                trapNumber, trapPreparationTime, callOwnRally, ownRallyFlag, joinRally, joinFlags, usePets,
                 recallTroops, sharedEmulator)));
     }
 
@@ -1155,9 +1164,18 @@ private boolean reachBearTrap() {
         sleepTask(500);
 
 
-        tapInside(BEAR_TRAP_1_GO_BUTTON_TL_VALUE, BEAR_TRAP_1_GO_BUTTON_BR_VALUE, 1, 300);
+        PointData[] goButton = goButtonFor(trapNumber);
+        logInfo(routineLogBearTrapLine("Going to Bear Trap " + trapNumber));
+        tapInside(goButton[0], goButton[1], 1, 300);
         sleepTask(2000);
         return true;
+    }
+
+/** The Special Buildings list shows Trap 1 above Trap 2; anything but 2 is Trap 1. */
+static PointData[] goButtonFor(int trapNumber) {
+        return trapNumber == 2
+                ? new PointData[]{BEAR_TRAP_2_GO_BUTTON_TL_VALUE, BEAR_TRAP_2_GO_BUTTON_BR_VALUE}
+                : new PointData[]{BEAR_TRAP_1_GO_BUTTON_TL_VALUE, BEAR_TRAP_1_GO_BUTTON_BR_VALUE};
     }
 
 private long beginOwnRally() {

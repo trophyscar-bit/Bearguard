@@ -31,6 +31,10 @@
                             <UtcDateTimeEditor fx:id="timerDateTimeEditor" />
                         </VBox>
                         <HBox alignment="CENTER_LEFT" spacing="10">
+                            <Label minWidth="90.0" styleClass="task-field-label" text="Trap" />
+                            <ComboBox fx:id="comboBoxTrapNumber" prefWidth="100.0" />
+                        </HBox>
+                        <HBox alignment="CENTER_LEFT" spacing="10">
                             <Label minWidth="90.0" styleClass="task-field-label" text="Guard" />
                             <ComboBox fx:id="comboBoxGuard" prefWidth="160.0" />
                         </HBox>

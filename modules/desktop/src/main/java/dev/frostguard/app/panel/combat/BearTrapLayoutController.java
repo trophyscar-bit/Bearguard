@@ -50,6 +50,9 @@ public class BearTrapLayoutController extends AbstractProfileController {
     private UtcDateTimeEditor timerDateTimeEditor;
 
     @FXML
+    private ComboBox<Integer> comboBoxTrapNumber;
+
+    @FXML
     private ComboBox<Guard> comboBoxGuard;
 
     @FXML
@@ -109,6 +112,8 @@ public class BearTrapLayoutController extends AbstractProfileController {
         registerRangedIntegerField(textFieldPreparationTime, labelPreparationTimeError,
                 ConfigurationKeyEnum.BEAR_TRAP_PREPARATION_TIME_INT, "Lead", MIN_LEAD_MINUTES, MAX_LEAD_MINUTES);
 
+        comboBoxTrapNumber.getItems().setAll(1, 2);
+        comboBoxMappings.put(comboBoxTrapNumber, ConfigurationKeyEnum.BEAR_TRAP_NUMBER_INT);
         comboBoxMappings.put(comboBoxRallyFlag, ConfigurationKeyEnum.BEAR_TRAP_RALLY_FLAG_INT);
         checkComboBoxMappings.put(checkComboBoxJoinFlag, ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT);
         checkComboBoxMappings.put(checkComboBoxTroopFlag, ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOP_FLAG_STRING);
