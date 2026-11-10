@@ -145,3 +145,34 @@ region the task uses. The gem-buy flow (tap, confirm, counter 1/4 -> 0/4, gems
 the task's taps bought live with the dialog skipped (3/4 -> 2/4, gems -1,000,
 supplies +5, frames `supply-panel-no-confirm*.png`), which the old loop logged
 as a failure; the fix that counts those buys has not run live yet.
+
+## 9 Nov 2026 audit
+
+A full walk of the Academy on 9 Nov found four gaps. Each one is fixed and has a
+saved-frame test.
+
+- **Learning sat idle after a logged learn.** On a skill's last level, picking
+  23h opens "Skill XP will max out ... Confirm learning for 19:00:00?". Nothing
+  answered it. The task now taps Confirm and records the capped time as the XP
+  the bar still needs. It only counts a learn once the timer badge (green `>>`)
+  shows above the skill row.
+- **Upgrades only ran while the queue was busy.** A pass that found the skill
+  "already learning" never looked, so Cyrille's Entrapment Lv. 4 sat ready for
+  a day. The upgrade survey now runs every pass.
+- **Gifts stayed unspent behind a gate.** Agnes waited at the Lv. 60 gate with
+  6/30 Expert Sigils (the gate currency, not "shards") while 784 Compasses, 96
+  Fiery Hearts and 2 Sails went unused. When the focus Expert cannot pass a
+  gate, the gifts now go to the other Experts, each up to their own gate.
+  Holger's gift screen has two stat rows, which moves his Affinity bar 40px up,
+  so the bar is read at both heights.
+- **Achievements finished by the Trek run waited for the next pass.** The task
+  now checks Achievements again after Trek.
+
+With no skill priority configured, the task learned Agnes skill 1 forever.
+`RECOMMENDED_SKILL_ORDER` now follows the heaven-guardian and WoSTools guides:
+
+1. Agnes: Efficient Recon, Covert Knowledge (it raises Total Expert Skill, which
+   gates Project Management Lv. 5), then Project Management.
+2. Cyrille: Entrapment, Weapon Master, Scavenging, Ursa's Bane.
+3. Holger: Crowd Pleaser, Arena Star, Arena Elite, Legacy.
+4. Agnes: Optimization last.

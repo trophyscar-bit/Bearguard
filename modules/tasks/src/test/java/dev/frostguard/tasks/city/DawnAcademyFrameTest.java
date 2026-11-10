@@ -17,6 +17,7 @@ import javax.imageio.ImageIO;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import dev.frostguard.api.configs.ExpertSkillItemEnum;
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.OcrSettingsData;
@@ -210,6 +211,58 @@ class DawnAcademyFrameTest {
         assertTrue(find("expert-stats.png", TemplatesEnum.DAWN_ACADEMY_GIFT_OPEN_BUTTON).isFound());
         assertTrue(find("gift-screen.png", TemplatesEnum.DAWN_ACADEMY_SELECT_GIFT_TITLE).isFound());
         assertEquals(0, count("gift-screen.png", new PointData(470, 1068), new PointData(590, 1108)));
+    }
+
+    @Test
+    void aTwoStatExpertsAffinityBarIsReadHigherUp() throws Exception {
+        // 9 Nov: Holger's gift screen has Attack and Defense rows, so his bar sits above Cyrille's.
+        assertArrayEquals(new long[]{430, 850}, readBar("gift-cyrille-one-stat.png"));
+        assertArrayEquals(new long[]{130, 1_440}, readBar("gift-holger-two-stats.png"));
+        assertNull(DawnAcademyRoutine.parseAffinity(OcrEngine.recognizeText(frame("gift-holger-two-stats.png"),
+                DawnAcademyRoutine.GIFT_AFFINITY_TOP_LEFT, DawnAcademyRoutine.GIFT_AFFINITY_BOTTOM_RIGHT,
+                DawnAcademyRoutine.AFFINITY_DIGITS)), "the one-stat box must not read Holger's bar");
+    }
+
+    private long[] readBar(String name) throws Exception {
+        for (int dy : DawnAcademyRoutine.GIFT_BAR_DY) {
+            long[] bar = DawnAcademyRoutine.parseAffinity(OcrEngine.recognizeText(frame(name),
+                    DawnAcademyRoutine.GIFT_AFFINITY_TOP_LEFT.displaced(0, dy),
+                    DawnAcademyRoutine.GIFT_AFFINITY_BOTTOM_RIGHT.displaced(0, dy), DawnAcademyRoutine.AFFINITY_DIGITS));
+            if (bar != null) {
+                return bar;
+            }
+        }
+        return null;
+    }
+
+    @Test
+    void aLastLevelLearnAsksToConfirmTheCappedTimeAndThenShowsATimer() throws Exception {
+        // 9 Nov: Efficient Recon Lv. 4 of 5 at 277,200/345,600. Picking 23h brought up this
+        // confirmation, nothing answered it, and the queue sat idle after a logged learn.
+        assertTrue(find("learn-max-out-confirm.png", TemplatesEnum.DAWN_ACADEMY_LEARN_MAX_OUT_TEXT).isFound());
+        assertFalse(find("learn-dialog-recon.png", TemplatesEnum.DAWN_ACADEMY_LEARN_MAX_OUT_TEXT).isFound());
+        assertTrue(find("learning-started.png", TemplatesEnum.DAWN_ACADEMY_LEARNING_TIMER_BADGE).isFound());
+        assertFalse(find("skill-upgrade-ready-red-dot.png", TemplatesEnum.DAWN_ACADEMY_LEARNING_TIMER_BADGE).isFound());
+    }
+
+    @Test
+    void anUpgradeWithItsRedDotIsSeenAndAGreyOneIsNot() throws Exception {
+        // 9 Nov: Cyrille's Entrapment Lv. 4 had 36,600/14,400 XP and Books, and waited a day.
+        assertTrue(find("skill-upgrade-ready-red-dot.png", TemplatesEnum.DAWN_ACADEMY_UPGRADE_SKILL_BUTTON).isFound());
+        assertFalse(find("skill-upgrade-grey-casual.png", TemplatesEnum.DAWN_ACADEMY_UPGRADE_SKILL_BUTTON).isFound());
+    }
+
+    @Test
+    void theRecommendedOrderStartsWithReconAndNamesEachSlotOnce() {
+        assertEquals(ExpertSkillItemEnum.AGNES_SLOT_1, DawnAcademyRoutine.RECOMMENDED_SKILL_ORDER.get(0));
+        assertEquals(DawnAcademyRoutine.RECOMMENDED_SKILL_ORDER.size(),
+                new java.util.HashSet<>(DawnAcademyRoutine.RECOMMENDED_SKILL_ORDER).size());
+    }
+
+    @Test
+    void anAchievementsListWithOnlyGoHasNothingToClaim() throws Exception {
+        assertTrue(find("achievements-all-go.png", TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENTS_TITLE).isFound());
+        assertFalse(find("achievements-all-go.png", TemplatesEnum.DAWN_ACADEMY_ACHIEVEMENT_CLAIM_BUTTON).isFound());
     }
 
     @Test

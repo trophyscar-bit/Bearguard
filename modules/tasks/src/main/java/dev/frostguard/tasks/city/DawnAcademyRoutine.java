@@ -36,10 +36,10 @@ import java.util.regex.Pattern;
  * buys, spend them on an Auto Trek with "Auto-manage options and mini-games" ticked, then do the
  * same with any Frontier Supplies.</li>
  * <li>Relationships: advance any Expert whose Stats tab offers Relationship Advancement (the
- * flame bubble with a green arrow over the Academy) while their shards cover it.</li>
+ * flame bubble with a green arrow over the Academy) while their Expert Sigils cover it.</li>
  * <li>Gifts: give every Compass to the chosen Expert once that Expert lives in the Academy.</li>
  * <li>Endless Wayfarer: claim the free reward track.</li>
- * <li>Achievements: claim every finished Academy Achievement (shards, Fiery Hearts, Books).</li>
+ * <li>Achievements: claim every finished Academy Achievement (sigils, Fiery Hearts, Books).</li>
  * </ol>
  * The only gem button tapped is the daily Trek Supply buy, when ticked, and only at
  * {@value #MAX_SUPPLY_PRICE} gems or less. Finish on the learning dialog and the paid Wayfarer
@@ -55,6 +55,19 @@ public class DawnAcademyRoutine extends DelayedTask {
             new LearningOption(Duration.ofHours(23), new PointData(390, 740)));
     /** Banking on a full bar: short, so a skill that needs XP gets the queue back soon. */
     static final LearningOption BANK_OPTION = LEARNING_OPTIONS.get(1);
+
+    /**
+     * Learning order after any configured priorities (heaven-guardian and WoSTools Expert guides,
+     * Nov 2026). Agnes's Efficient Recon (Intel missions) comes first. Covert Knowledge is cheap and
+     * raises her Total Expert Skill, which gates Project Management Lv. 5. Then Cyrille's Bear Hunt
+     * skills: Entrapment (rally capacity), Weapon Master, Scavenging, Ursa's Bane. Then Holger's
+     * Arena skills, Crowd Pleaser first. Optimization (Stamina) comes last. Locked slots are skipped.
+     */
+    static final List<ExpertSkillItemEnum> RECOMMENDED_SKILL_ORDER = List.of(
+            ExpertSkillItemEnum.AGNES_SLOT_1, ExpertSkillItemEnum.AGNES_SLOT_4, ExpertSkillItemEnum.AGNES_SLOT_3,
+            ExpertSkillItemEnum.CYRILLE_SLOT_1, ExpertSkillItemEnum.CYRILLE_SLOT_3, ExpertSkillItemEnum.CYRILLE_SLOT_2,
+            ExpertSkillItemEnum.CYRILLE_SLOT_4, ExpertSkillItemEnum.HOLGER_SLOT_2, ExpertSkillItemEnum.HOLGER_SLOT_3,
+            ExpertSkillItemEnum.HOLGER_SLOT_1, ExpertSkillItemEnum.HOLGER_SLOT_4, ExpertSkillItemEnum.AGNES_SLOT_2);
 
     // "4,200/7,200" on the card; "4,200+7,200/7,200" on the dialog, where the middle number is the gain.
     private static final Pattern FRACTION = Pattern.compile("(\\d[\\d,.]*)(?:\\+[\\d,.]+)?/(\\d[\\d,.]*)");
@@ -96,6 +109,7 @@ public class DawnAcademyRoutine extends DelayedTask {
 
     // Learn Skills dialog.
     private static final PointData LEARN_DIALOG_CLOSE = new PointData(665, 310);
+    private static final PointData LEARN_MAX_OUT_CONFIRM = new PointData(512, 787);
     private static final PointData LEARN_LABEL_TOP_LEFT = new PointData(440, 928);
     private static final PointData LEARN_LABEL_BOTTOM_RIGHT = new PointData(640, 962);
 
@@ -110,6 +124,8 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData GIFT_PLUS_BUTTON = new PointData(427, 1088);
     // The Affinity bar on the gift screen ("100/460" for Cyrille, 27 Oct).
     static final PointData GIFT_AFFINITY_TOP_LEFT = new PointData(270, 556);
+    /** One stat row, then two (the bar moves up). */
+    static final int[] GIFT_BAR_DY = {0, -40};
     static final PointData GIFT_AFFINITY_BOTTOM_RIGHT = new PointData(460, 590);
     static final int COMPASS_AFFINITY = 10;
     static final int TOP_OFF_MAX_AFFINITY = 200;
@@ -210,12 +226,14 @@ public class DawnAcademyRoutine extends DelayedTask {
             if (learningLeft.isPresent()) {
                 logInfo("Learning queue busy for " + learningLeft.get().toMinutes() + " more minutes.");
                 considerNextRun(LocalDateTime.now().plus(learningLeft.get()));
-                if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_UPGRADE_SKILLS_BOOL)) {
-                    upgradeReadySkills();
-                }
             } else {
                 runLearning();
             }
+        }
+        // Every pass, not only while the queue is busy: an advance or a finished bar can make
+        // any skill upgradable, and Cyrille's Entrapment sat ready for a day (9 Nov).
+        if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_UPGRADE_SKILLS_BOOL)) {
+            upgradeReadySkills();
         }
         if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_ADVANCE_RELATIONSHIPS_BOOL)) {
             advanceRelationships();
@@ -234,6 +252,10 @@ public class DawnAcademyRoutine extends DelayedTask {
         }
         if (anyTrekWorkEnabled()) {
             runTrek();
+            // Trek encounters finish the Trek and Expert Encounter achievements, so check again.
+            if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_ACHIEVEMENTS_BOOL) && returnToAcademy()) {
+                claimAchievements();
+            }
         }
         pressBack();
         sleepTask(1500);
@@ -435,7 +457,7 @@ public class DawnAcademyRoutine extends DelayedTask {
         return present;
     }
 
-    /** The configured priorities first, then every other slot of every Expert. */
+    /** The configured priorities first, then the recommended order, then every other slot. */
     private List<SkillTarget> skillTargets() {
         List<SkillTarget> targets = new ArrayList<>();
         Set<ExpertSkillItemEnum> listed = EnumSet.noneOf(ExpertSkillItemEnum.class);
@@ -450,7 +472,9 @@ public class DawnAcademyRoutine extends DelayedTask {
                 logWarning("Unknown skill priority " + item.getIdentifier() + "; ignored.");
             }
         }
-        for (ExpertSkillItemEnum skill : ExpertSkillItemEnum.values()) {
+        List<ExpertSkillItemEnum> rest = new ArrayList<>(RECOMMENDED_SKILL_ORDER);
+        rest.addAll(List.of(ExpertSkillItemEnum.values()));
+        for (ExpertSkillItemEnum skill : rest) {
             if (listed.add(skill)) {
                 targets.add(new SkillTarget(skill.expert(), skill.slotIndex(),
                         skill.expert() + " skill " + skill.slotIndex()));
@@ -545,15 +569,29 @@ public class DawnAcademyRoutine extends DelayedTask {
         }
         tapInside(confirm);
         sleepTask(2000);
+        Duration duration = option.duration();
+        // On a skill's last level the game caps the time: "Skill XP will max out after relearning
+        // the current skill for 19:00:00. Confirm learning for 19:00:00?" Left unanswered, nothing
+        // starts, and the queue sat idle after a logged 23h learn (9 Nov). XP is one point a
+        // second, so the capped time is what the bar still needs.
+        if (found(TemplatesEnum.DAWN_ACADEMY_LEARN_MAX_OUT_TEXT, 2)) {
+            tapNear(LEARN_MAX_OUT_CONFIRM, 6);
+            sleepTask(2000);
+            duration = Duration.ofSeconds(Math.max(60, xp[1] - xp[0]));
+        }
         if (found(TemplatesEnum.DAWN_ACADEMY_LEARN_SKILLS_TITLE, 1)) {
             logWarning("Learn Skills dialog stayed open for " + target.label() + "; the queue may be busy.");
             tapNear(LEARN_DIALOG_CLOSE, 4);
             sleepTask(800);
             return SkillOutcome.notStarted();
         }
-        logInfo((full ? "Banking XP on " : "Learning ") + target.label() + " for " + format(option.duration())
+        if (!found(TemplatesEnum.DAWN_ACADEMY_LEARNING_TIMER_BADGE, 3)) {
+            logWarning("No learning timer showed after Learn on " + target.label() + "; it did not start.");
+            return SkillOutcome.notStarted();
+        }
+        logInfo((full ? "Banking XP on " : "Learning ") + target.label() + " for " + format(duration)
                 + " (XP " + xp[0] + "/" + xp[1] + (full ? ", bar full, waiting on Books)." : ", needs " + (xp[1] - xp[0]) + ")."));
-        return SkillOutcome.started(option.duration());
+        return SkillOutcome.started(duration);
     }
 
     /**
@@ -613,36 +651,61 @@ public class DawnAcademyRoutine extends DelayedTask {
         }
         tapNear(STATS_TAB, 6);
         sleepTask(1000);
+        Set<ExpertSkillItemEnum.Expert> present = expertsInAcademy();
         if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_GIFT_TOP_OFF_BOOL)) {
-            for (ExpertSkillItemEnum.Expert expert : expertsInAcademy()) {
+            for (ExpertSkillItemEnum.Expert expert : present) {
                 if (expert != focus && showExpert(expert)) {
                     topOff(expert);
                 }
             }
         }
-        if (!showExpert(focus)) {
-            logInfo(focus + " is not in the Academy yet; Compasses kept until " + focus + " reaches 1,000 Affinity.");
+        boolean focusBlocked;
+        if (!present.contains(focus) || !showExpert(focus)) {
+            logInfo(focus + " is not in the Academy yet; gifting the other Experts.");
+            focusBlocked = true;
+        } else {
+            focusBlocked = giftToGate(focus);
+        }
+        // A gate waits on Expert Sigils, which come slowly: Agnes sat at Lv. 60 with 6/30 for days
+        // while 784 Compasses, 96 Fiery Hearts and 2 Sails went unspent (9 Nov). Meanwhile
+        // the gifts go to the other Experts, each up to their own gate.
+        if (!focusBlocked) {
             return;
         }
-        // Every 10 levels the bar stops at a gate that only a Relationship Advancement opens, and
-        // Gift is replaced until then. So: gift up to the gate, advance through it, and keep going
-        // while Compasses and shards last.
+        for (ExpertSkillItemEnum.Expert other : present) {
+            if (other == focus || !showExpert(other)) {
+                continue;
+            }
+            if (!giftToGate(other)) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * Every 10 levels the bar stops at a gate that only a Relationship Advancement opens, and Gift
+     * is replaced until then. So: gift up to the gate, advance through it, and keep going while
+     * gifts and sigils last. True when it stopped at a gate the sigils do not cover yet, false
+     * when the gifts ran out or nothing could be given.
+     */
+    private boolean giftToGate(ExpertSkillItemEnum.Expert expert) {
         for (int round = 0; round < MAX_GIFT_ROUNDS; round++) {
             boolean advanced = false;
             if (enabled(ConfigurationKeyEnum.DAWN_ACADEMY_ADVANCE_RELATIONSHIPS_BOOL)) {
-                while (advanceRelationship(focus)) {
+                while (advanceRelationship(expert)) {
                     advanced = true;
                     sleepTask(1000);
                 }
             }
             if (found(TemplatesEnum.DAWN_ACADEMY_RELATIONSHIP_ADVANCE_BUTTON, 1)) {
-                logInfo(focus + " is at a 10-level gate; Compasses kept until the gate can be advanced.");
-                return;
+                logInfo(expert + " is at a 10-level gate its sigils do not cover yet.");
+                return true;
             }
-            if (!giftAllCompasses(focus) && !advanced) {
-                return;
+            if (!giftAllCompasses(expert) && !advanced) {
+                return false;
             }
         }
+        return false;
     }
 
     /**
@@ -695,10 +758,16 @@ public class DawnAcademyRoutine extends DelayedTask {
 
     /** "Lv. 16 100/460" from the gift screen, or "unread" parts where OCR fails. */
     private String affinityLabel() {
-        Integer level = integerHelper.attemptRecognition(GIFT_LEVEL_TOP_LEFT, GIFT_LEVEL_BOTTOM_RIGHT, 2, 200L,
-                LEVEL_DIGITS, text -> parseCount(text) != null, DawnAcademyRoutine::parseCount);
-        long[] bar = parseAffinity(stringHelper.attemptRecognition(GIFT_AFFINITY_TOP_LEFT, GIFT_AFFINITY_BOTTOM_RIGHT,
-                2, 200L, AFFINITY_DIGITS, text -> parseAffinity(text) != null, String::trim));
+        Integer level = null;
+        for (int dy : GIFT_BAR_DY) {
+            level = integerHelper.attemptRecognition(GIFT_LEVEL_TOP_LEFT.displaced(0, dy),
+                    GIFT_LEVEL_BOTTOM_RIGHT.displaced(0, dy), 2, 200L, LEVEL_DIGITS,
+                    text -> parseCount(text) != null, DawnAcademyRoutine::parseCount);
+            if (level != null) {
+                break;
+            }
+        }
+        long[] bar = readGiftAffinity(2);
         return "Lv. " + (level == null ? "?" : level) + " " + (bar == null ? "?/?" : bar[0] + "/" + bar[1]);
     }
 
@@ -712,9 +781,7 @@ public class DawnAcademyRoutine extends DelayedTask {
         if (!openGiftScreen(expert)) {
             return;
         }
-        long[] affinity = parseAffinity(stringHelper.attemptRecognition(GIFT_AFFINITY_TOP_LEFT,
-                GIFT_AFFINITY_BOTTOM_RIGHT, 3, 200L, AFFINITY_DIGITS, text -> parseAffinity(text) != null,
-                String::trim));
+        long[] affinity = readGiftAffinity(3);
         int compasses = affinity == null ? 0 : topOffCompasses(affinity[0], affinity[1]);
         if (affinity == null) {
             logWarning("Affinity of " + expert + " was unreadable; not topping off.");
@@ -740,6 +807,23 @@ public class DawnAcademyRoutine extends DelayedTask {
             }
         }
         closeGiftScreen();
+    }
+
+    /**
+     * The gift screen's Affinity bar. An Expert with two stat rows (Holger: Attack and Defense)
+     * shows it {@code GIFT_BAR_DY} higher than a one-row Expert, and the fixed box read nothing
+     * for Holger on every pass (9 Nov).
+     */
+    private long[] readGiftAffinity(int attempts) {
+        for (int dy : GIFT_BAR_DY) {
+            long[] bar = parseAffinity(stringHelper.attemptRecognition(GIFT_AFFINITY_TOP_LEFT.displaced(0, dy),
+                    GIFT_AFFINITY_BOTTOM_RIGHT.displaced(0, dy), attempts, 200L, AFFINITY_DIGITS,
+                    text -> parseAffinity(text) != null, String::trim));
+            if (bar != null) {
+                return bar;
+            }
+        }
+        return null;
     }
 
     /**
@@ -804,7 +888,7 @@ public class DawnAcademyRoutine extends DelayedTask {
      * Advances every Expert whose Stats tab shows Relationship Advancement where Gift normally
      * sits. The game flags this with a flame bubble and green arrow over the Academy and the
      * Expert; until it is done the Gift button is hidden, so Compass gifting cannot run either.
-     * Each advance costs that Expert's shards and is only tapped when the shard bar covers it.
+     * Each advance costs Expert Sigils and is only tapped when the sigil bar covers it.
      */
     private void advanceRelationships() {
         if (!reachExpertScreen()) {
@@ -841,11 +925,11 @@ public class DawnAcademyRoutine extends DelayedTask {
             sleepTask(1500);
             return false;
         }
-        long[] shards = parseFraction(stringHelper.attemptRecognition(ADVANCE_SHARDS_TOP_LEFT,
+        long[] sigils = parseFraction(stringHelper.attemptRecognition(ADVANCE_SHARDS_TOP_LEFT,
                 ADVANCE_SHARDS_BOTTOM_RIGHT, 3, 200L, WHITE_TEXT, text -> parseFraction(text) != null, String::trim));
-        if (shards == null || shards[0] < shards[1]) {
-            logInfo(expert + "'s relationship can advance but the shards do not cover it ("
-                    + (shards == null ? "unreadable" : shards[0] + "/" + shards[1]) + ").");
+        if (sigils == null || sigils[0] < sigils[1]) {
+            logInfo(expert + "'s relationship can advance but the sigils do not cover it ("
+                    + (sigils == null ? "unreadable" : sigils[0] + "/" + sigils[1]) + ").");
             tapNear(BACK_ARROW, 4);
             sleepTask(1500);
             return false;
@@ -858,7 +942,7 @@ public class DawnAcademyRoutine extends DelayedTask {
             sleepTask(1500);
             return false;
         }
-        logInfo("Advanced " + expert + "'s relationship (shards " + shards[0] + "/" + shards[1] + ").");
+        logInfo("Advanced " + expert + "'s relationship (sigils " + sigils[0] + "/" + sigils[1] + ").");
         tapNear(ADVANCED_EXIT, 10);
         sleepTask(2000);
         return isOnExpertScreen();
