@@ -36,6 +36,10 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 	// Configuration (loaded fresh each execution)
 	private int retryOffsetMinutes;
 
+	// Sidebar failures in a row, for the short backoff below. Only FAILED feeds this; a row the
+	// game is not listing is NOT_OFFERED and defers instead.
+	private final LifeEssenceCaringRetry navigationRetry = new LifeEssenceCaringRetry();
+
 	public LifeEssenceCaringRoutine(AccountDescriptor profile, TpDailyTaskEnum dailyMission) {
 		super(profile, dailyMission);
 	}
@@ -53,11 +57,11 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 			return;
 		}
 		if (route != SidebarRouteResult.REACHED) {
-			logWarning("Failed to navigate to Life Essence menu. Retrying in " + retryOffsetMinutes + " minutes.");
 			reportFailedAttempt("Could not reach the Life Essence menu");
-			reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
+			rescheduleAfterSidebarFailure("Failed to navigate to Life Essence menu");
 			return;
 		}
+		navigationRetry.afterSuccess();
 
 		int islandsCared = 0;
 		for (int i = 0; i < 4; i++) {
@@ -71,9 +75,8 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 				return;
 			}
 			if (route != SidebarRouteResult.REACHED) {
-				logWarning("Could not return to the Life Essence menu after caring for " + islandsCared
-						+ " island(s). Retrying in " + retryOffsetMinutes + " minutes.");
-				reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
+				rescheduleAfterSidebarFailure("Could not return to the Life Essence menu after caring for "
+						+ islandsCared + " island(s)");
 				return;
 			}
 
@@ -101,6 +104,23 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 
 		closeAllMenus();
 		reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
+	}
+
+	/**
+	 * Reschedules after the sidebar failed to carry us to the Life Essence menu, on a short backoff
+	 * rather than the configured hour. See {@link LifeEssenceCaringRetry} for why.
+	 *
+	 * <p>Only {@link SidebarRouteResult#FAILED} comes here. A row the game is simply not listing is
+	 * {@code NOT_OFFERED} and keeps its own defer: there is nothing to collect until it returns, so
+	 * probing it sooner would only churn.
+	 */
+	private void rescheduleAfterSidebarFailure(String reason) {
+		LifeEssenceRetryPolicy.Decision decision = navigationRetry.afterNavigationFailure();
+		LocalDateTime next = LocalDateTime.now().plus(decision.retryDelay());
+		logWarning(reason + ". Consecutive sidebar failures: " + navigationRetry.failures()
+				+ ". Retrying in " + decision.retryDelay().toMinutes() + " minutes at "
+				+ next.format(DATETIME_FORMATTER) + ".");
+		reschedule(next);
 	}
 
 	/**
