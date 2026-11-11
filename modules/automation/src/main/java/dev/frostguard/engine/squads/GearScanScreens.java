@@ -37,6 +37,8 @@ public final class GearScanScreens implements GearScan.Screens {
     // Two cards are the same hero above this; matches between different heroes stayed under 0.45.
     private static final double SAME_HERO = 0.90;
     private static final int READ_ATTEMPTS = 4;
+    // About 6 s, so a game toast passing over the piece name costs time rather than the scan.
+    private static final int DETAILS_READ_ATTEMPTS = 8;
     private static final int READ_PAUSE_MS = 700;
 
     /** The emulator, as far as the scan is allowed to touch it. */
@@ -134,7 +136,7 @@ public final class GearScanScreens implements GearScan.Screens {
         await(HeroScreenReader::isGearTab, "the Gear tab is not on screen before " + slot);
         device.tap(GEAR_TILES.get(slot), 12);
         device.pause(1600);
-        return awaitRead(ForgeDialogReader::readGearDetails, "Gear Details did not read for " + slot);
+        return awaitFrame(ForgeDialogReader::readGearDetails, "Gear Details did not read for " + slot, DETAILS_READ_ATTEMPTS);
     }
 
     @Override
@@ -172,16 +174,16 @@ public final class GearScanScreens implements GearScan.Screens {
     }
 
     private RawImageData await(Predicate<RawImageData> expected, String failure) {
-        return awaitFrame(frame -> expected.test(frame) ? frame : null, failure);
+        return awaitFrame(frame -> expected.test(frame) ? frame : null, failure, READ_ATTEMPTS);
     }
 
     private <T> T awaitRead(Function<RawImageData, T> read, String failure) {
-        return awaitFrame(read, failure);
+        return awaitFrame(read, failure, READ_ATTEMPTS);
     }
 
-    private <T> T awaitFrame(Function<RawImageData, T> read, String failure) {
+    private <T> T awaitFrame(Function<RawImageData, T> read, String failure, int attempts) {
         RawImageData frame = null;
-        for (int attempt = 0; attempt < READ_ATTEMPTS; attempt++) {
+        for (int attempt = 0; attempt < attempts; attempt++) {
             frame = device.capture();
             T value = read.apply(frame);
             if (value != null) return value;

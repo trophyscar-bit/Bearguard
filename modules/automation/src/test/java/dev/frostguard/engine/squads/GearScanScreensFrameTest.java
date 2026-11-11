@@ -299,6 +299,85 @@ class GearScanScreensFrameTest {
         assertThrows(Abort.class, screens::openGrid);
     }
 
+    @ParameterizedTest
+    @CsvSource({ "gear-molly-boots", "gear-molly-boots-late" })
+    void readsANameTheIconPullsOutOfTheBlockRead(String file) throws Exception {
+        assertEquals(new GearDetails("Saboteur Boots", 69, "Enhance"), ForgeDialogReader.readGearDetails(frame(file)));
+    }
+
+    @Test
+    void aToastOverTheNameIsNotReadAsSomePiece() throws Exception {
+        RawImageData toast = frame("gear-molly-boots-toast-on-name");
+
+        assertTrue(ForgeDialogReader.isGearDetails(toast));
+        assertNull(ForgeDialogReader.readGearDetails(toast));
+    }
+
+    @Test
+    void aToastThatPassesCostsTimeNotTheScan() throws Exception {
+        List<String> shown = new ArrayList<>(List.of("gear-molly-gear-toast"));
+        for (int i = 0; i < 6; i++) shown.add("gear-molly-boots-toast-on-name");
+        shown.add("gear-molly-boots");
+        Sequence device = new Sequence(shown);
+
+        GearDetails details = new GearScanScreens(device).openDetails("Boots");
+
+        assertEquals(new GearDetails("Saboteur Boots", 69, "Enhance"), details);
+        assertEquals(List.of(BOOTS), device.taps);
+        assertTrue(device.failures.isEmpty(), device.failures.toString());
+    }
+
+    @Test
+    void aToastThatStaysStillFailsTheRead() throws Exception {
+        List<String> shown = new ArrayList<>(List.of("gear-molly-gear-toast"));
+        for (int i = 0; i < 20; i++) shown.add("gear-molly-boots-toast-on-name");
+        Sequence device = new Sequence(shown);
+
+        assertThrows(Abort.class, () -> new GearScanScreens(device).openDetails("Boots"));
+        assertEquals(List.of("Gear Details did not read for Boots"), device.failures);
+        assertEquals(List.of(BOOTS), device.taps);
+    }
+
+    /** Shows the given frames in turn, one per capture, holding the last. */
+    private static final class Sequence implements GearScanScreens.Device {
+        private final List<String> frames;
+        private int next;
+        final List<PointData> taps = new ArrayList<>();
+        final List<String> failures = new ArrayList<>();
+
+        Sequence(List<String> frames) {
+            this.frames = frames;
+        }
+
+        @Override
+        public RawImageData capture() {
+            try {
+                return frame(frames.get(Math.min(next++, frames.size() - 1)));
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        @Override
+        public void tap(PointData point, int radius) {
+            taps.add(point);
+        }
+
+        @Override
+        public void back() {
+            throw new AssertionError("no Back while waiting for Gear Details");
+        }
+
+        @Override
+        public void pause(int millis) {
+        }
+
+        @Override
+        public void readFailed(RawImageData frame, String failure) {
+            failures.add(failure);
+        }
+    }
+
     @Test
     void readsGearDetailsAndRefusesOtherScreens() throws Exception {
         assertEquals(new GearDetails("Sniper Boots", 80, "Enhance"), ForgeDialogReader.readGearDetails(frame("scan-details")));

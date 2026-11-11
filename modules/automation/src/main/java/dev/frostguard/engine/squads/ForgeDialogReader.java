@@ -43,6 +43,10 @@ public final class ForgeDialogReader {
     private static final int FORGE_BUTTON_X = 360;
     private static final int FORGE_BUTTON_OFFSET = 267;
     // The "+N" badge on the Gear Details icon; wide enough for "+100", clear of the class shield.
+    private static final int NAME_LEFT = 195;
+    private static final int NAME_TOP = 245;
+    private static final int NAME_RIGHT = 510;
+    private static final int NAME_BOTTOM = 295;
     private static final int BADGE_LEFT = 122;
     private static final int BADGE_TOP = 252;
     private static final int BADGE_RIGHT = 186;
@@ -97,6 +101,8 @@ public final class ForgeDialogReader {
     public static GearDetails readGearDetails(RawImageData frame) {
         if (!isGearDetails(frame)) return null;
         String piece = piece(SquadOcr.lines(frame, 60, 230, 510, 360));
+        // The icon's "+N" and "Lv." text can pull the name out of the block read, as on Molly's +69 Boots; its own line still reads.
+        if (piece == null) piece = piece(SquadOcr.text(frame, NAME_LEFT, NAME_TOP, NAME_RIGHT, NAME_BOTTOM, SquadOcr.LINE));
         Integer plus = HeroScreenReader.enhancement(
                 SquadOcr.text(frame, BADGE_LEFT, BADGE_TOP, BADGE_RIGHT, BADGE_BOTTOM, SquadOcr.WHITE_PLUS_NUMBER),
                 SquadOcr.text(frame, BADGE_LEFT, BADGE_TOP, BADGE_RIGHT, BADGE_BOTTOM, SquadOcr.PLUS_NUMBER));
@@ -110,10 +116,15 @@ public final class ForgeDialogReader {
 
     private static String piece(List<TextLine> lines) {
         for (TextLine line : lines) {
-            Matcher m = PIECE.matcher(line.text());
-            if (m.find()) return m.group(1) + " " + m.group(2);
+            String piece = piece(line.text());
+            if (piece != null) return piece;
         }
         return null;
+    }
+
+    private static String piece(String text) {
+        Matcher m = PIECE.matcher(text);
+        return m.find() ? m.group(1) + " " + m.group(2) : null;
     }
 
     /**
