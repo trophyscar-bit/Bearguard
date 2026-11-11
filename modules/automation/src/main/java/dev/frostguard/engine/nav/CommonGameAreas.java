@@ -106,6 +106,14 @@ public final class CommonGameAreas {
     private static final AreaData LEFT_MENU_WILDERNESS_TAB_SAMPLE = region(165, 252, 286, 288);
     private static final AreaData LEFT_MENU_DAILY_TAB_SAMPLE      = region(310, 252, 430, 288);
 
+    // The World Marching list's control column. Its rows carry the only per-march recall control
+    // in the game; the sidebar's March Queue shows the same marches with jump arrows instead.
+    // Measured from the 2026-11-11 frames: controls at x=222, rows from y=295 to y=596.
+    public static final AreaData WORLD_MARCHING_CONTROLS = region(180, 265, 270, 630);
+
+    // The same list's label column. A row's label sits about ten pixels above its control.
+    public static final AreaData WORLD_MARCHING_ROW_LABELS = region(40, 250, 210, 640);
+
     public static final AreaData SIDEBAR_CONTENT = region(10, 300, 440, 880);
     public static final AreaData SIDEBAR_ROW_ICON_COLUMN = region(15, 300, 80, 880);
     public static final AreaData DAILY_HIDE_COMPLETED_BOX = region(388, 886, 424, 922);

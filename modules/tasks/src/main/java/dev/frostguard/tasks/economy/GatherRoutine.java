@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.TreeSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -41,6 +42,8 @@ import dev.frostguard.api.runtime.WorkspacePaths;
 import dev.frostguard.engine.helper.MarchSlotAvailabilityEstimator;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.GatherQueuePolicy;
+import dev.frostguard.engine.nav.CommonGameAreas;
+import dev.frostguard.engine.nav.WorldMarchingList;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.schedule.TaskQueue;
 import dev.frostguard.engine.schedule.TroopSlotPolicy;
@@ -647,43 +650,112 @@ public class GatherRoutine extends DelayedTask {
     private int recallBlockedMarchesWhenAutojoinOffFlow() {
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.WORLD);
         sleepTask(250);
-        marchHelper.openLeftMenuCitySection(false);
+        // Same reason as the targeted path: the recall controls are on the World Marching list and
+        // the sidebar covers them.
+        marchHelper.closeLeftMenu();
+        sleepTask(250);
 
-        try {
-            PointData limit = new PointData(415,
-                    MARCH_QUEUES[MARCH_QUEUES.length - 1].bottomRight.getY());
-
-            List<ImageSearchResultData> recallButtons = templateSearchHelper.locateAllPatterns(
-                    TemplatesEnum.MARCHES_AREA_RECALL_BUTTON,
-                    SearchConfig.builder()
-                            .withArea(new AreaData(MARCH_QUEUES[0].topLeft, limit))
-                            .withMaxAttempts(3)
-                            .withMaxResults(MARCH_QUEUES.length)
-                            .withDelay(3)
-                            .build());
-
-            if (recallButtons == null || recallButtons.isEmpty()) {
-                return 0;
-            }
-
-            recallButtons.sort(Comparator.comparingInt(button -> button.getPoint().getY()));
-            int recalled = 0;
-
-            for (ImageSearchResultData recallButton : recallButtons) {
-                if (recallButton == null || !recallButton.isFound()) {
-                    continue;
-                }
-
-                tapInside(recallButton.getPoint(), recallButton.getPoint(), 1, 200);
-                tapInside(RECALL_CONFIRM_TL, RECALL_CONFIRM_BR, 1, 200);
-                sleepTask(400);
-                recalled++;
-            }
-
-            return recalled;
-        } finally {
-            marchHelper.closeLeftMenu();
+        List<ImageSearchResultData> recallButtons = findWorldMarchingRecallControls();
+        if (recallButtons.isEmpty()) {
+            return 0;
         }
+
+        recallButtons.sort(Comparator.comparingInt(button -> button.getPoint().getY()));
+        int recalled = 0;
+
+        Set<Integer> gatheringRows = findWorldMarchingGatheringRows();
+        for (ImageSearchResultData recallButton : recallButtons) {
+            if (recallButton == null || !recallButton.isFound()) {
+                continue;
+            }
+            int row = WorldMarchingList.rowAt(recallButton.getPoint().getY());
+            if (row < 0 || !gatheringRows.contains(row)) {
+                // Not a row this routine owns. Rally and reinforcement marches are somebody's
+                // battle; leave them where they are.
+                continue;
+            }
+
+            tapInside(recallButton.getPoint(), recallButton.getPoint(), 1, 200);
+            if (!confirmRecallDialog()) {
+                logWarning("Tapped recall on march row #" + (row + 1)
+                        + " but no Recall confirmation appeared; confirming nothing.");
+                continue;
+            }
+            sleepTask(400);
+            recalled++;
+        }
+
+        return recalled;
+    }
+
+    /** Rows of the World Marching list whose label reads Gathering. */
+    private Set<Integer> findWorldMarchingGatheringRows() {
+        List<ImageSearchResultData> labels = templateSearchHelper.locateAllPatterns(
+                TemplatesEnum.MARCHES_ROW_GATHERING_LABEL,
+                SearchConfig.builder()
+                        .withArea(CommonGameAreas.WORLD_MARCHING_ROW_LABELS)
+                        .withMaxAttempts(2)
+                        .withMaxResults(WorldMarchingList.ROWS)
+                        .withDelay(3)
+                        .build());
+        Set<Integer> rows = new TreeSet<>();
+        if (labels == null) {
+            return rows;
+        }
+        for (ImageSearchResultData label : labels) {
+            if (label == null || !label.isFound()) {
+                continue;
+            }
+            // A row's label sits a little above its control; the row tolerance absorbs that.
+            int row = WorldMarchingList.rowAt(label.getPoint().getY());
+            if (row >= 0) {
+                rows.add(row);
+            }
+        }
+        return rows;
+    }
+
+    private static String describeRows(Set<Integer> rows) {
+        if (rows.isEmpty()) {
+            return "none";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int row : rows) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append('#').append(row + 1);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Confirms a recall only once the game's own confirmation is on screen.
+     *
+     * <p>Without this the confirm tap goes out blind, and on the World screen it lands inside
+     * whatever tile card happens to be open rather than on a button that exists.
+     */
+    private boolean confirmRecallDialog() {
+        sleepTask(400);
+        if (!templateSearchHelper.locatePattern(TemplatesEnum.MARCHES_RECALL_CONFIRM_DIALOG,
+                SearchConfig.builder().withMaxAttempts(3).withDelay(300).build()).isFound()) {
+            return false;
+        }
+        tapInside(RECALL_CONFIRM_TL, RECALL_CONFIRM_BR, 1, 200);
+        return true;
+    }
+
+    /** Recall controls on the World Marching list, the only panel that carries them. */
+    private List<ImageSearchResultData> findWorldMarchingRecallControls() {
+        List<ImageSearchResultData> found = templateSearchHelper.locateAllPatterns(
+                TemplatesEnum.MARCHES_AREA_RECALL_BUTTON,
+                SearchConfig.builder()
+                        .withArea(CommonGameAreas.WORLD_MARCHING_CONTROLS)
+                        .withMaxAttempts(3)
+                        .withMaxResults(WorldMarchingList.ROWS)
+                        .withDelay(3)
+                        .build());
+        return found == null ? List.of() : found;
     }
 
     static RecallBatchResult executeRecallBatch(List<ActiveGatherMarchCandidate> candidates,
@@ -732,49 +804,72 @@ public class GatherRoutine extends DelayedTask {
     private RecallAttempt recallGatherMarchByQueueFlow(ActiveGatherMarchCandidate candidate, RecallReason reason) {
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.WORLD);
         sleepTask(250);
-        marchHelper.openLeftMenuSection(false);
-        try {
-            RecallAttempt attempt = recallGatherMarchFromOpenPanelFlow(candidate, reason);
-            if (attempt == RecallAttempt.CONTROLS_NOT_FOUND) {
-                saveMissingRecallControlsScreenshot();
-            }
-            return attempt;
-        } finally {
-            marchHelper.closeLeftMenu();
+        // Recall lives on the World Marching list, not in the sidebar. The sidebar March Queue
+        // lists the same marches in the same order but carries jump arrows instead of recall
+        // controls, and opening it covers the list that has them -- which is why this reported
+        // controls-missing in every log back to 2026-10-06. Close the sidebar, do not open it.
+        marchHelper.closeLeftMenu();
+        sleepTask(250);
+        RecallAttempt attempt = recallGatherMarchFromOpenPanelFlow(candidate, reason);
+        if (attempt == RecallAttempt.CONTROLS_NOT_FOUND) {
+            saveMissingRecallControlsScreenshot();
         }
+        return attempt;
     }
 
     private RecallAttempt recallGatherMarchFromOpenPanelFlow(
             ActiveGatherMarchCandidate candidate, RecallReason reason) {
         int queueIndex = candidate.queueIndex();
-        PointData limit = new PointData(415,
-                MARCH_QUEUES[MARCH_QUEUES.length - 1].bottomRight.getY());
 
-        List<ImageSearchResultData> recallButtons = templateSearchHelper.locateAllPatterns(
-                TemplatesEnum.MARCHES_AREA_RECALL_BUTTON,
-                SearchConfig.builder()
-                        .withArea(new AreaData(MARCH_QUEUES[0].topLeft, limit))
-                        .withMaxAttempts(3)
-                        .withMaxResults(MARCH_QUEUES.length)
-                        .withDelay(3)
-                        .build());
+        List<ImageSearchResultData> recallButtons = findWorldMarchingRecallControls();
 
         if (recallButtons.isEmpty()) {
             return RecallAttempt.CONTROLS_NOT_FOUND;
         }
 
-        int targetCenterY = (MARCH_QUEUES[queueIndex].topLeft.getY()
-                + MARCH_QUEUES[queueIndex].bottomRight.getY()) / 2;
-        ImageSearchResultData targetButton = recallButtons.stream()
-                .min(Comparator.comparingInt(button -> Math.abs(button.getPoint().getY() - targetCenterY)))
-                .orElse(null);
+        // The row has to be read as Gathering on this list before anything is tapped. A recall
+        // control alone is not enough: rally and reinforcement rows can carry one too, and
+        // recalling either would throw away someone else's battle, not a pile of ore.
+        Set<Integer> gatheringRows = findWorldMarchingGatheringRows();
+        if (!gatheringRows.contains(queueIndex)) {
+            logWarning(String.format(
+                    "March row #%d does not read as Gathering on the World list (rows reading Gathering: %s)."
+                            + " Leaving it alone rather than recalling something else.",
+                    queueIndex + 1, describeRows(gatheringRows)));
+            return RecallAttempt.CONTROLS_NOT_FOUND;
+        }
+
+        // Resolve the row by position, never by counting: a returning march shows speedup or view
+        // instead of recall, so the n-th recall control is not the n-th march. Both lists order
+        // marches the same way, which is what makes the queue index usable here -- verified on the
+        // 2026-11-11 frames, where the two panels showed the same six marches in the same order
+        // with timers six seconds apart.
+        ImageSearchResultData targetButton = null;
+        for (ImageSearchResultData button : recallButtons) {
+            if (button != null && button.isFound()
+                    && WorldMarchingList.rowAt(button.getPoint().getY()) == queueIndex) {
+                targetButton = button;
+                break;
+            }
+        }
 
         if (targetButton == null) {
+            // Controls are on screen, just not a recall on this row. Recalling a march other than
+            // the one chosen would be worse than recalling none, so stop here.
+            logWarning(String.format(
+                    "No recall control on march row #%d (expected near y=%d); %d control(s) sit on other rows."
+                            + " Leaving this march alone.",
+                    queueIndex + 1, WorldMarchingList.rowCentreY(queueIndex), recallButtons.size()));
             return RecallAttempt.CONTROLS_NOT_FOUND;
         }
 
         tapInside(targetButton.getPoint(), targetButton.getPoint(), 1, 200);
-        tapInside(RECALL_CONFIRM_TL, RECALL_CONFIRM_BR, 1, 200);
+        if (!confirmRecallDialog()) {
+            logWarning(String.format(
+                    "Tapped recall on march row #%d but no Recall confirmation appeared; confirming nothing.",
+                    queueIndex + 1));
+            return RecallAttempt.CONTROLS_NOT_FOUND;
+        }
         logInfo(String.format(
                 "Gather march recall | reason=%s | queue=#%d | type=%s | return=%s",
                 reason.logValue,
