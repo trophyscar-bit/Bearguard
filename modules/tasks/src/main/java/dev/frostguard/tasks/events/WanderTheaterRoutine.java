@@ -225,6 +225,7 @@ public class WanderTheaterRoutine extends DelayedTask {
         EventCalendarGate.Verdict verdict =
                 EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
         if (verdict.shouldRun()) {
+            verdict.note().ifPresent(this::logInfo);
             return false;
         }
         // Parked to this task's own run hour on the opening day rather than to midnight UTC: the

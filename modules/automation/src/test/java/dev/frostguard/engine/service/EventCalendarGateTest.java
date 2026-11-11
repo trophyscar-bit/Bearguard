@@ -38,6 +38,8 @@ class EventCalendarGateTest {
 
         assertTrue(verdict.shouldRun());
         assertTrue(verdict.nextStartUtc().isEmpty());
+        // A calendar that answered needs no note: only an unsure pass explains itself.
+        assertTrue(verdict.note().isEmpty());
     }
 
     @Test
@@ -58,7 +60,7 @@ class EventCalendarGateTest {
 
         assertTrue(verdict.shouldRun());
         assertTrue(verdict.nextStartUtc().isEmpty());
-        assertTrue(verdict.reason().contains("has not been read"), verdict.reason());
+        assertTrue(verdict.note().orElseThrow().contains("has not been read"), verdict.reason());
     }
 
     /** No sweep, no evidence: every task behaves exactly as it did before the gate existed. */
@@ -110,7 +112,8 @@ class EventCalendarGateTest {
 
         assertTrue(verdict.shouldRun());
         assertTrue(verdict.nextStartUtc().isEmpty());
-        assertTrue(verdict.reason().contains("could not name"), verdict.reason());
+        // The pass has to say why it went ahead, or a gap in the evidence is invisible in the log.
+        assertTrue(verdict.note().orElseThrow().contains("could not name"), verdict.reason());
     }
 
     /** A row with no label at all is the same kind of gap. */

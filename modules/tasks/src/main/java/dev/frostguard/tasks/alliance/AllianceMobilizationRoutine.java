@@ -269,6 +269,7 @@ private boolean inspectTaskAvailabilityTimersAndReschedule() {
         EventCalendarGate.Verdict verdict =
                 EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
         if (verdict.shouldRun()) {
+            verdict.note().ifPresent(note -> logInfo(routineLogAllianceMobilizationLine(note)));
             return false;
         }
         LocalDateTime nextStart = verdict.nextStartLocal().orElseThrow();

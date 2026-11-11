@@ -42,11 +42,13 @@ public final class EventCalendarGate {
     public static final class Verdict {
 
         private final boolean run;
+        private final boolean unsure;
         private final LocalDateTime nextStartUtc;
         private final String reason;
 
-        private Verdict(boolean run, LocalDateTime nextStartUtc, String reason) {
+        private Verdict(boolean run, boolean unsure, LocalDateTime nextStartUtc, String reason) {
             this.run = run;
+            this.unsure = unsure;
             this.nextStartUtc = nextStartUtc;
             this.reason = reason;
         }
@@ -72,6 +74,16 @@ public final class EventCalendarGate {
         /** One line for the log, naming the event and what the calendar said about it. */
         public String reason() {
             return reason;
+        }
+
+        /**
+         * The line to log when the task runs anyway, present only when the calendar could not
+         * answer. A pass that goes ahead because the calendar is unsure has to say so: otherwise a
+         * stale or unreadable calendar is indistinguishable in the log from one that said yes, and
+         * the next "tab not found" looks like a fault rather than a gap in the evidence.
+         */
+        public Optional<String> note() {
+            return unsure ? Optional.of(reason) : Optional.empty();
         }
     }
 
@@ -100,7 +112,7 @@ public final class EventCalendarGate {
     static Verdict check(List<EventScheduleEntry> entries, String scanMarker, String eventName,
                          LocalDateTime nowUtc) {
         if (!readToday(scanMarker, nowUtc)) {
-            return new Verdict(true, null, eventName
+            return new Verdict(true, true, null, eventName
                     + ": the calendar has not been read for " + nowUtc.toLocalDate()
                     + ", so this pass goes ahead as it would without a calendar.");
         }
@@ -120,23 +132,23 @@ public final class EventCalendarGate {
             // the decision back to the task.
             long unnamed = unnamedBars(entries);
             if (unnamed > 0) {
-                return new Verdict(true, null, eventName
+                return new Verdict(true, true, null, eventName
                         + ": today's calendar has " + unnamed + " bar(s) it could not name, so this"
                         + " pass goes ahead rather than treat a gap in the list as proof.");
             }
-            return new Verdict(false, nextSweep(nowUtc), eventName
+            return new Verdict(false, false, nextSweep(nowUtc), eventName
                     + " is not running; today's calendar does not carry it.");
         }
 
         EventScheduleEntry entry = window.get();
         LocalDateTime start = entry.getActiveSince();
         if (start == null || !start.isAfter(nowUtc)) {
-            return new Verdict(true, null, eventName + " is running.");
+            return new Verdict(true, false, null, eventName + " is running.");
         }
         LocalDateTime startLocal = start.atOffset(ZoneOffset.UTC)
                 .atZoneSameInstant(ZoneId.systemDefault())
                 .toLocalDateTime();
-        return new Verdict(false, start, eventName + " is not running; the calendar has it starting "
+        return new Verdict(false, false, start, eventName + " is not running; the calendar has it starting "
                 + startLocal.format(START_FORMAT) + ".");
     }
 

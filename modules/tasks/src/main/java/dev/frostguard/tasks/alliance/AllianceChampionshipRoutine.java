@@ -42,6 +42,7 @@ public class AllianceChampionshipRoutine extends DelayedTask {
         EventCalendarGate.Verdict verdict =
                 EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
         if (verdict.shouldRun()) {
+            verdict.note().ifPresent(this::logInfo);
             return false;
         }
         LocalDateTime nextStart = verdict.nextStartLocal().orElseThrow();
