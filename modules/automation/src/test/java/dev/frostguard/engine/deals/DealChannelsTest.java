@@ -32,13 +32,13 @@ class DealChannelsTest {
 
         DealChannels.Board board = board("fire-crystals");
 
-        assertEquals(List.of("FC Weekly Card", "Sign-in", "FC Pack"),
+        assertEquals(List.of("Fire Crystal Weekly Card", "Sign-in", "Fire Crystal Pack"),
                 board.packs().stream().map(DealChannels.PackRow::label).toList());
         assertEquals(List.of(DealChannels.Mark.BEST, DealChannels.Mark.CLOSE, DealChannels.Mark.OTHER),
                 board.packs().stream().map(DealChannels.PackRow::mark).toList());
         assertEquals("52 (7d)", board.packs().get(0).count());
         assertEquals(4.99 / 52, board.packs().get(0).perUnit(), 1e-9);
-        assertTrue(board.places().contains(new DealChannels.Place("FC Pack", "Gem Shop › Regular Pack · 1/week")));
+        assertTrue(board.places().contains(new DealChannels.Place("Fire Crystal Pack","Gem Shop › Regular Pack · 1/week")));
     }
 
     @Test
@@ -136,7 +136,7 @@ class DealChannelsTest {
                 """
                 {"name":"Fire Crystal Leap Pack 4","where":"Gem Shop > Fire Crystal Leap Pack","price":49.99,"limit":"Lifetime Limit: 1","items":[{"name":"Fire Crystal","quantity":250}]}""");
 
-        assertEquals("FC Leap Pack 3, 4", board("fire-crystals").places().get(0).label());
+        assertEquals("Fire Crystal Leap Pack 3, 4", board("fire-crystals").places().get(0).label());
     }
 
     @Test
@@ -145,7 +145,7 @@ class DealChannelsTest {
         Files.writeString(root.resolve("discord/HOLD"), "{\"day\":\"2026-11-08\",\"channels\":{}}");
         report("2026-11-09", FC_WEEKLY);
 
-        assertEquals("Not audited yet", board("fire-crystals").hold());
+        assertEquals("Unverified: not audited yet", board("fire-crystals").hold());
     }
 
     @Test
@@ -168,6 +168,17 @@ class DealChannelsTest {
         assertEquals(LocalDate.of(2026, 11, 9), snapshot.day());
         assertEquals(1, snapshot.problems().size());
         assertTrue(snapshot.problems().get(0).startsWith("2026-11-08.json"), snapshot.problems().toString());
+    }
+
+    @Test
+    void saysHowMuchOfTheShopTheScanReached() throws IOException {
+        Files.createDirectories(root.resolve("reports"));
+        Files.writeString(root.resolve("reports/2026-11-09.json"), """
+                {"packs":[],"coverage":[{"surface":"Login Offers","visited":false,"fullyScrolled":true},
+                 {"surface":"Gem Shop","visited":true,"fullyScrolled":true},
+                 {"surface":"Events","visited":true,"fullyScrolled":false}]}""");
+
+        assertEquals("2/3 shops checked; not checked: Login Offers; cut off: Events", DealChannels.read(root).coverage());
     }
 
     private DealChannels.Board board(String id) {

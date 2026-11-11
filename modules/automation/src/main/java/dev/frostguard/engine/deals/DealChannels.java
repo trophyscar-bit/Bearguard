@@ -36,6 +36,8 @@ public final class DealChannels {
     /** The tracker's first day; earlier scans were patchy. */
     private static final LocalDate TRACK_START = LocalDate.of(2026, 10, 22);
 
+    private static final String NOT_AUDITED = "Unverified: not audited yet";
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Pattern REPORT_FILE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}\\.json");
     private static final Pattern JUNK_MARKS = Pattern.compile("[|‘’\"_;:?]");
@@ -98,8 +100,11 @@ public final class DealChannels {
             List<Point> chart, String hold) {
     }
 
-    /** @param day the newest report's day, or {@code null} when there is no report yet */
-    public record Snapshot(LocalDate day, int packCount, List<Board> boards, List<String> problems) {
+    /**
+     * @param day the newest report's day, or {@code null} when there is no report yet
+     * @param coverage how much of the shop that scan reached, empty when the report does not say
+     */
+    public record Snapshot(LocalDate day, int packCount, String coverage, List<Board> boards, List<String> problems) {
     }
 
     private record Item(String name, long quantity) {
@@ -130,14 +135,35 @@ public final class DealChannels {
         JsonNode fixes = readJson(discord.resolve("fixes.json"), problems).orElse(MAPPER.createObjectNode());
         TreeMap<LocalDate, List<Pack>> reports = readReports(dealsRoot.resolve("reports"), fixes, problems);
         if (reports.isEmpty()) {
-            return new Snapshot(null, 0, List.of(), problems);
+            return new Snapshot(null, 0, "", List.of(), problems);
         }
         LocalDate day = reports.lastKey();
         List<Board> boards = new ArrayList<>();
         for (Channel channel : CHANNELS) {
             boards.add(board(channel, day, reports, discord, problems));
         }
-        return new Snapshot(day, reports.get(day).size(), boards, problems);
+        String coverage = readJson(dealsRoot.resolve("reports").resolve(day + ".json"), problems)
+                .map(report -> coverage(report.path("coverage"))).orElse("");
+        return new Snapshot(day, reports.get(day).size(), coverage, boards, problems);
+    }
+
+    /** How complete the crawl was, so a thin scan shows instead of passing for the whole shop. */
+    private static String coverage(JsonNode rows) {
+        if (rows.isEmpty()) {
+            return "";
+        }
+        List<String> missed = new ArrayList<>();
+        List<String> cutOff = new ArrayList<>();
+        rows.forEach(row -> {
+            if (!row.path("visited").asBoolean()) {
+                missed.add(row.path("surface").asText());
+            } else if (!row.path("fullyScrolled").asBoolean(true)) {
+                cutOff.add(row.path("surface").asText());
+            }
+        });
+        return (rows.size() - missed.size()) + "/" + rows.size() + " shops checked"
+                + (missed.isEmpty() ? "" : "; not checked: " + String.join(", ", missed))
+                + (cutOff.isEmpty() ? "" : "; cut off: " + String.join(", ", cutOff));
     }
 
     private static Board board(Channel channel, LocalDate day, TreeMap<LocalDate, List<Pack>> reports, Path discord,
@@ -197,7 +223,7 @@ public final class DealChannels {
         int split = where.indexOf(" > ");
         String tab = split < 0 ? "" : where.substring(split + 3);
         boolean tabNames = tab.toLowerCase(Locale.ROOT).contains("fire crystal") && !name.matches(".*\\d.*");
-        String label = crystalShort(tabNames ? tab : name);
+        String label = (tabNames ? tab : name).replaceFirst("(?i)^max level rewards preview$", "Hero Rally");
         String days = pack.name.toLowerCase(Locale.ROOT).contains("weekly card") ? " (7d)" : "";
         String limit = shortLimit(pack.limit);
         return new Row(label, pack.price, crystals, String.format(Locale.US, "%,d", crystals) + days,
@@ -205,7 +231,7 @@ public final class DealChannels {
     }
 
     private static Row materialRow(Channel channel, Pack pack, long quantity, boolean picked) {
-        String label = pack.name.replaceFirst("(?i)^chief gear\\s+", "CG ").replaceAll("[ ,.]+$", "");
+        String label = pack.name.replaceAll("[ ,.]+$", "");
         String limit = shortLimit(pack.limit);
         if (limit.isEmpty() && pack.limit != null) {
             limit = pack.limit;
@@ -215,13 +241,6 @@ public final class DealChannels {
         return new Row(label, pack.price, quantity, String.format(Locale.US, "%,d", quantity), path);
     }
 
-    private static String crystalShort(String name) {
-        String shortened = name.replaceFirst("(?i)^intel monthly card", "Intel Card")
-                .replaceFirst("(?i)^dream traveler pack", "Dream Traveler")
-                .replaceFirst("(?i)^max level rewards preview$", "Hero Rally");
-        return shortened.replaceFirst("(?i)^fire crystal\\s+", "FC ");
-    }
-
     private static long quantity(Pack pack, String item, boolean slotPicks) {
         Pattern pick = Pattern.compile("(?i)" + Pattern.quote(item) + " \\(slot \\d+ choice\\)");
         return pack.items.stream()
@@ -229,7 +248,7 @@ public final class DealChannels {
                 .mapToLong(Item::quantity).sum();
     }
 
-    /** Tiers of one pack sold at the same place share a line: "FC Leap Pack 3, 4, 5". */
+    /** Tiers of one pack sold at the same place share a line: "Fire Crystal Leap Pack 3, 4, 5". */
     private static List<Place> groupPlaces(Map<String, String> places) {
         Map<String, List<String>> byPath = new LinkedHashMap<>();
         places.forEach((label, path) -> byPath.computeIfAbsent(path, p -> new ArrayList<>()).add(label));
@@ -298,14 +317,14 @@ public final class DealChannels {
     private static String hold(Channel channel, LocalDate day, Path discord, List<String> problems) {
         Path file = discord.resolve("HOLD");
         if (!Files.isRegularFile(file)) {
-            return "Not audited yet";
+            return NOT_AUDITED;
         }
         Optional<JsonNode> verdict = readJson(file, problems);
         if (verdict.isEmpty() || !day.toString().equals(verdict.get().path("day").asText())) {
-            return "Not audited yet";
+            return NOT_AUDITED;
         }
         int flags = verdict.get().path("channels").path(channel.id()).size();
-        return flags == 0 ? null : "Held from Discord: " + flags + (flags == 1 ? " flag" : " flags");
+        return flags == 0 ? null : "Unverified: held from Discord, " + flags + (flags == 1 ? " flag" : " flags");
     }
 
     private static TreeMap<LocalDate, List<Pack>> readReports(Path dir, JsonNode fixes, List<String> problems) {

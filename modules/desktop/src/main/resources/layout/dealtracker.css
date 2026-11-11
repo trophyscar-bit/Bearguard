@@ -16,8 +16,6 @@
 .deal-code { -fx-text-fill: #dbdee1; -fx-font-family: "Consolas"; -fx-font-size: 14px; }
 .deal-cheaper { -fx-text-fill: #23a55a; -fx-font-family: "Consolas"; -fx-font-size: 14px; }
 .deal-pricier { -fx-text-fill: #f23f43; -fx-font-family: "Consolas"; -fx-font-size: 14px; }
-.deal-text { -fx-fill: #dbdee1; -fx-font-size: 14px; }
-.deal-text-bold { -fx-fill: #f2f3f5; -fx-font-size: 14px; -fx-font-weight: bold; }
 .deal-key { -fx-text-fill: #949ba4; -fx-font-size: 12px; }
 .deal-chart .chart-plot-background { -fx-background-color: #2b2d31; }
 .deal-chart .chart-vertical-grid-lines, .deal-chart .chart-horizontal-grid-lines { -fx-stroke: #3f4147; }

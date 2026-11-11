@@ -21,6 +21,7 @@ import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.fxml.FXML;
 import javafx.geometry.HPos;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.chart.CategoryAxis;
@@ -32,12 +33,11 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
-import javafx.scene.text.Text;
-import javafx.scene.text.TextFlow;
 import javafx.util.StringConverter;
 
 /**
@@ -52,6 +52,8 @@ public class DealTrackerLayoutController {
     private static final int TITLE_ICON_SIZE = 30;
     private static final int MARK_ICON_SIZE = 16;
     private static final int CHART_HEIGHT = 300;
+    private static final int SECTION_GAP = 14;
+    private static final int PLACE_NAME_PERCENT = 40;
     private static final String BEST_ICON = "mdi2s-star";
     private static final String BEST_COLOUR = "#f0b232";
     private static final String CLOSE_ICON = "mdi2c-check-bold";
@@ -157,15 +159,17 @@ public class DealTrackerLayoutController {
             post.getChildren().add(key("No pack carries " + channel.item() + " in the latest scan."));
         } else {
             post.getChildren().addAll(heading("Today's packs · best first"), packsBlock(board),
-                    heading("Where to buy"));
-            board.places().forEach(place -> post.getChildren().add(placeLine(place)));
+                    heading("Where to buy"), placesBlock(board));
         }
         if (!board.unpriced().isEmpty()) {
             post.getChildren().add(warning("Price unreadable today: " + String.join(", ", board.unpriced())));
         }
-        post.getChildren().add(legend(channel));
         if (board.chart().size() > 1) {
-            post.getChildren().add(chart(board));
+            post.getChildren().add(section(chart(board)));
+        }
+        post.getChildren().add(section(legend(channel)));
+        if (!shown.coverage().isEmpty()) {
+            post.getChildren().add(key("Coverage: " + shown.coverage()));
         }
     }
 
@@ -245,26 +249,27 @@ public class DealTrackerLayoutController {
         };
     }
 
-    private static TextFlow placeLine(DealChannels.Place place) {
-        Text bullet = new Text("•  ");
-        bullet.getStyleClass().add("deal-text");
-        Text name = new Text(place.label());
-        name.getStyleClass().add("deal-text-bold");
-        Text path = new Text(" · " + place.path());
-        path.getStyleClass().add("deal-text");
-        return new TextFlow(bullet, name, path);
+    /** Two fixed columns, so a long shop path wraps inside its own column and not under the pack's name. */
+    private static GridPane placesBlock(DealChannels.Board board) {
+        GridPane grid = block();
+        grid.setMaxWidth(Double.MAX_VALUE);
+        ColumnConstraints name = new ColumnConstraints();
+        name.setPercentWidth(PLACE_NAME_PERCENT);
+        ColumnConstraints path = new ColumnConstraints();
+        path.setPercentWidth(100 - PLACE_NAME_PERCENT);
+        grid.getColumnConstraints().addAll(name, path);
+        int row = 0;
+        for (DealChannels.Place place : board.places()) {
+            addRow(grid, row++, wrapped(place.label()), wrapped(place.path()));
+        }
+        return grid;
     }
 
-    private static VBox legend(DealChannels.Channel channel) {
+    private static HBox legend(DealChannels.Channel channel) {
         HBox marks = new HBox(6, markIcon(BEST_ICON, BEST_COLOUR), key("best price per " + channel.keyWord() + "   "),
                 markIcon(CLOSE_ICON, CLOSE_COLOUR), key("close to it   "), key("▲▼ vs the 10-day average"));
         marks.setAlignment(Pos.CENTER_LEFT);
-        VBox legend = new VBox(2, marks);
-        if (!"fire-crystals".equals(channel.id())) {
-            legend.getChildren().add(key("Each = the whole pack's price ÷ its " + channel.item()
-                    + "; packs also carry other items"));
-        }
-        return legend;
+        return marks;
     }
 
     private static LineChart<String, Number> chart(DealChannels.Board board) {
@@ -323,12 +328,24 @@ public class DealTrackerLayoutController {
         }
     }
 
+    /** A full blank line above each section, as in the Discord posts. */
+    private static <T extends Node> T section(T node) {
+        VBox.setMargin(node, new Insets(SECTION_GAP, 0, 0, 0));
+        return node;
+    }
+
     private static Label heading(String text) {
-        return styled(text, "deal-heading");
+        return section(styled(text, "deal-heading"));
     }
 
     private static Label code(String text) {
         return styled(text, "deal-code");
+    }
+
+    private static Label wrapped(String text) {
+        Label label = code(text);
+        label.setWrapText(true);
+        return label;
     }
 
     private static Label warning(String text) {
