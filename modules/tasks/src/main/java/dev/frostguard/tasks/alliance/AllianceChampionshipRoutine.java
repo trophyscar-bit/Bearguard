@@ -9,6 +9,7 @@ import dev.frostguard.api.domain.FormationSlots;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.engine.helper.AllianceChampionshipHelper;
+import dev.frostguard.engine.service.EventCalendarGate;
 import dev.frostguard.engine.helper.NavigationHelper.EventMenu;
 import dev.frostguard.engine.helper.NavigationHelper.EventMenuOpenResult;
 import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
@@ -21,10 +22,34 @@ import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.ZoneId;
 import static dev.frostguard.api.configs.TemplatesEnum.*;
 
 public class AllianceChampionshipRoutine extends DelayedTask {
+
+    /** The name the State calendar stores this event under, for the gate to find its window. */
+    private static final String CALENDAR_EVENT_NAME = "Alliance Championship";
+
+    /**
+     * Waits for the event instead of hunting its tab when the calendar says it is not on.
+     *
+     * <p>An enabled task whose event is not running this week is not a fault, and logging it as one
+     * buried the real failures. A tab that cannot be found while the calendar says the event IS
+     * running stays a failure, unchanged.</p>
+     */
+    private boolean parkedUntilTheEventOpens() {
+        EventCalendarGate.Verdict verdict =
+                EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
+        if (verdict.shouldRun()) {
+            return false;
+        }
+        LocalDateTime nextStart = verdict.nextStartLocal().orElseThrow();
+        logInfo(verdict.reason() + " Waiting until " + nextStart.format(DATETIME_FORMATTER) + ".");
+        reschedule(nextStart);
+        return true;
+    }
+
 
 private static final PointData INFANTRY_INPUT_TL_VALUE = new PointData(583, 519);
 
@@ -88,6 +113,10 @@ public AllianceChampionshipRoutine(AccountDescriptor profile, TpDailyTaskEnum tp
 
 @Override
     protected void execute() {
+
+        if (parkedUntilTheEventOpens()) {
+            return;
+        }
 
         if (!confirmExecutionWindow()) {
 

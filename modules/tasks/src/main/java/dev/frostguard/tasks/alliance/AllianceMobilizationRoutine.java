@@ -17,16 +17,21 @@ import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.engine.service.BotOcrEngine;
+import dev.frostguard.engine.service.EventCalendarGate;
 import dev.frostguard.vision.convert.GameTimeUtils;
 import dev.frostguard.vision.ocr.ResilientOcrExecutor;
 import java.awt.Color;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class AllianceMobilizationRoutine extends DelayedTask {
+
+    /** The name the State calendar stores this event under, which is how the gate finds its window. */
+    private static final String CALENDAR_EVENT_NAME = "Alliance Mobilization";
 
 private static final class OcrSpec {
 
@@ -172,6 +177,10 @@ public AllianceMobilizationRoutine(AccountDescriptor profile, TpDailyTaskEnum tp
         initializeOCRHelpersFlow();
         hydrateConfiguration();
 
+        if (parkedUntilTheEventOpens()) {
+            return;
+        }
+
         EventMenuOpenResult opened = navigateWithRetryFlow();
         if (opened != EventMenuOpenResult.REACHED) {
             respondToMenu(opened);
@@ -246,6 +255,27 @@ private boolean inspectTaskAvailabilityTimersAndReschedule() {
         }
 
         return false;
+    }
+
+/**
+     * Waits for the event instead of hunting its tab when the calendar says it is not on.
+     *
+     * <p>An enabled task whose event is over is not a fault, but it looked like one: six "tab was not
+     * in view" warnings in one night, each with a diagnostic snapshot, for an event the game had
+     * simply finished showing. A missing tab is still a real failure while the calendar says the
+     * event is running -- that path is untouched.</p>
+     */
+    private boolean parkedUntilTheEventOpens() {
+        EventCalendarGate.Verdict verdict =
+                EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
+        if (verdict.shouldRun()) {
+            return false;
+        }
+        LocalDateTime nextStart = verdict.nextStartLocal().orElseThrow();
+        logInfo(routineLogAllianceMobilizationLine(verdict.reason()
+                + " Waiting until " + nextStart.format(DATETIME_FORMATTER) + "."));
+        reschedule(nextStart);
+        return true;
     }
 
 private String routineLogAllianceMobilizationLine(String note) {
@@ -830,8 +860,9 @@ private EventMenuOpenResult navigateWithRetryFlow() {
             if (opened == EventMenuOpenResult.REACHED) {
                 return opened;
             }
-            if (opened == EventMenuOpenResult.TAB_ABSENT) {
-                last = opened;
+            last = opened;
+            if (!worthAnotherNavigationAttempt(opened)) {
+                return opened;
             }
 
             if (attempt < RoutineLimits.MAX_NAVIGATION_ATTEMPTS) {
@@ -842,6 +873,25 @@ private EventMenuOpenResult navigateWithRetryFlow() {
             }
         }
         return last;
+    }
+
+    /**
+     * Whether a failed open is worth opening again inside the same pass.
+     *
+     * <p>An absent tab is a settled read, not a miss: {@code openEventMenu} normalizes the strip with
+     * reset swipes, scans it with further swipes, and tries the unselected variant before reporting
+     * {@code TAB_ABSENT}, so a second pass re-reads the same strip for the same answer. Both runs on
+     * 10 Nov spent three attempts and ninety seconds reaching the conclusion the first already had,
+     * while Endless Trial opened normally through this same helper -- the strip was readable and
+     * Alliance Mobilization simply was not on it, which is what an unscheduled week looks like.
+     * Alliance Championship calls {@code openEventMenu} once for that reason.</p>
+     *
+     * <p>A panel that never opened is a different thing: that is a transient the next attempt can
+     * clear, so it keeps its retries. Deciding the tab is absent for the week stays with
+     * {@link EventMenuRetryState}, which still spends one more menu visit before resting.</p>
+     */
+    static boolean worthAnotherNavigationAttempt(EventMenuOpenResult opened) {
+        return opened != EventMenuOpenResult.REACHED && opened != EventMenuOpenResult.TAB_ABSENT;
     }
 
 private boolean hasTaskAlreadyRunning(PointData bonusLocation) {

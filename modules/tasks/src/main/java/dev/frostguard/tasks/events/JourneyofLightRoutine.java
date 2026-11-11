@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Map;
@@ -24,6 +25,7 @@ import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
+import dev.frostguard.engine.service.EventCalendarGate;
 import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.vision.color.GameColors;
@@ -50,6 +52,29 @@ import dev.frostguard.vision.ocr.ResilientOcrExecutor;
  * check each one against those captures.
  */
 public class JourneyofLightRoutine extends DelayedTask {
+
+    /** The name the State calendar stores this event under, for the gate to find its window. */
+    private static final String CALENDAR_EVENT_NAME = "Journey of Light";
+
+    /**
+     * Waits for the event instead of hunting its tab when the calendar says it is not on.
+     *
+     * <p>An enabled task whose event is not running this week is not a fault, and logging it as one
+     * buried the real failures. A tab that cannot be found while the calendar says the event IS
+     * running stays a failure, unchanged.</p>
+     */
+    private boolean parkedUntilTheEventOpens() {
+        EventCalendarGate.Verdict verdict =
+                EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
+        if (verdict.shouldRun()) {
+            return false;
+        }
+        LocalDateTime nextStart = verdict.nextStartLocal().orElseThrow();
+        logInfo(verdict.reason() + " Waiting until " + nextStart.format(DATETIME_FORMATTER) + ".");
+        reschedule(nextStart);
+        return true;
+    }
+
 
     // Expedition slots, left to right. Slot 4 is the one bought with a pack; while locked it shows
     // "Employ Expedition Teams" and neither line reads.
@@ -135,6 +160,10 @@ public class JourneyofLightRoutine extends DelayedTask {
     @Override
     protected void execute() {
         this.timerHelper = new ResilientOcrExecutor<>(provider);
+
+        if (parkedUntilTheEventOpens()) {
+            return;
+        }
 
         if (!openEvent()) {
             return;

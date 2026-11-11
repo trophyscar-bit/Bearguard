@@ -18,12 +18,11 @@ import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.domain.OcrSettingsData;
-import dev.frostguard.data.entity.EventScheduleEntry;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.schedule.TroopSlotPolicy;
-import dev.frostguard.engine.service.EventScheduleService;
+import dev.frostguard.engine.service.EventCalendarGate;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.tasks.combat.PolarTerrorHuntingRoutine;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -84,7 +83,8 @@ public class WanderTheaterRoutine extends DelayedTask {
             .build();
     static final int PROTECTED_COST = 5;
     private static final int MAX_ROUNDS = 12;
-    static final String CALENDAR_PREFIX = "STATE_GANTT_WANDER_THEATER_";
+    /** The name the State calendar stores this event under, for the gate to find its window. */
+    static final String CALENDAR_EVENT_NAME = "Wander Theater";
 
     // Mission rows: a row's purple title band sits 75 px above the centre of its button.
     private static final PointData ROWS_TOP_LEFT = new PointData(40, 630);
@@ -222,18 +222,20 @@ public class WanderTheaterRoutine extends DelayedTask {
      * Inside a window, or with no calendar row at all, the pass goes ahead.
      */
     private boolean parkedUntilCalendarStart() {
-        LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
-        Optional<EventScheduleEntry> window = EventScheduleService.obtain().windowFor(CALENDAR_PREFIX, nowUtc);
-        if (window.isEmpty() || !window.get().getActiveSince().isAfter(nowUtc)) {
+        EventCalendarGate.Verdict verdict =
+                EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
+        if (verdict.shouldRun()) {
             return false;
         }
-        LocalDateTime start = window.get().getActiveSince().atOffset(ZoneOffset.UTC)
-                .atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+        // Parked to this task's own run hour on the opening day rather than to midnight UTC: the
+        // event's first rounds are no more use at 19:00 the evening before than they are at any
+        // other hour, and the rest of this routine assumes it runs on its hour.
+        LocalDateTime start = verdict.nextStartLocal().orElseThrow();
         LocalDateTime firstRun = start.with(LocalTime.of(runHour(), 0));
         if (firstRun.isBefore(start)) {
             firstRun = firstRun.plusDays(1);
         }
-        logInfo("Wander Theater is not running; the calendar has it opening " + start.format(DATETIME_FORMATTER) + ".");
+        logInfo(verdict.reason() + " First pass at " + firstRun.format(DATETIME_FORMATTER) + ".");
         finish(firstRun);
         return true;
     }
