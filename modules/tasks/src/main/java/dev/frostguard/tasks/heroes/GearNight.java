@@ -2,6 +2,7 @@ package dev.frostguard.tasks.heroes;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
@@ -66,7 +67,8 @@ final class GearNight {
     private GearNight() {
     }
 
-    static void run(Steps steps, HeroGearStore store, long profileId, Supplier<Instant> clock) throws IOException {
+    static void run(Steps steps, HeroGearStore store, long profileId, LocalTime slotUtc, Supplier<Instant> clock)
+            throws IOException {
         boolean backsOnly = false;
         boolean started = false;
         boolean noOp = false;
@@ -82,7 +84,7 @@ final class GearNight {
                 saveHalt(steps, store, profileId, inFlightHalt(inFlight.get(), clock));
                 return;
             }
-            NightBudget budget = NightBudget.open(store, profileId, clock.get());
+            NightBudget budget = NightBudget.open(store, profileId, clock.get(), slotUtc);
             if (budget.finished()) {
                 noOp = true;
                 steps.alreadyFinished();

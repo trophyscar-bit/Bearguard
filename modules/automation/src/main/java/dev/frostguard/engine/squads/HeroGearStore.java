@@ -30,16 +30,19 @@ public final class HeroGearStore {
     public record RaiseInFlight(String hero, String slot, int level) {
     }
 
-    /** What one night has used of its time cap, its buys and its enhance levels. */
-    public record NightLedger(String startedAt, int buys, int levels, boolean finished) {
+    /**
+     * What one night has used of its time cap, its buys and its enhance levels. {@code slot} is the
+     * forge slot instant the night belongs to; a ledger saved before it was kept has none.
+     */
+    public record NightLedger(String startedAt, String slot, int buys, int levels, boolean finished) {
 
         // A ledger saved before levels were counted holds raises of up to five levels each.
         @JsonCreator
-        static NightLedger read(@JsonProperty("startedAt") String startedAt, @JsonProperty("buys") int buys,
-                                @JsonProperty("levels") Integer levels, @JsonProperty("raises") Integer raises,
-                                @JsonProperty("finished") boolean finished) {
+        static NightLedger read(@JsonProperty("startedAt") String startedAt, @JsonProperty("slot") String slot,
+                                @JsonProperty("buys") int buys, @JsonProperty("levels") Integer levels,
+                                @JsonProperty("raises") Integer raises, @JsonProperty("finished") boolean finished) {
             int used = levels != null ? levels : raises != null ? raises * GearEnhancePlanner.STEP : 0;
-            return new NightLedger(startedAt, buys, used, finished);
+            return new NightLedger(startedAt, slot, buys, used, finished);
         }
     }
 

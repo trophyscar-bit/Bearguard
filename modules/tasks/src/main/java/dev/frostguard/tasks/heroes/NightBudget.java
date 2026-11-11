@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneOffset;
 
 import dev.frostguard.engine.squads.GearEnhancePass;
 import dev.frostguard.engine.squads.GearEnhanceStep;
@@ -16,8 +18,6 @@ final class NightBudget {
 
     static final Duration TIME_CAP = Duration.ofMinutes(20);
     static final Duration FORGE_RESERVE = Duration.ofMinutes(5);
-    // Slots are 24 hours apart, so anything newer than this is the same night.
-    private static final Duration SAME_NIGHT = Duration.ofHours(20);
 
     private final HeroGearStore store;
     private final long profileId;
@@ -29,20 +29,30 @@ final class NightBudget {
         this.ledger = ledger;
     }
 
-    /** Tonight's saved budget, or a fresh one saved now. */
-    static NightBudget open(HeroGearStore store, long profileId, Instant now) throws IOException {
+    /**
+     * The saved budget when it belongs to the same slot as {@code now}, or a fresh one saved now. A run
+     * moved off the slot is a night of its own, so it never uses up the real one.
+     */
+    static NightBudget open(HeroGearStore store, long profileId, Instant now, LocalTime slotUtc) throws IOException {
+        String slot = slotFor(now, slotUtc).toString();
         NightLedger saved = store.loadNightLedger(profileId).orElse(null);
-        if (saved != null && sameNight(saved, now)) return new NightBudget(store, profileId, saved);
-        NightLedger fresh = new NightLedger(now.toString(), 0, 0, false);
+        if (saved != null && sameSlot(saved, slot)) return new NightBudget(store, profileId, saved);
+        NightLedger fresh = new NightLedger(now.toString(), slot, 0, 0, false);
         store.saveNightLedger(profileId, fresh);
         return new NightBudget(store, profileId, fresh);
     }
 
-    private static boolean sameNight(NightLedger ledger, Instant now) {
-        if (ledger.startedAt() == null) return false;
+    /** The latest time a UTC clock read {@code slotUtc}, at or before {@code now}. */
+    static Instant slotFor(Instant now, LocalTime slotUtc) {
+        Instant today = now.atZone(ZoneOffset.UTC).toLocalDate().atTime(slotUtc).toInstant(ZoneOffset.UTC);
+        return today.isAfter(now) ? today.minus(Duration.ofDays(1)) : today;
+    }
+
+    private static boolean sameSlot(NightLedger ledger, String slot) {
+        if (!slot.equals(ledger.slot()) || ledger.startedAt() == null) return false;
         try {
-            Instant started = Instant.parse(ledger.startedAt());
-            return !started.isAfter(now) && Duration.between(started, now).compareTo(SAME_NIGHT) < 0;
+            Instant.parse(ledger.startedAt());
+            return true;
         } catch (DateTimeException malformed) {
             return false;
         }
@@ -72,12 +82,12 @@ final class NightBudget {
     /** Counts a buy before its tap, or returns false when the cap or the count says not to make it. */
     boolean spendBuy(int maxBuys, Instant now) throws IOException {
         if (now.isAfter(deadline()) || buysLeft(maxBuys) < 1) return false;
-        save(new NightLedger(ledger.startedAt(), ledger.buys() + 1, ledger.levels(), ledger.finished()));
+        save(new NightLedger(ledger.startedAt(), ledger.slot(), ledger.buys() + 1, ledger.levels(), ledger.finished()));
         return true;
     }
 
     void spendLevels(int levels) throws IOException {
-        save(new NightLedger(ledger.startedAt(), ledger.buys(), ledger.levels() + levels, ledger.finished()));
+        save(new NightLedger(ledger.startedAt(), ledger.slot(), ledger.buys(), ledger.levels() + levels, ledger.finished()));
     }
 
     /**
@@ -106,7 +116,7 @@ final class NightBudget {
     }
 
     void finish() throws IOException {
-        save(new NightLedger(ledger.startedAt(), ledger.buys(), ledger.levels(), true));
+        save(new NightLedger(ledger.startedAt(), ledger.slot(), ledger.buys(), ledger.levels(), true));
     }
 
     private void save(NightLedger updated) throws IOException {

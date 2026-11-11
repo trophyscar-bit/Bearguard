@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ class GearNightTest {
 
     private static final long PROFILE = 7;
     private static final Instant NOW = Instant.parse("2026-11-10T07:45:00Z");
+    private static final LocalTime SLOT = LocalTime.of(7, 45);
     private static final GearState SCANNED = new GearState(List.of(), Map.of(), "scanned");
     private static final GearState ENHANCED = new GearState(List.of(), Map.of(), "enhanced");
 
@@ -230,8 +232,23 @@ class GearNightTest {
         assertEquals(List.of("finished"), again.calls);
 
         Fake tomorrow = new Fake();
-        GearNight.run(tomorrow, store, PROFILE, () -> NOW.plus(java.time.Duration.ofHours(24)));
+        GearNight.run(tomorrow, store, PROFILE, SLOT, () -> NOW.plus(java.time.Duration.ofHours(24)));
         assertEquals(List.of("quickEquip", "scan", "enhance", "forge", "home"), tomorrow.calls);
+    }
+
+    @Test
+    void aFinishedTestRunOffTheSlotDoesNotUseUpTheNextRealSlot() throws IOException {
+        Instant test = Instant.parse("2026-11-10T13:56:00Z");
+        GearNight.run(new Fake(), store, PROFILE, LocalTime.of(13, 56), () -> test);
+        Fake again = new Fake();
+        GearNight.run(again, store, PROFILE, LocalTime.of(13, 56), () -> test.plus(java.time.Duration.ofMinutes(4)));
+        assertEquals(List.of("finished"), again.calls);
+
+        Fake real = new Fake();
+        Instant slot = Instant.parse("2026-11-11T02:30:00Z");
+        GearNight.run(real, store, PROFILE, LocalTime.of(2, 30), () -> slot);
+
+        assertEquals(List.of("quickEquip", "scan", "enhance", "forge", "home"), real.calls);
     }
 
     @Test
@@ -255,7 +272,7 @@ class GearNightTest {
 
         Fake retry = new Fake();
         Instant later = NOW.plus(java.time.Duration.ofMinutes(7));
-        GearNight.run(retry, store, PROFILE, () -> later);
+        GearNight.run(retry, store, PROFILE, SLOT, () -> later);
 
         assertEquals(List.of("quickEquip", "scan", "enhance", "forge", "home"), retry.calls);
         assertEquals(NOW.plus(NightBudget.TIME_CAP), retry.budget.deadline(), "the same cap, not a new one");
@@ -448,7 +465,7 @@ class GearNightTest {
     }
 
     private void run(Fake fake) throws IOException {
-        GearNight.run(fake, store, PROFILE, () -> NOW);
+        GearNight.run(fake, store, PROFILE, SLOT, () -> NOW);
     }
 
     @FunctionalInterface

@@ -163,7 +163,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                 public void backOutHome() {
                     HeroGearForgeRoutine.this.backOutHome();
                 }
-            }, store, profile.getId(), Instant::now);
+            }, store, profile.getId(), slot, Instant::now);
         } catch (IOException e) {
             logWarning("Gear forge: gear state unreadable or unsaved: " + e.getMessage());
         }
