@@ -47,10 +47,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -85,6 +87,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
     private final Timeline clock = new Timeline(new KeyFrame(Duration.seconds(1), event -> onClockTick()));
     private final Map<String, LocalDateTime> startedAt = new HashMap<>();
     private final Map<String, TaskManagerAux> rowsByKey = new HashMap<>();
+    private final Set<String> monitoringKeys = new HashSet<>();
     private final Map<String, Task> tasksByKey = new HashMap<>();
     private final Map<String, List<String>> failureLines = new HashMap<>();
 
@@ -310,6 +313,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
 
         LocalDateTime now = LocalDateTime.now();
         rowsByKey.clear();
+        monitoringKeys.clear();
         tasksByKey.clear();
         failureLines.clear();
         List<Task> tasks = new ArrayList<>();
@@ -385,6 +389,10 @@ public final class TodayLayoutController implements IProfileLoadListener {
         TpDailyTaskEnum type = row.getTaskEnum();
         String custom = row.getCustomTaskName();
         String key = rowKey(type.getId(), custom);
+
+        if (MonitoringTasks.isMonitoring(type.getId(), custom)) {
+            monitoringKeys.add(key);
+        }
 
         List<String> lines = failureLinesFor(type, custom, failures);
         if (!lines.isEmpty()) {
@@ -523,6 +531,9 @@ public final class TodayLayoutController implements IProfileLoadListener {
         box.getStyleClass().add("today-row");
         if (item.kind() == Kind.PAST) {
             box.getStyleClass().add("today-row-past");
+        }
+        if (monitoringKeys.contains(task.key())) {
+            box.getStyleClass().add("today-row-monitoring");
         }
         if (task.key().equals(selection.selectedKey())) {
             box.getStyleClass().add("today-row-selected");

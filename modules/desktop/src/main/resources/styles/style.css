@@ -2529,6 +2529,12 @@
     -fx-font-size: 11px;
 }
 
+/* Tasks that only watch and record the game. */
+.today-row-monitoring .today-name,
+.today-row-past.today-row-monitoring .today-name {
+    -fx-text-fill: -fg-teal;
+}
+
 .today-row-pulse {
     -fx-background-color: #81c784;
     -fx-background-radius: 5;
