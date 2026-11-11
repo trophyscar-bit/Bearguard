@@ -1,0 +1,32 @@
+/* Deal Tracker: Discord's dark palette, so the tab reads like the deal channels. */
+.deal-root { -fx-background-color: #313338; }
+.deal-sidebar { -fx-background-color: #2b2d31; -fx-padding: 14 8 14 8; -fx-spacing: 8; }
+.deal-sidebar-title { -fx-text-fill: #949ba4; -fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 0 0 0 8; }
+.deal-channel { -fx-background-color: transparent; -fx-text-fill: #949ba4; -fx-font-size: 14px;
+    -fx-alignment: center-left; -fx-background-radius: 4; -fx-padding: 6 8 6 8; }
+.deal-channel:hover { -fx-background-color: #35373c; -fx-text-fill: #dbdee1; }
+.deal-channel-selected, .deal-channel-selected:hover { -fx-background-color: #404249; -fx-text-fill: #f2f3f5; }
+.deal-scroll, .deal-scroll > .viewport { -fx-background-color: #313338; -fx-background: #313338; }
+.deal-post { -fx-background-color: #313338; -fx-padding: 18 24 24 24; }
+.deal-title { -fx-text-fill: #f2f3f5; -fx-font-size: 22px; -fx-font-weight: bold; }
+.deal-heading { -fx-text-fill: #f2f3f5; -fx-font-size: 14px; -fx-font-weight: bold; }
+.deal-hold { -fx-text-fill: #f0b232; -fx-font-size: 12px; }
+.deal-block { -fx-background-color: #2b2d31; -fx-border-color: #1e1f22; -fx-border-radius: 4;
+    -fx-background-radius: 4; -fx-padding: 10 12 10 12; -fx-hgap: 18; -fx-vgap: 4; }
+.deal-code { -fx-text-fill: #dbdee1; -fx-font-family: "Consolas"; -fx-font-size: 14px; }
+.deal-cheaper { -fx-text-fill: #23a55a; -fx-font-family: "Consolas"; -fx-font-size: 14px; }
+.deal-pricier { -fx-text-fill: #f23f43; -fx-font-family: "Consolas"; -fx-font-size: 14px; }
+.deal-text { -fx-fill: #dbdee1; -fx-font-size: 14px; }
+.deal-text-bold { -fx-fill: #f2f3f5; -fx-font-size: 14px; -fx-font-weight: bold; }
+.deal-key { -fx-text-fill: #949ba4; -fx-font-size: 12px; }
+.deal-chart .chart-plot-background { -fx-background-color: #2b2d31; }
+.deal-chart .chart-vertical-grid-lines, .deal-chart .chart-horizontal-grid-lines { -fx-stroke: #3f4147; }
+.deal-chart .axis { -fx-tick-label-fill: #dbdee1; }
+.deal-chart .axis-label, .deal-chart .chart-title { -fx-text-fill: #f2f3f5; }
+.deal-chart .chart-legend { -fx-background-color: #2b2d31; }
+.deal-chart .chart-legend-item { -fx-text-fill: #dbdee1; }
+.deal-chart .default-color0.chart-series-line { -fx-stroke: #ff7a3d; -fx-stroke-width: 2.2px; }
+.deal-chart .default-color0.chart-line-symbol { -fx-background-color: #ff7a3d, #ff7a3d; }
+.deal-chart .default-color1.chart-series-line { -fx-stroke: #9aa3ad; -fx-stroke-width: 1.6px; -fx-stroke-dash-array: 6 5; }
+.deal-chart .default-color1.chart-line-symbol { -fx-background-color: transparent; }
+.deal-chart .chart-legend .default-color1.chart-line-symbol { -fx-background-color: #9aa3ad; }
