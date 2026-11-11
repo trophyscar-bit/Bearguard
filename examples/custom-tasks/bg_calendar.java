@@ -176,6 +176,14 @@ public class bg_calendar extends DelayedTask implements CustomTaskConfigurable {
 
     /** Shorter than this and the read is noise, not an event name. */
     private static final int MIN_CREDIBLE_LABEL_LENGTH = 3;
+    /** A name written to the operator's list has to look like one: "er oe" did not. */
+    private static final int CREDIBLE_NAME_MIN_LENGTH = 5;
+    private static final int CREDIBLE_NAME_MIN_WORD_LENGTH = 4;
+    /** Every other word still has to be a word: "Hut" is one, the "y" of "Arma y" is not. */
+    private static final int CREDIBLE_WORD_MIN_LENGTH = 3;
+    /** The only words shorter than that a real event name carries. */
+    private static final java.util.Set<String> CONNECTING_WORDS =
+            java.util.Set.of("of", "or", "in", "on", "to", "and", "the", "a", "my", "up");
 
     /** The operator-owned list of real event names, under the workspace data directory. */
     private static final String CALENDAR_NAMES_FILE = "calendar-events.txt";
@@ -1085,7 +1093,15 @@ public class bg_calendar extends DelayedTask implements CustomTaskConfigurable {
         }
         Matcher m = TOOLTIP_WINDOW.matcher(text);
         if (!m.find()) {
-            return null;
+            // Every November so far, the month has come back as "2026-T1-09": on this font at this
+            // size the pair "11" reads as "T1" often enough that cards were being thrown away for
+            // it, and the bar they belonged to was then recorded as unidentified. The date is still
+            // required to match in full afterwards, so a line that is not a window is still refused
+            // -- this only lets a date through that was already a date.
+            m = TOOLTIP_WINDOW.matcher(digitsFromLookalikes(text));
+            if (!m.find()) {
+                return null;
+            }
         }
         try {
             LocalDateTime from = tooltipTime(m.group(1), m.group(2), m.group(3), m.group(4), m.group(5));
@@ -1094,6 +1110,39 @@ public class bg_calendar extends DelayedTask implements CustomTaskConfigurable {
         } catch (RuntimeException notATime) {
             return null;
         }
+    }
+
+    /**
+     * Swaps the letters this OCR returns for digits inside an otherwise numeric run.
+     *
+     * <p>Applied only where a letter sits against a digit, so event names keep their letters: the
+     * "T" of "2026-T1-09" is replaced and the "T" of "Trick or treat" is not.</p>
+     */
+    private static String digitsFromLookalikes(String text) {
+        StringBuilder out = new StringBuilder(text);
+        for (int i = 0; i < out.length(); i++) {
+            char swapped = lookalikeDigit(out.charAt(i));
+            if (swapped == 0) {
+                continue;
+            }
+            boolean digitBefore = i > 0 && Character.isDigit(out.charAt(i - 1));
+            boolean digitAfter = i + 1 < out.length() && Character.isDigit(out.charAt(i + 1));
+            if (digitBefore || digitAfter) {
+                out.setCharAt(i, swapped);
+            }
+        }
+        return out.toString();
+    }
+
+    private static char lookalikeDigit(char candidate) {
+        return switch (candidate) {
+            case 'T', 'I', 'l', '|' -> '1';
+            case 'O', 'o', 'D' -> '0';
+            case 'S' -> '5';
+            case 'B' -> '8';
+            case 'Z' -> '2';
+            default -> 0;
+        };
     }
 
     private static LocalDateTime tooltipTime(String year, String month, String day, String hour, String minute) {
@@ -1158,8 +1207,42 @@ public class bg_calendar extends DelayedTask implements CustomTaskConfigurable {
         return iconName;
     }
 
+    /**
+     * Whether a card title is credible enough to be written into the canonical name list.
+     *
+     * <p>The list is matched against on every later sweep, so a bad entry does not stay a one-off:
+     * "er oe" was written from one misread card and then sat there as a name real bars could snap
+     * onto, which is worse than the missing name it came from. A real event name is words, so a
+     * fragment, a single short word, or anything carrying stray punctuation is not written -- the
+     * bar is recorded as unidentified instead, which is honest and self-correcting.</p>
+     */
+    static boolean credibleEventName(String name) {
+        if (name == null) {
+            return false;
+        }
+        String trimmed = name.trim();
+        if (trimmed.length() < CREDIBLE_NAME_MIN_LENGTH || !trimmed.matches("[A-Za-z][A-Za-z' -]*")) {
+            return false;
+        }
+        boolean hasRealWord = false;
+        for (String word : trimmed.split("[ -]+")) {
+            // A trailing stray letter is what a truncated bar label looks like ("Arma y"), and the
+            // short words a real name does carry are a closed set.
+            if (word.length() < CREDIBLE_WORD_MIN_LENGTH && !CONNECTING_WORDS.contains(word.toLowerCase())) {
+                return false;
+            }
+            hasRealWord |= word.length() >= CREDIBLE_NAME_MIN_WORD_LENGTH;
+        }
+        return hasRealWord;
+    }
+
     /** Adds a name read from a tooltip to the operator's list, unless it is already there. */
     private void rememberEventName(String name) {
+        if (!credibleEventName(name)) {
+            logWarning("bg_telemetry | Calendar: a card read as \"" + name + "\", which is not"
+                    + " credible as an event name; leaving it out of " + CALENDAR_NAMES_FILE + ".");
+            return;
+        }
         for (String known : knownEventNames) {
             if (known.equalsIgnoreCase(name)) {
                 return;
