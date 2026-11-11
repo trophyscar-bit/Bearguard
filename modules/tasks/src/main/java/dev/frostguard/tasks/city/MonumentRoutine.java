@@ -223,6 +223,8 @@ public class MonumentRoutine extends DelayedTask {
 
     private static final PointData TRADE_CLOSE_X = new PointData(662, 155);
     private static final PointData MY_REQUESTS_REQUEST_BTN = new PointData(358, 370);
+    /** Resend Request on an "Expired" row; it opens the same piece grid as Request. */
+    private static final PointData MY_REQUESTS_RESEND_BTN = new PointData(584, 367);
     // Measured off the first live capture of this panel: "Requests Left Today (3/3)"
     // spans roughly y 262-288, so the old 268 top edge sliced the caps off every glyph. Widened both
     // ways with padding.
@@ -252,6 +254,10 @@ public class MonumentRoutine extends DelayedTask {
     /** The gem-spending "Obtain more" sits left of Request on the same card; its label proves the card. */
     private static final PointData PIECE_CARD_OBTAIN_LABEL_TL = new PointData(40, 865);
     private static final PointData PIECE_CARD_OBTAIN_LABEL_BR = new PointData(320, 915);
+    // A card with no Request (seen on a 5-star piece, 2026-11-09) has one centred Obtain more.
+    private static final PointData PIECE_CARD_ONLY_OBTAIN_LABEL_TL = new PointData(230, 865);
+    private static final PointData PIECE_CARD_ONLY_OBTAIN_LABEL_BR = new PointData(490, 915);
+    private static final PointData PIECE_CARD_TAP_ANYWHERE = new PointData(360, 1197);
     /** First request raises a one-button Tips dialog; a second open request a Cancel/Confirm pair. */
     private static final PointData REQUEST_TIPS_CONFIRM_BTN = new PointData(358, 788);
     private static final PointData REQUEST_TIPS_CONFIRM_LABEL_TL = new PointData(250, 765);
@@ -273,6 +279,8 @@ public class MonumentRoutine extends DelayedTask {
     private static final PointData REQUEST_BTN_BOX_BR = new PointData(490, 395);
     private static final int REQUEST_BLUE_MIN_PIXELS = 3000;
     private static final int CANCEL_ORANGE_MIN_PIXELS = 1500;
+    /** Blue Resend Request measured 3959 in the right-hand button box; no other row state tops 857. */
+    private static final int RESEND_BLUE_MIN_PIXELS = 2500;
 
     /** The Claim button's own slab, measured live; used for the colour check, not for OCR. */
     private static final PointData CLAIM_BTN_BOX_TL = new PointData(515, 345);
@@ -1910,10 +1918,14 @@ public class MonumentRoutine extends DelayedTask {
                 logInfo(logLine("My Requests already has an open request (orange Cancel) -- nothing to do."));
                 return;
             }
-            if (row == null || !showsRequestButton(row)) {
+            boolean expired = row != null && showsResendRequest(row);
+            if (!expired && (row == null || !showsRequestButton(row))) {
                 logInfo(logLine("My Requests shows neither the blue Request button nor an open request -- "
                         + "moving on rather than guessing. " + dumpDiagnosticFrame("my-requests-state-unknown")));
                 return;
+            }
+            if (expired) {
+                logInfo(logLine("My Requests shows an expired request (blue Resend Request) -- refiling it."));
             }
 
             String leftText = stringHelper.attemptRecognition(
@@ -1935,7 +1947,7 @@ public class MonumentRoutine extends DelayedTask {
                 return;
             }
 
-            fileOnePieceRequest(requestsLeft);
+            fileOnePieceRequest(requestsLeft, expired ? MY_REQUESTS_RESEND_BTN : MY_REQUESTS_REQUEST_BTN);
             return;
         }
         logWarning(logLine("Hit the request-loop safety cap (" + MAX_REQUEST_LOOPS + ")."));
@@ -1946,8 +1958,8 @@ public class MonumentRoutine extends DelayedTask {
      * open its card, and the card's own Request is tapped only once both of the card's buttons are
      * read. Success is the My Requests row reading "Requesting" afterwards, not the taps.
      */
-    private void fileOnePieceRequest(int requestsLeft) {
-        tapNear(MY_REQUESTS_REQUEST_BTN);
+    private void fileOnePieceRequest(int requestsLeft, PointData requestButton) {
+        tapNear(requestButton);
         sleepTask(PANEL_SETTLE_MS);
 
         String header = readButtonLabel(PIECE_PICKER_HEADER_TL, PIECE_PICKER_HEADER_BR);
@@ -1970,20 +1982,46 @@ public class MonumentRoutine extends DelayedTask {
             return;
         }
 
-        PointData cell = missing.get(0);
-        logInfo(logLine("Piece grid shows " + missing.size() + " missing card(s) " + missing
-                + " -- opening " + cell + "."));
-        tapNear(cell);
-        sleepTask(ACTION_SETTLE_MS);
+        logInfo(logLine("Piece grid shows " + missing.size() + " missing card(s) " + missing + "."));
+        boolean cardReady = false;
+        for (PointData cell : missing) {
+            tapNear(cell);
+            sleepTask(ACTION_SETTLE_MS);
 
-        String requestLabel = readButtonLabel(PIECE_PICKER_REQUEST_BTN_LABEL_TL, PIECE_PICKER_REQUEST_BTN_LABEL_BR);
-        String obtainLabel = readButtonLabel(PIECE_CARD_OBTAIN_LABEL_TL, PIECE_CARD_OBTAIN_LABEL_BR);
-        if (requestLabel == null || !requestLabel.contains("request")
-                || obtainLabel == null || !obtainLabel.contains("obtain")) {
-            logWarning(logLine("Piece card did not show both of its buttons (Request read '" + requestLabel
-                    + "', Obtain more read '" + obtainLabel + "') -- not tapping beside the gem button blind. "
-                    + dumpDiagnosticFrame("piece-card-unconfirmed")));
-            recoverTowardHome();
+            String requestLabel = readButtonLabel(PIECE_PICKER_REQUEST_BTN_LABEL_TL, PIECE_PICKER_REQUEST_BTN_LABEL_BR);
+            String obtainLabel = readButtonLabel(PIECE_CARD_OBTAIN_LABEL_TL, PIECE_CARD_OBTAIN_LABEL_BR);
+            if (requestLabel != null && requestLabel.contains("request")
+                    && obtainLabel != null && obtainLabel.contains("obtain")) {
+                logInfo(logLine("Piece card at " + cell + " can be requested."));
+                cardReady = true;
+                break;
+            }
+
+            String onlyObtain = readButtonLabel(PIECE_CARD_ONLY_OBTAIN_LABEL_TL, PIECE_CARD_ONLY_OBTAIN_LABEL_BR);
+            if (onlyObtain == null || !onlyObtain.contains("obtain")) {
+                logWarning(logLine("Piece card did not show both of its buttons (Request read '" + requestLabel
+                        + "', Obtain more read '" + obtainLabel + "') -- not tapping beside the gem button blind. "
+                        + dumpDiagnosticFrame("piece-card-unconfirmed")));
+                recoverTowardHome();
+                return;
+            }
+
+            logInfo(logLine("Piece card at " + cell + " only offers Obtain more -- closing it, trying the next."));
+            tapNear(PIECE_CARD_TAP_ANYWHERE);
+            sleepTask(ACTION_SETTLE_MS);
+            String gridHeader = readButtonLabel(PIECE_PICKER_HEADER_TL, PIECE_PICKER_HEADER_BR);
+            if (gridHeader == null || !gridHeader.contains("scene")) {
+                logWarning(logLine("Closed the Obtain-only card but the piece grid did not come back (read: '"
+                        + gridHeader + "'). " + dumpDiagnosticFrame("piece-grid-not-back")));
+                recoverTowardHome();
+                return;
+            }
+        }
+        if (!cardReady) {
+            logInfo(logLine("None of the " + missing.size() + " missing card(s) can be requested -- leaving "
+                    + "the request as it is. " + dumpDiagnosticFrame("piece-grid-nothing-requestable")));
+            tapNear(PIECE_PICKER_CLOSE_X);
+            sleepTask(ACTION_SETTLE_MS);
             return;
         }
 
@@ -2031,6 +2069,12 @@ public class MonumentRoutine extends DelayedTask {
     static boolean showsRequestButton(BufferedImage img) {
         return countPixels(img, REQUEST_BTN_BOX_TL, REQUEST_BTN_BOX_BR, (r, g, b) ->
                 b >= 200 && b - r >= 100 && b - g >= 40) >= REQUEST_BLUE_MIN_PIXELS;
+    }
+
+    /** The blue Resend Request button beside "Expired": the open request timed out. */
+    static boolean showsResendRequest(BufferedImage img) {
+        return countPixels(img, CLAIM_BTN_BOX_TL, CLAIM_BTN_BOX_BR, (r, g, b) ->
+                b >= 200 && b - r >= 100 && b - g >= 40) >= RESEND_BLUE_MIN_PIXELS;
     }
 
     /** The orange Cancel button beside "Requesting...": a request is open. */

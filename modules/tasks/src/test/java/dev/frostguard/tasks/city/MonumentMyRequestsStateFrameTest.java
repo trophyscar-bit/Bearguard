@@ -34,6 +34,7 @@ class MonumentMyRequestsStateFrameTest {
         BufferedImage img = frame("alliance-trade-request-ready-20261028.png");
         assertTrue(MonumentRoutine.showsRequestButton(img));
         assertFalse(MonumentRoutine.showsOpenRequest(img));
+        assertFalse(MonumentRoutine.showsResendRequest(img));
     }
 
     @Test
@@ -41,5 +42,15 @@ class MonumentMyRequestsStateFrameTest {
         BufferedImage img = frame("alliance-trade-request-open-20261028.png");
         assertTrue(MonumentRoutine.showsOpenRequest(img));
         assertFalse(MonumentRoutine.showsRequestButton(img));
+        assertFalse(MonumentRoutine.showsResendRequest(img));
+    }
+
+    /** The 2026-11-09 frame the bot skipped: the row reads "Expired" with a blue Resend Request. */
+    @Test
+    void expiredRowShowsResendAndNeitherOtherState() throws Exception {
+        BufferedImage img = frame("alliance-trade-request-expired-20261109.png");
+        assertTrue(MonumentRoutine.showsResendRequest(img));
+        assertFalse(MonumentRoutine.showsRequestButton(img));
+        assertFalse(MonumentRoutine.showsOpenRequest(img));
     }
 }
