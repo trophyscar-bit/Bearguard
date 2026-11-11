@@ -35,8 +35,6 @@ import javafx.scene.Parent;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.control.ToggleButton;
-import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -68,9 +66,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
     private final LongSupplier loadedProfileId;
     private final VBox root = new VBox();
     private final HBox timelineView = new HBox();
-    private final StackPane controlSlot = new StackPane();
-    private final ToggleButton timelineTab = new ToggleButton("Timeline");
-    private final ToggleButton controlTab = new ToggleButton("Control");
+    private boolean tabSelected = true;
     private final TodaySearchBar search;
     private final Label summary = new Label();
     private final Label summaryNote = new Label();
@@ -79,7 +75,6 @@ public final class TodayLayoutController implements IProfileLoadListener {
     private final VBox timeline = new VBox(1);
     private final TaskInspectorPanel inspector;
     private ScrollPane lineScroll;
-    private Parent controlScreen;
     private boolean botRunning;
     private boolean botPaused;
     private final PauseTransition reloadDebounce = new PauseTransition(Duration.millis(250));
@@ -122,32 +117,17 @@ public final class TodayLayoutController implements IProfileLoadListener {
         inspector.attachSettings(new TaskSettingsIndex(controllers, pages, eventsController, customTasks));
     }
 
-    /** The Control screen is one node shared with its sidebar item, so it moves between the two. */
-    public void attachControlScreen(Parent screen) {
-        controlScreen = screen;
-    }
-
-    /** Called when Today is shown again, in case the sidebar's Control item took the screen away. */
-    public void reattachControlScreen() {
-        if (controlTab.isSelected() && controlScreen != null) {
-            controlSlot.getChildren().setAll(controlScreen);
-        }
-    }
-
-    private void showTab(boolean timeline) {
-        setShown(timelineView, timeline);
-        setShown(controlSlot, !timeline);
-        if (timeline) {
-            controlSlot.getChildren().clear();
-        } else {
+    /** The timeline is one tab of the Tasks screen, and a tab stays in the scene while another is open. */
+    public void setTabSelected(boolean selected) {
+        tabSelected = selected;
+        if (!selected) {
             search.close();
-            reattachControlScreen();
         }
         onVisibilityChanged(timelineShowing());
     }
 
     private boolean timelineShowing() {
-        return root.getScene() != null && timelineTab.isSelected();
+        return root.getScene() != null && tabSelected;
     }
 
     private static void setShown(Node node, boolean shown) {
@@ -189,27 +169,8 @@ public final class TodayLayoutController implements IProfileLoadListener {
         HBox.setHgrow(left, Priority.ALWAYS);
         timelineView.getChildren().addAll(left, inspector.root());
 
-        ToggleGroup tabs = new ToggleGroup();
-        timelineTab.setToggleGroup(tabs);
-        controlTab.setToggleGroup(tabs);
-        timelineTab.setSelected(true);
-        timelineTab.getStyleClass().add("today-tab");
-        controlTab.getStyleClass().add("today-tab");
-        // A tab group must always have one selected, so a click on the open tab is undone.
-        tabs.selectedToggleProperty().addListener((observable, previous, selected) -> {
-            if (selected == null) {
-                previous.setSelected(true);
-            } else {
-                showTab(selected == timelineTab);
-            }
-        });
-        HBox tabStrip = new HBox(4, timelineTab, controlTab);
-        tabStrip.getStyleClass().add("today-tabs");
-
-        StackPane content = new StackPane(timelineView, controlSlot);
-        VBox.setVgrow(content, Priority.ALWAYS);
-        setShown(controlSlot, false);
-        root.getChildren().addAll(tabStrip, content);
+        VBox.setVgrow(timelineView, Priority.ALWAYS);
+        root.getChildren().add(timelineView);
     }
 
     private void registerListeners() {

@@ -49,7 +49,7 @@ import javafx.scene.shape.Rectangle;
  *
  * <p>Polls rather than listens: the cache is a cheap local read and every row's relative-time
  * context needs re-rendering each tick regardless of whether the data changed, so a push listener
- * buys nothing. Mirrors {@code TaskGanttOverviewController}'s {@link Timeline}/{@link KeyFrame}
+ * buys nothing. Uses a {@link Timeline}/{@link KeyFrame}
  * idiom -- FX-thread native, no {@code Platform.runLater} needed. The month grid is rebuilt fresh
  * each tick rather than mutated, since AtlantaFX's {@code Calendar} exposes no cell-refresh hook
  * and a 6x7 grid is cheap enough to just replace.</p>

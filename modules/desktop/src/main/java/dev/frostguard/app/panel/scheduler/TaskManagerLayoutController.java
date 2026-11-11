@@ -37,7 +37,6 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
 import javafx.fxml.FXML;
-import javafx.fxml.FXMLLoader;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -92,16 +91,6 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 	@FXML
 	private TextField txtFilterTaskName;
 
-	@FXML
-	private Button btnToggleView;
-
-	@FXML
-	private javafx.scene.layout.VBox ganttViewContainer;
-
-	private boolean showingGanttView = false;
-	private Node ganttViewNode = null;
-	private TaskGanttOverviewController ganttViewController = null;
-
 	public Node getSceneNode() {
 		return tabPaneProfiles;
 	}
@@ -111,7 +100,6 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 		ProfileService.obtain().registerDataObserver(this);
 		configureFilter();
 		configureProfileTabSelection();
-		setToggleButtonLabel();
 		loadProfiles();
 		startClock();
 	}
@@ -121,17 +109,6 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 			return;
 		}
 		tabPaneProfiles.getSelectionModel().selectedItemProperty().addListener((obs, prev, selected) -> refreshTabIcons());
-	}
-
-	@FXML
-	private void handleToggleView() {
-		showingGanttView = !showingGanttView;
-		if (showingGanttView) {
-			showGanttView();
-		} else {
-			showTableView();
-		}
-		setToggleButtonLabel();
 	}
 
 	@FXML
@@ -147,65 +124,16 @@ public class TaskManagerLayoutController implements ProfileDataChangeListener {
 		}
 	}
 
-	private void setToggleButtonLabel() {
-		if (btnToggleView != null) {
-			btnToggleView.setText(showingGanttView ? "Table View" : "Timeline View");
-		}
-	}
-
 	private void startClock() {
 		Timeline ticker = new Timeline(new KeyFrame(Duration.seconds(1), evt -> updateTimeValues()));
 		ticker.setCycleCount(Animation.INDEFINITE);
 		ticker.play();
 	}
 
-	private void showGanttView() {
-		tabPaneProfiles.setVisible(false);
-		tabPaneProfiles.setManaged(false);
-
-		if (ganttViewNode == null && !loadGanttView()) {
-			showingGanttView = false;
-			showTableView();
-			return;
-		}
-
-		if (ganttViewController != null && txtFilterTaskName != null) {
-			ganttViewController.setTaskFilter(txtFilterTaskName.getText());
-		}
-		if (!ganttViewContainer.getChildren().contains(ganttViewNode)) {
-			ganttViewContainer.getChildren().setAll(ganttViewNode);
-		}
-		ganttViewContainer.setVisible(true);
-		ganttViewContainer.setManaged(true);
-	}
-
-	private boolean loadGanttView() {
-		try {
-			FXMLLoader loader = new FXMLLoader(getClass().getResource("/layout/TaskGanttOverview.fxml"));
-			ganttViewNode = loader.load();
-			ganttViewController = loader.getController();
-			return true;
-		} catch (java.io.IOException e) {
-			e.printStackTrace();
-			return false;
-		}
-	}
-
-	private void showTableView() {
-		ganttViewContainer.setVisible(false);
-		ganttViewContainer.setManaged(false);
-		tabPaneProfiles.setVisible(true);
-		tabPaneProfiles.setManaged(true);
-	}
-
 	private void applyFilter(String filterText) {
 		String filter = filterText == null ? "" : filterText.toLowerCase().trim();
 		filteredTasks.values().forEach(filteredList -> filteredList.setPredicate(task -> filter.isEmpty()
 				|| task.getTaskName().toLowerCase().contains(filter)));
-
-		if (ganttViewController != null) {
-			ganttViewController.setTaskFilter(filterText);
-		}
 	}
 
 	private void updateTimeValues() {

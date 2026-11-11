@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -622,7 +623,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
     // ==================== PINNED MODULES ====================
 
     private void initializePinnedModules() { /* internal */
-        // Control tab: Logs + Profiles + Task Manager + Custom Tasks
+        // Tasks screen: Timeline + List + Logs. Profiles and Custom Tasks are set up, so they sit in Config.
         ConsoleLogLayoutController logsCtrl = consoleLogLayoutController;
         ProfileManagerLayoutController profilesCtrl = profileManagerLayoutController;
         TaskManagerLayoutController taskCtrl = new TaskManagerLayoutController();
@@ -633,27 +634,22 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         Parent taskPane = loadNode("TaskManagerLayout", taskCtrl);
         Parent customTasksPane = loadNode("CustomTasksLayout", customTasksCtrl);
 
-        // Default startup view is set at the end of init (Control → Tasks), so the
-        // app opens on the task list rather than the raw log.
-
-        TabPane controlTabs = new TabPane();
-        controlTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        controlTabs.getTabs().addAll(
-                makeTab("Tasks", taskPane),
-                makeTab("Logs", logsPane),
-                makeTab("Profiles", profilesPane),
-                makeTab("Custom Tasks", customTasksPane)
-        );
-        controlTabs.setMaxWidth(Double.MAX_VALUE);
-        controlTabs.setMaxHeight(Double.MAX_VALUE);
-
-        addNavGroupLabel("Watch");
+        addNavGroupLabel("Overview");
 
         todayController = new TodayLayoutController(taskCtrl, this::loadedProfileIdOrZero, this::openScreen);
         profileManagerLayoutController.addProfileLoadListener(todayController);
-        todayController.attachControlScreen(controlTabs);
-        onShowActions.put(todayController.root(), todayController::reattachControlScreen);
-        Button todayButton = addWatchButton("Today", MaterialDesignC.CLOCK_OUTLINE, todayController.root());
+
+        Tab timelineTab = makeTab("Timeline", todayController.root());
+        TabPane tasksTabs = new TabPane();
+        tasksTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        tasksTabs.getTabs().addAll(timelineTab, makeTab("List", taskPane), makeTab("Logs", logsPane));
+        tasksTabs.setMaxWidth(Double.MAX_VALUE);
+        tasksTabs.setMaxHeight(Double.MAX_VALUE);
+        tasksTabs.getSelectionModel().selectedItemProperty().addListener(
+                (observable, previous, selected) -> todayController.setTabSelected(selected == timelineTab));
+        Button tasksButton = addOverviewButton("Tasks", MaterialDesignC.CLOCK_OUTLINE, tasksTabs);
+        tasksTabs.getTabs().forEach(tab -> indexTab(tasksButton, tasksTabs, tab, tasksSearchTitle(tab),
+                MaterialDesignC.CLOCK_OUTLINE, Map.of()));
 
         StatisticsLayoutController statsCtrl = new StatisticsLayoutController();
         if (statsCtrl instanceof IProfileObserverInjectable) {
@@ -662,23 +658,28 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         Parent statsPane = loadNode("StatisticsLayout", statsCtrl);
         moduleControllers.put("Statistics", statsCtrl);
         statisticsController = statsCtrl;
-        statisticsButton = addWatchButton("Statistics", MaterialDesignC.CHART_BAR, statsPane);
+        statisticsButton = addOverviewButton("Statistics", MaterialDesignC.CHART_BAR, statsPane);
         if (statsCtrl instanceof IProfileLoadListener) {
             profileManagerLayoutController.addProfileLoadListener((IProfileLoadListener) statsCtrl);
         }
 
-        Button controlButton = addWatchButton("Control", MaterialDesignF.FORMAT_LIST_BULLETED, controlTabs);
-        controlTabs.getTabs().forEach(tab -> indexTab(controlButton, controlTabs, tab, tab.getText(),
-                MaterialDesignF.FORMAT_LIST_BULLETED, Map.of()));
-
         UpcomingEventsLayoutController upcomingEventsCtrl = new UpcomingEventsLayoutController();
         Parent upcomingEventsPane = loadNode("UpcomingEventsLayout", upcomingEventsCtrl);
-        addWatchButton("Calendar", MaterialDesignC.CALENDAR_OUTLINE, upcomingEventsPane);
+        EventScheduleSettingsLayoutController eventScheduleSettingsCtrl = new EventScheduleSettingsLayoutController();
+        Parent eventScheduleSettingsPane = loadNode("EventScheduleSettingsLayout", eventScheduleSettingsCtrl);
+        Tab timezoneTab = makeTab("Timezone", eventScheduleSettingsPane);
+        TabPane calendarTabs = new TabPane();
+        calendarTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        calendarTabs.getTabs().addAll(makeTab("Calendar", upcomingEventsPane), timezoneTab);
+        calendarTabs.setMaxWidth(Double.MAX_VALUE);
+        calendarTabs.setMaxHeight(Double.MAX_VALUE);
+        Button calendarButton = addOverviewButton("Calendar", MaterialDesignC.CALENDAR_OUTLINE, calendarTabs);
+        indexTab(calendarButton, calendarTabs, timezoneTab, "Calendar timezone", MaterialDesignC.CALENDAR_OUTLINE, Map.of());
 
         // Named "Deal Tracker", not "Deals": the Deals config module already owns that name in the nav.
         DealTrackerLayoutController dealTrackerCtrl = new DealTrackerLayoutController();
         Parent dealTrackerPane = loadNode("DealTrackerLayout", dealTrackerCtrl);
-        addWatchButton("Deal Tracker", MaterialDesignT.TAG_OUTLINE, dealTrackerPane);
+        addOverviewButton("Deal Tracker", MaterialDesignT.TAG_OUTLINE, dealTrackerPane);
 
         // Config pinned button with application-wide settings tabs.
         EmuConfigLayoutController configCtrl = new EmuConfigLayoutController();
@@ -689,9 +690,6 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
         UpdateLayoutController updateCtrl = new UpdateLayoutController();
         Parent updatePane = loadNode("UpdateLayout", updateCtrl);
-
-        EventScheduleSettingsLayoutController eventScheduleSettingsCtrl = new EventScheduleSettingsLayoutController();
-        Parent eventScheduleSettingsPane = loadNode("EventScheduleSettingsLayout", eventScheduleSettingsCtrl);
 
         // Settings only: chat is captured for the Discord digest and is not displayed in the app.
         ChatCaptureLayoutController chatConfigCtrl = new ChatCaptureLayoutController();
@@ -708,18 +706,19 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         configTabs = new TabPane();
         configTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         configTabs.getTabs().addAll(
+                makeTab("Profiles", profilesPane),
                 makeTab("Emulators", configPane),
                 makeTab("Telegram", telegramPane),
                 makeTab("Updates", updatePane),
-                makeTab("Calendar", eventScheduleSettingsPane),
-                makeTab("Chat", chatConfigPane)
+                makeTab("Chat", chatConfigPane),
+                makeTab("Custom Tasks", customTasksPane)
         );
         configTabs.setMaxWidth(Double.MAX_VALUE);
         configTabs.setMaxHeight(Double.MAX_VALUE);
         configButton = addPinnedButton("Config", MaterialDesignT.TUNE, configTabs);
 
-        controlTabs.getSelectionModel().selectFirst();
-        todayButton.fire();
+        tasksTabs.getSelectionModel().selectFirst();
+        tasksButton.fire();
     }
 
     private long loadedProfileIdOrZero() {
@@ -733,7 +732,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         buttonsContainer.getChildren().add(label);
     }
 
-    private Button addWatchButton(String title, Ikon icon, Parent root) {
+    private Button addOverviewButton(String title, Ikon icon, Parent root) {
         Button button = createAndConfigureButton(title, icon, root, null);
         buttonsContainer.getChildren().add(button);
         quickNavEntries.add(new QuickNavEntry(title, icon, button, Map.of(), button::fire));
@@ -987,7 +986,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         installTabbedHub("Economy", MaterialDesignC.CASH_MULTIPLE, economyOrder, economyRoots);
         installTabbedHub("Troops", MaterialDesignS.SHIELD_OUTLINE, troopsOrder, troopsRoots);
         installTabbedHub("Account", MaterialDesignA.ACCOUNT_OUTLINE, accountOrder, accountRoots);
-        configTabs.getTabs().forEach(tab -> indexTab(configButton, configTabs, tab, configSearchTitle(tab),
+        configTabs.getTabs().forEach(tab -> indexTab(configButton, configTabs, tab, tab.getText(),
                 MaterialDesignT.TUNE, tab.getContent() == settingsPages.get("Chat")
                         ? settingsOf(moduleControllers.get("Chat"), settingsPages.get("Chat")) : Map.of()));
         statisticsController.tabs().getTabs().forEach(tab -> indexTab(statisticsButton, statisticsController.tabs(), tab,
@@ -1077,9 +1076,9 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
                 : Map.of();
     }
 
-    private static String configSearchTitle(Tab tab) {
-        // Watch already has a Calendar and Chat stands alone; only this one needs telling apart.
-        return "Calendar".equals(tab.getText()) ? "Calendar settings" : tab.getText();
+    /** "List" alone means nothing in search, so the two task views say what they list. */
+    private static String tasksSearchTitle(Tab tab) {
+        return "Logs".equals(tab.getText()) ? "Logs" : "Task " + tab.getText().toLowerCase(Locale.ROOT);
     }
 
     private static String statisticsSearchTitle(Tab tab) {

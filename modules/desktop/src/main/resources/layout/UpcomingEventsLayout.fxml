@@ -6,7 +6,7 @@
 <!-- Upcoming Events calendar: its own pinned nav page (like Chat/Config), not a cramped
      sidebar-footer widget. Two sections: State Events (Hall of Chiefs, Brothers in Arms,
      Defeat Nearby Beasts, Events -> Calendar) and Alliance Events (Bear Trap, Alliance ->
-     Battle -> Fortress, Task List). Timezone lives under Config -> Calendar.
+     Battle -> Fortress, Task List). Timezone is the tab beside this one.
 
      List/Week toggle switches between the card list below and a seven day timeline: event names in
      a fixed column, then one bar per event across the day columns. Built in code, not FXML, since

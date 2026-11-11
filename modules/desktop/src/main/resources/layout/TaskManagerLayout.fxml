@@ -6,7 +6,6 @@
 <?import javafx.scene.layout.VBox?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.StackPane?>
-<?import javafx.scene.layout.Region?>
 <?import org.kordamp.ikonli.javafx.FontIcon?>
 
 <VBox maxHeight="Infinity" maxWidth="Infinity"
@@ -27,27 +26,16 @@
                </children>
             </HBox>
 
-            <Region HBox.hgrow="ALWAYS" />
-
-            <!-- Timeline View toggle -->
-            <Button fx:id="btnToggleView" text="Timeline View" onAction="#handleToggleView"
-                    styleClass="action-button-timeline">
-               <graphic>
-                   <FontIcon iconLiteral="mdi2c-chart-timeline" iconSize="16" iconColor="white" />
-               </graphic>
-            </Button>
          </children>
       </HBox>
 
-      <!-- Content Stack (Data Grid / Timeline) -->
+      <!-- Data Grid -->
       <StackPane VBox.vgrow="ALWAYS" maxHeight="Infinity" maxWidth="Infinity">
          <children>
             <!-- Standard Table View -->
             <TabPane fx:id="tabPaneProfiles" styleClass="horizontal-tab-pane">
                <!-- Profile tabs will be populated dynamically -->
             </TabPane>
-            <!-- Gantt View (loaded dynamically) -->
-            <VBox fx:id="ganttViewContainer" visible="false" managed="false" />
          </children>
       </StackPane>
    </children>

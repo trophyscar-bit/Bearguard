@@ -2699,27 +2699,6 @@
     -fx-text-fill: -fg-text-secondary;
 }
 
-.today-tabs {
-    -fx-padding: 8 12 4 12;
-}
-
-.today-tab {
-    -fx-font-size: 13px;
-    -fx-padding: 4 14;
-    -fx-background-radius: 6;
-    -fx-background-color: transparent;
-    -fx-text-fill: -fg-text-secondary;
-}
-
-.today-tab:hover {
-    -fx-background-color: rgba(255, 255, 255, 0.06);
-}
-
-.today-tab:selected {
-    -fx-background-color: rgba(255, 255, 255, 0.12);
-    -fx-text-fill: -fg-text-primary;
-}
-
 .today-left {
     -fx-padding: 8 8 0 12;
 }
