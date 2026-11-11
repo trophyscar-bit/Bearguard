@@ -2,6 +2,7 @@ package dev.frostguard.tasks.events;
 
 import java.awt.Color;
 import java.awt.image.BufferedImage;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -18,6 +19,7 @@ import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.domain.OcrSettingsData;
+import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
@@ -83,6 +85,7 @@ public class WanderTheaterRoutine extends DelayedTask {
             .build();
     static final int PROTECTED_COST = 5;
     private static final int MAX_ROUNDS = 12;
+    private static final int SELECT_POLLS = 20;
     /** The name the State calendar stores this event under, for the gate to find its window. */
     static final String CALENDAR_EVENT_NAME = "Wander Theater";
 
@@ -104,6 +107,7 @@ public class WanderTheaterRoutine extends DelayedTask {
     private static final int RALLY_SET_MINUTES = 3;
     private static final int RALLY_CHECK_MINUTES = 12;
     private static final int RALLY_RETRY_MINUTES = 6;
+    private static final int RALLY_LATE_RETRY_MINUTES = 60;
     private static final int MAX_RALLY_ATTEMPTS = 4;
     private static final int LANE_CLAIM_MINUTES = 30;
     private static final int MISSION_RETRY_MINUTES = 60;
@@ -113,6 +117,7 @@ public class WanderTheaterRoutine extends DelayedTask {
 
     private int claimed;
     private int rallyAttempts;
+    private LocalDateTime rallyDayReset;
 
     public WanderTheaterRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
@@ -163,13 +168,20 @@ public class WanderTheaterRoutine extends DelayedTask {
                 finish(beforeCutoff(LocalDateTime.now().plusMinutes(RALLY_CHECK_MINUTES)));
                 return;
             }
+            LocalDateTime resetAt = GameTimeUtils.dailyResetTime();
+            if (!resetAt.equals(rallyDayReset)) {
+                rallyDayReset = resetAt;
+                rallyAttempts = 0;
+            }
             rallyAttempts++;
             logWarning("Polar Terror rally for Wander Theater not launched (attempt " + rallyAttempts + "/"
                     + MAX_RALLY_ATTEMPTS + "): " + failure);
             if (rallyAttempts >= MAX_RALLY_ATTEMPTS) {
-                rallyAttempts = 0;
+                // The lane claim could not free a march (on 2026-11-11 Gather's recall found no controls).
+                // Stop pressing Gather and try again hourly until the cutoff: gather marches come home on
+                // their own within a few hours.
                 TroopSlotPolicy.release(profile, TpDailyTaskEnum.EVENT_WANDER_THEATER);
-                finish(nextRunHour());
+                finish(beforeCutoff(LocalDateTime.now().plusMinutes(RALLY_LATE_RETRY_MINUTES)));
                 return;
             }
             // Gather holds five lanes and Alliance auto-join the sixth, so every lane is often busy.
@@ -309,13 +321,23 @@ public class WanderTheaterRoutine extends DelayedTask {
         return digits.matches("\\d{1,4}") ? Integer.valueOf(digits) : null;
     }
 
+    /**
+     * A one-floor climb shows Select in about 5 s; the third roll of 2026-11-11 had none after 18 s but
+     * did by the next pass, so the wait now runs to about 35 s and keeps the frame when it still misses.
+     */
     private boolean awaitSelect() {
         sleepTask(5000);
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < SELECT_POLLS; i++) {
             if (!selectButtons().isEmpty()) {
                 return true;
             }
             sleepTask(1500);
+        }
+        RawImageData raw = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (raw != null) {
+            DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace()
+                    .write(raw, "wander", "no-select-after-roll", Instant.now())
+                    .ifPresent(path -> logWarning("Wander Theater: frame saved: " + path));
         }
         return false;
     }
