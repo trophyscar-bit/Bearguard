@@ -1093,11 +1093,11 @@ public class bg_calendar extends DelayedTask implements CustomTaskConfigurable {
         }
         Matcher m = TOOLTIP_WINDOW.matcher(text);
         if (!m.find()) {
-            // Every November so far, the month has come back as "2026-T1-09": on this font at this
-            // size the pair "11" reads as "T1" often enough that cards were being thrown away for
-            // it, and the bar they belonged to was then recorded as unidentified. The date is still
-            // required to match in full afterwards, so a line that is not a window is still refused
-            // -- this only lets a date through that was already a date.
+            // Every November so far, the month has come back as "2026-T1-09" or "2026-TI-16": at
+            // this size the pair "11" reads as letters often enough that cards were being thrown
+            // away for it, and the bar they belonged to was then recorded as unidentified. The date
+            // is still required to match in full afterwards, so a line that is not a window is
+            // still refused -- this only lets a date through that was already a date.
             m = TOOLTIP_WINDOW.matcher(digitsFromLookalikes(text));
             if (!m.find()) {
                 return null;
@@ -1119,19 +1119,41 @@ public class bg_calendar extends DelayedTask implements CustomTaskConfigurable {
      * "T" of "2026-T1-09" is replaced and the "T" of "Trick or treat" is not.</p>
      */
     private static String digitsFromLookalikes(String text) {
-        StringBuilder out = new StringBuilder(text);
+        StringBuilder out = new StringBuilder();
+        for (String token : text.split(" ", -1)) {
+            if (out.length() > 0) {
+                out.append(' ');
+            }
+            out.append(hasDigit(token) ? swapLookalikes(token) : token);
+        }
+        return out.toString();
+    }
+
+    /**
+     * A whole token is swapped, not each letter by its neighbours.
+     *
+     * <p>The neighbour rule missed the pair: "2026-TI-16" has T beside I, so neither letter touched
+     * a digit and the card was refused anyway -- four of them in the 11 Nov sweep. A token carrying
+     * a digit is a date or a time, never an event name, so the swap is safe to apply across it.</p>
+     */
+    private static String swapLookalikes(String token) {
+        StringBuilder out = new StringBuilder(token);
         for (int i = 0; i < out.length(); i++) {
             char swapped = lookalikeDigit(out.charAt(i));
-            if (swapped == 0) {
-                continue;
-            }
-            boolean digitBefore = i > 0 && Character.isDigit(out.charAt(i - 1));
-            boolean digitAfter = i + 1 < out.length() && Character.isDigit(out.charAt(i + 1));
-            if (digitBefore || digitAfter) {
+            if (swapped != 0) {
                 out.setCharAt(i, swapped);
             }
         }
         return out.toString();
+    }
+
+    private static boolean hasDigit(String token) {
+        for (int i = 0; i < token.length(); i++) {
+            if (Character.isDigit(token.charAt(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static char lookalikeDigit(char candidate) {

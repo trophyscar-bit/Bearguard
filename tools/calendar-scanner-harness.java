@@ -27,12 +27,19 @@ public final class GateHarness {
                 LocalDateTime.of(2026, 11, 9, 0, 0), LocalDateTime.of(2026, 11, 15, 12, 0));
         failures += expectWindow(parse, "2026-11-18 00:00 - 2026-11-19 24:00",
                 LocalDateTime.of(2026, 11, 18, 0, 0), LocalDateTime.of(2026, 11, 19, 23, 59));
+        // Both letters of the pair misread together, from the 11 Nov 14:16 sweep.
+        failures += expectWindow(parse, "2026-11-10 00:00 - 2026-TI-16 24:00",
+                LocalDateTime.of(2026, 11, 10, 0, 0), LocalDateTime.of(2026, 11, 16, 23, 59));
+        failures += expectWindow(parse, "2026-TI-09 00:00 - 2026-TI-15 04:00",
+                LocalDateTime.of(2026, 11, 9, 0, 0), LocalDateTime.of(2026, 11, 15, 4, 0));
 
         // Description lines the card reader sometimes lands on: still refused.
         failures += expectNoWindow(parse, "A perilous trade route where the");
         failures += expectNoWindow(parse, "war controis the tundra.");
         failures += expectNoWindow(parse, "");
         failures += expectNoWindow(parse, "Trick or treat");
+        failures += expectNoWindow(parse, "Tundra Trade Route");
+        failures += expectNoWindow(parse, "A perilous trade route where the TI tundra");
 
         // Names allowed into the operator's list, and the junk that started this.
         failures += expectName(credible, "Alliance Championship", true);
