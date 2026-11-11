@@ -7,12 +7,15 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.vision.convert.GameTimeUtils;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 public class DailyMissionRoutine extends DelayedTask {
@@ -48,6 +51,8 @@ private static final int MAX_INDIVIDUAL_CLAIMS = 20;
 	private static final int GROWTH_TAB_SETTLE_MS = 1800;
 
 private static final int CLAIM_PROGRESS_TOLERANCE_PIXELS = 20;
+
+	private static final String SNAPSHOT_ACTIVITY = "dailymission";
 
 private static final PointData DAILY_MISSIONS_BUTTON_VALUE = new PointData(50, 1050);
 
@@ -157,7 +162,7 @@ private boolean switchToDailyMissionsTabFlow() {
 	 * working from the top down is the only order that stays predictable. Picking the smallest y
 	 * also removes any reliance on match ordering.</p>
 	 */
-	private ImageSearchResultData seekForIndividualClaimButton() {
+	ImageSearchResultData seekForIndividualClaimButton() {
 		java.util.List<ImageSearchResultData> matches = templateSearchHelper.locateAllPatterns(
 				TemplatesEnum.DAILY_MISSION_CLAIM_BUTTON,
 				SearchConfigConstants.DEFAULT_SINGLE);
@@ -229,9 +234,7 @@ private LocalDateTime queueFinalCheckBeforeReset(LocalDateTime gameReset) {
 		}
 	}
 
-private int redeemRewardsIndividually() {
-		logWarning(routineLogDailyMissionLine("'Claim All' button not detected. Collecting missions individually"));
-
+int redeemRewardsIndividually() {
 		int claimedCount = 0;
 		int consecutiveSamePositionClaims = 0;
 
@@ -301,14 +304,14 @@ private void dismissRewardPopupsFlow() {
 		);
 	}
 
-private void redeemAllRewardsAtOnce(ImageSearchResultData claimAllResult) {
+void redeemAllRewardsAtOnce(ImageSearchResultData claimAllResult) {
 		logInfo(routineLogDailyMissionLine("'Claim All' button detected. Collecting all rewards at once"));
 
 		tapInside(claimAllResult);
 		dismissRewardPopupsFlow();
 	}
 
-private ImageSearchResultData seekForClaimAllButton() {
+ImageSearchResultData seekForClaimAllButton() {
 		return templateSearchHelper.locatePattern(
 				TemplatesEnum.DAILY_MISSION_CLAIMALL_BUTTON,
 				SearchConfigConstants.DEFAULT_SINGLE);
@@ -343,7 +346,7 @@ private LocalDateTime queueAtOffsetTime(LocalDateTime proposedTime, LocalDateTim
 		return proposedTime;
 	}
 
-private int redeemAllRewards() {
+int redeemAllRewards() {
 		logInfo(routineLogDailyMissionLine("Scanning for claim buttons"));
 
 		ImageSearchResultData claimAllResult = seekForClaimAllButton();
@@ -353,9 +356,47 @@ private int redeemAllRewards() {
 			// game hides it once everything is claimed — so its presence proves ≥1 real claim.
 			redeemAllRewardsAtOnce(claimAllResult);
 			return 1;
-		} else {
-			return redeemRewardsIndividually();
 		}
+
+		// No Claim All is the normal "nothing waiting" state, not a fault: across ten runs on
+		// 10-11 Nov every pass without it went on to claim 0 rows. The row sweep still runs as
+		// the check, and only a sweep that finds something means the template missed a live button.
+		logInfo(routineLogDailyMissionLine("No 'Claim All' on the Daily tab, so nothing is waiting there. Checking rows anyway"));
+		RawImageData beforeSweep = captureDailyTabFrame();
+		int claimed = redeemRewardsIndividually();
+		if (claimed > 0) {
+			logWarning(routineLogDailyMissionLine(missedClaimAllWarning(claimed) + " "
+					+ retainSnapshot(beforeSweep, "claim-all-missed")));
+		}
+		return claimed;
+	}
+
+	static String missedClaimAllWarning(int claimed) {
+		return "'Claim All' was not detected but " + claimed
+				+ " row(s) were claimable, so its template no longer matches the button.";
+	}
+
+	RawImageData captureDailyTabFrame() {
+		try {
+			return emuManager.captureScreen(EMULATOR_NUMBER);
+		} catch (RuntimeException failure) {
+			logDebug(routineLogDailyMissionLine("Daily tab frame unavailable; reason=" + failure.getClass().getSimpleName()));
+			return null;
+		}
+	}
+
+	String retainSnapshot(RawImageData frame, String type) {
+		if (frame == null) {
+			return "snapshot=unavailable";
+		}
+		return diagnosticSnapshotStore().write(frame, SNAPSHOT_ACTIVITY, type, Instant.now())
+				.map(path -> "snapshot=" + path)
+				.orElse("snapshot=unavailable; reason=write-failed");
+	}
+
+	/** Always on: a missed Claim All is rare and cannot be checked afterwards without the frame. */
+	DiagnosticSnapshotStore diagnosticSnapshotStore() {
+		return DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace();
 	}
 
 private void dismissInterface() {
