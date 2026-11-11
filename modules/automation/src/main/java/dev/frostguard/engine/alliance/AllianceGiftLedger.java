@@ -298,6 +298,39 @@ public final class AllianceGiftLedger {
         return up.shift() >= 0 && up.shift() <= NEAR_TOP_PX;
     }
 
+    /** Why a screen did not line up with the one before it. */
+    public enum Loss {
+        NONE(""),
+        MISALIGNED(""),
+        REDRAWN(" (the list was redrawn, e.g. a new gift arrived)"),
+        LEFT_THE_LIST(" (the game left the gift list)");
+
+        private final String why;
+
+        Loss(String why) {
+            this.why = why;
+        }
+
+        /** How the loss reads at the end of a log line. */
+        public String why() {
+            return why;
+        }
+    }
+
+    /**
+     * Tells the three ways a screen fails to line up apart. The list's frame gone (see
+     * {@link PackLinks#sameHeader}) means the game left the list. A screen that lines up with the
+     * top of this try means the list jumped back to the top, which it does when a gift arrives: on
+     * 2026-11-10 at 13:15 and 21:41 the "unaligned" screen was the first screen exactly, yet the
+     * score test alone called it a misread. Anything else is a misread screen.
+     */
+    public static Loss classify(BufferedImage top, BufferedImage image, ShiftMatch match) {
+        if (!PackLinks.sameHeader(top, image)) {
+            return Loss.LEFT_THE_LIST;
+        }
+        return match.redrawn() || backAtTop(top, image) ? Loss.REDRAWN : Loss.MISALIGNED;
+    }
+
     /**
      * Like {@link #scrollShift}, but when two shifts a card apart match about equally well (a run of
      * identical cards, icons and all), takes the one within {@link #TRAVEL_WINDOW_PX} of

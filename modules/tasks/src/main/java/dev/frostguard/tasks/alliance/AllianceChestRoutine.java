@@ -46,6 +46,9 @@ private static final int SHORT_WAIT_TIME_MS = 300;
 /** Set when Back from a followed pack link did not bring the gift list back; nothing more is tapped blind. */
 private boolean lostTheList;
 
+/** Pack names on the list this pass read, as the pass spelled them; the link walk checks its reads against them. */
+private List<String> passPacks = List.of();
+
 public AllianceChestRoutine(AccountDescriptor profile, TpDailyTaskEnum tpDailyTask) {
 		super(profile, tpDailyTask);
 	}
@@ -53,6 +56,7 @@ public AllianceChestRoutine(AccountDescriptor profile, TpDailyTaskEnum tpDailyTa
 @Override
 	protected void execute() {
 		lostTheList = false;
+		passPacks = List.of();
 
 		if (!reachAllianceScreen()) {
 			deferAndExit("Failed to navigate to alliance screen");
@@ -289,7 +293,7 @@ private void logGiftList() {
 				rows.clear();
 				reachedEnd = false;
 				lostTrack = false;
-				Loss loss = Loss.NONE;
+				AllianceGiftLedger.Loss loss = AllianceGiftLedger.Loss.NONE;
 				String prefix = attempt == 0 ? "" : "r" + attempt + "-";
 				BufferedImage previous = null;
 				BufferedImage top = null;
@@ -311,7 +315,7 @@ private void logGiftList() {
 					if (previous != null) {
 						AllianceGiftLedger.ShiftMatch match = AllianceGiftLedger.scrollMatch(previous, image,
 								AllianceGiftLedger.EXPECTED_TRAVEL_PX);
-						if (match.shift() < 0 && lossOf(top, image, match) != Loss.REDRAWN) {
+						if (match.shift() < 0 && AllianceGiftLedger.classify(top, image, match) != AllianceGiftLedger.Loss.REDRAWN) {
 							// A toast ("273 Troop(s) healed!", "Power +20,293") can cover the list for a
 							// moment (2026-11-10 19:23); look once more before giving up.
 							sleepTask(OVERLAY_WAIT_MS);
@@ -328,9 +332,9 @@ private void logGiftList() {
 						if (match.shift() < 0) {
 							ImageIO.write(image, "png", passDir.resolve(prefix + String.format("%03d-unaligned.png", i)).toFile());
 							lostTrack = true;
-							loss = lossOf(top, image, match);
+							loss = AllianceGiftLedger.classify(top, image, match);
 							logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i + " does not line up with the one before"
-									+ loss.why + "."));
+									+ loss.why() + "."));
 							break;
 						}
 						if (match.shift() <= END_OF_LIST_SHIFT_PX) {
@@ -348,9 +352,9 @@ private void logGiftList() {
 							if (retry.shift() < 0) {
 								ImageIO.write(again, "png", passDir.resolve(prefix + String.format("%03d-unaligned.png", i)).toFile());
 								lostTrack = true;
-								loss = lossOf(top, again, retry);
+								loss = AllianceGiftLedger.classify(top, again, retry);
 								logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i
-										+ " does not line up after a second drag" + loss.why + "."));
+										+ " does not line up after a second drag" + loss.why() + "."));
 								break;
 							}
 							image = again;
@@ -379,22 +383,36 @@ private void logGiftList() {
 						bestPartialLines = new LinkedHashMap<>(linesByFrame);
 					}
 				}
-				if (loss == Loss.LEFT_THE_LIST) {
+				if (loss == AllianceGiftLedger.Loss.LEFT_THE_LIST) {
 					offTheList = true;
 					break;
 				}
-				if (loss != Loss.REDRAWN || attempt + 1 >= MAX_PASS_ATTEMPTS) {
+				boolean tryAgain = loss == AllianceGiftLedger.Loss.REDRAWN || loss == AllianceGiftLedger.Loss.MISALIGNED;
+				if (!tryAgain || attempt + 1 >= MAX_PASS_ATTEMPTS) {
 					break;
 				}
-				// A redrawn list starts again from the top; so does the pass.
+				// A redrawn list starts again from the top; so does the pass. So does a pass that lost its
+				// place on a misread screen: on 2026-11-11 12:54 one stopped after 5 purchases and logged nothing.
 				logInfo(routineLogAllianceChestLine("Alliance Spend | starting the pass again from the top."));
 				for (int k = 0; k < screensThisTry / 2 + 3; k++) {
 					swipe(new PointData(360, 600), new PointData(360, 1080), 250);
 				}
 				sleepTask(1000);
+				// From mid-list the flicks may fall short; make sure the next try starts at the top.
+				for (int extra = 0; extra < 5; extra++) {
+					BufferedImage check = screenNow();
+					if (check == null || listScreen == null || AllianceGiftLedger.backAtTop(listScreen, check)) {
+						break;
+					}
+					swipe(new PointData(360, 600), new PointData(360, 1080), 250);
+					sleepTask(700);
+				}
 			}
 			List<GiftRow> list = lostTrack ? bestPartial : AllianceGiftLedger.stitch(rows);
 			ledger.writePassEvidence(passDir, lostTrack ? bestPartialLines : linesByFrame, list);
+			// Only a whole list says which packs are on it; after a cut-short pass the walk trusts its own reads.
+			passPacks = lostTrack || !reachedEnd ? List.of()
+					: list.stream().map(GiftRow::pack).filter(java.util.Objects::nonNull).distinct().toList();
 			if (reader == null || list.isEmpty()) {
 				logWarning(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens saved, nothing logged. Frames: "
 						+ passDir));
@@ -455,34 +473,6 @@ private void logGiftList() {
 /** How long a toast over the list is given to fade before a screen is read again. */
 private static final int OVERLAY_WAIT_MS = 1500;
 
-/** Why a screen did not line up with the one before it, as written to the log. */
-private enum Loss {
-	NONE(""),
-	MISALIGNED(""),
-	REDRAWN(" (the list was redrawn, e.g. a new gift arrived)"),
-	LEFT_THE_LIST(" (the game left the gift list)");
-
-	private final String why;
-
-	Loss(String why) {
-		this.why = why;
-	}
-}
-
-/**
- * Tells the three ways a screen fails to line up apart. The list header gone means the game left
- * the list. A screen that lines up with the top of this try means the list jumped back to the top,
- * which it does when a gift arrives: on 2026-11-10 at 13:15 and 21:41 the "unaligned" screen was
- * the first screen exactly, yet the old score test called it a misread and the pass was dropped
- * without a retry.
- */
-private static Loss lossOf(BufferedImage top, BufferedImage image, AllianceGiftLedger.ShiftMatch match) {
-		if (!PackLinks.sameHeader(top, image)) {
-			return Loss.LEFT_THE_LIST;
-		}
-		return match.redrawn() || AllianceGiftLedger.backAtTop(top, image) ? Loss.REDRAWN : Loss.MISALIGNED;
-	}
-
 /** Links followed per pass; any further unknown packs wait for the next pass, an hour later. */
 private static final int MAX_LINKS_PER_PASS = 5;
 
@@ -523,7 +513,21 @@ private void followPackLinks() {
 				BufferedImage backOnList = null;
 				for (GiftRow row : rows) {
 					String pack = row.pack();
-					if (pack == null || !handled.add(packKey(pack))) {
+					if (pack == null) {
+						continue;
+					}
+					if (!passPacks.isEmpty()) {
+						String spelled = PackLinks.passSpelling(pack, passPacks);
+						if (spelled == null) {
+							// No pack of that name on the list the pass read: a misread of this one screen, so
+							// the card waits for the next screen's read (or the next pass, if it is truly new).
+							logDebug(routineLogAllianceChestLine("Alliance Spend | \"" + pack
+									+ "\" is not a pack this pass read; not following it on this read."));
+							continue;
+						}
+						pack = spelled;
+					}
+					if (!handled.add(packKey(pack))) {
 						continue;
 					}
 					LocalDateTime now = LocalDateTime.now();

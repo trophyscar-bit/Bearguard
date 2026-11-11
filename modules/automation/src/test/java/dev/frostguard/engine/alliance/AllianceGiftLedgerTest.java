@@ -397,4 +397,39 @@ class AllianceGiftLedgerTest {
         assertEquals(2, enough.fresh());
         assertEquals(12, Files.readAllLines(dir.resolve("gifts.jsonl")).size());
     }
+
+    /**
+     * Screens of 2026-11-11, copied out of the live pass folders (which keep a week) into a folder of
+     * their own. Not committed: list screens can show player names.
+     */
+    private static final Path FRAMES_1111 = Path.of("C:/Frostguard-tools/test-frames/alliance-spend/2026-11-11");
+
+    private static BufferedImage frame1111(String name) throws Exception {
+        return ImageIO.read(FRAMES_1111.resolve(name).toFile());
+    }
+
+    @Test
+    void tellsAMisreadScreenFromARedrawAndFromAnotherScreen() throws Exception {
+        assumeTrue(Files.isDirectory(FRAMES_1111), "2026-11-11 frames not on this machine");
+        // 12:54, second try: screen 2 neither lines up nor is back at the top. The pass used to stop
+        // here after 5 purchases; a misread screen now starts the pass again from the top.
+        BufferedImage top = frame1111("r1-000.png");
+        BufferedImage misread = frame1111("r1-002-unaligned.png");
+        AllianceGiftLedger.ShiftMatch match = AllianceGiftLedger.scrollMatch(frame1111("r1-001.png"), misread,
+                AllianceGiftLedger.EXPECTED_TRAVEL_PX);
+        assertTrue(match.shift() < 0);
+        assertEquals(AllianceGiftLedger.Loss.MISALIGNED, AllianceGiftLedger.classify(top, misread, match));
+
+        // 14:00, screen 9: the list jumped back to the top.
+        BufferedImage top1359 = frame1111("1359-000.png");
+        BufferedImage jumped = frame1111("1359-009-unaligned.png");
+        AllianceGiftLedger.ShiftMatch jump = AllianceGiftLedger.scrollMatch(frame1111("1359-008.png"), jumped,
+                AllianceGiftLedger.EXPECTED_TRAVEL_PX);
+        assertEquals(AllianceGiftLedger.Loss.REDRAWN, AllianceGiftLedger.classify(top1359, jumped, jump));
+
+        // 15:13: Back from an event page's link showed the Alliance screen.
+        BufferedImage alliance = frame1111("link-back1-alliance-screen.png");
+        assertEquals(AllianceGiftLedger.Loss.LEFT_THE_LIST, AllianceGiftLedger.classify(top1359, alliance,
+                AllianceGiftLedger.scrollMatch(frame1111("1359-008.png"), alliance, AllianceGiftLedger.EXPECTED_TRAVEL_PX)));
+    }
 }

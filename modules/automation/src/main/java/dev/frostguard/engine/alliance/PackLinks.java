@@ -292,6 +292,38 @@ public final class PackLinks {
     }
 
     /**
+     * The spelling this pass gave a pack the link walk has just read, or null when the pass read no
+     * such pack. The pass reads every card on several screens and stitches them; the walk reads each
+     * screen once, so a single blurred read can come out as a name nobody bought ("Epic WMond Dae L"
+     * for "Epic Wonder Adventure Pack", 2026-11-11 15:13) and send the walk down a link it already
+     * knows. An exact match wins; otherwise the closest of the names {@link
+     * AllianceGiftLedger#sameName} accepts, so "Uncomon Wonder Adventure Pack" is "Uncommon ...",
+     * not "Common ...".
+     */
+    public static String passSpelling(String read, java.util.Collection<String> passPacks) {
+        if (read == null) {
+            return null;
+        }
+        String key = AllianceGiftLedger.normalise(read);
+        String best = null;
+        int bestEdits = Integer.MAX_VALUE;
+        for (String name : passPacks) {
+            String other = AllianceGiftLedger.normalise(name);
+            if (other.equals(key)) {
+                return name;
+            }
+            if (AllianceGiftLedger.sameName(read, name)) {
+                int edits = AllianceSpendReport.edits(key, other);
+                if (edits < bestEdits) {
+                    best = name;
+                    bestEdits = edits;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
      * True when two screens show the gift list's frame: the "Chests" title bar and the "Send
      * Anonymous Alliance Gift" footer. Used after Back, and when a pass loses its place, to tell the
      * list from any other screen before anything else is tapped.

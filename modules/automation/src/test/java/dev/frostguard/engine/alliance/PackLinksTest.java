@@ -105,4 +105,24 @@ class PackLinksTest {
         assertEquals(19.99, PackLinks.ownPrice("Unlisted Pack", page), "no title on the page: the first price");
         assertNull(PackLinks.ownPrice("Scarlet Count", List.of(new TextLine("Spooky Gathering", 40, 230, 300, 40, 0.9f))));
     }
+
+    /** Pack names the 2026-11-11 15:08 pass read (its list.json), misreads included. */
+    private static final List<String> PASS_1508 = List.of("Building Benefits Card", "Charm Craftsman Value Pack",
+            "City Construction Pack", "Daily Deals", "Dawn Mark Pack", "Epic Sign-in Pass", "Epic Wonder Adventure Pack",
+            "Expert Mark Pack", "Hero Gearl Benefits Card", "Hero XP Pack", "Ice Bath Champion", "Ice Breaker",
+            "Ilce Bath Champion", "Mix & Match", "Mix&Match", "Mythic Wonder Adventure Pack", "Path of Honor",
+            "Riders of the Tundra", "Snow Warrior Pack 2", "Snow Warrior Pack 3", "Standard Wonder Adventure Pack",
+            "Ultra Value Monthly Card", "lce Bath Champion", "lce Breaker");
+
+    @Test
+    void theLinkWalkUsesThePassesSpellingAndSkipsANameThePassNeverRead() {
+        // 15:13 that day the walk read "Epic Wonder Adventure Pack" as this and followed a link it knew.
+        assertNull(PackLinks.passSpelling("Epic WMond Dae L", PASS_1508));
+        assertEquals("Epic Wonder Adventure Pack", PackLinks.passSpelling("Epic Wonder Adventure Pack'", PASS_1508));
+        assertEquals("Mythic Wonder Adventure Pack", PackLinks.passSpelling("Mythlc Wonder Adventure Pack", PASS_1508));
+        assertEquals("Standard Wonder Adventure Pack", PackLinks.passSpelling("Standard WVonder Adventure Pack", PASS_1508));
+        assertEquals("Snow Warrior Pack 3", PackLinks.passSpelling("Snow Warrior Pack 3", PASS_1508), "digits must match");
+        assertNull(PackLinks.passSpelling("Snow Warrior Pack 4", PASS_1508));
+        assertNull(PackLinks.passSpelling("Scarlet Count", PASS_1508), "a pack not on the list is not guessed");
+    }
 }
