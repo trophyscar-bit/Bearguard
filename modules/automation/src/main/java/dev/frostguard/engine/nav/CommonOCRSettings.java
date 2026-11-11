@@ -107,6 +107,15 @@ public final class CommonOCRSettings {
     public static final OcrSettingsData INTEL_COOLDOWN_SETTINGS =
             buildConfig("0123456789:", true, 255, 255, 255, TextLayout.SINGLE_LINE);
 
+    // Hero Recruitment "Next free: 1d 16:24:14"; GameTimeUtils parses the compact digits.
+    public static final OcrSettingsData HERO_RECRUIT_TIMER_SETTINGS = OcrSettingsData.builder()
+            .allowedGlyphs("0123456789d").build();
+
+    // Hero Recruitment screen labels, each a single white word "Recruitment".
+    public static final OcrSettingsData HERO_RECRUIT_SCREEN_LABEL_SETTINGS = OcrSettingsData.builder()
+            .allowedGlyphs("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ")
+            .textLayout(TextLayout.SINGLE_LINE).build();
+
     // Daily sidebar status: "Intel Gain: 8" in green.
     public static final OcrSettingsData INTEL_GAIN_SETTINGS =
             buildConfig("IntelGain: 0123456789", true, 0, 193, 0, TextLayout.SINGLE_LINE);

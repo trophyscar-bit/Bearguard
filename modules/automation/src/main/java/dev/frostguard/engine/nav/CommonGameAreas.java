@@ -288,6 +288,19 @@ public final class CommonGameAreas {
     // formation layout, turning "00:00:15" into the valid but false ten-hour value "10:00:15".
     public static final AreaData TRAVEL_TIME_OCR_AREA   = region(500, 1134, 622, 1162);
 
+    // ── Hero Recruitment "Next free:" countdowns ─────────────────────
+    // Each line sits under its banner while that free recruit is on cooldown, e.g.
+    // "Next free: 00:26:18" and "Next free: 1d 16:24:14". Checked against the real
+    // frames under test resources/herorecruitment.
+    public static final AreaData HERO_RECRUIT_ADVANCED_TIMER_OCR_AREA = region(40, 770, 350, 810);
+    public static final AreaData HERO_RECRUIT_EPIC_TIMER_OCR_AREA     = region(53, 1130, 330, 1160);
+    // The three fixed "Recruitment" labels of that screen: the title's second line and the
+    // Advanced and Epic banner captions. Together they span the top, the middle and the
+    // lower panel, so a popup over either panel leaves at least one unreadable.
+    public static final AreaData HERO_RECRUIT_TITLE_LABEL_AREA           = region(410, 150, 705, 205);
+    public static final AreaData HERO_RECRUIT_ADVANCED_BANNER_LABEL_AREA = region(30, 660, 300, 715);
+    public static final AreaData HERO_RECRUIT_EPIC_BANNER_LABEL_AREA     = region(425, 1030, 690, 1085);
+
     // ── My Island (Life Essence) ─────────────────────────────────────
 
     // Claim badges hang over the tree and over each crafting station, and players place their

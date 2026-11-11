@@ -9,13 +9,22 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.AccountDescriptor;
-import dev.frostguard.api.domain.OcrSettingsData;
+import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.helper.TemplateSearchHelper;
+import dev.frostguard.engine.nav.CommonGameAreas;
+import dev.frostguard.engine.nav.CommonOCRSettings;
+import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
+import dev.frostguard.vision.ocr.OcrException;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * Task responsible for managing hero recruitment rewards.
@@ -61,6 +70,23 @@ public class HeroRecruitmentRoutine extends DelayedTask {
     /** Delay between OCR retry attempts (milliseconds) */
     private static final long OCR_RETRY_DELAY_MS = 200L;
 
+    /** How long a claim may take to hand the Hero Recruitment screen back (milliseconds) */
+    static final long SCREEN_CONFIRM_TIMEOUT_MS = 3000L;
+
+    /** Pause between Hero Recruitment screen checks (milliseconds) */
+    private static final long SCREEN_CONFIRM_POLL_MS = 500L;
+
+    /** Pause after a claim tap for the claim animation (milliseconds) */
+    private static final long CLAIM_ANIMATION_MS = 1000L;
+
+    /** Fixed labels that must all read {@link #SCREEN_LABEL} for the screen to count as shown */
+    static final List<AreaData> SCREEN_LABEL_AREAS = List.of(
+            CommonGameAreas.HERO_RECRUIT_TITLE_LABEL_AREA,
+            CommonGameAreas.HERO_RECRUIT_ADVANCED_BANNER_LABEL_AREA,
+            CommonGameAreas.HERO_RECRUIT_EPIC_BANNER_LABEL_AREA);
+
+    private static final String SCREEN_LABEL = "recruitment";
+
     // Navigation coordinates
     private static final PointData NAV_TAP_1_MIN = new PointData(160, 1190);
     private static final PointData NAV_TAP_1_MAX = new PointData(217, 1250);
@@ -72,16 +98,12 @@ public class HeroRecruitmentRoutine extends DelayedTask {
     private static final PointData ADVANCED_SEARCH_MAX = new PointData(340, 1100);
     private static final PointData ADVANCED_CLAIM_MIN = new PointData(80, 827);
     private static final PointData ADVANCED_CLAIM_MAX = new PointData(315, 875);
-    private static final PointData ADVANCED_OCR_TOP_LEFT = new PointData(40, 770);
-    private static final PointData ADVANCED_OCR_BOTTOM_RIGHT = new PointData(350, 810);
 
     // Epic recruitment coordinates
     private static final PointData EPIC_SEARCH_MIN = new PointData(40, 1160);
     private static final PointData EPIC_SEARCH_MAX = new PointData(340, 1255);
     private static final PointData EPIC_CLAIM_MIN = new PointData(70, 1180);
     private static final PointData EPIC_CLAIM_MAX = new PointData(315, 1230);
-    private static final PointData EPIC_OCR_TOP_LEFT = new PointData(53, 1130);
-    private static final PointData EPIC_OCR_BOTTOM_RIGHT = new PointData(330, 1160);
 
     // ===============================
     // FIELDS
@@ -89,6 +111,12 @@ public class HeroRecruitmentRoutine extends DelayedTask {
 
     /** Helper for flexible OCR-based time recognition */
     private final ResilientOcrExecutor<Duration> timeHelper;
+
+    /** Recruitment types claimed during the current run, for the OCR failure log */
+    private String claimedThisRun = "";
+
+    /** When the latest claim tap was sent, from {@link #nowMillis()} */
+    private long lastClaimAtMillis;
 
     // ===============================
     // CONSTRUCTOR
@@ -129,13 +157,24 @@ public class HeroRecruitmentRoutine extends DelayedTask {
     @Override
     protected void execute() {
 
+        claimedThisRun = "";
         navigateToHeroRecruitment();
 
-        LocalDateTime advancedTime = processAdvancedRecruitment();
-        LocalDateTime epicTime = processEpicRecruitment();
+        Optional<LocalDateTime> advancedTime = processAdvancedRecruitment();
+        if (advancedTime.isEmpty()) {
+            scheduleNext(getFallbackTime());
+            return;
+        }
+        Optional<LocalDateTime> epicTime = processEpicRecruitment();
+        if (epicTime.isEmpty()) {
+            scheduleNext(getFallbackTime());
+            return;
+        }
 
-        LocalDateTime nextExecution = calculateNextExecution(advancedTime, epicTime);
+        scheduleNext(calculateNextExecution(advancedTime.get(), epicTime.get()));
+    }
 
+    private void scheduleNext(LocalDateTime nextExecution) {
         logInfo("Next hero recruitment check scheduled for: " + nextExecution.format(DATETIME_FORMATTER));
         reschedule(nextExecution);
     }
@@ -151,7 +190,7 @@ public class HeroRecruitmentRoutine extends DelayedTask {
      * Performs two sequential taps to open the hero recruitment menu.
      * The framework will handle returning to home screen after task completion.
      */
-    private void navigateToHeroRecruitment() {
+    void navigateToHeroRecruitment() {
         logInfo("Navigating to hero recruitment interface");
 
         tapInside(NAV_TAP_1_MIN, NAV_TAP_1_MAX);
@@ -172,22 +211,20 @@ public class HeroRecruitmentRoutine extends DelayedTask {
      * Advanced recruitment resets daily at game reset time, so the extracted
      * time is capped at the next game reset to avoid scheduling beyond it.
      * 
-     * @return Next advanced recruitment time (capped at game reset), or game reset
-     *         if extraction fails
+     * @return Next advanced recruitment time (capped at game reset), the fallback
+     *         if extraction fails, or empty if a claim left the screen unconfirmed
      */
-    private LocalDateTime processAdvancedRecruitment() {
+    private Optional<LocalDateTime> processAdvancedRecruitment() {
         logInfo("Processing advanced recruitment");
 
-        RecruitmentResult result = processRecruitmentType(
+        return processRecruitmentType(
                 "Advanced",
                 ADVANCED_SEARCH_MIN,
                 ADVANCED_SEARCH_MAX,
                 ADVANCED_CLAIM_MIN,
                 ADVANCED_CLAIM_MAX,
-                ADVANCED_OCR_TOP_LEFT,
-                ADVANCED_OCR_BOTTOM_RIGHT);
-
-        return capAtGameReset(result.nextTime());
+                CommonGameAreas.HERO_RECRUIT_ADVANCED_TIMER_OCR_AREA)
+                .map(result -> capAtGameReset(result.nextTime()));
     }
 
     /**
@@ -197,21 +234,20 @@ public class HeroRecruitmentRoutine extends DelayedTask {
      * Epic recruitment resets after a certain duration from last claim,
      * so it's not capped at game reset and can schedule into the next day.
      * 
-     * @return Next epic recruitment time, or retry time if extraction fails
+     * @return Next epic recruitment time, the fallback if extraction fails, or
+     *         empty if a claim left the screen unconfirmed
      */
-    private LocalDateTime processEpicRecruitment() {
+    private Optional<LocalDateTime> processEpicRecruitment() {
         logInfo("Processing epic recruitment");
 
-        RecruitmentResult result = processRecruitmentType(
+        return processRecruitmentType(
                 "Epic",
                 EPIC_SEARCH_MIN,
                 EPIC_SEARCH_MAX,
                 EPIC_CLAIM_MIN,
                 EPIC_CLAIM_MAX,
-                EPIC_OCR_TOP_LEFT,
-                EPIC_OCR_BOTTOM_RIGHT);
-
-        return result.nextTime();
+                CommonGameAreas.HERO_RECRUIT_EPIC_TIMER_OCR_AREA)
+                .map(RecruitmentResult::nextTime);
     }
 
     /**
@@ -221,7 +257,7 @@ public class HeroRecruitmentRoutine extends DelayedTask {
      * <b>Process Flow:</b>
      * <ol>
      * <li>Search for claim button in specified region</li>
-     * <li>If found, claim the reward</li>
+     * <li>If found, claim the reward and wait for the Hero Recruitment screen to come back</li>
      * <li>Extract next availability time via OCR</li>
      * <li>Return result with next time or fallback</li>
      * </ol>
@@ -231,28 +267,80 @@ public class HeroRecruitmentRoutine extends DelayedTask {
      * @param searchMax      Bottom-right corner of claim button search region
      * @param claimMin       Top-left corner of claim button tap region
      * @param claimMax       Bottom-right corner of claim button tap region
-     * @param ocrTopLeft     Top-left corner of time OCR region
-     * @param ocrBottomRight Bottom-right corner of time OCR region
-     * @return RecruitmentResult containing next time or fallback
+     * @param timerArea      "Next free:" countdown OCR region
+     * @return RecruitmentResult containing next time or fallback, or empty when a
+     *         claim did not hand the screen back; nothing more may be searched,
+     *         tapped or read in that case
      */
-    private RecruitmentResult processRecruitmentType(
+    private Optional<RecruitmentResult> processRecruitmentType(
             String type,
             PointData searchMin,
             PointData searchMax,
             PointData claimMin,
             PointData claimMax,
-            PointData ocrTopLeft,
-            PointData ocrBottomRight) {
+            AreaData timerArea) {
 
-        checkAndClaimRecruitment(type, searchMin, searchMax, claimMin, claimMax);
-        LocalDateTime nextTime = extractNextRecruitmentTime(type, ocrTopLeft, ocrBottomRight);
+        if (checkAndClaimRecruitment(type, searchMin, searchMax, claimMin, claimMax)) {
+            claimedThisRun = claimedThisRun.isEmpty() ? type : claimedThisRun + ", " + type;
+            if (!awaitRecruitmentScreen()) {
+                logWarning(type + " recruitment was claimed but the Hero Recruitment screen did not come back within "
+                        + SCREEN_CONFIRM_TIMEOUT_MS + " ms. No further search, tap or timer read this run; "
+                        + dumpFrame(type + "-screen-unconfirmed", timerArea));
+                return Optional.empty();
+            }
+        }
+        LocalDateTime nextTime = extractNextRecruitmentTime(type, timerArea);
 
         if (nextTime != null) {
-            return new RecruitmentResult(nextTime, true);
+            return Optional.of(new RecruitmentResult(nextTime, true));
         } else {
             logWarning(type + " recruitment time extraction failed. Using fallback.");
-            return new RecruitmentResult(getFallbackTime(), false);
+            return Optional.of(new RecruitmentResult(getFallbackTime(), false));
         }
+    }
+
+    /**
+     * Waits until {@value #SCREEN_CONFIRM_TIMEOUT_MS} ms after the claim tap for the
+     * Hero Recruitment screen. Only reads the screen; it never taps or presses Back.
+     */
+    private boolean awaitRecruitmentScreen() {
+        long deadline = lastClaimAtMillis + SCREEN_CONFIRM_TIMEOUT_MS;
+        while (true) {
+            if (recruitmentScreenShown()) {
+                return true;
+            }
+            if (nowMillis() >= deadline) {
+                return false;
+            }
+            pause(SCREEN_CONFIRM_POLL_MS);
+        }
+    }
+
+    /** Reads the fixed screen labels once. */
+    boolean recruitmentScreenShown() {
+        return showsRecruitmentScreen(area -> {
+            try {
+                return provider.extractText(CommonOCRSettings.HERO_RECRUIT_SCREEN_LABEL_SETTINGS,
+                        area.topLeft(), area.bottomRight());
+            } catch (IOException | OcrException unreadable) {
+                return null;
+            }
+        });
+    }
+
+    /**
+     * True only when every one of {@link #SCREEN_LABEL_AREAS} reads "Recruitment".
+     *
+     * @param readLabel OCR of one area; null when unreadable
+     */
+    static boolean showsRecruitmentScreen(Function<AreaData, String> readLabel) {
+        for (AreaData area : SCREEN_LABEL_AREAS) {
+            String text = readLabel.apply(area);
+            if (text == null || !text.toLowerCase(Locale.ROOT).contains(SCREEN_LABEL)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -265,13 +353,25 @@ public class HeroRecruitmentRoutine extends DelayedTask {
      * @param claimMax  Bottom-right corner of claim tap region
      * @return true if reward was claimed, false if not available
      */
-    private void checkAndClaimRecruitment(
+    private boolean checkAndClaimRecruitment(
             String type,
             PointData searchMin,
             PointData searchMax,
             PointData claimMin,
             PointData claimMax) {
 
+        if (freeButtonShown(searchMin, searchMax)) {
+            logInfo(type + " recruitment reward available. Claiming now.");
+            tapClaim(claimMin, claimMax);
+            lastClaimAtMillis = nowMillis();
+            pause(CLAIM_ANIMATION_MS);
+            return true;
+        }
+        logInfo(type + " recruitment reward not available yet.");
+        return false;
+    }
+
+    boolean freeButtonShown(PointData searchMin, PointData searchMax) {
         ImageSearchResultData claimResult = templateSearchHelper.locatePattern(
                 TemplatesEnum.HERO_RECRUIT_CLAIM,
                 TemplateSearchHelper.SearchConfig.builder()
@@ -280,14 +380,11 @@ public class HeroRecruitmentRoutine extends DelayedTask {
                         .withDelay(300L)
                         .withCoordinates(searchMin, searchMax)
                         .build());
+        return claimResult.isFound();
+    }
 
-        if (claimResult.isFound()) {
-            logInfo(type + " recruitment reward available. Claiming now.");
-            tapInside(claimMin, claimMax);
-            sleepTask(1000); // Wait for claim animation
-        } else {
-            logInfo(type + " recruitment reward not available yet.");
-        }
+    void tapClaim(PointData claimMin, PointData claimMax) {
+        tapInside(claimMin, claimMax);
     }
 
     /**
@@ -297,38 +394,55 @@ public class HeroRecruitmentRoutine extends DelayedTask {
      * Uses {@link ResilientOcrExecutor} for robust OCR with validation
      * and retry logic. Attempts up to {@value #MAX_OCR_RETRIES} times.
      * 
-     * @param type        Recruitment type name for logging
-     * @param topLeft     Top-left corner of OCR region
-     * @param bottomRight Bottom-right corner of OCR region
+     * <p>
+     * When every attempt fails, the frame and the OCR crop are saved under
+     * {@code logs/snapshot/herorecruitment} so the failure can be checked offline.
+     *
+     * @param type      Recruitment type name for logging
+     * @param timerArea "Next free:" countdown OCR region
      * @return Next recruitment time, or null if extraction failed
      */
-    private LocalDateTime extractNextRecruitmentTime(
-            String type,
-            PointData topLeft,
-            PointData bottomRight) {
+    private LocalDateTime extractNextRecruitmentTime(String type, AreaData timerArea) {
 
         logInfo("Extracting " + type + " recruitment next availability time");
 
-        Duration nextTime = timeHelper.attemptRecognition(
-                topLeft,
-                bottomRight,
-                MAX_OCR_RETRIES,
-                OCR_RETRY_DELAY_MS,
-                OcrSettingsData.assembler()
-                        .charWhitelist("0123456789d")
-                        .build(),
-                GameTimeUtils::isAcceptedFormat,
-                GameTimeUtils::parseDuration);
+        Duration nextTime = readTimer(timerArea);
 
         if (nextTime != null) {
             LocalDateTime nextClaimTime = LocalDateTime.now().plus(nextTime);
             logInfo(type + " recruitment next time: " + nextClaimTime.format(DATETIME_FORMATTER));
             return nextClaimTime;
         } else {
+            String claimed = claimedThisRun.isEmpty() ? "none" : claimedThisRun;
             logWarning("Failed to extract " + type + " recruitment time after " +
-                    MAX_OCR_RETRIES + " attempts");
+                    MAX_OCR_RETRIES + " attempts; claimed this run: " + claimed + "; " +
+                    dumpFrame(type + "-timer-unread", timerArea));
             return null;
         }
+    }
+
+    Duration readTimer(AreaData timerArea) {
+        return timeHelper.attemptRecognition(
+                timerArea,
+                MAX_OCR_RETRIES,
+                OCR_RETRY_DELAY_MS,
+                CommonOCRSettings.HERO_RECRUIT_TIMER_SETTINGS,
+                GameTimeUtils::isAcceptedFormat,
+                GameTimeUtils::parseDuration);
+    }
+
+    /** Saves the frame and {@code region} of it under {@code logs/snapshot/herorecruitment}. */
+    String dumpFrame(String type, AreaData region) {
+        return TaskDiagnosticSnapshots.captureAlwaysWithRegion(emuManager, EMULATOR_NUMBER,
+                "herorecruitment", type, region);
+    }
+
+    void pause(long millis) {
+        sleepTask(millis);
+    }
+
+    long nowMillis() {
+        return System.currentTimeMillis();
     }
 
     // ===============================
