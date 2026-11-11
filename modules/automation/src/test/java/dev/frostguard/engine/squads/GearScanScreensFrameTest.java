@@ -2,6 +2,7 @@ package dev.frostguard.engine.squads;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -248,6 +249,20 @@ class GearScanScreensFrameTest {
     }
 
     @Test
+    void aReadThatGivesUpHandsOverTheFrameItFailedOnBeforeAnythingElse() throws Exception {
+        Rig rig = new Rig("scan-gear");
+        GearScanScreens screens = new GearScanScreens(rig);
+
+        Abort abort = assertThrows(Abort.class, () -> screens.openDetails("Boots"));
+
+        assertEquals(List.of("Gear Details did not read for Boots"), rig.failures);
+        assertEquals(abort.getMessage(), rig.failures.getFirst());
+        assertSame(frame("scan-gear"), rig.failedOn);
+        assertEquals(List.of(BOOTS), rig.taps, "saving the frame taps nothing");
+        assertEquals(0, rig.backs);
+    }
+
+    @Test
     void anUnreadableDialogStopsWithoutAnotherTap() throws Exception {
         Rig rig = new Rig("scan-details");
         GearScanScreens screens = new GearScanScreens(rig);
@@ -350,6 +365,8 @@ class GearScanScreensFrameTest {
         private final Map<String, Map<PointData, String>> taps_ = new HashMap<>();
         private final Map<String, String> backs_ = new HashMap<>();
         final List<PointData> taps = new ArrayList<>();
+        final List<String> failures = new ArrayList<>();
+        RawImageData failedOn;
         int backs;
         String screen;
 
@@ -395,6 +412,12 @@ class GearScanScreensFrameTest {
 
         @Override
         public void pause(int millis) {
+        }
+
+        @Override
+        public void readFailed(RawImageData frame, String failure) {
+            failedOn = frame;
+            failures.add(failure);
         }
     }
 

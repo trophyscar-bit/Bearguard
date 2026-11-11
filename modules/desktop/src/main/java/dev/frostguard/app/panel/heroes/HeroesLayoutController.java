@@ -2,8 +2,12 @@ package dev.frostguard.app.panel.heroes;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -47,7 +51,10 @@ import javafx.scene.control.Label;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.util.Duration;
+import javafx.util.StringConverter;
 
 /** Troops > Heroes: gear grades, the rolling upgrade list and its options, Drill Camp level ups, rally joiners and the roster. */
 public final class HeroesLayoutController extends AbstractProfileController {
@@ -67,6 +74,11 @@ public final class HeroesLayoutController extends AbstractProfileController {
     private static final String NO_SCAN = "No squad scan saved yet. Press Scan now on the Squads page.";
     private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("EEE MMM d, h:mm a", Locale.ENGLISH)
             .withZone(ZoneId.systemDefault());
+    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH);
+    private static final String MASTER_TEXT = "Run the hero gear check every night";
+    private static final Map<String, String> FORGE_ORDER = Map.of(
+            GearRanker.FOCUS_RALLY, "Biggest rally impact first (Bahiti leads, he carries most rally troops)",
+            GearRanker.FOCUS_BALANCED, "Even across the march leads (Mia, Flint, Bahiti); Molly and Sergey at half");
 
     @FXML private TabPane tabPane;
     @FXML private TableView<List<String>> tableGrades;
@@ -79,6 +91,12 @@ public final class HeroesLayoutController extends AbstractProfileController {
     @FXML private Label labelJoiners;
     @FXML private Label labelRoster;
     @FXML private Label labelHalt;
+    @FXML private Label labelScanInfo;
+    @FXML private Label labelRollingOrder;
+    @FXML private VBox boxNightly;
+    @FXML private HBox rowEnhanceLevels;
+    @FXML private HBox rowMaxBuys;
+    @FXML private HBox rowReserve;
     @FXML private Button buttonClearHalt;
     @FXML private CheckBox checkBoxForgeEnabled;
     @FXML private CheckBox checkBoxForgeLive;
@@ -94,8 +112,7 @@ public final class HeroesLayoutController extends AbstractProfileController {
     @FXML private ComboBox<String> comboBoxFocus;
     @FXML private ComboBox<Integer> comboBoxMaxBuys;
     @FXML private ComboBox<Integer> comboBoxReserve;
-    @FXML private ComboBox<Integer> comboBoxEnhanceStep;
-    @FXML private ComboBox<Integer> comboBoxEnhanceRaises;
+    @FXML private ComboBox<Integer> comboBoxEnhanceLevels;
 
     private GearState gear;
     private Inventory inventory;
@@ -117,10 +134,22 @@ public final class HeroesLayoutController extends AbstractProfileController {
         for (int i = 0; i < ROSTER_WIDTHS.length; i++) tableHeroes.getColumns().get(i).setPrefWidth(ROSTER_WIDTHS[i]);
 
         comboBoxFocus.getItems().addAll(GearRanker.FOCUS_RALLY, GearRanker.FOCUS_BALANCED);
+        // The stored values stay "Rally squads" and "Balanced"; only the words shown change.
+        comboBoxFocus.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(String value) {
+                return value == null ? "" : FORGE_ORDER.getOrDefault(value, value);
+            }
+
+            @Override
+            public String fromString(String text) {
+                return FORGE_ORDER.entrySet().stream().filter(e -> e.getValue().equals(text))
+                        .map(Map.Entry::getKey).findFirst().orElse(text);
+            }
+        });
         comboBoxMaxBuys.getItems().addAll(1, 2, 3, 5, 10);
         comboBoxReserve.getItems().addAll(0, 10, 20, 50, 100);
-        comboBoxEnhanceStep.getItems().addAll(1, 2, 5, 10, 20);
-        comboBoxEnhanceRaises.getItems().addAll(1, 2, 3, 5, 10);
+        comboBoxEnhanceLevels.getItems().addAll(1, 2, 3, 5, 10, 15, 20, 25);
 
         registerCheckBox(checkBoxForgeEnabled, ConfigurationKeyEnum.HERO_GEAR_FORGE_ENABLED_BOOL);
         registerCheckBox(checkBoxForgeLive, ConfigurationKeyEnum.HERO_GEAR_FORGE_LIVE_BOOL);
@@ -136,16 +165,15 @@ public final class HeroesLayoutController extends AbstractProfileController {
         registerComboBox(comboBoxFocus, ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING);
         registerComboBox(comboBoxMaxBuys, ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT);
         registerComboBox(comboBoxReserve, ConfigurationKeyEnum.HERO_GEAR_FORGE_RESERVE_INT);
-        registerComboBox(comboBoxEnhanceStep, ConfigurationKeyEnum.HERO_GEAR_ENHANCE_STEP_INT);
-        registerComboBox(comboBoxEnhanceRaises, ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_RAISES_INT);
+        registerComboBox(comboBoxEnhanceLevels, ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_LEVELS_INT);
         initializeChangeEvents();
 
-        checkBoxForgeLive.disableProperty().bind(checkBoxForgeEnabled.selectedProperty().not());
-        checkBoxQuickEquip.disableProperty().bind(checkBoxForgeEnabled.selectedProperty().not());
-        checkBoxEnhance.disableProperty().bind(checkBoxForgeEnabled.selectedProperty().not());
-        checkBoxEnhanceLive.disableProperty().bind(checkBoxForgeEnabled.selectedProperty().not());
-        comboBoxEnhanceStep.disableProperty().bind(checkBoxForgeEnabled.selectedProperty().not());
-        comboBoxEnhanceRaises.disableProperty().bind(checkBoxForgeEnabled.selectedProperty().not());
+        boxNightly.disableProperty().bind(checkBoxForgeEnabled.selectedProperty().not());
+        checkBoxEnhanceLive.disableProperty().bind(checkBoxEnhance.selectedProperty().not());
+        rowEnhanceLevels.disableProperty().bind(
+                checkBoxEnhance.selectedProperty().and(checkBoxEnhanceLive.selectedProperty()).not());
+        rowMaxBuys.disableProperty().bind(checkBoxForgeLive.selectedProperty().not());
+        rowReserve.disableProperty().bind(checkBoxForgeLive.selectedProperty().not());
         for (CheckBox hero : heroBoxes().values()) {
             hero.selectedProperty().addListener((obs, was, now) -> refreshRolling());
         }
@@ -180,8 +208,31 @@ public final class HeroesLayoutController extends AbstractProfileController {
     @Override
     public void onProfileLoad(ProfileAux profile) {
         currentProfile = profile;
-        if (profile != null) super.onProfileLoad(profile);
+        if (profile != null) {
+            super.onProfileLoad(profile);
+            checkBoxForgeEnabled.setText(MASTER_TEXT + " at " + localTime(profile.getConfiguration(
+                    ConfigurationKeyEnum.HERO_GEAR_FORGE_TIME_UTC_STRING)));
+            Integer days = profile.getConfiguration(ConfigurationKeyEnum.HERO_GEAR_FORGE_SCAN_DAYS_INT);
+            labelScanInfo.setText("Reads every piece on the 5 heroes and grades it A to D. Runs every "
+                    + (days != null ? days : ConfigurationKeyEnum.HERO_GEAR_FORGE_SCAN_DAYS_INT.getDefaultValue())
+                    + " days, or the next night after an Enhance was cut off. Spends nothing.");
+        } else {
+            checkBoxForgeEnabled.setText(MASTER_TEXT);
+            labelScanInfo.setText("");
+        }
         reload();
+    }
+
+    /** The UTC slot as this PC's clock shows it tonight. */
+    static String localTime(String utc) {
+        try {
+            LocalTime slot = LocalTime.parse(utc == null || utc.isBlank()
+                    ? ConfigurationKeyEnum.HERO_GEAR_FORGE_TIME_UTC_STRING.getDefaultValue() : utc.trim());
+            return CLOCK.format(LocalDate.now(ZoneOffset.UTC).atTime(slot).atOffset(ZoneOffset.UTC)
+                    .atZoneSameInstant(ZoneId.systemDefault()));
+        } catch (DateTimeParseException malformed) {
+            return utc + " UTC";
+        }
     }
 
     // The nightly routine rewrites these files while the page stays loaded.
@@ -431,8 +482,13 @@ public final class HeroesLayoutController extends AbstractProfileController {
             labelStones.setText(inventory != null
                     ? "Essence Stones on hand: " + inventory.essenceStones() + ". Read " + inventory.capturedAt() + "."
                     : "Stone balance not read yet.");
+            boolean bahitiFirst = GearRanker.FOCUS_RALLY.equals(comboBoxFocus.getValue())
+                    && !rows.isEmpty() && rows.getFirst().get(1).equals("Bahiti");
+            labelRollingOrder.setText("Order follows Forge order above."
+                    + (bahitiFirst ? " Bahiti tops it because he carries most of your rally troops." : ""));
         } else {
             labelStones.setText("No gear data saved yet.");
+            labelRollingOrder.setText("");
         }
         tableRolling.setItems(FXCollections.observableArrayList(rows));
     }

@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -28,8 +30,17 @@ public final class HeroGearStore {
     public record RaiseInFlight(String hero, String slot, int level) {
     }
 
-    /** What one night has used of its time cap and its buy and raise counts. */
-    public record NightLedger(String startedAt, int buys, int raises, boolean finished) {
+    /** What one night has used of its time cap, its buys and its enhance levels. */
+    public record NightLedger(String startedAt, int buys, int levels, boolean finished) {
+
+        // A ledger saved before levels were counted holds raises of up to five levels each.
+        @JsonCreator
+        static NightLedger read(@JsonProperty("startedAt") String startedAt, @JsonProperty("buys") int buys,
+                                @JsonProperty("levels") Integer levels, @JsonProperty("raises") Integer raises,
+                                @JsonProperty("finished") boolean finished) {
+            int used = levels != null ? levels : raises != null ? raises * GearEnhancePlanner.STEP : 0;
+            return new NightLedger(startedAt, buys, used, finished);
+        }
     }
 
     /** The march leads' tiles from before a Quick Equip press, kept until a clean re-read. */

@@ -133,8 +133,9 @@ public final class QuickEquipScreens implements QuickEquipPass.Screens {
     // Two frames in a row must show this hero and the same tiles, so the arrow's animation and a one-frame misread don't count.
     private List<HeroGear> settledGear(String hero, Function<RawImageData, List<HeroGear>> reader) {
         List<HeroGear> previous = null;
+        RawImageData frame = null;
         for (int attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
-            RawImageData frame = device.capture();
+            frame = device.capture();
             if (HeroScreenReader.isGearTab(frame) && hero.equals(HeroScreenReader.readName(frame))) {
                 List<HeroGear> gear = reader.apply(frame);
                 if (gear.equals(previous)) return gear;
@@ -144,6 +145,7 @@ public final class QuickEquipScreens implements QuickEquipPass.Screens {
             }
             device.pause(READ_PAUSE_MS);
         }
+        device.readFailed(frame, hero + "'s Gear tab did not settle");
         throw new Abort(hero + "'s Gear tab did not settle");
     }
 
@@ -251,11 +253,13 @@ public final class QuickEquipScreens implements QuickEquipPass.Screens {
     }
 
     private RawImageData await(Predicate<RawImageData> expected, String failure) {
+        RawImageData frame = null;
         for (int attempt = 0; attempt < READ_ATTEMPTS; attempt++) {
-            RawImageData frame = device.capture();
+            frame = device.capture();
             if (expected.test(frame)) return frame;
             device.pause(READ_PAUSE_MS);
         }
+        device.readFailed(frame, failure);
         throw new Abort(failure);
     }
 }

@@ -58,6 +58,10 @@ public final class GearEnhancePass {
 
         /** The press last saved by {@link #pressing} is confirmed on screen. */
         void pressConfirmed() throws IOException;
+
+        /** The frame a read gave up on, just before the halt it causes. Must not touch the screen. */
+        default void readFailed(RawImageData frame, String failure) {
+        }
     }
 
     interface Reads {
@@ -296,20 +300,26 @@ public final class GearEnhancePass {
     }
 
     private String awaitLabel() {
+        RawImageData frame = null;
         for (int attempt = 0; attempt < READ_ATTEMPTS; attempt++) {
-            String label = reads.detailsLabel(device.capture());
+            frame = device.capture();
+            String label = reads.detailsLabel(frame);
             if (label != null && !label.isBlank()) return label;
             device.pause(READ_PAUSE_MS);
         }
+        device.readFailed(frame, "Gear Details is not on screen");
         throw new Halt(Stop.DIALOG_UNREADABLE, "Gear Details is not on screen");
     }
 
     private <T> T await(Function<RawImageData, T> read, String failure) {
+        RawImageData frame = null;
         for (int attempt = 0; attempt < READ_ATTEMPTS; attempt++) {
-            T value = read.apply(device.capture());
+            frame = device.capture();
+            T value = read.apply(frame);
             if (value != null) return value;
             device.pause(READ_PAUSE_MS);
         }
+        device.readFailed(frame, failure);
         throw new Halt(Stop.DIALOG_UNREADABLE, failure);
     }
 }

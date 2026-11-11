@@ -250,7 +250,7 @@ class GearNightTest {
     void aRunCutOffLeavesTheNightOpenWithWhatItUsed() throws IOException {
         Fake cut = new Fake();
         cut.enhanceThrows = true;
-        cut.onEnhance = () -> cut.budget.spendRaise();
+        cut.onEnhance = () -> cut.budget.spendLevels(1);
         assertThrows(IllegalStateException.class, () -> run(cut));
 
         Fake retry = new Fake();
@@ -259,7 +259,7 @@ class GearNightTest {
 
         assertEquals(List.of("quickEquip", "scan", "enhance", "forge", "home"), retry.calls);
         assertEquals(NOW.plus(NightBudget.TIME_CAP), retry.budget.deadline(), "the same cap, not a new one");
-        assertEquals(2, retry.budget.raisesLeft(3));
+        assertEquals(2, retry.budget.levelsLeft(3));
     }
 
     @Test

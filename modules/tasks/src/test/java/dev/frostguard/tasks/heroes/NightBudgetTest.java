@@ -28,7 +28,7 @@ class NightBudgetTest {
     private static final Instant NOW = Instant.parse("2026-11-10T02:30:00Z");
     private static final Raise RAISE = new Raise("Mia", "Boots", 81, 85);
     private static final GearEnhanceStep.Raiser REACHES =
-            (raise, live) -> new GearEnhancePass.Outcome(raise.to(), 1, Stop.TARGET_REACHED, "reached");
+            (raise, live) -> new GearEnhancePass.Outcome(raise.to(), raise.levels(), Stop.TARGET_REACHED, "reached");
 
     @TempDir
     Path workspace;
@@ -46,7 +46,7 @@ class NightBudgetTest {
 
         assertEquals(NOW.plus(Duration.ofMinutes(20)), budget.deadline());
         assertEquals(3, budget.buysLeft(3));
-        assertEquals(3, budget.raisesLeft(3));
+        assertEquals(5, budget.levelsLeft(5));
         assertFalse(budget.finished());
     }
 
@@ -59,14 +59,13 @@ class NightBudgetTest {
     void aRerunTheSameNightKeepsTheCapAndWhatWasUsed() throws IOException {
         NightBudget first = NightBudget.open(store, PROFILE, NOW);
         first.spendBuy(3, NOW);
-        first.spendRaise();
-        first.spendRaise();
+        first.spendLevels(3);
 
         NightBudget retry = NightBudget.open(store, PROFILE, NOW.plus(Duration.ofMinutes(9)));
 
         assertEquals(NOW.plus(NightBudget.TIME_CAP), retry.deadline());
         assertEquals(2, retry.buysLeft(3));
-        assertEquals(1, retry.raisesLeft(3));
+        assertEquals(2, retry.levelsLeft(5));
     }
 
     @Test
@@ -114,16 +113,66 @@ class NightBudgetTest {
     }
 
     @Test
-    void aLiveRaiseIsCountedBeforeItRuns() throws IOException {
+    void aLiveRaiseCountsItsLevelsBeforeItRuns() throws IOException {
         NightBudget budget = NightBudget.open(store, PROFILE, NOW);
         int[] seen = { -1 };
 
         budget.counted((raise, live) -> {
-            seen[0] = budget.raisesLeft(3);
+            try {
+                seen[0] = NightBudget.open(store, PROFILE, NOW).levelsLeft(5);
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
             return REACHES.run(raise, live);
         }).run(RAISE, true);
 
-        assertEquals(2, seen[0]);
+        assertEquals(1, seen[0], "81 to 85 is four levels, on disk before the first press");
+        assertEquals(1, budget.levelsLeft(5));
+    }
+
+    @Test
+    void aShortRaiseGivesBackTheLevelsItDidNotPress() throws IOException {
+        NightBudget budget = NightBudget.open(store, PROFILE, NOW);
+
+        budget.counted((raise, live) -> new GearEnhancePass.Outcome(raise.from() + 1, 1, Stop.QUICK_SELECT_SHORT, "short"))
+                .run(RAISE, true);
+
+        assertEquals(4, budget.levelsLeft(5));
+        assertEquals(4, NightBudget.open(store, PROFILE, NOW).levelsLeft(5));
+    }
+
+    @Test
+    void anUnconfirmedPressKeepsItsWholeCount() throws IOException {
+        NightBudget budget = NightBudget.open(store, PROFILE, NOW);
+
+        budget.counted((raise, live) -> new GearEnhancePass.Outcome(raise.from() + 1, 1, Stop.PRESS_UNCONFIRMED, "no read"))
+                .run(RAISE, true);
+
+        assertEquals(1, budget.levelsLeft(5));
+    }
+
+    @Test
+    void aRaiseCutOffMidwayKeepsItsWholeCount() throws IOException {
+        NightBudget budget = NightBudget.open(store, PROFILE, NOW);
+
+        assertThrows(IllegalStateException.class, () -> budget.counted((raise, live) -> {
+            throw new IllegalStateException("preempted");
+        }).run(RAISE, true));
+
+        assertEquals(1, NightBudget.open(store, PROFILE, NOW).levelsLeft(5));
+    }
+
+    @Test
+    void aLedgerSavedAsRaisesCountsFiveLevelsForEach() throws IOException {
+        Files.createDirectories(workspace.resolve("squads"));
+        Files.writeString(workspace.resolve("squads").resolve("hero-gear-night-" + PROFILE + ".json"),
+                "{\"startedAt\":\"" + NOW + "\",\"buys\":2,\"raises\":1,\"finished\":false}");
+
+        NightBudget budget = NightBudget.open(store, PROFILE, NOW.plus(Duration.ofMinutes(5)));
+
+        assertEquals(5, budget.levelsLeft(10));
+        assertEquals(1, budget.buysLeft(3));
+        assertEquals(NOW.plus(NightBudget.TIME_CAP), budget.deadline());
     }
 
     @Test
@@ -132,7 +181,7 @@ class NightBudgetTest {
 
         budget.counted(REACHES).run(RAISE, false);
 
-        assertEquals(3, budget.raisesLeft(3));
+        assertEquals(5, budget.levelsLeft(5));
     }
 
     @Test

@@ -5,12 +5,13 @@ import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 
+import dev.frostguard.engine.squads.GearEnhancePass;
 import dev.frostguard.engine.squads.GearEnhanceStep;
 import dev.frostguard.engine.squads.GearScan;
 import dev.frostguard.engine.squads.HeroGearStore;
 import dev.frostguard.engine.squads.HeroGearStore.NightLedger;
 
-/** One night's time cap and buy and raise counts, saved so a re-run gets what is left instead of starting over. */
+/** One night's time cap, buy count and enhance level count, saved so a re-run gets what is left instead of starting over. */
 final class NightBudget {
 
     static final Duration TIME_CAP = Duration.ofMinutes(20);
@@ -64,37 +65,48 @@ final class NightBudget {
         return Math.max(0, maxBuys - ledger.buys());
     }
 
-    int raisesLeft(int maxRaises) {
-        return Math.max(0, maxRaises - ledger.raises());
+    int levelsLeft(int maxLevels) {
+        return Math.max(0, maxLevels - ledger.levels());
     }
 
     /** Counts a buy before its tap, or returns false when the cap or the count says not to make it. */
     boolean spendBuy(int maxBuys, Instant now) throws IOException {
         if (now.isAfter(deadline()) || buysLeft(maxBuys) < 1) return false;
-        save(new NightLedger(ledger.startedAt(), ledger.buys() + 1, ledger.raises(), ledger.finished()));
+        save(new NightLedger(ledger.startedAt(), ledger.buys() + 1, ledger.levels(), ledger.finished()));
         return true;
     }
 
-    void spendRaise() throws IOException {
-        save(new NightLedger(ledger.startedAt(), ledger.buys(), ledger.raises() + 1, ledger.finished()));
+    void spendLevels(int levels) throws IOException {
+        save(new NightLedger(ledger.startedAt(), ledger.buys(), ledger.levels() + levels, ledger.finished()));
     }
 
-    /** Counts each live raise before it starts. */
+    /**
+     * Counts each live raise's planned levels before it starts, and gives back the ones it did not
+     * press once it returns. A raise that throws or ends unconfirmed keeps its whole count.
+     */
     GearEnhanceStep.Raiser counted(GearEnhanceStep.Raiser raiser) {
         return (raise, live) -> {
-            if (live) {
+            if (!live) return raiser.run(raise, false);
+            try {
+                spendLevels(raise.levels());
+            } catch (IOException e) {
+                throw new GearScan.Abort("could not save tonight's level count: " + e.getMessage());
+            }
+            GearEnhancePass.Outcome result = raiser.run(raise, true);
+            int unused = raise.levels() - Math.max(0, result.raised());
+            if (unused > 0 && result.stop() != GearEnhancePass.Stop.PRESS_UNCONFIRMED) {
                 try {
-                    spendRaise();
+                    spendLevels(-unused);
                 } catch (IOException e) {
-                    throw new GearScan.Abort("could not save tonight's raise count: " + e.getMessage());
+                    // Keeping the higher count only means fewer levels tonight.
                 }
             }
-            return raiser.run(raise, live);
+            return result;
         };
     }
 
     void finish() throws IOException {
-        save(new NightLedger(ledger.startedAt(), ledger.buys(), ledger.raises(), true));
+        save(new NightLedger(ledger.startedAt(), ledger.buys(), ledger.levels(), true));
     }
 
     private void save(NightLedger updated) throws IOException {

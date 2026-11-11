@@ -38,7 +38,6 @@ import dev.frostguard.engine.squads.HeroGearStore;
 import dev.frostguard.engine.squads.HeroScreenReader;
 import dev.frostguard.engine.squads.QuickEquipPass;
 import dev.frostguard.engine.squads.QuickEquipScreens;
-import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 
 /**
  * Once a night, buys the top Mastery Forging upgrades from {@link GearRanker} while the stones
@@ -71,7 +70,12 @@ public final class HeroGearForgeRoutine extends DelayedTask {
     private static final String DEFAULT_TIME = "02:30";
     // Room for the walk to and from a piece, so a raise started just in time can't eat into the reserve.
     private static final Duration WALK_MARGIN = Duration.ofMinutes(1);
+    private static final String SCAN = "scan";
+    private static final String QUICK_EQUIP = "quickequip";
+    private static final String ENHANCE = "enhance";
+    private static final String FORGE = "forge";
 
+    private final GearFailureFrames frames = GearFailureFrames.alwaysOn();
     private Instant deadline;
     private NightBudget budget;
 
@@ -190,30 +194,31 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         if (!Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_ENABLED_BOOL, Boolean.class))) {
             return new GearNight.Enhanced(state, null);
         }
+        frames.startStep();
         if (!openHeroesGrid()) {
-            logWarning("Gear enhance: Heroes grid did not open, nothing forged tonight");
+            logWarning("Gear enhance: Heroes grid did not open, nothing forged tonight; "
+                    + frames.stopped(ENHANCE, "Heroes grid did not open"));
             return new GearNight.Enhanced(null, null);
         }
-        int raisesLeft = budget.raisesLeft(intSetting(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_RAISES_INT));
-        if (raisesLeft < 1) {
-            logInfo("Gear enhance: tonight's raises are used up");
+        int levelsLeft = budget.levelsLeft(intSetting(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_LEVELS_INT));
+        if (levelsLeft < 1) {
+            logInfo("Gear enhance: tonight's levels are used up");
             return new GearNight.Enhanced(state, null);
         }
         Instant reserveAt = budget.reserveAt();
         Instant stopBy = reserveAt.minus(WALK_MARGIN);
         GearEnhanceStep.Settings settings = new GearEnhanceStep.Settings(tickedHeroes(),
-                intSetting(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_STEP_INT),
-                raisesLeft,
+                levelsLeft,
                 Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_LIVE_BOOL, Boolean.class)),
                 stopBy);
         GearEnhanceStep.Outcome outcome = GearEnhanceStep.run(state, settings,
-                new GearDetailsNavigator(gearDevice(reserveAt)), budget.counted(new GearEnhancePass(enhanceDevice(store, stopBy))::run),
+                new GearDetailsNavigator(gearDevice(ENHANCE, reserveAt)), budget.counted(new GearEnhancePass(enhanceDevice(store, stopBy))::run),
                 store, profile.getId(), Instant::now);
         logInfo("Gear enhance: " + outcome.raises() + " raises confirmed");
         if (outcome.note() != null) logInfo("Gear enhance: " + outcome.note());
         if (outcome.stop() != null) {
             logWarning("Gear enhance: stopped, nothing forged tonight: " + outcome.stop() + "; "
-                    + TaskDiagnosticSnapshots.capture(emuManager, EMULATOR_NUMBER, "gear-enhance", "enhance-stopped"));
+                    + frames.stopped(ENHANCE, outcome.stop()));
             return new GearNight.Enhanced(null, outcome.pressUnconfirmed() ? outcome.stop() : null);
         }
         return new GearNight.Enhanced(outcome.state(), null);
@@ -240,8 +245,9 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         int maxBuys = intSetting(ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT);
         int reserve = intSetting(ConfigurationKeyEnum.HERO_GEAR_FORGE_RESERVE_INT);
         GearRanker.rolling(ranked(state), 10).forEach(upgrade -> logInfo("Gear forge, rolling: " + upgrade));
+        frames.startStep();
         if (!openHeroesGrid()) {
-            logWarning("Gear forge: Heroes grid did not open");
+            forgeStopped("Heroes grid did not open");
             return;
         }
         while (budget.buysLeft(maxBuys) > 0) {
@@ -258,7 +264,11 @@ public final class HeroGearForgeRoutine extends DelayedTask {
             GearForgeGuard.Check check = GearForgeGuard.before(next, before, reserve);
             logInfo("Gear forge: " + check.verdict() + ": " + check.reason());
             switch (check.verdict()) {
-                case STOP, SAVE -> {
+                case STOP -> {
+                    forgeStopped(check.reason());
+                    return;
+                }
+                case SAVE -> {
                     return;
                 }
                 case RESYNC -> {
@@ -275,7 +285,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                     state = state.withMastery(next.hero(), next.slot(), next.toMastery());
                     store.saveGear(profile.getId(), state);
                     if (!closeToGrid()) {
-                        logWarning("Gear forge: could not get back to the Heroes grid, stopping");
+                        forgeStopped("could not get back to the Heroes grid");
                         return;
                     }
                 }
@@ -285,18 +295,22 @@ public final class HeroGearForgeRoutine extends DelayedTask {
 
     /** Why the night must halt, when a press left a march lead worse off or unverified; otherwise null. */
     private String quickEquip(HeroGearStore store) throws IOException {
+        frames.startStep();
         return GearNight.quickEquip(quickEquipOn(), new GearNight.QuickEquipRun() {
             @Override
             public boolean openGrid() {
                 boolean open = openHeroesGrid();
-                if (!open) logWarning("Quick Equip: Heroes grid did not open, nothing pressed");
+                if (!open) {
+                    logWarning("Quick Equip: Heroes grid did not open, nothing pressed; "
+                            + frames.stopped(QUICK_EQUIP, "Heroes grid did not open"));
+                }
                 return open;
             }
 
             // The walk stops at the reserve; the clock never cuts a re-read, which would halt the night for nothing.
             @Override
             public QuickEquipPass.Screens screens() {
-                return new QuickEquipScreens(gearDevice(Instant.MAX), () -> Instant.now().isAfter(budget.reserveAt()));
+                return new QuickEquipScreens(gearDevice(QUICK_EQUIP, Instant.MAX), () -> Instant.now().isAfter(budget.reserveAt()));
             }
 
             @Override
@@ -306,9 +320,9 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                 if (outcome.truncated() != null) logWarning("Quick Equip: " + outcome.truncated());
                 if (outcome.stopNight()) {
                     logWarning("QUICK EQUIP STOPPED THE NIGHT, NOTHING BOUGHT: " + outcome.problem() + "; "
-                            + TaskDiagnosticSnapshots.capture(emuManager, EMULATOR_NUMBER, "quick-equip", "leads-at-risk"));
+                            + frames.stopped(QUICK_EQUIP, outcome.problem()));
                 } else if (outcome.problem() != null) {
-                    logWarning("Quick Equip: " + outcome.problem());
+                    logWarning("Quick Equip: " + outcome.problem() + "; " + frames.stopped(QUICK_EQUIP, outcome.problem()));
                 }
             }
         }, store, profile.getId());
@@ -317,14 +331,16 @@ public final class HeroGearForgeRoutine extends DelayedTask {
     /** The freshly saved state, or null when the scan stopped and the night's buying is off. */
     private GearState scan(HeroGearStore store, GearState saved) {
         logInfo("Gear forge: full gear scan due, last scan " + (saved == null ? "none" : saved.scannedAt()));
+        frames.startStep();
         if (!openHeroesGrid()) {
-            logWarning("Gear forge: scan stopped, Heroes grid did not open; saved state kept, nothing bought tonight");
+            logWarning("Gear forge: scan stopped, Heroes grid did not open; saved state kept, nothing bought tonight; "
+                    + frames.stopped(SCAN, "Heroes grid did not open"));
             return null;
         }
-        GearScan.Outcome outcome = GearScan.run(new GearScanScreens(gearDevice(budget.reserveAt())), store, profile.getId(), saved, Instant.now());
+        GearScan.Outcome outcome = GearScan.run(new GearScanScreens(gearDevice(SCAN, budget.reserveAt())), store, profile.getId(), saved, Instant.now());
         if (outcome.problem() != null) {
             logWarning("Gear forge: scan stopped: " + outcome.problem() + "; saved state kept, nothing bought tonight; "
-                    + TaskDiagnosticSnapshots.capture(emuManager, EMULATOR_NUMBER, "gear-scan", "scan-stopped"));
+                    + frames.stopped(SCAN, outcome.problem()));
             return null;
         }
         if (outcome.inventoryNote() != null) logWarning("Gear forge: " + outcome.inventoryNote());
@@ -374,10 +390,23 @@ public final class HeroGearForgeRoutine extends DelayedTask {
             public void pressConfirmed() throws IOException {
                 store.clearRaiseInFlight(profile.getId());
             }
+
+            @Override
+            public void readFailed(RawImageData frame, String failure) {
+                HeroGearForgeRoutine.this.readFailed(ENHANCE, frame, failure);
+            }
         };
     }
 
-    private GearScanScreens.Device gearDevice(Instant stopAt) {
+    private void readFailed(String step, RawImageData frame, String failure) {
+        logWarning("Gear " + step + ": " + failure + "; " + frames.readFailed(step, frame, failure));
+    }
+
+    private void forgeStopped(String reason) {
+        logWarning("Gear forge: stopped, " + reason + "; " + frames.stopped(FORGE, reason));
+    }
+
+    private GearScanScreens.Device gearDevice(String step, Instant stopAt) {
         return new GearScanScreens.Device() {
             @Override
             public RawImageData capture() {
@@ -399,6 +428,11 @@ public final class HeroGearForgeRoutine extends DelayedTask {
             @Override
             public void pause(int millis) {
                 sleepTask(millis);
+            }
+
+            @Override
+            public void readFailed(RawImageData frame, String failure) {
+                HeroGearForgeRoutine.this.readFailed(step, frame, failure);
             }
         };
     }
@@ -431,19 +465,19 @@ public final class HeroGearForgeRoutine extends DelayedTask {
     /** From the Heroes grid to the open dialog; false, with the reason logged, on any wrong screen. */
     private boolean openForgeDialog(Upgrade upgrade) {
         if (!openHero(upgrade.hero())) {
-            logWarning("Gear forge: could not open " + upgrade.hero());
+            forgeStopped("could not open " + upgrade.hero());
             return false;
         }
         tapNear(GearScanScreens.GEAR_TAB, 15);
         sleepTask(1200);
         if (!HeroScreenReader.isGearTab(capture())) {
-            logWarning("Gear forge: Gear tab did not open for " + upgrade.hero());
+            forgeStopped("Gear tab did not open for " + upgrade.hero());
             return false;
         }
         tapNear(GearScanScreens.GEAR_TILES.get(upgrade.slot()), 12);
         sleepTask(1600);
         if (!ForgeDialogReader.isGearDetails(capture())) {
-            logWarning("Gear forge: Gear Details did not open for " + upgrade.hero() + " " + upgrade.slot());
+            forgeStopped("Gear Details did not open for " + upgrade.hero() + " " + upgrade.slot());
             return false;
         }
         tapNear(GearScanScreens.MASTERY_FORGING_BUTTON, 10);
@@ -479,7 +513,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
     private boolean forge(ForgeDialog before) {
         PointData button = ForgeDialogReader.forgeButton(capture());
         if (button == null) {
-            logWarning("Gear forge: Forge button not found, nothing pressed");
+            forgeStopped("Forge button not found, nothing pressed");
             return false;
         }
         tapNear(button, 8);
@@ -497,7 +531,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         }
         String problem = GearForgeGuard.afterProblem(before, after);
         if (problem != null) {
-            logWarning("Gear forge: stopped after a press: " + problem);
+            forgeStopped("after a press, " + problem);
             return false;
         }
         logInfo("Gear forge: bought " + before);
@@ -526,6 +560,6 @@ public final class HeroGearForgeRoutine extends DelayedTask {
     }
 
     private RawImageData capture() {
-        return emuManager.captureScreen(EMULATOR_NUMBER);
+        return frames.seen(emuManager.captureScreen(EMULATOR_NUMBER));
     }
 }

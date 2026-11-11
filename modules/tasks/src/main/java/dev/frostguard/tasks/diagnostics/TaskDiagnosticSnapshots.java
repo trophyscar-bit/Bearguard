@@ -23,6 +23,11 @@ public final class TaskDiagnosticSnapshots {
                 DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace());
     }
 
+    /** Saves a frame already in hand, whatever the snapshot setting says; nothing is captured or tapped. */
+    public static String saveAlways(RawImageData frame, String activity, String type) {
+        return capture(() -> frame, activity, type, DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace());
+    }
+
     static String capture(Supplier<RawImageData> takeFrame, String activity, String type) {
         return capture(takeFrame, activity, type, DiagnosticSnapshotStore.forCurrentWorkspace());
     }

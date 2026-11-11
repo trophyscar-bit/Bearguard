@@ -48,6 +48,10 @@ public final class GearScanScreens implements GearScan.Screens {
         void back();
 
         void pause(int millis);
+
+        /** The frame a read gave up on, just before the abort it causes. Must not touch the screen. */
+        default void readFailed(RawImageData frame, String failure) {
+        }
     }
 
     private final Device device;
@@ -176,9 +180,15 @@ public final class GearScanScreens implements GearScan.Screens {
     }
 
     private <T> T awaitFrame(Function<RawImageData, T> read, String failure) {
-        T value = tryRead(read);
-        if (value == null) throw new Abort(failure);
-        return value;
+        RawImageData frame = null;
+        for (int attempt = 0; attempt < READ_ATTEMPTS; attempt++) {
+            frame = device.capture();
+            T value = read.apply(frame);
+            if (value != null) return value;
+            device.pause(READ_PAUSE_MS);
+        }
+        device.readFailed(frame, failure);
+        throw new Abort(failure);
     }
 
     private <T> T tryRead(Function<RawImageData, T> read) {

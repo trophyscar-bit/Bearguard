@@ -63,7 +63,7 @@ class GearEnhanceStepTest {
     void raisesTheTickedWeakestFirstAndSavesAfterEachConfirmedRaise() throws IOException {
         List<Integer> flintLevelsSeen = new ArrayList<>();
 
-        Outcome outcome = run(2, 2, (raise, live) -> {
+        Outcome outcome = run(10, (raise, live) -> {
             flintLevelsSeen.add(savedLevel("Flint", "Belt"));
             return reached(raise);
         });
@@ -71,8 +71,8 @@ class GearEnhanceStepTest {
         assertNull(outcome.stop());
         assertEquals(2, outcome.raises());
         assertEquals(List.of("Flint/Belt", "Flint/Belt"), navigator.opened);
-        assertEquals(List.of(40, 42), flintLevelsSeen, "the first raise was on disk before the second began");
-        assertEquals(44, saved("Flint", "Belt").enhancement());
+        assertEquals(List.of(40, 45), flintLevelsSeen, "the first raise was on disk before the second began");
+        assertEquals(50, saved("Flint", "Belt").enhancement());
         assertEquals(10, saved("Molly", "Boots").enhancement(), "unticked hero untouched");
         assertEquals(2, navigator.closes);
     }
@@ -81,7 +81,7 @@ class GearEnhanceStepTest {
     void theScanDateIsClearedBeforeTheFirstLivePressAndComesBackAfterwards() throws IOException {
         List<String> seen = new ArrayList<>();
 
-        Outcome outcome = run(5, 1, (raise, live) -> {
+        Outcome outcome = run(5, (raise, live) -> {
             seen.add(scanDate());
             return reached(raise);
         });
@@ -93,7 +93,7 @@ class GearEnhanceStepTest {
 
     @Test
     void anInterruptedRaiseLeavesAScanDueAndPropagates() throws IOException {
-        assertThrows(IllegalStateException.class, () -> run(5, 3, (raise, live) -> {
+        assertThrows(IllegalStateException.class, () -> run(15, (raise, live) -> {
             throw new IllegalStateException("preempted");
         }));
 
@@ -104,7 +104,7 @@ class GearEnhanceStepTest {
 
     @Test
     void aLevelThatCouldNotBeSavedLeavesTheScanDue() throws IOException {
-        Outcome outcome = run(5, 3, (raise, live) -> {
+        Outcome outcome = run(15, (raise, live) -> {
             try {
                 Files.createDirectories(gearFile().resolveSibling(gearFile().getFileName() + ".tmp"));
             } catch (IOException e) {
@@ -122,7 +122,7 @@ class GearEnhanceStepTest {
     void aDryRunLeavesTheScanDateAlone() throws IOException {
         List<String> seen = new ArrayList<>();
 
-        GearEnhanceStep.run(GEAR, new Settings(TICKED, 5, 3, false, STOP_BY), navigator, (raise, live) -> {
+        GearEnhanceStep.run(GEAR, new Settings(TICKED, 15, false, STOP_BY), navigator, (raise, live) -> {
             seen.add(scanDate());
             return new GearEnhancePass.Outcome(raise.from(), 0, Stop.DRY_RUN, "would raise");
         }, store, PROFILE, () -> now);
@@ -143,7 +143,7 @@ class GearEnhanceStepTest {
         assertNull(loaded.pieces().getFirst().enhancement());
         assertNull(loaded.pieces().get(1).masteryPercent());
 
-        Outcome outcome = GearEnhanceStep.run(loaded, new Settings(TICKED, 5, 3, true, STOP_BY), navigator, REACHES, store, PROFILE, () -> now);
+        Outcome outcome = GearEnhanceStep.run(loaded, new Settings(TICKED, 15, true, STOP_BY), navigator, REACHES, store, PROFILE, () -> now);
 
         assertEquals(List.of("Flint/Gauntlets", "Flint/Gauntlets", "Flint/Gauntlets"), navigator.opened);
         assertEquals(3, outcome.raises());
@@ -156,7 +156,7 @@ class GearEnhanceStepTest {
     void outOfTimeEndsTheStepWithoutAStop() {
         now = STOP_BY;
 
-        Outcome outcome = run(5, 3, REACHES);
+        Outcome outcome = run(15, REACHES);
 
         assertNull(outcome.stop());
         assertNotNull(outcome.note());
@@ -166,19 +166,19 @@ class GearEnhanceStepTest {
 
     @Test
     void timeRunningOutPartWayKeepsWhatWasDone() throws IOException {
-        Outcome outcome = run(2, 3, (raise, live) -> {
+        Outcome outcome = run(15, (raise, live) -> {
             now = STOP_BY;
             return reached(raise);
         });
 
         assertNull(outcome.stop());
         assertEquals(1, outcome.raises());
-        assertEquals(42, saved("Flint", "Belt").enhancement());
+        assertEquals(45, saved("Flint", "Belt").enhancement());
     }
 
     @Test
     void thePassRunningOutOfTimeSavesPartialLevelsAndLetsTheForgeGo() throws IOException {
-        Outcome outcome = run(5, 3, (raise, live) -> new GearEnhancePass.Outcome(raise.from() + 2, 2, Stop.DEADLINE, "time cap"));
+        Outcome outcome = run(15, (raise, live) -> new GearEnhancePass.Outcome(raise.from() + 2, 2, Stop.DEADLINE, "time cap"));
 
         assertNull(outcome.stop());
         assertEquals("time cap", outcome.note());
@@ -189,7 +189,7 @@ class GearEnhanceStepTest {
 
     @Test
     void runningOutOfFodderLetsTheForgeGo() {
-        Outcome outcome = run(5, 3, (raise, live) -> new GearEnhancePass.Outcome(raise.from(), 0, Stop.QUICK_SELECT_SHORT, "short"));
+        Outcome outcome = run(15, (raise, live) -> new GearEnhancePass.Outcome(raise.from(), 0, Stop.QUICK_SELECT_SHORT, "short"));
 
         assertNull(outcome.stop());
         assertFalse(outcome.pressUnconfirmed());
@@ -200,7 +200,7 @@ class GearEnhanceStepTest {
     @EnumSource(value = Stop.class, names = { "WRONG_BUTTON", "WRONG_PIECE", "WRONG_LEVEL", "DIALOG_UNREADABLE",
             "PREVIEW_MISMATCH", "UNSAFE_FODDER", "LIST_SCAN_FAILED", "SELECTION_CHANGED", "MARKER_UNSAVED" })
     void anyOtherStopEndsTheNightKeepsConfirmedLevelsAndIsNotAnUnconfirmedPress(Stop stop) throws IOException {
-        Outcome outcome = run(5, 3, (raise, live) -> new GearEnhancePass.Outcome(raise.from() + 1, 1, stop, "nope"));
+        Outcome outcome = run(15, (raise, live) -> new GearEnhancePass.Outcome(raise.from() + 1, 1, stop, "nope"));
 
         assertEquals(stop + ": nope", outcome.stop());
         assertFalse(outcome.pressUnconfirmed());
@@ -212,7 +212,7 @@ class GearEnhanceStepTest {
 
     @Test
     void anUnconfirmedPressSavesNoLevelClearsTheScanDateAndTapsNoMore() throws IOException {
-        Outcome outcome = run(5, 3, (raise, live) -> new GearEnhancePass.Outcome(raise.from() + 2, 2, Stop.PRESS_UNCONFIRMED, "no read"));
+        Outcome outcome = run(15, (raise, live) -> new GearEnhancePass.Outcome(raise.from() + 2, 2, Stop.PRESS_UNCONFIRMED, "no read"));
 
         assertTrue(outcome.pressUnconfirmed());
         assertEquals("PRESS_UNCONFIRMED: no read", outcome.stop());
@@ -227,11 +227,11 @@ class GearEnhanceStepTest {
     void anUnconfirmedPressOnALaterRaiseKeepsEarlierRaisesAndStillClearsTheScanDate() throws IOException {
         int[] calls = { 0 };
 
-        Outcome outcome = run(2, 3, (raise, live) -> ++calls[0] == 1 ? reached(raise)
+        Outcome outcome = run(15, (raise, live) -> ++calls[0] == 1 ? reached(raise)
                 : new GearEnhancePass.Outcome(raise.from(), 0, Stop.PRESS_UNCONFIRMED, "no read"));
 
         assertTrue(outcome.pressUnconfirmed());
-        assertEquals(42, saved("Flint", "Belt").enhancement());
+        assertEquals(45, saved("Flint", "Belt").enhancement());
         assertNull(scanDate());
     }
 
@@ -239,7 +239,7 @@ class GearEnhanceStepTest {
     void aNavigationAbortIsAStop() {
         navigator.abort = true;
 
-        Outcome outcome = run(5, 3, REACHES);
+        Outcome outcome = run(15, REACHES);
 
         assertEquals("wrong screen", outcome.stop());
     }
@@ -248,10 +248,10 @@ class GearEnhanceStepTest {
     void aFailedCloseAfterARaiseIsAStopButTheRaiseIsSaved() throws IOException {
         navigator.abortOnClose = true;
 
-        Outcome outcome = run(2, 3, REACHES);
+        Outcome outcome = run(15, REACHES);
 
         assertEquals("no grid", outcome.stop());
-        assertEquals(42, saved("Flint", "Belt").enhancement());
+        assertEquals(45, saved("Flint", "Belt").enhancement());
     }
 
     @Test
@@ -259,7 +259,7 @@ class GearEnhanceStepTest {
         byte[] before = Files.readAllBytes(gearFile());
         boolean[] liveSeen = { true };
 
-        Outcome outcome = GearEnhanceStep.run(GEAR, new Settings(TICKED, 5, 3, false, STOP_BY), navigator, (raise, live) -> {
+        Outcome outcome = GearEnhanceStep.run(GEAR, new Settings(TICKED, 15, false, STOP_BY), navigator, (raise, live) -> {
             liveSeen[0] = live;
             return new GearEnhancePass.Outcome(raise.from(), 0, Stop.DRY_RUN, "dry run");
         }, store, PROFILE, () -> now);
@@ -276,7 +276,7 @@ class GearEnhanceStepTest {
         navigator.panelLevel = 47;
         int[] calls = { 0 };
 
-        Outcome outcome = run(5, 3, (raise, live) -> {
+        Outcome outcome = run(15, (raise, live) -> {
             calls[0]++;
             return reached(raise);
         });
@@ -288,8 +288,8 @@ class GearEnhanceStepTest {
 
     @Test
     void unusableSettingsDoNothing() {
-        assertNotNull(run(0, 3, REACHES).note());
-        assertNotNull(run(5, 0, REACHES).note());
+        assertNotNull(run(0, REACHES).note());
+        assertNotNull(run(-1, REACHES).note());
         assertTrue(navigator.opened.isEmpty());
     }
 
@@ -297,8 +297,8 @@ class GearEnhanceStepTest {
         return new GearEnhancePass.Outcome(raise.to(), raise.to() - raise.from(), Stop.TARGET_REACHED, "reached");
     }
 
-    private Outcome run(int step, int maxRaises, Raiser raiser) {
-        return GearEnhanceStep.run(GEAR, new Settings(TICKED, step, maxRaises, true, STOP_BY), navigator, raiser, store, PROFILE, () -> now);
+    private Outcome run(int maxLevels, Raiser raiser) {
+        return GearEnhanceStep.run(GEAR, new Settings(TICKED, maxLevels, true, STOP_BY), navigator, raiser, store, PROFILE, () -> now);
     }
 
     private GearPiece saved(String hero, String slot) throws IOException {

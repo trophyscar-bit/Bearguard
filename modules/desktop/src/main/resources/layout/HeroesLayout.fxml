@@ -28,6 +28,77 @@
 
                         <VBox styleClass="content-card">
                             <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                <Label text="Nightly Gear Options" />
+                            </HBox>
+                            <VBox spacing="12" styleClass="task-section-inner">
+                                <CheckBox fx:id="checkBoxForgeEnabled" mnemonicParsing="false"
+                                          text="Run the hero gear check every night" />
+                                <VBox fx:id="boxNightly" spacing="12">
+                                    <VBox spacing="6">
+                                        <HBox alignment="CENTER_LEFT" spacing="16">
+                                            <Label styleClass="task-field-label" text="Heroes whose gear gets upgraded:" />
+                                            <CheckBox fx:id="checkBoxMia" mnemonicParsing="false" text="Mia" />
+                                            <CheckBox fx:id="checkBoxFlint" mnemonicParsing="false" text="Flint" />
+                                            <CheckBox fx:id="checkBoxMolly" mnemonicParsing="false" text="Molly" />
+                                            <CheckBox fx:id="checkBoxBahiti" mnemonicParsing="false" text="Bahiti" />
+                                            <CheckBox fx:id="checkBoxSergey" mnemonicParsing="false" text="Sergey" />
+                                            <Label styleClass="label-muted" text="(your top 5)" />
+                                        </HBox>
+                                        <Label styleClass="label-muted" wrapText="true"
+                                               text="Enhance and Forge only touch the heroes ticked here." />
+                                    </VBox>
+
+                                    <VBox styleClass="task-subsection">
+                                        <Label styleClass="task-subsection-title" text="1. Quick Equip (spends nothing)" />
+                                        <CheckBox fx:id="checkBoxQuickEquip" mnemonicParsing="false"
+                                                  text="Quick Equip every hero (all 21), so better spare gear gets worn instead of eaten" />
+                                    </VBox>
+
+                                    <VBox styleClass="task-subsection">
+                                        <Label styleClass="task-subsection-title" text="2. Gear scan" />
+                                        <Label fx:id="labelScanInfo" styleClass="task-card-description" wrapText="true" />
+                                    </VBox>
+
+                                    <VBox styleClass="task-subsection">
+                                        <Label styleClass="task-subsection-title" text="3. Enhance (uses Enhancement XP items, not stones)" />
+                                        <CheckBox fx:id="checkBoxEnhance" mnemonicParsing="false"
+                                                  text="Level up the lowest gear on the 5 heroes" />
+                                        <CheckBox fx:id="checkBoxEnhanceLive" mnemonicParsing="false"
+                                                  text="Actually use XP items (off: only log what it would do)" />
+                                        <HBox fx:id="rowEnhanceLevels" alignment="CENTER_LEFT" spacing="14">
+                                            <Label styleClass="task-field-label" text="Most levels per night" minWidth="160" />
+                                            <ComboBox fx:id="comboBoxEnhanceLevels" prefWidth="120" />
+                                            <Label styleClass="label-muted" text="one level is one press; the lowest piece goes first" />
+                                        </HBox>
+                                    </VBox>
+
+                                    <VBox styleClass="task-subsection">
+                                        <Label styleClass="task-subsection-title" text="4. Forge (uses Essence Stones)" />
+                                        <CheckBox fx:id="checkBoxForgeLive" mnemonicParsing="false"
+                                                  text="Actually spend Essence Stones (off: only log what it would buy)" />
+                                        <HBox fx:id="rowMaxBuys" alignment="CENTER_LEFT" spacing="14">
+                                            <Label styleClass="task-field-label" text="Most forges per night" minWidth="160" />
+                                            <ComboBox fx:id="comboBoxMaxBuys" prefWidth="120" />
+                                        </HBox>
+                                        <HBox fx:id="rowReserve" alignment="CENTER_LEFT" spacing="14">
+                                            <Label styleClass="task-field-label" text="Always keep" minWidth="160" />
+                                            <ComboBox fx:id="comboBoxReserve" prefWidth="120" />
+                                            <Label styleClass="label-muted" text="stones" />
+                                        </HBox>
+                                        <HBox alignment="CENTER_LEFT" spacing="14">
+                                            <Label styleClass="task-field-label" text="Forge order" minWidth="160" />
+                                            <ComboBox fx:id="comboBoxFocus" prefWidth="560" />
+                                        </HBox>
+                                    </VBox>
+
+                                    <Label styleClass="task-card-note" wrapText="true"
+                                           text="Forging saves up for the top item rather than buying something cheaper below it. Reforge, Ascend, Redeem and anything priced in gems are never pressed." />
+                                </VBox>
+                            </VBox>
+                        </VBox>
+
+                        <VBox styleClass="content-card">
+                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
                                 <Label text="Gear Grades" />
                             </HBox>
                             <VBox spacing="10" styleClass="task-section-inner">
@@ -43,59 +114,8 @@
                             </HBox>
                             <VBox spacing="10" styleClass="task-section-inner">
                                 <Label fx:id="labelStones" styleClass="task-card-description" wrapText="true" />
+                                <Label fx:id="labelRollingOrder" styleClass="task-card-description" wrapText="true" />
                                 <TableView fx:id="tableRolling" prefHeight="510" />
-                            </VBox>
-                        </VBox>
-
-                        <VBox styleClass="content-card">
-                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                                <Label text="Auto-Buy Options" />
-                            </HBox>
-                            <VBox spacing="10" styleClass="task-section-inner">
-                                <CheckBox fx:id="checkBoxForgeEnabled" mnemonicParsing="false"
-                                          text="Run the gear check every night" />
-                                <CheckBox fx:id="checkBoxForgeLive" mnemonicParsing="false"
-                                          text="Actually spend Essence Stones (off = log what it would buy)" />
-                                <CheckBox fx:id="checkBoxQuickEquip" mnemonicParsing="false"
-                                          text="Quick Equip every hero first" />
-                                <CheckBox fx:id="checkBoxEnhance" mnemonicParsing="false"
-                                          text="Enhance the weakest gear after the scan" />
-                                <CheckBox fx:id="checkBoxEnhanceLive" mnemonicParsing="false"
-                                          text="Actually eat XP items" />
-                                <HBox alignment="CENTER_LEFT" spacing="14">
-                                    <Label styleClass="task-field-label" text="Enhance step" minWidth="160" />
-                                    <ComboBox fx:id="comboBoxEnhanceStep" prefWidth="160" />
-                                    <Label styleClass="label-muted" text="levels per raise" />
-                                </HBox>
-                                <HBox alignment="CENTER_LEFT" spacing="14">
-                                    <Label styleClass="task-field-label" text="Most raises per night" minWidth="160" />
-                                    <ComboBox fx:id="comboBoxEnhanceRaises" prefWidth="160" />
-                                </HBox>
-                                <Separator style="-fx-opacity: 0.25;" />
-                                <HBox alignment="CENTER_LEFT" spacing="14">
-                                    <Label styleClass="task-field-label" text="Focus" minWidth="160" />
-                                    <ComboBox fx:id="comboBoxFocus" prefWidth="160" />
-                                    <Label styleClass="label-muted" text="Rally squads uses the saved hero weights, led by your rally lead. Balanced treats the three march leads equally." wrapText="true" />
-                                </HBox>
-                                <HBox alignment="CENTER_LEFT" spacing="14">
-                                    <Label styleClass="task-field-label" text="Most buys per night" minWidth="160" />
-                                    <ComboBox fx:id="comboBoxMaxBuys" prefWidth="160" />
-                                </HBox>
-                                <HBox alignment="CENTER_LEFT" spacing="14">
-                                    <Label styleClass="task-field-label" text="Always keep" minWidth="160" />
-                                    <ComboBox fx:id="comboBoxReserve" prefWidth="160" />
-                                    <Label styleClass="label-muted" text="stones in reserve" />
-                                </HBox>
-                                <HBox alignment="CENTER_LEFT" spacing="18">
-                                    <Label styleClass="task-field-label" text="Heroes to upgrade" minWidth="160" />
-                                    <CheckBox fx:id="checkBoxMia" mnemonicParsing="false" text="Mia" />
-                                    <CheckBox fx:id="checkBoxFlint" mnemonicParsing="false" text="Flint" />
-                                    <CheckBox fx:id="checkBoxBahiti" mnemonicParsing="false" text="Bahiti" />
-                                    <CheckBox fx:id="checkBoxSergey" mnemonicParsing="false" text="Sergey" />
-                                    <CheckBox fx:id="checkBoxMolly" mnemonicParsing="false" text="Molly" />
-                                </HBox>
-                                <Label styleClass="task-card-note" wrapText="true"
-                                       text="Only Mastery Forging and, when ticked, Enhance are automated. Forging saves for the top item rather than buying something cheaper below it. Enhance uses XP items only while its second box is ticked. Reforge, Ascend, Redeem and anything priced in gems are never pressed." />
                             </VBox>
                         </VBox>
                     </VBox>

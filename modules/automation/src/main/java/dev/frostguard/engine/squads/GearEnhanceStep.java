@@ -35,7 +35,8 @@ public final class GearEnhanceStep {
         GearEnhancePass.Outcome run(Raise raise, boolean live);
     }
 
-    public record Settings(Set<String> heroes, int step, int maxRaises, boolean live, Instant stopBy) {
+    /** {@code maxLevels} counts single levels, the presses the night may make. */
+    public record Settings(Set<String> heroes, int maxLevels, boolean live, Instant stopBy) {
     }
 
     /**
@@ -55,8 +56,8 @@ public final class GearEnhanceStep {
 
     public static Outcome run(GearState saved, Settings settings, Navigator navigator, Raiser raiser,
                               HeroGearStore store, long profileId, Supplier<Instant> clock) {
-        if (settings.step() < 1 || settings.maxRaises() < 1) {
-            return new Outcome(saved, 0, null, "step " + settings.step() + " or raises " + settings.maxRaises() + " is not usable", false);
+        if (settings.maxLevels() < 1) {
+            return new Outcome(saved, 0, null, "most levels " + settings.maxLevels() + " is not usable", false);
         }
         Outcome outcome = raise(saved, settings, navigator, raiser, store, profileId, clock);
         return outcome.pressUnconfirmed() || outcome.saveFailed() ? outcome : restoreScanDate(outcome, saved.scannedAt(), store, profileId);
@@ -64,7 +65,7 @@ public final class GearEnhanceStep {
 
     private static Outcome raise(GearState saved, Settings settings, Navigator navigator, Raiser raiser,
                                  HeroGearStore store, long profileId, Supplier<Instant> clock) {
-        List<Raise> plan = GearEnhancePlanner.plan(saved.pieces(), settings.heroes(), settings.step(), settings.maxRaises());
+        List<Raise> plan = GearEnhancePlanner.plan(saved.pieces(), settings.heroes(), settings.maxLevels());
         GearState state = saved;
         int raises = 0;
         try {

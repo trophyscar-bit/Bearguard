@@ -246,7 +246,7 @@ class HeroesLayoutUxTest {
         View view = onFx(this::load);
 
         CheckBox box = (CheckBox) view.namespace().get("checkBoxQuickEquip");
-        assertEquals("Quick Equip every hero first", box.getText());
+        assertEquals("Quick Equip every hero (all 21), so better spare gear gets worn instead of eaten", box.getText());
         assertFalse(box.isSelected());
     }
 
@@ -257,11 +257,57 @@ class HeroesLayoutUxTest {
 
         CheckBox enhance = (CheckBox) view.namespace().get("checkBoxEnhance");
         CheckBox live = (CheckBox) view.namespace().get("checkBoxEnhanceLive");
-        assertEquals("Actually eat XP items", live.getText());
+        assertEquals("Level up the lowest gear on the 5 heroes", enhance.getText());
+        assertEquals("Actually use XP items (off: only log what it would do)", live.getText());
         assertFalse(enhance.isSelected());
         assertFalse(live.isSelected());
-        assertEquals(5, ((ComboBox<Integer>) view.namespace().get("comboBoxEnhanceStep")).getValue());
-        assertEquals(3, ((ComboBox<Integer>) view.namespace().get("comboBoxEnhanceRaises")).getValue());
+        assertEquals(5, ((ComboBox<Integer>) view.namespace().get("comboBoxEnhanceLevels")).getValue());
+        assertFalse(view.namespace().containsKey("comboBoxEnhanceStep"), "the step is the planner's, not the page's");
+        assertFalse(view.namespace().containsKey("comboBoxEnhanceRaises"));
+    }
+
+    @Test
+    void theMasterSaysWhenItRunsAndTheScanLineSaysHowOften() throws Exception {
+        View view = onFx(this::load);
+
+        String master = ((CheckBox) view.namespace().get("checkBoxForgeEnabled")).getText();
+        assertTrue(master.matches("Run the hero gear check every night at \\d{1,2}:\\d{2} (AM|PM)"), master);
+        assertEquals(HeroesLayoutController.localTime("02:30"), master.substring(master.lastIndexOf(" at ") + 4));
+        assertTrue(view.label("labelScanInfo").getText().contains("every 7 days"), view.label("labelScanInfo").getText());
+        assertEquals("nonsense UTC", HeroesLayoutController.localTime("nonsense"));
+    }
+
+    @Test
+    void theHeroesSitAtTheTopInTheirOrder() throws Exception {
+        View view = onFx(this::load);
+
+        javafx.scene.layout.HBox row = (javafx.scene.layout.HBox) ((CheckBox) view.namespace().get("checkBoxMia")).getParent();
+        assertEquals(List.of("Mia", "Flint", "Molly", "Bahiti", "Sergey"), row.getChildren().stream()
+                .filter(CheckBox.class::isInstance).map(n -> ((CheckBox) n).getText()).toList());
+        assertTrue(row.getChildren().stream().anyMatch(n -> n instanceof Label l && l.getText().equals("(your top 5)")));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void forgeOrderShowsPlainWordsOverTheStoredValues() throws Exception {
+        View view = onFx(this::load);
+        ComboBox<String> order = (ComboBox<String>) view.namespace().get("comboBoxFocus");
+
+        assertEquals(List.of("Rally squads", "Balanced"), order.getItems());
+        assertEquals("Rally squads", order.getValue(), "an existing setting still loads");
+        assertEquals("Biggest rally impact first (Bahiti leads, he carries most rally troops)",
+                order.getConverter().toString("Rally squads"));
+        assertTrue(order.getConverter().toString("Balanced").startsWith("Even across"));
+        assertEquals("Balanced", order.getConverter().fromString(order.getConverter().toString("Balanced")));
+        assertEquals("Order follows Forge order above. Bahiti tops it because he carries most of your rally troops.",
+                view.label("labelRollingOrder").getText());
+
+        onFx(() -> {
+            order.setValue("Balanced");
+            return null;
+        });
+
+        assertEquals("Order follows Forge order above.", view.label("labelRollingOrder").getText());
     }
 
     @Test
@@ -272,23 +318,80 @@ class HeroesLayoutUxTest {
     }
 
     @Test
-    void enhanceOptionsAreDisabledWhileTheNightlyGearCheckIsOff() throws Exception {
+    void everythingBelowTheMasterIsGreyedWhileItIsOff() throws Exception {
         View view = onFx(this::load);
-        CheckBox nightly = (CheckBox) view.namespace().get("checkBoxForgeEnabled");
-        List<String> ids = List.of("checkBoxEnhance", "checkBoxEnhanceLive", "comboBoxEnhanceStep", "comboBoxEnhanceRaises");
 
-        onFx(() -> {
-            nightly.setSelected(false);
-            return null;
-        });
-        for (String id : ids) assertTrue(((javafx.scene.Node) view.namespace().get(id)).isDisabled(), id);
+        onFx(() -> view.tick(false, false, false, false, false));
+        assertEquals(List.of(), view.enabled(BELOW_MASTER));
+        assertFalse(view.disabled("checkBoxForgeEnabled"));
 
-        onFx(() -> {
-            nightly.setSelected(true);
-            return null;
-        });
-        for (String id : ids) assertFalse(((javafx.scene.Node) view.namespace().get(id)).isDisabled(), id);
+        onFx(() -> view.tick(true, false, false, false, false));
+        assertEquals(List.of("checkBoxMia", "checkBoxFlint", "checkBoxMolly", "checkBoxBahiti", "checkBoxSergey",
+                "checkBoxQuickEquip", "checkBoxEnhance", "checkBoxForgeLive", "comboBoxFocus"), view.enabled(BELOW_MASTER));
     }
+
+    @Test
+    void spendingOnlySettingsAreGreyedUntilTheirSpendBoxIsTicked() throws Exception {
+        View view = onFx(this::load);
+
+        onFx(() -> view.tick(true, true, true, false, false));
+        assertTrue(view.disabled("comboBoxMaxBuys"));
+        assertTrue(view.disabled("comboBoxReserve"));
+        assertFalse(view.disabled("checkBoxEnhanceLive"));
+        assertTrue(view.disabled("comboBoxEnhanceLevels"), "levels matter only when XP items are really used");
+
+        onFx(() -> view.tick(true, true, false, true, false));
+        assertTrue(view.disabled("checkBoxEnhanceLive"), "nothing to use XP items on with Enhance off");
+        assertTrue(view.disabled("comboBoxEnhanceLevels"));
+
+        onFx(() -> view.tick(true, true, true, true, true));
+        assertEquals(BELOW_MASTER, view.enabled(BELOW_MASTER));
+    }
+
+    @Test
+    void rendersTheFourOptionStates() throws Exception {
+        renderState("1-all-off.png", false, false, false, false, false, false);
+        renderState("2-master-on-spending-off.png", false, true, true, true, false, false);
+        renderState("3-everything-on.png", false, true, true, true, true, true);
+        View halted = renderState("4-halted.png", true, true, true, true, false, false);
+
+        assertTrue(halted.label("labelHalt").getText().contains("HALTED since"), halted.label("labelHalt").getText());
+        assertFalse(halted.disabled("buttonClearHalt"));
+        assertTrue(halted.disabled("comboBoxMaxBuys"));
+    }
+
+    private View renderState(String name, boolean halt, boolean nightly, boolean quickEquip, boolean enhance,
+                             boolean enhanceLive, boolean forgeLive) throws Exception {
+        seed(true);
+        HeroGearStore store = new HeroGearStore(workspace);
+        if (halt) {
+            store.saveHalt(1, new HeroGearStore.GearHalt("Enhance: Mia Boots showed no new level",
+                    "2026-11-10T07:45:00Z", HeroGearStore.GearHalt.ENHANCE));
+        } else {
+            store.clearHalt(1);
+        }
+        View view = onFx(this::open);
+        onFx(() -> view.tick(nightly, quickEquip, enhance, enhanceLive, forgeLive));
+        String renderDir = System.getProperty("heroes.render.dir");
+        onFx(() -> {
+            Scene scene = new Scene(view.root(), 1100, 2000);
+            scene.getStylesheets().add(Objects.requireNonNull(
+                    HeroesLayoutController.class.getResource("/styles/style.css")).toExternalForm());
+            view.root().applyCss();
+            view.root().layout();
+            javafx.scene.image.WritableImage image = scene.snapshot(null);
+            if (renderDir != null) {
+                Path dir = Files.createDirectories(Path.of(renderDir));
+                ImageIO.write(SwingFXUtils.fromFXImage(image, null), "png", dir.resolve(name).toFile());
+            }
+            return null;
+        });
+        return view;
+    }
+
+    private static final List<String> BELOW_MASTER = List.of("checkBoxMia", "checkBoxFlint", "checkBoxMolly", "checkBoxBahiti",
+            "checkBoxSergey", "checkBoxQuickEquip", "checkBoxEnhance", "checkBoxEnhanceLive", "comboBoxEnhanceLevels",
+            "checkBoxForgeLive", "comboBoxMaxBuys", "comboBoxReserve", "comboBoxFocus");
 
     @Test
     void withNoHaltTheStatusSaysSoAndClearIsOff() throws Exception {
@@ -396,6 +499,23 @@ class HeroesLayoutUxTest {
 
         List<String> tabTitles() {
             return ((TabPane) root.lookup(".tab-pane")).getTabs().stream().map(Tab::getText).toList();
+        }
+
+        boolean disabled(String id) {
+            return ((javafx.scene.Node) namespace.get(id)).isDisabled();
+        }
+
+        List<String> enabled(List<String> ids) {
+            return ids.stream().filter(id -> !disabled(id)).toList();
+        }
+
+        Void tick(boolean nightly, boolean quickEquip, boolean enhance, boolean enhanceLive, boolean forgeLive) {
+            ((CheckBox) namespace.get("checkBoxForgeEnabled")).setSelected(nightly);
+            ((CheckBox) namespace.get("checkBoxQuickEquip")).setSelected(quickEquip);
+            ((CheckBox) namespace.get("checkBoxEnhance")).setSelected(enhance);
+            ((CheckBox) namespace.get("checkBoxEnhanceLive")).setSelected(enhanceLive);
+            ((CheckBox) namespace.get("checkBoxForgeLive")).setSelected(forgeLive);
+            return null;
         }
     }
 

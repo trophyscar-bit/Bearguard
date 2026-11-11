@@ -535,8 +535,11 @@ public enum ConfigurationKeyEnum {
     HERO_QUICK_EQUIP_ENABLED_BOOL       ("false",   Boolean.class,  ConfigCategory.ANALYTICS),
     HERO_GEAR_ENHANCE_ENABLED_BOOL      ("false",   Boolean.class,  ConfigCategory.ANALYTICS),
     HERO_GEAR_ENHANCE_LIVE_BOOL         ("false",   Boolean.class,  ConfigCategory.ANALYTICS),
-    HERO_GEAR_ENHANCE_STEP_INT          ("5",       Integer.class,  ConfigCategory.ANALYTICS),
-    HERO_GEAR_ENHANCE_MAX_RAISES_INT    ("3",       Integer.class,  ConfigCategory.ANALYTICS),
+    /** Legacy enhance step key retained only so existing persisted profiles can still be read. */
+    HERO_GEAR_ENHANCE_STEP_INT          ("5",       Integer.class,  ConfigCategory.ANALYTICS, true),
+    /** Legacy enhance raise count key retained only so existing persisted profiles can still be read. */
+    HERO_GEAR_ENHANCE_MAX_RAISES_INT    ("3",       Integer.class,  ConfigCategory.ANALYTICS, true),
+    HERO_GEAR_ENHANCE_MAX_LEVELS_INT    ("5",       Integer.class,  ConfigCategory.ANALYTICS),
     HERO_GEAR_FORGE_TIME_UTC_STRING     ("02:30",   String.class,   ConfigCategory.ANALYTICS),
     HERO_GEAR_FORGE_MAX_BUYS_INT        ("5",       Integer.class,  ConfigCategory.ANALYTICS),
     HERO_GEAR_FORGE_RESERVE_INT         ("0",       Integer.class,  ConfigCategory.ANALYTICS),

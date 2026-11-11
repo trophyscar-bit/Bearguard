@@ -9,22 +9,25 @@ import java.util.Set;
 import dev.frostguard.engine.squads.GearRanker.GearPiece;
 
 /**
- * Plans gear enhancement by always lifting the lowest on-role piece to its next step, ties going to
- * the lowest bonus, so the included heroes rise together instead of one piece running ahead.
+ * Plans gear enhancement by always lifting the lowest on-role piece to its next step of {@value #STEP},
+ * ties going to the lowest bonus, so the included heroes rise together instead of one piece running ahead.
  */
 public final class GearEnhancePlanner {
 
+    public static final int STEP = 5;
     private static final int MAX_ENHANCEMENT = 100;
 
     public record Raise(String hero, String slot, int from, int to) {
+        public int levels() {
+            return to - from;
+        }
     }
 
     private GearEnhancePlanner() {
     }
 
-    /** The next {@code count} raises in order, each assuming those before it were done. */
-    public static List<Raise> plan(List<GearPiece> gear, Set<String> included, int step, int count) {
-        if (step < 1) throw new IllegalArgumentException("step must be at least 1, was " + step);
+    /** Raises in order adding up to at most {@code maxLevels} levels, each assuming those before it were done. */
+    public static List<Raise> plan(List<GearPiece> gear, Set<String> included, int maxLevels) {
         Map<String, GearPiece> pieces = new LinkedHashMap<>();
         for (GearPiece piece : gear) {
             if (piece.known() && piece.onRole() && included.contains(piece.hero())) {
@@ -32,11 +35,14 @@ public final class GearEnhancePlanner {
             }
         }
         List<Raise> raises = new ArrayList<>();
-        while (raises.size() < count) {
+        int left = maxLevels;
+        while (left > 0) {
             GearPiece weakest = weakest(pieces.values());
             if (weakest == null) break;
-            int target = Math.min(MAX_ENHANCEMENT, (weakest.enhancement() / step + 1) * step);
+            int nextStep = Math.min(MAX_ENHANCEMENT, (weakest.enhancement() / STEP + 1) * STEP);
+            int target = Math.min(nextStep, weakest.enhancement() + left);
             raises.add(new Raise(weakest.hero(), weakest.slot(), weakest.enhancement(), target));
+            left -= target - weakest.enhancement();
             pieces.put(weakest.hero() + "/" + weakest.slot(), new GearPiece(weakest.hero(), weakest.slot(), target,
                     weakest.masteryPercent(), true));
         }

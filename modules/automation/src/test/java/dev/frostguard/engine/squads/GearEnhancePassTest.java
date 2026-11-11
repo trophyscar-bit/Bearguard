@@ -150,6 +150,15 @@ class GearEnhancePassTest {
     }
 
     @Test
+    void aReadThatGivesUpReportsItBeforeTheBackOut() {
+        game.label = "";
+
+        run(ONE, true);
+
+        assertEquals("readFailed: Gear Details is not on screen", game.events.getFirst());
+    }
+
+    @Test
     void aDifferentPieceStops() {
         game.piece = "Guardian Belt";
 
@@ -447,6 +456,11 @@ class GearEnhancePassTest {
         @Override
         public boolean pastDeadline() {
             return ++deadlineChecks == deadlineAtCheck;
+        }
+
+        @Override
+        public void readFailed(RawImageData frame, String failure) {
+            events.add("readFailed: " + failure);
         }
 
         @Override
