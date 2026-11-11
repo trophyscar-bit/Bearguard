@@ -23,6 +23,7 @@ import dev.frostguard.engine.nav.SidebarDestination;
 import dev.frostguard.engine.nav.SidebarFrameClassifier;
 import dev.frostguard.engine.nav.SidebarRouteResult;
 import dev.frostguard.engine.nav.SidebarRowAction;
+import dev.frostguard.engine.nav.RecallConfirmationGuard;
 import dev.frostguard.engine.nav.SidebarRowLookup;
 import dev.frostguard.engine.nav.SidebarSection;
 import dev.frostguard.engine.nav.SidebarViewportChangeDetector;
@@ -45,6 +46,7 @@ public final class SidebarNavigator {
     private static final int DESTINATION_SETTLE_MS = 2_000;
     private static final int SCREEN_SWITCH_SETTLE_MS = 2_000;
     private static final String SNAPSHOT_ACTIVITY = "sidebar";
+    private static final int RECALL_DIALOG_THRESHOLD = 90;
     private static final int ROW_ICON_THRESHOLD = 88;
     private static final int ROW_ACTION_THRESHOLD = 88;
     private static final int GO_LEFT_OFFSET = 315;
@@ -62,6 +64,8 @@ public final class SidebarNavigator {
     private final String device;
     private final TapInteractionService taps;
     private final ScreenStateReader screenStates;
+    private final SectionReader sections;
+    private final RecallConfirmationGuard recallGuard;
     private final Waiter transitionWaiter;
     private final ProfileContextLogger log;
     private final SidebarHomeFallback homeFallback;
@@ -73,6 +77,8 @@ public final class SidebarNavigator {
         this.dailyListingKey = device + "/" + (profile == null ? "" : profile.getId());
         this.taps = TapInteractionService.forController(emu, device);
         this.screenStates = this::captureScreenState;
+        this.sections = this::captureSelectedSection;
+        this.recallGuard = new EmulatorRecallGuard();
         this.transitionWaiter = this::interruptibleWait;
         this.log = new ProfileContextLogger(SidebarNavigator.class, profile);
         this.homeFallback = new SidebarHomeFallback(new EmulatorScreens());
@@ -249,6 +255,13 @@ public final class SidebarNavigator {
     }
 
     private boolean openSectionInternal(SidebarSection target) {
+        // Nothing here may tap while the march Recall confirmation is up: its Confirm destroys a
+        // running gather march. Back out of it first, and if it will not clear, tap nothing.
+        if (!recallGuard.clear()) {
+            log.warn("Recall confirmation is on screen and would not clear; tapping nothing for "
+                    + target);
+            return false;
+        }
         ScreenState initialState = screenStates.read();
         Optional<SidebarSection> current = initialState.section();
 
@@ -293,6 +306,38 @@ public final class SidebarNavigator {
                 log.debug("Sidebar still closed/unknown on a verified root screen after checks="
                         + observation.checks() + "; retrying the trigger once");
             }
+        }
+
+        if (current.orElse(null) != target) {
+            // The reading above can be seconds old: the trigger loop waits out a 2 s settle and
+            // up to nine polls before this point. That matters because on World the tab strip is
+            // not over empty map -- the Marching panel occupies the upper left, and every saved
+            // World frame here shows it across the tab rows. A tab tap sent after the panel has
+            // closed therefore does not miss harmlessly: it reaches the march list underneath,
+            // and a selected march offers Recall.
+            //
+            // This is not hypothetical. On 2026-11-11 three saved frames (20261111T045932,
+            // T070403, T121940) caught the bot sitting on an open "Recall Troops?" confirmation
+            // over live gather marches, and all three follow this very log line for WILDERNESS --
+            // three for three, while the CITY failures and the trigger-tap failures show no such
+            // dialog. Each was dismissed only because recovery happened to press back.
+            //
+            // So re-read, and tap tab coordinates only with a panel in the frame we have now.
+            if (!recallGuard.clear()) {
+                log.warn("Recall confirmation appeared before the " + target
+                        + " tab could be tapped; tapping nothing");
+                return false;
+            }
+            // Poll rather than demand a panel in one frame: the classifier reads unknown for a
+            // frame or two mid-animation, and aborting on that would make honest switches flaky.
+            // What must not happen is tapping when the panel is really gone.
+            TransitionObservation beforeTap = awaitSection(Optional::isPresent);
+            if (beforeTap.section().isEmpty()) {
+                log.warn("Sidebar closed before the " + target
+                        + " tab could be tapped; refusing to tap tab coordinates over the map");
+                return false;
+            }
+            current = beforeTap.section();
         }
 
         if (current.orElse(null) != target) {
@@ -387,6 +432,25 @@ public final class SidebarNavigator {
         return ImageSearchResultData.miss();
     }
 
+    /** The real screen behind {@link RecallConfirmationGuard}. */
+    private final class EmulatorRecallGuard implements RecallConfirmationGuard {
+
+        @Override
+        public boolean dialogOnScreen() {
+            RawImageData frame = emu.captureScreen(device);
+            return frame != null
+                    && emu.locatePattern(device, frame, TemplatesEnum.MARCHES_RECALL_CONFIRM_DIALOG,
+                            RECALL_DIALOG_THRESHOLD).isFound();
+        }
+
+        @Override
+        public void pressBack() {
+            log.warn("Recall confirmation on screen; backing out of it rather than tapping");
+            emu.pressBack(device);
+            interruptibleWait(SECTION_SETTLE_MS);
+        }
+    }
+
     /** The real screen behind {@link SidebarHomeFallback}. */
     private final class EmulatorScreens implements SidebarHomeFallback.Screens {
 
@@ -455,6 +519,10 @@ public final class SidebarNavigator {
     }
 
     private Optional<SidebarSection> selectedSection() {
+        return sections.read();
+    }
+
+    private Optional<SidebarSection> captureSelectedSection() {
         return selectedSection(emu.captureScreen(device));
     }
 
@@ -463,7 +531,7 @@ public final class SidebarNavigator {
     }
 
     private TransitionObservation awaitSection(Predicate<Optional<SidebarSection>> accepted) {
-        return awaitSection(accepted, this::selectedSection, transitionWaiter);
+        return awaitSection(accepted, sections, transitionWaiter);
     }
 
     static TransitionObservation awaitSection(Predicate<Optional<SidebarSection>> accepted,

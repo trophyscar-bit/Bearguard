@@ -356,6 +356,10 @@ class SidebarRecoveryAdversarialTest {
         Rig rig = new Rig();
         put(rig.nav, "screenStates", (SidebarNavigator.ScreenStateReader) () ->
                 new SidebarNavigator.ScreenState(Optional.of(SidebarSection.CITY), false));
+        // One frame for the Recall-confirmation check, one for the panel check before the tab
+        // tap, then the previous/unknown/settled run this test exists to walk through.
+        rig.backend.captureFrames.add(sectionFrame(SidebarSection.CITY));
+        rig.backend.captureFrames.add(sectionFrame(SidebarSection.CITY));
         rig.backend.captureFrames.add(sectionFrame(SidebarSection.CITY));
         rig.backend.captureFrames.add(frame(false));
         rig.backend.captureFrames.add(frame(true));
