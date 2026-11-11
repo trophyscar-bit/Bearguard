@@ -167,17 +167,27 @@ class PetSkillTileCooldownFrameTest {
 
     @Test
     void theCooldownBandStaysInsideItsOwnTile() {
-        // The band is derived from the tile so it follows the tile when the roster grows. It must
-        // stay within the tile's own bounds, or one skill would read its neighbour's clock.
+        // The band is derived from the tile so it follows the tile when the roster grows. Gathering
+        // widens its band to fit its clock, but no band may reach another tile in its row, or one
+        // skill would read its neighbour's clock.
         for (PetSkillsRoutine.PetSkill skill : PetSkillsRoutine.PetSkill.values()) {
             AreaData tile = new AreaData(skill.getTopLeft(), skill.getBottomRight());
             AreaData band = skill.cooldownArea();
 
-            assertEquals(tile.topLeft().getX(), band.topLeft().getX(), skill + " band x drifted");
-            assertEquals(tile.bottomRight().getX(), band.bottomRight().getX(), skill + " band x drifted");
+            if (skill != PetSkillsRoutine.PetSkill.GATHERING) {
+                assertEquals(tile.topLeft().getX(), band.topLeft().getX(), skill + " band x drifted");
+                assertEquals(tile.bottomRight().getX(), band.bottomRight().getX(), skill + " band x drifted");
+            }
             assertTrue(band.topLeft().getY() > tile.topLeft().getY(), skill + " band starts above its tile");
             assertTrue(band.bottomRight().getY() < tile.bottomRight().getY(),
                     skill + " band runs past the bottom of its tile");
+            for (PetSkillsRoutine.PetSkill other : PetSkillsRoutine.PetSkill.values()) {
+                boolean sameRow = other.getTopLeft().getY() == skill.getTopLeft().getY();
+                if (other == skill || !sameRow) continue;
+                assertTrue(band.bottomRight().getX() < other.getTopLeft().getX()
+                                || band.topLeft().getX() > other.getBottomRight().getX(),
+                        skill + " band reaches " + other + "'s tile");
+            }
         }
     }
 

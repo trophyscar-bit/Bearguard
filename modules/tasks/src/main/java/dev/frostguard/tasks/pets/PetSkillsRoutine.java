@@ -131,6 +131,15 @@ public class PetSkillsRoutine extends DelayedTask {
     private static final int COOLDOWN_BAND_TOP_OFFSET = 22;
     private static final int COOLDOWN_BAND_BOTTOM_OFFSET = 78;
 
+    // Burden Bearer's clock runs to about x 480, past the tap inset's right edge at 460, so a band
+    // cut from the inset clipped it and the OCR came back empty: every Gathering run from 10 to 11
+    // November logged "Could not read cooldown" and fell back to polling hourly. Swept against the
+    // seven saved panels, x 365 to 483 reads all seven correctly, including the wrapped 1d timer,
+    // while the old 380-460 read none of the six clocks. The plateau is narrow on the left -- 363
+    // misreads one frame and 369 several -- so this is a measured span, not a margin to round.
+    static final int GATHERING_CLOCK_LEFT = 365;
+    static final int GATHERING_CLOCK_RIGHT = 483;
+
     // ========== Skill Details UI (overlay on pets menu) ==========
     static final AreaData GATHERING_COOLDOWN_OCR_AREA = new AreaData(
             new PointData(379, 282),
@@ -1600,7 +1609,8 @@ public class PetSkillsRoutine extends DelayedTask {
         STAMINA(STAMINA_SKILL_TOP_LEFT, STAMINA_SKILL_BOTTOM_RIGHT),
 
         /** Gathering skill - increases gathering speed */
-        GATHERING(GATHERING_SKILL_TOP_LEFT, GATHERING_SKILL_BOTTOM_RIGHT),
+        GATHERING(GATHERING_SKILL_TOP_LEFT, GATHERING_SKILL_BOTTOM_RIGHT,
+                GATHERING_CLOCK_LEFT, GATHERING_CLOCK_RIGHT),
 
         /** Food skill - increases food production */
         FOOD(FOOD_SKILL_TOP_LEFT, FOOD_SKILL_BOTTOM_RIGHT),
@@ -1615,15 +1625,23 @@ public class PetSkillsRoutine extends DelayedTask {
         TREASURE(TREASURE_SKILL_TOP_LEFT, TREASURE_SKILL_BOTTOM_RIGHT);
 
         private final AreaData area;
+        private final int clockLeft;
+        private final int clockRight;
 
         /**
          * Constructs a PetSkill with screen coordinates.
-         * 
+         *
          * @param topLeft     top-left corner of the skill icon region
          * @param bottomRight bottom-right corner of the skill icon region
          */
         PetSkill(PointData topLeft, PointData bottomRight) {
+            this(topLeft, bottomRight, topLeft.getX(), bottomRight.getX());
+        }
+
+        PetSkill(PointData topLeft, PointData bottomRight, int clockLeft, int clockRight) {
             this.area = new AreaData(topLeft, bottomRight);
+            this.clockLeft = clockLeft;
+            this.clockRight = clockRight;
         }
 
         /**
@@ -1635,12 +1653,15 @@ public class PetSkillsRoutine extends DelayedTask {
          * "HH:MM:SS". Measured on live 720x1280 frames and on the 2026-08-10 fixture, where the
          * same band reads 22:23:03 / 22:56:51 and the wrapped 1d 10:14:57 respectively.
          *
+         * <p>The band spans the tap inset unless the skill gives its own clock span; see
+         * {@link PetSkillsRoutine#GATHERING_CLOCK_LEFT} for the one that does.
+         *
          * @return the crop to OCR for this skill's remaining cooldown
          */
         AreaData cooldownArea() {
             return new AreaData(
-                    new PointData(area.topLeft().getX(), area.topLeft().getY() + COOLDOWN_BAND_TOP_OFFSET),
-                    new PointData(area.bottomRight().getX(), area.topLeft().getY() + COOLDOWN_BAND_BOTTOM_OFFSET));
+                    new PointData(clockLeft, area.topLeft().getY() + COOLDOWN_BAND_TOP_OFFSET),
+                    new PointData(clockRight, area.topLeft().getY() + COOLDOWN_BAND_BOTTOM_OFFSET));
         }
 
         /**
