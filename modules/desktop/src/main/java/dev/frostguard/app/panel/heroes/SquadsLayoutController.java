@@ -5,18 +5,13 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.runtime.WorkspacePaths;
-import dev.frostguard.api.squads.HeroGear;
-import dev.frostguard.api.squads.HeroRecord;
-import dev.frostguard.api.squads.HeroSkill;
 import dev.frostguard.api.squads.SavedSquad;
 import dev.frostguard.api.squads.SquadSnapshot;
 import dev.frostguard.api.squads.TroopStock;
@@ -24,7 +19,6 @@ import dev.frostguard.app.panel.profile.IProfileLoadListener;
 import dev.frostguard.app.panel.profile.ProfileAux;
 import dev.frostguard.engine.schedule.TaskQueue;
 import dev.frostguard.engine.service.ScheduleService;
-import dev.frostguard.engine.squads.GearAdvisor;
 import dev.frostguard.engine.squads.SquadPlanner;
 import dev.frostguard.engine.squads.SquadScanRegistry;
 import dev.frostguard.engine.squads.SquadSnapshotStore;
@@ -36,44 +30,27 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
-import javafx.scene.control.TextField;
 
-/** Troops > Squads and Heroes: runs the hero/troop/squad scan and shows what it read, suggests and plans. */
+/** Troops > Squads: runs the hero/troop/squad scan and shows how to set up each squad. */
 public final class SquadsLayoutController implements IProfileLoadListener {
 
     private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("EEE MMM d, h:mm a", Locale.ENGLISH)
             .withZone(ZoneId.systemDefault());
 
-    private static final int DEFAULT_STONES = 50;
-
     private ProfileAux currentProfile;
-    private SquadSnapshot shown;
 
     @FXML private Button buttonScan;
     @FXML private Label labelStatus;
     @FXML private Label labelProblems;
     @FXML private TableView<List<String>> tableSuggested;
-    @FXML private TableView<List<String>> tableHeroes;
-    @FXML private TableView<List<String>> tableSkills;
-    @FXML private TableView<List<String>> tableJoiners;
     @FXML private TableView<List<String>> tableSaved;
     @FXML private TableView<List<String>> tableTroops;
-    @FXML private TableView<List<String>> tableGear;
-    @FXML private TextField fieldStones;
-    @FXML private Label labelGearNotes;
 
     @FXML
     private void initialize() {
         columns(tableSuggested, "Squad", "Use", "Heroes (first = leads the march)", "Why");
-        columns(tableHeroes, "Hero", "Rarity", "Type", "Lv", "Stars", "Power", "Offense %", "Defense %",
-                "Attack %", "Lethality %", "Defense %", "Health %", "Hero Atk", "Hero Def", "Hero HP",
-                "Gear (+enh / mastery)", "Exclusive");
-        columns(tableSkills, "Hero", "Side", "#", "Skill", "Lv", "Effect at current level");
-        columns(tableJoiners, "Rank", "Hero", "First expedition skill", "Lv", "Helps", "Value %");
         columns(tableSaved, "Squad", "State", "Heroes", "Infantry", "Lancer", "Marksman", "Capacity", "Power");
         columns(tableTroops, "Troop", "Type", "Count");
-        columns(tableGear, "#", "Spend", "Hero", "Piece", "Now", "Next", "Cost (guide est.)",
-                "Stones on hand cover it", "Why");
         labelStatus.setText("Select a profile.");
         SquadScanRegistry.addListener(this::onScanEvent);
     }
@@ -100,38 +77,6 @@ public final class SquadsLayoutController implements IProfileLoadListener {
         SquadScanRegistry.requestManualScan(selected.getId());
         queue.runNow(TpDailyTaskEnum.SQUAD_SCAN, false);
         labelStatus.setText("Scan queued for " + selected.getName() + ". It takes a few minutes.");
-    }
-
-    @FXML
-    private void handleStones() {
-        if (shown == null) return;
-        try {
-            fillGear(shown, SquadPlanner.plan(shown));
-        } catch (RuntimeException e) {
-            labelGearNotes.setText("Could not plan gear: " + e);
-        }
-    }
-
-    private int stonesOnHand() {
-        try {
-            return Math.max(0, Integer.parseInt(fieldStones.getText().replace(",", "").trim()));
-        } catch (NumberFormatException e) {
-            fieldStones.setText(String.valueOf(DEFAULT_STONES));
-            return DEFAULT_STONES;
-        }
-    }
-
-    private void fillGear(SquadSnapshot snapshot, SquadPlanner.Plan plan) {
-        GearAdvisor.Advice advice = GearAdvisor.advise(snapshot, plan, stonesOnHand());
-        List<List<String>> gearRows = new ArrayList<>();
-        int step = 1;
-        for (GearAdvisor.Step s : advice.steps()) {
-            gearRows.add(row(String.valueOf(step++), s.spend(), s.hero(), s.piece(), s.now(), s.next(),
-                    s.cost() == null ? "-" : String.valueOf(s.cost()),
-                    s.spend().equals("Essence stones") ? (s.covered() ? "yes" : "no") : "-", s.why()));
-        }
-        tableGear.setItems(FXCollections.observableArrayList(gearRows));
-        labelGearNotes.setText(String.join("\n", advice.notes()));
     }
 
     private void onScanEvent(SquadScanRegistry.Event event) {
@@ -186,7 +131,6 @@ public final class SquadsLayoutController implements IProfileLoadListener {
         labelProblems.setText(snapshot.problems().isEmpty() ? ""
                 : "Could not read: " + String.join("; ", snapshot.problems()));
         SquadPlanner.Plan plan = SquadPlanner.plan(snapshot);
-        shown = snapshot;
 
         List<List<String>> suggested = new ArrayList<>();
         for (SquadPlanner.Suggestion s : plan.squads()) {
@@ -198,36 +142,6 @@ public final class SquadsLayoutController implements IProfileLoadListener {
                     "Highest power. Exploration fights use hero stats, not troops."));
         }
         tableSuggested.setItems(FXCollections.observableArrayList(suggested));
-
-        List<HeroRecord> heroes = new ArrayList<>(snapshot.heroes());
-        heroes.sort(Comparator.comparingInt(SquadsLayoutController::rarityOrder)
-                .thenComparing(h -> h.power() == null ? 0 : -h.power()));
-        List<List<String>> heroRows = new ArrayList<>();
-        List<List<String>> skillRows = new ArrayList<>();
-        for (HeroRecord h : heroes) {
-            Map<String, Long> ex = h.exploration() == null ? Map.of() : h.exploration();
-            Double atk = h.expeditionStat("Attack"), leth = h.expeditionStat("Lethality");
-            Double def = h.expeditionStat("Defense"), hp = h.expeditionStat("Health");
-            heroRows.add(row(h.name(), text(h.rarity()), text(h.troopClass()), text(h.level()),
-                    text(h.stars()), number(h.power()), sum(atk, leth), sum(def, hp), pct(atk), pct(leth), pct(def), pct(hp),
-                    number(ex.get("Hero Attack")), number(ex.get("Hero Defense")), number(ex.get("Hero Health")),
-                    gear(h.gear()), h.exclusiveGear() == null ? "-"
-                            : h.exclusiveGear() + (h.exclusiveGearLevel() == null ? "" : " +" + h.exclusiveGearLevel())));
-            if (!h.isKey()) continue;
-            addSkills(skillRows, h, "Expedition", h.expeditionSkills());
-            addSkills(skillRows, h, "Exploration", h.explorationSkills());
-        }
-        tableHeroes.setItems(FXCollections.observableArrayList(heroRows));
-        tableSkills.setItems(FXCollections.observableArrayList(skillRows));
-
-        List<List<String>> joinerRows = new ArrayList<>();
-        int rank = 1;
-        for (SquadPlanner.JoinerScore j : plan.joiners()) {
-            joinerRows.add(row(String.valueOf(rank++), j.hero(), j.skill(), text(j.level()),
-                    j.effect().name().toLowerCase(Locale.ROOT) + (j.onlyFor() == null ? "" : ", " + j.onlyFor() + " only"),
-                    String.format(Locale.ROOT, "%.1f", j.value())));
-        }
-        tableJoiners.setItems(FXCollections.observableArrayList(joinerRows));
 
         List<List<String>> savedRows = new ArrayList<>();
         for (SavedSquad s : snapshot.savedSquads()) {
@@ -249,24 +163,11 @@ public final class SquadsLayoutController implements IProfileLoadListener {
             }
         }
         tableTroops.setItems(FXCollections.observableArrayList(troopRows));
-        fillGear(snapshot, plan);
-    }
-
-    private static void addSkills(List<List<String>> rows, HeroRecord hero, String side, List<HeroSkill> skills) {
-        if (skills == null) return;
-        for (int i = 0; i < skills.size(); i++) {
-            HeroSkill s = skills.get(i);
-            if (s == null) continue;
-            rows.add(row(hero.name(), side, String.valueOf(i + 1), s.name(), text(s.level()), text(s.description())));
-        }
     }
 
     private void clear() {
         labelProblems.setText("");
-        labelGearNotes.setText("");
-        shown = null;
-        for (TableView<List<String>> table : List.of(tableSuggested, tableHeroes, tableSkills, tableJoiners, tableSaved,
-                tableTroops, tableGear)) {
+        for (TableView<List<String>> table : List.of(tableSuggested, tableSaved, tableTroops)) {
             table.getItems().clear();
         }
     }
@@ -283,12 +184,6 @@ public final class SquadsLayoutController implements IProfileLoadListener {
         }
     }
 
-    private static int rarityOrder(HeroRecord hero) {
-        if ("SSR".equals(hero.rarity())) return 0;
-        if ("SR".equals(hero.rarity())) return 1;
-        return 2;
-    }
-
     private static String state(SavedSquad.State state) {
         return switch (state) {
             case SAVED -> "Saved";
@@ -303,21 +198,6 @@ public final class SquadsLayoutController implements IProfileLoadListener {
         List<String> row = new ArrayList<>(cells.length);
         for (String cell : cells) row.add(cell == null ? "-" : cell);
         return row;
-    }
-
-    private static String gear(List<HeroGear> gear) {
-        if (gear == null || gear.isEmpty()) return "-";
-        return gear.stream().map(g -> g.enhancement() == null ? "-"
-                : "+" + g.enhancement() + (g.mastery() == null ? "" : "/" + g.mastery()))
-                .collect(Collectors.joining("  "));
-    }
-
-    private static String sum(Double a, Double b) {
-        return a == null || b == null ? "-" : String.format(Locale.ROOT, "%.1f", a + b);
-    }
-
-    private static String pct(Double value) {
-        return value == null ? "-" : String.format(Locale.ROOT, "%.2f", value);
     }
 
     private static String number(Long value) {

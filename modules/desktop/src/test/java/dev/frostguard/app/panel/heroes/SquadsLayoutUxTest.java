@@ -65,16 +65,12 @@ class SquadsLayoutUxTest {
                 view.problems().getText());
         // Twelve squad slots plus the exploration team.
         assertEquals(13, view.table("tableSuggested").getItems().size());
-        assertEquals(21, view.table("tableHeroes").getItems().size());
         assertEquals(12, view.table("tableSaved").getItems().size());
         assertEquals(5, view.table("tableTroops").getItems().size());
-        assertTrue(view.table("tableSkills").getItems().size() >= 30, "skills of the fully read heroes");
-        assertTrue(!view.table("tableJoiners").getItems().isEmpty(), "joiners ranked");
-        // Stones, XP and widget steps for the rally leads, with the stones the field holds (50).
-        List<List<String>> gear = view.table("tableGear").getItems();
-        assertTrue(gear.stream().anyMatch(r -> r.get(1).equals("Essence stones") && r.get(7).equals("yes")), gear.toString());
-        assertTrue(gear.stream().anyMatch(r -> r.get(1).equals("Widgets")), gear.toString());
-        assertTrue(((Label) view.namespace().get("labelGearNotes")).getText().contains("Rally leads"));
+        // Setting up squads only: hero, gear, skill and joiner views live on the Heroes page.
+        TabPane tabs = (TabPane) view.root().lookup(".tab-pane");
+        assertEquals(List.of("Suggested squads", "Saved squads (in game)", "Troops"),
+                tabs.getTabs().stream().map(t -> t.getText()).toList());
 
         // Optional visual check: -Dsquads.render.dir=<folder> writes each tab as a PNG.
         String renderDir = System.getProperty("squads.render.dir");

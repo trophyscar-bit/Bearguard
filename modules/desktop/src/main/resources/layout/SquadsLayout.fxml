@@ -7,8 +7,8 @@
             xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
     <top>
         <VBox spacing="8" style="-fx-padding: 16;">
-            <Label text="Squads &amp; Heroes" styleClass="module-title" />
-            <Label text="Reads every gold hero and Bahiti, Jasser, Jessie and Sergey in full (level, stars, power, exploration and expedition stats, skills, gear), the name, level and power of every other hero, your troop totals, and the 12 saved squads on Chief Profile &gt; Troops &gt; Squads. It runs by itself every night at 07:15 UTC (3:15 AM EDT, 2:15 AM EST), between the deals scan and Dawn Academy, and Scan now runs it straight away. It only reads: nothing in the game is changed or saved. Suggestions use only those heroes." wrapText="true" styleClass="label-muted" />
+            <Label text="Squads" styleClass="module-title" />
+            <Label text="How to set up each in-game squad, what is saved in each slot now, and the troops you have. The scan runs every night at 07:15 UTC, and Scan now runs it straight away. It only reads: nothing in the game is changed." wrapText="true" styleClass="label-muted" />
             <HBox spacing="10" alignment="CENTER_LEFT">
                 <Button fx:id="buttonScan" text="Scan now" onAction="#handleScan" styleClass="action-button-timeline" />
                 <Label fx:id="labelStatus" wrapText="true" />
@@ -21,26 +21,6 @@
             <tabs>
                 <Tab text="Suggested squads" closable="false">
                     <TableView fx:id="tableSuggested" />
-                </Tab>
-                <Tab text="Heroes" closable="false">
-                    <TableView fx:id="tableHeroes" />
-                </Tab>
-                <Tab text="Gear plan" closable="false">
-                    <VBox spacing="8" style="-fx-padding: 8 0 0 0;">
-                        <HBox spacing="10" alignment="CENTER_LEFT">
-                            <Label text="Essence stones on hand:" />
-                            <TextField fx:id="fieldStones" text="50" prefColumnCount="5" onAction="#handleStones" />
-                            <Label text="Press Enter to replan. Steps run top to bottom; stones go to the rally leads only." wrapText="true" styleClass="label-muted" />
-                        </HBox>
-                        <TableView fx:id="tableGear" VBox.vgrow="ALWAYS" />
-                        <Label fx:id="labelGearNotes" wrapText="true" styleClass="label-muted" />
-                    </VBox>
-                </Tab>
-                <Tab text="Skills" closable="false">
-                    <TableView fx:id="tableSkills" />
-                </Tab>
-                <Tab text="Rally joiners" closable="false">
-                    <TableView fx:id="tableJoiners" />
                 </Tab>
                 <Tab text="Saved squads (in game)" closable="false">
                     <TableView fx:id="tableSaved" />
