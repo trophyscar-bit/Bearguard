@@ -166,8 +166,7 @@ private boolean reachAllianceScreen() {
 
 private int gatherAllianceGifts() {
 		logInfo(routineLogAllianceChestLine("Entering alliance gifts section."));
-		tapInside(new PointData(410, 375), new PointData(626, 420));
-		sleepTask(TAB_CHANGE_WAIT_TIME_MS);
+		openGiftsTab();
 
 		if (Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ENABLED_BOOL, Boolean.class))) {
 			logGiftList();
@@ -193,10 +192,42 @@ private int gatherAllianceGifts() {
 			giftsCollected = gatherIndividualGifts();
 		}
 		sleepTask(SHORT_WAIT_TIME_MS);
-		if (Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ENABLED_BOOL, Boolean.class))) {
+		if (!lostTheList
+				&& Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.ALLIANCE_SPEND_ENABLED_BOOL, Boolean.class))) {
 			followPackLinks();
 		}
 		return giftsCollected;
+	}
+
+private void openGiftsTab() {
+		tapInside(new PointData(410, 375), new PointData(626, 420));
+		sleepTask(TAB_CHANGE_WAIT_TIME_MS);
+	}
+
+/**
+ * Brings the Alliance Gifts list back after something took the game off it. A gift link that
+ * opens an event page returns, on Back, to the Alliance screen rather than to the list (50 of the
+ * 51 links lost from 2026-11-09 to 11-11; the other went to the city), and further Backs from
+ * there reach Home and then the game's "Quit game?" dialog. So: no more Backs. From the Alliance
+ * screen, Chests is tapped again; from anywhere else the navigator goes Home first. True once the
+ * list shows again.
+ */
+private boolean reopenGiftList(BufferedImage listScreen) {
+		ImageSearchResultData chests = templateSearchHelper.locatePattern(
+				TemplatesEnum.ALLIANCE_CHEST_BUTTON,
+				SearchConfigConstants.DEFAULT_SINGLE);
+		if (!chests.isFound()) {
+			navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
+			if (!reachAllianceScreen()) {
+				return false;
+			}
+		}
+		if (!openUpAllianceChestScreen()) {
+			return false;
+		}
+		openGiftsTab();
+		BufferedImage now = screenNow();
+		return now != null && PackLinks.sameHeader(listScreen, now);
 	}
 
 private static final double OCR_MIN_CONFIDENCE = 0.60;
@@ -238,6 +269,8 @@ private void logGiftList() {
 		Path passDir = ledger.passDir(started);
 		ChatTextReader reader = null;
 		int screens = 0;
+		boolean offTheList = false;
+		BufferedImage listScreen = null;
 		try {
 			reader = openReader();
 			if (reader == null) {
@@ -246,6 +279,9 @@ private void logGiftList() {
 			java.nio.file.Files.createDirectories(passDir);
 			Map<String, List<TextLine>> linesByFrame = new LinkedHashMap<>();
 			List<GiftRow> rows = new ArrayList<>();
+			// The longest stretch read before the list was lost, in case no try reaches the bottom.
+			List<GiftRow> bestPartial = List.of();
+			Map<String, List<TextLine>> bestPartialLines = Map.of();
 			boolean reachedEnd = false;
 			boolean lostTrack = false;
 			for (int attempt = 0; attempt < MAX_PASS_ATTEMPTS; attempt++) {
@@ -253,9 +289,10 @@ private void logGiftList() {
 				rows.clear();
 				reachedEnd = false;
 				lostTrack = false;
-				boolean redrawn = false;
+				Loss loss = Loss.NONE;
 				String prefix = attempt == 0 ? "" : "r" + attempt + "-";
 				BufferedImage previous = null;
+				BufferedImage top = null;
 				int scrolledBy = 0;
 				int screensThisTry = 0;
 				for (int i = 0; i <= maxScrolls; i++) {
@@ -265,15 +302,35 @@ private void logGiftList() {
 						lostTrack = true;
 						break;
 					}
+					if (top == null) {
+						top = image;
+						if (listScreen == null) {
+							listScreen = image;
+						}
+					}
 					if (previous != null) {
 						AllianceGiftLedger.ShiftMatch match = AllianceGiftLedger.scrollMatch(previous, image,
 								AllianceGiftLedger.EXPECTED_TRAVEL_PX);
+						if (match.shift() < 0 && lossOf(top, image, match) != Loss.REDRAWN) {
+							// A toast ("273 Troop(s) healed!", "Power +20,293") can cover the list for a
+							// moment (2026-11-10 19:23); look once more before giving up.
+							sleepTask(OVERLAY_WAIT_MS);
+							BufferedImage again = screenNow();
+							if (again != null) {
+								AllianceGiftLedger.ShiftMatch second = AllianceGiftLedger.scrollMatch(previous, again,
+										AllianceGiftLedger.EXPECTED_TRAVEL_PX);
+								if (second.shift() >= 0) {
+									image = again;
+									match = second;
+								}
+							}
+						}
 						if (match.shift() < 0) {
 							ImageIO.write(image, "png", passDir.resolve(prefix + String.format("%03d-unaligned.png", i)).toFile());
 							lostTrack = true;
-							redrawn = match.redrawn();
+							loss = lossOf(top, image, match);
 							logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i + " does not line up with the one before"
-									+ (redrawn ? " (the list was redrawn, e.g. a new gift arrived)" : "") + "."));
+									+ loss.why + "."));
 							break;
 						}
 						if (match.shift() <= END_OF_LIST_SHIFT_PX) {
@@ -291,9 +348,9 @@ private void logGiftList() {
 							if (retry.shift() < 0) {
 								ImageIO.write(again, "png", passDir.resolve(prefix + String.format("%03d-unaligned.png", i)).toFile());
 								lostTrack = true;
-								redrawn = retry.redrawn();
+								loss = lossOf(top, again, retry);
 								logWarning(routineLogAllianceChestLine("Alliance Spend | screen " + i
-										+ " does not line up after a second drag."));
+										+ " does not line up after a second drag" + loss.why + "."));
 								break;
 							}
 							image = again;
@@ -315,7 +372,18 @@ private void logGiftList() {
 					swipe(new PointData(360, SWIPE_FROM_Y), new PointData(360, SWIPE_TO_Y), SWIPE_MS);
 					sleepTask(700);
 				}
-				if (!redrawn || attempt + 1 >= MAX_PASS_ATTEMPTS) {
+				if (lostTrack) {
+					List<GiftRow> partial = AllianceGiftLedger.stitch(rows);
+					if (partial.size() > bestPartial.size()) {
+						bestPartial = partial;
+						bestPartialLines = new LinkedHashMap<>(linesByFrame);
+					}
+				}
+				if (loss == Loss.LEFT_THE_LIST) {
+					offTheList = true;
+					break;
+				}
+				if (loss != Loss.REDRAWN || attempt + 1 >= MAX_PASS_ATTEMPTS) {
 					break;
 				}
 				// A redrawn list starts again from the top; so does the pass.
@@ -325,11 +393,24 @@ private void logGiftList() {
 				}
 				sleepTask(1000);
 			}
-			List<GiftRow> list = AllianceGiftLedger.stitch(rows);
-			ledger.writePassEvidence(passDir, linesByFrame, list);
-			if (reader == null || lostTrack) {
+			List<GiftRow> list = lostTrack ? bestPartial : AllianceGiftLedger.stitch(rows);
+			ledger.writePassEvidence(passDir, lostTrack ? bestPartialLines : linesByFrame, list);
+			if (reader == null || list.isEmpty()) {
 				logWarning(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens saved, nothing logged. Frames: "
 						+ passDir));
+			} else if (lostTrack) {
+				// The newest purchases are at the top, so the stretch read before the list was lost
+				// is enough whenever it reaches the last logged list (recordPass checks that).
+				AllianceGiftLedger.PassResult result = ledger.recordPass(list, anonymise, false);
+				if (result.aligned()) {
+					logInfo(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens, part of the list read ("
+							+ result.listed() + " purchases) before it was lost; it reaches the last logged list, "
+							+ result.fresh() + " new. Frames: " + passDir));
+				} else {
+					logWarning(routineLogAllianceChestLine("Alliance Spend | " + screens + " screens saved, nothing logged: the "
+							+ result.listed() + " purchases read before the list was lost do not reach the last logged list."
+							+ " Frames: " + passDir));
+				}
 			} else {
 				if (!reachedEnd) {
 					logWarning(routineLogAllianceChestLine("Alliance Spend | stopped after " + screens
@@ -355,19 +436,57 @@ private void logGiftList() {
 				onnx.close();
 			}
 		}
+		if (offTheList) {
+			// The game left the Chests screen mid-pass (2026-11-10 18:14 it was in the city); swiping
+			// there does nothing useful, so the list is reopened instead.
+			if (listScreen == null || !reopenGiftList(listScreen)) {
+				lostTheList = true;
+				logWarning(routineLogAllianceChestLine("Alliance Spend | the game left the gift list and it could not be"
+						+ " reopened; claiming nothing more this run."));
+			}
+			return;
+		}
 		for (int i = 0; i < screens / 2 + 2; i++) {
 			swipe(new PointData(360, 600), new PointData(360, 1080), 250);
 		}
 		sleepTask(SHORT_WAIT_TIME_MS);
 	}
 
+/** How long a toast over the list is given to fade before a screen is read again. */
+private static final int OVERLAY_WAIT_MS = 1500;
+
+/** Why a screen did not line up with the one before it, as written to the log. */
+private enum Loss {
+	NONE(""),
+	MISALIGNED(""),
+	REDRAWN(" (the list was redrawn, e.g. a new gift arrived)"),
+	LEFT_THE_LIST(" (the game left the gift list)");
+
+	private final String why;
+
+	Loss(String why) {
+		this.why = why;
+	}
+}
+
+/**
+ * Tells the three ways a screen fails to line up apart. The list header gone means the game left
+ * the list. A screen that lines up with the top of this try means the list jumped back to the top,
+ * which it does when a gift arrives: on 2026-11-10 at 13:15 and 21:41 the "unaligned" screen was
+ * the first screen exactly, yet the old score test called it a misread and the pass was dropped
+ * without a retry.
+ */
+private static Loss lossOf(BufferedImage top, BufferedImage image, AllianceGiftLedger.ShiftMatch match) {
+		if (!PackLinks.sameHeader(top, image)) {
+			return Loss.LEFT_THE_LIST;
+		}
+		return match.redrawn() || AllianceGiftLedger.backAtTop(top, image) ? Loss.REDRAWN : Loss.MISALIGNED;
+	}
+
 /** Links followed per pass; any further unknown packs wait for the next pass, an hour later. */
 private static final int MAX_LINKS_PER_PASS = 5;
 
 private static final int LINK_PAGE_WAIT_MS = 2500;
-
-/** Backs tried to get from a followed link back to the gift list. */
-private static final int MAX_BACKS = 3;
 
 /** A card whose text ends this far above the list's bottom edge is whole, so a missing link is real. */
 private static final int WHOLE_CARD_PX = 110;
@@ -377,8 +496,8 @@ private static final int WHOLE_CARD_PX = 110;
  * and reads the page it opens, and presses Back; nothing on that page is tapped. Walks the whole
  * list screen by screen, up to {@link #MAX_LINKS_PER_PASS} links a pass. A pack whose name is not
  * a link is recorded as not on sale; both that and a page with no price are retried a day later
- * (see {@link PackLinks#due}). Stops, and sets {@link #lostTheList}, if Back does not bring the
- * gift list back.
+ * (see {@link PackLinks#due}). If Back does not show the list again, it is reopened
+ * ({@link #reopenGiftList}); only if that fails does the pass stop and set {@link #lostTheList}.
  */
 private void followPackLinks() {
 		ChatTextReader reader = null;
@@ -431,25 +550,28 @@ private void followPackLinks() {
 					followed++;
 					logInfo(routineLogAllianceChestLine("Alliance Spend | followed the link of \"" + pack + "\": price "
 							+ seen.price() + " (all on page " + seen.prices() + "), page saved to " + seen.frame()));
-					// An event page can sit a level or two deeper than a pack card; allow up to three Backs.
-					BufferedImage back = null;
-					for (int backs = 1; backs <= MAX_BACKS; backs++) {
-						pressBack();
-						sleepTask(1500);
-						back = screenNow();
-						if (back != null && PackLinks.sameHeader(screen, back)) {
-							break;
+					// One Back closes a pack pop-up or a Deals tab and shows the list again. From an event
+					// page it lands on the Alliance screen instead, and a second Back from there heads for
+					// the quit dialog, so the list is reopened rather than Backed into.
+					pressBack();
+					sleepTask(1500);
+					BufferedImage back = screenNow();
+					if (back == null || !PackLinks.sameHeader(screen, back)) {
+						links.saveLostScreen(pack, back, 1);
+						if (!reopenGiftList(screen)) {
+							lostTheList = true;
+							logWarning(routineLogAllianceChestLine("Alliance Spend | could not get back to the gift list after"
+									+ " the link of \"" + pack + "\"; stopping here. Screen: pack-links/"));
+							return;
 						}
-						links.saveLostScreen(pack, back, backs);
-						back = null;
+						logInfo(routineLogAllianceChestLine("Alliance Spend | the link of \"" + pack
+								+ "\" left the gift list; reopened it."));
+						back = screenNow();
+						if (back == null) {
+							return;
+						}
 					}
-					if (back == null) {
-						lostTheList = true;
-						logWarning(routineLogAllianceChestLine("Alliance Spend | " + MAX_BACKS + " Backs from \"" + pack
-								+ "\" did not return to the gift list; stopping here. Screens: pack-links/"));
-						return;
-					}
-					// Back may leave the list scrolled elsewhere; read it again where it is.
+					// Back may leave the list scrolled elsewhere, or reopened at the top; read it again where it is.
 					backOnList = back;
 					break;
 				}

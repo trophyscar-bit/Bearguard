@@ -280,6 +280,24 @@ public final class AllianceGiftLedger {
     /** Best scores of real redraws were 0.09 to 0.19; true shifts never passed 0.05. */
     static final double REDRAWN_SHARE = 0.08;
 
+    /** How far below the top a redrawn list may sit: it is put back at the top, a card or two moved. */
+    static final int NEAR_TOP_PX = 2 * EXPECTED_TRAVEL_PX;
+
+    /**
+     * True when {@code now} shows the list back at, or within two drags of, the top it showed at
+     * {@code top}, either way round (a new gift pushes the old top down a card). A screen deep in a
+     * pass that does this was redrawn, not misread; the score test alone missed two such screens on
+     * 2026-11-10 that matched the first screen exactly.
+     */
+    public static boolean backAtTop(BufferedImage top, BufferedImage now) {
+        ShiftMatch down = scrollMatch(top, now, 0);
+        if (down.shift() >= 0 && down.shift() <= NEAR_TOP_PX) {
+            return true;
+        }
+        ShiftMatch up = scrollMatch(now, top, 0);
+        return up.shift() >= 0 && up.shift() <= NEAR_TOP_PX;
+    }
+
     /**
      * Like {@link #scrollShift}, but when two shifts a card apart match about equally well (a run of
      * identical cards, icons and all), takes the one within {@link #TRAVEL_WINDOW_PX} of
@@ -563,6 +581,13 @@ public final class AllianceGiftLedger {
     static final long STALE_REFERENCE_HOURS = 6;
 
     /**
+     * Cards a pass that did not reach the bottom must share with the last logged list before its
+     * new rows are trusted. A pass cut short by a redraw is still worth logging, since the newest
+     * purchases are at the top, but only when enough of it overlaps.
+     */
+    static final int PARTIAL_MIN_OVERLAP = 6;
+
+    /**
      * Appends the purchases that arrived since the last pass.
      *
      * <p>The first pass logs the whole list, marked as a backlog since those purchases happened
@@ -610,6 +635,11 @@ public final class AllianceGiftLedger {
         }
         List<String> current = list.stream().map(GiftRow::signature).toList();
         int fresh = referenceReadable ? newRowCount(previous, current, previousReachedEnd) : -1;
+        if (fresh >= 0 && !reachedEnd && !firstPass
+                && current.size() - fresh < Math.min(PARTIAL_MIN_OVERLAP, previous.size())) {
+            // A few cards at the end of a partial read line up with almost anything.
+            fresh = -1;
+        }
         boolean aligned = fresh >= 0;
         boolean afterGap = !aligned && referenceReadable && reachedEnd && stale(savedAt, now, previous, current);
         if (afterGap) {

@@ -337,4 +337,64 @@ class AllianceGiftLedgerTest {
                 "alliancegifti|brimdalslucifer|marchqueuepack");
         assertEquals(3, AllianceGiftLedger.newRowCount(previous, current, true));
     }
+
+    /** A list screen showing {@code tall} from {@code from} down in the list area; the rest is blank. */
+    private static BufferedImage window(BufferedImage tall, int from) {
+        BufferedImage screen = new BufferedImage(720, 1280, BufferedImage.TYPE_INT_RGB);
+        for (int y = AllianceGiftLedger.LIST_TOP; y < AllianceGiftLedger.LIST_BOTTOM; y++) {
+            for (int x = 0; x < 720; x++) {
+                screen.setRGB(x, y, tall.getRGB(x, from + y - AllianceGiftLedger.LIST_TOP));
+            }
+        }
+        return screen;
+    }
+
+    @Test
+    void aScreenBackAtTheTopIsARedrawNotAMisread() {
+        java.util.Random random = new java.util.Random(7);
+        BufferedImage tall = new BufferedImage(720, 3000, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < tall.getHeight(); y++) {
+            for (int x = 0; x < 720; x++) {
+                int g = random.nextInt(256);
+                tall.setRGB(x, y, g << 16 | g << 8 | g);
+            }
+        }
+        BufferedImage top = window(tall, 0);
+        assertTrue(AllianceGiftLedger.backAtTop(top, window(tall, 0)), "the first screen again");
+        assertTrue(AllianceGiftLedger.backAtTop(top, window(tall, 186)), "a drag below the top");
+        assertTrue(AllianceGiftLedger.backAtTop(window(tall, 300), window(tall, 148)), "a new gift pushed the old top down");
+        assertFalse(AllianceGiftLedger.backAtTop(top, window(tall, 1500)), "deep in the list");
+    }
+
+    private static List<GiftRow> purchases(String... buyers) {
+        List<GiftRow> list = new ArrayList<>();
+        for (int i = 0; i < buyers.length; i++) {
+            list.add(new GiftRow(T0.toString(), "Alliance Gift I", buyers[i], false, "Daily Deals", 30,
+                    buyers[i] + " has purchased \"Daily Deals\"", "000.png", 560 + 152 * i));
+        }
+        return list;
+    }
+
+    @Test
+    void aPassCutShortLogsItsNewRowsOnlyWhenEnoughOfItReachesTheLastList(@TempDir Path dir) throws Exception {
+        AllianceGiftLedger ledger = new AllianceGiftLedger(dir);
+        java.time.Instant then = java.time.Instant.parse("2026-11-10T22:00:00Z");
+        ledger.recordPass(purchases("Ann", "Bob", "Cy", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo"), false, true, then);
+        assertEquals(10, Files.readAllLines(dir.resolve("gifts.jsonl")).size());
+
+        // The list redrew after four of the old cards: too little to line up on, so nothing is
+        // logged and the old reference stays.
+        AllianceGiftLedger.PassResult cutShort = ledger.recordPass(purchases("Kai", "Lu", "Ann", "Bob", "Cy", "Dee"),
+                false, false, then.plusSeconds(3600));
+        assertFalse(cutShort.aligned());
+        assertEquals(10, Files.readAllLines(dir.resolve("gifts.jsonl")).size());
+        assertTrue(Files.readString(dir.resolve("last-list.json")).contains("\"reachedEnd\":true"));
+
+        // Six old cards read before the redraw: the two above them are new.
+        AllianceGiftLedger.PassResult enough = ledger.recordPass(
+                purchases("Kai", "Lu", "Ann", "Bob", "Cy", "Dee", "Eve", "Fay"), false, false, then.plusSeconds(3700));
+        assertTrue(enough.aligned());
+        assertEquals(2, enough.fresh());
+        assertEquals(12, Files.readAllLines(dir.resolve("gifts.jsonl")).size());
+    }
 }

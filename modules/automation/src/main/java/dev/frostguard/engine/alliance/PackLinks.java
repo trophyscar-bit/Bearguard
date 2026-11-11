@@ -292,25 +292,35 @@ public final class PackLinks {
     }
 
     /**
-     * True when two screens show the same gift-list header: the Loot Chest / Alliance Gift tabs
-     * and the "Purchasing a gift pack..." banner. Used after Back to confirm the list is showing
-     * again before anything else is tapped.
+     * True when two screens show the gift list's frame: the "Chests" title bar and the "Send
+     * Anonymous Alliance Gift" footer. Used after Back, and when a pass loses its place, to tell the
+     * list from any other screen before anything else is tapped.
+     *
+     * <p>The tabs and banner under the chest are left out: the game's toasts ("We have wiped out
+     * Frost Gorilla!", "Troops have returned to the city.", "38 Troop(s) healed!") slide across
+     * them, and comparing them made 35 of 2,113 list screens of 2026-11-06 to 11-11 read as other
+     * screens. Title and footer: none, apart from the screens where the game really was elsewhere,
+     * and none of 239 link pages and Back screens read as the list.</p>
      */
     public static boolean sameHeader(BufferedImage list, BufferedImage now) {
-        int differing = 0;
-        int samples = 0;
-        for (int y = 362; y < 535; y += 3) {
+        int[] counts = new int[2];
+        band(list, now, 0, 70, counts);
+        band(list, now, 1150, 1260, counts);
+        return counts[0] <= counts[1] / 20;
+    }
+
+    private static void band(BufferedImage list, BufferedImage now, int fromY, int toY, int[] counts) {
+        for (int y = fromY; y < toY; y += 3) {
             for (int x = 30; x < 690; x += 6) {
                 int a = list.getRGB(x, y);
                 int b = now.getRGB(x, y);
                 int d = Math.abs(((a >> 16) & 0xFF) - ((b >> 16) & 0xFF)) + Math.abs(((a >> 8) & 0xFF) - ((b >> 8) & 0xFF))
                         + Math.abs((a & 0xFF) - (b & 0xFF));
                 if (d > 60) {
-                    differing++;
+                    counts[0]++;
                 }
-                samples++;
+                counts[1]++;
             }
         }
-        return differing <= samples / 20;
     }
 }
