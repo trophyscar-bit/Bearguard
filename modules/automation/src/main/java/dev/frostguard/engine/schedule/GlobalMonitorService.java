@@ -115,7 +115,9 @@ public class GlobalMonitorService {
         for (MonitoredEntry entry : monitoredProfiles.values()) {
             try {
                 String devIdx = entry.profile.getEmulatorNumber();
-                if (!controller.isRunning(devIdx)) continue;
+                // Cached: this loop runs every 5 seconds, and an uncached check spawns a
+                // vendor CLI process each time -- about 23,000 a day for one profile.
+                if (!controller.isRunningCached(devIdx)) continue;
                 RawImageData frame = controller.captureScreen(devIdx);
                 processPreemptionRules(entry, frame);
                 processInjectionRules(entry, frame);

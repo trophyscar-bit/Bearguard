@@ -10,6 +10,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Controls MuMu Player emulator instances through the {@code MuMuManager.exe}
@@ -25,6 +27,14 @@ public class MuMuEmulatorInstance extends EmulatorInstance {
     private static final Duration STATE_PROBE_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration ACTION_TIMEOUT = Duration.ofSeconds(45);
     private static final String RUNNING_TOKEN = "state=start_finished";
+
+    /**
+     * What a probe actually established. A probe that timed out established nothing,
+     * and that is not the same answer as "stopped".
+     */
+    enum ProbeState { RUNNING, STOPPED, UNKNOWN }
+
+    private final Map<String, Boolean> lastKnownRunning = new ConcurrentHashMap<>();
 
     public MuMuEmulatorInstance(String executablePath) {
         super(executablePath);
@@ -53,8 +63,9 @@ public class MuMuEmulatorInstance extends EmulatorInstance {
 
     @Override
     public boolean isRunning(String identifier) {
+        ProbeState state = ProbeState.UNKNOWN;
         try {
-            return readRunningState(
+            state = readRunningState(
                     buildManagerProcess(identifier, "player_state"), STATE_PROBE_TIMEOUT);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
@@ -62,7 +73,27 @@ public class MuMuEmulatorInstance extends EmulatorInstance {
         } catch (IOException ioe) {
             log.error("Cannot query MuMu state for instance #{}", identifier, ioe);
         }
-        return false;
+        boolean previous = lastKnownRunning.getOrDefault(identifier, Boolean.FALSE);
+        boolean running = resolveRunning(state, previous);
+        if (state == ProbeState.UNKNOWN) {
+            log.warn("MuMu #{} state probe inconclusive; keeping last known state ({})",
+                    identifier, running ? "running" : "not running");
+        } else {
+            lastKnownRunning.put(identifier, running);
+        }
+        return running;
+    }
+
+    /**
+     * What to report for a probe outcome. An inconclusive probe keeps the last answer
+     * the emulator actually gave: reporting "stopped" from a probe that never answered
+     * makes callers tear down a working device -- EmulatorController drops and
+     * re-acquires the slot, TaskQueue declares the device offline and reconnects --
+     * and a machine too busy to start a CLI process within the timeout is not evidence
+     * that MuMu died.
+     */
+    static boolean resolveRunning(ProbeState state, boolean lastKnownRunning) {
+        return state == ProbeState.UNKNOWN ? lastKnownRunning : state == ProbeState.RUNNING;
     }
 
     // ── internal helpers ─────────────────────────────────────────────
@@ -98,14 +129,18 @@ public class MuMuEmulatorInstance extends EmulatorInstance {
         }
     }
 
-    static boolean readRunningState(ProcessBuilder managerProcess, Duration timeout)
+    static ProbeState readRunningState(ProcessBuilder managerProcess, Duration timeout)
             throws IOException, InterruptedException {
         BoundedProcessRunner.ProcessResult result = BoundedProcessRunner.run(managerProcess, timeout);
         if (result.timedOut()) {
             log.warn("MuMu state probe timed out after {} seconds; killed the manager process",
                     timeout.toSeconds());
-            return false;
+            return ProbeState.UNKNOWN;
         }
-        return result.exitCode() == 0 && result.output().contains(RUNNING_TOKEN);
+        if (result.exitCode() != 0) {
+            log.warn("MuMu state probe exited with code {}", result.exitCode());
+            return ProbeState.UNKNOWN;
+        }
+        return result.output().contains(RUNNING_TOKEN) ? ProbeState.RUNNING : ProbeState.STOPPED;
     }
 }

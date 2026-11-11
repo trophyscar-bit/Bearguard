@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -21,37 +22,33 @@ class MuMuManagerProcessTest {
 
     @Test
     void acceptsRunningStateWhenManagerExits() throws Exception {
-        boolean running = MuMuEmulatorInstance.readRunningState(
-                childProcess("running", tempDir.resolve("normal.pid")), Duration.ofSeconds(5));
-
-        assertTrue(running);
+        assertEquals(MuMuEmulatorInstance.ProbeState.RUNNING, MuMuEmulatorInstance.readRunningState(
+                childProcess("running", tempDir.resolve("normal.pid")), Duration.ofSeconds(5)));
     }
 
     @Test
-    void rejectsStoppedStateWhenManagerExits() throws Exception {
-        boolean running = MuMuEmulatorInstance.readRunningState(
-                childProcess("stopped", tempDir.resolve("stopped.pid")), Duration.ofSeconds(5));
-
-        assertFalse(running);
+    void reportsStoppedStateWhenManagerExits() throws Exception {
+        assertEquals(MuMuEmulatorInstance.ProbeState.STOPPED, MuMuEmulatorInstance.readRunningState(
+                childProcess("stopped", tempDir.resolve("stopped.pid")), Duration.ofSeconds(5)));
     }
 
     @Test
-    void rejectsRunningTokenFromFailedManagerCommand() throws Exception {
-        boolean running = MuMuEmulatorInstance.readRunningState(
-                childProcess("failed", tempDir.resolve("failed.pid")), Duration.ofSeconds(5));
-
-        assertFalse(running);
+    void reportsUnknownWhenManagerCommandFails() throws Exception {
+        assertEquals(MuMuEmulatorInstance.ProbeState.UNKNOWN, MuMuEmulatorInstance.readRunningState(
+                childProcess("failed", tempDir.resolve("failed.pid")), Duration.ofSeconds(5)));
     }
 
     @Test
-    void timesOutAndKillsManagerThatKeepsOutputOpen() throws Exception {
+    void reportsUnknownRatherThanStoppedWhenProbeTimesOut() throws Exception {
         Path pidFile = tempDir.resolve("timeout.pid");
         long startedAt = System.nanoTime();
 
-        boolean running = MuMuEmulatorInstance.readRunningState(
+        MuMuEmulatorInstance.ProbeState state = MuMuEmulatorInstance.readRunningState(
                 childProcess("hang", pidFile), Duration.ofSeconds(3));
 
-        assertFalse(running);
+        // A busy machine is not a dead emulator: scoring this STOPPED is what made
+        // callers drop a working device lease.
+        assertEquals(MuMuEmulatorInstance.ProbeState.UNKNOWN, state);
         assertTrue(Duration.ofNanos(System.nanoTime() - startedAt).compareTo(Duration.ofSeconds(6)) < 0);
         assertProcessExited(readPid(pidFile));
     }
@@ -81,6 +78,18 @@ class MuMuManagerProcessTest {
         assertTrue(interrupted.get());
         assertNull(failure.get());
         assertProcessExited(childPid);
+    }
+
+    @Test
+    void inconclusiveProbeKeepsTheLastStateTheEmulatorGave() {
+        assertTrue(MuMuEmulatorInstance.resolveRunning(MuMuEmulatorInstance.ProbeState.UNKNOWN, true));
+        assertFalse(MuMuEmulatorInstance.resolveRunning(MuMuEmulatorInstance.ProbeState.UNKNOWN, false));
+    }
+
+    @Test
+    void conclusiveProbeOverridesTheLastState() {
+        assertTrue(MuMuEmulatorInstance.resolveRunning(MuMuEmulatorInstance.ProbeState.RUNNING, false));
+        assertFalse(MuMuEmulatorInstance.resolveRunning(MuMuEmulatorInstance.ProbeState.STOPPED, true));
     }
 
     private ProcessBuilder childProcess(String action, Path pidFile) {

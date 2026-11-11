@@ -196,6 +196,9 @@ public class EmulatorController {
         try {
             LOG.info("{} acquired emulator launch lock (dev {})", label(i), i);
             backend.launchEmulator(i);
+            // A liveness answer cached before the boot outlives it otherwise, as the
+            // shutdown path already recognises.
+            backend.invalidateAllCaches(i);
 
             long delayMs = readLaunchDelayMs();
             if (delayMs > 0) {
@@ -217,6 +220,7 @@ public class EmulatorController {
     public void    forceStopApp(String i, String pkg)     { requireBackend(); backend.forceStopApp(i, pkg); }
     public void    sendGameToBackground(String i)         { requireBackend(); backend.sendGameToBackground(i); }
     public boolean isRunning(String i)                    { requireBackend(); return backend.isRunning(i); }
+    public boolean isRunningCached(String i)              { requireBackend(); return backend.isRunningCached(i); }
     public boolean isPackageRunning(String i, String pkg) { requireBackend(); return backend.isPackageRunning(i, pkg); }
     public void    restartAdbServer()                     { requireBackend(); backend.restartAdb(); }
     public boolean performAdbHealthCheck(String i)        { requireBackend(); return backend.performAdbHealthCheck(i); }

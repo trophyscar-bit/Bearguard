@@ -28,6 +28,7 @@ public abstract class EmulatorInstance {
     private static final Logger LOG = LoggerFactory.getLogger(EmulatorInstance.class);
 
     protected static final int RETRY_CEILING = 10, INTER_RETRY_MS = 3000;
+    private static final long DEVICE_CACHE_TTL_MS = 30_000, RUNNING_CACHE_TTL_MS = 30_000;
     protected static final int BRIDGE_PROBE_LOOPS = 10, BRIDGE_PROBE_WAIT = 500;
     private static final Duration ADB_CONNECT_TIMEOUT = Duration.ofSeconds(10);
 
@@ -151,7 +152,7 @@ public abstract class EmulatorInstance {
     protected IDevice getCachedDevice(String idx) throws InterruptedException {
         long now = System.currentTimeMillis();
         IDevice d = devCache.get(idx); Long ts = devExpiry.get(idx);
-        if (d != null && ts != null && now - ts < 30_000 && d.isOnline()) return d;
+        if (d != null && ts != null && now - ts < DEVICE_CACHE_TTL_MS && d.isOnline()) return d;
         d = findDevice(idx);
         if (d != null) { devCache.put(idx, d); devExpiry.put(idx, now); }
         return d;
@@ -159,10 +160,10 @@ public abstract class EmulatorInstance {
 
     protected void invalidateDeviceCache(String idx) { devCache.remove(idx); devExpiry.remove(idx); }
 
-    protected boolean isRunningCached(String idx) {
+    public boolean isRunningCached(String idx) {
         long now = System.currentTimeMillis();
         Boolean v = runCache.get(idx); Long ts = runExpiry.get(idx);
-        if (v != null && ts != null && now - ts < 5_000) return v;
+        if (v != null && ts != null && now - ts < RUNNING_CACHE_TTL_MS) return v;
         boolean live = isRunning(idx);
         runCache.put(idx, live); runExpiry.put(idx, now);
         return live;
@@ -174,9 +175,13 @@ public abstract class EmulatorInstance {
     // --- 3-phase retry ---
 
     protected <T> T withRetries(String idx, Function<IDevice, T> action, String tag) {
-        if (!isRunning(idx)) LOG.warn("Device {} appears offline before {} — will attempt retries", idx, tag);
-
-        // Phase 1: standard retries
+        // Deliberately no pre-flight liveness probe. It spawned a vendor CLI process
+        // before every tap, swipe and back — 19,304 of them in one 33-hour window — and
+        // then discarded the answer, which only chose whether to log. It also lied: it
+        // reported the device offline 45 times in that window while the very next ADB
+        // call succeeded within ~200 ms, because a probe that times out is scored as
+        // "not running". The honest signal is in retryLoop, where the device is really
+        // looked up; a dead device fails there and still escalates to recovery.
         T result = retryLoop(idx, action, tag, "");
         if (result != null) return result;
 
@@ -200,8 +205,15 @@ public abstract class EmulatorInstance {
                 throw new ADBConnectionException("Interrupted during " + prefix + tag);
             try {
                 IDevice d = findDevice(idx);
-                if (d == null) { if (i == RETRY_CEILING / 2) restartAdb(); sleep(INTER_RETRY_MS / 2); continue; }
-                if (!d.isOnline()) { sleep(2000); continue; }
+                if (d == null) {
+                    if (i == 1) LOG.warn("Device {} not present before {} — will attempt retries", idx, tag);
+                    if (i == RETRY_CEILING / 2) restartAdb();
+                    sleep(INTER_RETRY_MS / 2); continue;
+                }
+                if (!d.isOnline()) {
+                    if (i == 1) LOG.warn("Device {} offline before {} — will attempt retries", idx, tag);
+                    sleep(2000); continue;
+                }
                 return action.apply(d);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
