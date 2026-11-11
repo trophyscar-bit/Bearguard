@@ -180,6 +180,7 @@ public enum TpDailyTaskEnum {
     EVENT_SIGN_IN_EARN     (920, "Event: Sign-in & Earn",         ConfigurationKeyEnum.SIGN_IN_EARN_ENABLED_BOOL,              RoutineCategory.EVENT),
     EVENT_WANDER_THEATER   (921, "Event: Wander Theater",         ConfigurationKeyEnum.WANDER_THEATER_ENABLED_BOOL,            RoutineCategory.EVENT),
     EVENT_DEAD_SHOT_SIGN_IN (922, "Event: Dead Shot Sign-in",     ConfigurationKeyEnum.DEAD_SHOT_SIGN_IN_ENABLED_BOOL,         RoutineCategory.EVENT),
+    EVENT_WINTER_SIEGE     (923, "Event: Winter Siege",           ConfigurationKeyEnum.WINTER_SIEGE_ENABLED_BOOL,              RoutineCategory.EVENT),
 
     // Top-right cart-icon Shop panel, built tab by tab. Custom
     // Armament Chest's free Claimable badge is periodic -- once-a-day recheck.
