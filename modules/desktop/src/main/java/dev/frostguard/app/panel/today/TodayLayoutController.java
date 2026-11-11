@@ -28,6 +28,7 @@ import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -47,12 +48,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -87,7 +86,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
     private final Timeline clock = new Timeline(new KeyFrame(Duration.seconds(1), event -> onClockTick()));
     private final Map<String, LocalDateTime> startedAt = new HashMap<>();
     private final Map<String, TaskManagerAux> rowsByKey = new HashMap<>();
-    private final Set<String> monitoringKeys = new HashSet<>();
+    private final Map<String, String> watchingByKey = new HashMap<>();
     private final Map<String, Task> tasksByKey = new HashMap<>();
     private final Map<String, List<String>> failureLines = new HashMap<>();
 
@@ -313,7 +312,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
 
         LocalDateTime now = LocalDateTime.now();
         rowsByKey.clear();
-        monitoringKeys.clear();
+        watchingByKey.clear();
         tasksByKey.clear();
         failureLines.clear();
         List<Task> tasks = new ArrayList<>();
@@ -390,9 +389,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         String custom = row.getCustomTaskName();
         String key = rowKey(type.getId(), custom);
 
-        if (MonitoringTasks.isMonitoring(type.getId(), custom)) {
-            monitoringKeys.add(key);
-        }
+        MonitoringTasks.watching(type.getId(), custom).ifPresent(words -> watchingByKey.put(key, words));
 
         List<String> lines = failureLinesFor(type, custom, failures);
         if (!lines.isEmpty()) {
@@ -527,19 +524,39 @@ public final class TodayLayoutController implements IProfileLoadListener {
         status.setMinWidth(Region.USE_PREF_SIZE);
 
         HBox box = new HBox(8, time, dot, name, status);
+        String watching = watchingByKey.get(task.key());
+        if (watching != null) {
+            showAsWatching(box, dot, name, watching);
+        }
         box.setAlignment(Pos.CENTER_LEFT);
         box.getStyleClass().add("today-row");
         if (item.kind() == Kind.PAST) {
             box.getStyleClass().add("today-row-past");
-        }
-        if (monitoringKeys.contains(task.key())) {
-            box.getStyleClass().add("today-row-monitoring");
         }
         if (task.key().equals(selection.selectedKey())) {
             box.getStyleClass().add("today-row-selected");
         }
         box.setOnMouseClicked(event -> onRowClicked(task.key()));
         return box;
+    }
+
+    /** The status dot becomes an eye in the same status colour, and a tag says what the task watches. */
+    private static void showAsWatching(HBox box, Region dot, Label name, String watching) {
+        dot.getStyleClass().add("today-dot-eye");
+        dot.setMinSize(15, 10);
+        dot.setMaxSize(15, 10);
+        HBox.setMargin(dot, new Insets(0, -3, 0, -3));
+
+        Label tag = new Label(watching);
+        tag.getStyleClass().add("today-watch-tag");
+        tag.setMinWidth(Region.USE_PREF_SIZE);
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox.setHgrow(name, Priority.NEVER);
+        name.setMaxWidth(Region.USE_PREF_SIZE);
+        box.getChildren().add(box.getChildren().indexOf(name) + 1, tag);
+        box.getChildren().add(box.getChildren().indexOf(tag) + 1, spacer);
     }
 
     private String timeColumn(Item item, LocalDateTime now) {

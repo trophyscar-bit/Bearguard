@@ -2529,12 +2529,6 @@
     -fx-font-size: 11px;
 }
 
-/* Tasks that only watch and record the game. */
-.today-row-monitoring .today-name,
-.today-row-past.today-row-monitoring .today-name {
-    -fx-text-fill: -fg-teal;
-}
-
 .today-row-pulse {
     -fx-background-color: #81c784;
     -fx-background-radius: 5;
@@ -2558,6 +2552,26 @@
 
 .today-dot-next {
     -fx-background-color: #4a5264;
+}
+
+/* Tasks that only watch and record the game: an eye in the status colour, and what it watches. */
+.today-dot-eye {
+    -fx-background-radius: 0;
+    -fx-shape: "M0 5 C3 -0.5 11 -0.5 14 5 C11 10.5 3 10.5 0 5 Z M1.8 5 C4 8.6 10 8.6 12.2 5 C10 1.4 4 1.4 1.8 5 Z M5 5 A2 2 0 1 1 9 5 A2 2 0 1 1 5 5 Z";
+}
+
+.today-watch-tag {
+    -fx-font-size: 10px;
+    -fx-text-fill: -fg-text-secondary;
+    -fx-padding: 0 6;
+    -fx-border-color: #4a5264;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+}
+
+.today-row-past .today-watch-tag {
+    -fx-font-size: 9px;
+    -fx-padding: 0 5;
 }
 
 .today-mark-row {

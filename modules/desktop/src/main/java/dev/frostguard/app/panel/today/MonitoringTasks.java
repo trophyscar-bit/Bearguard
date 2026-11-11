@@ -1,27 +1,32 @@
 package dev.frostguard.app.panel.today;
 
-import java.util.Set;
+import java.util.Map;
+import java.util.Optional;
 
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 
-/** The tasks that only watch and record the game, which the Today timeline colours apart from the rest. */
+/** The tasks that only watch and record the game, each with the few words Today shows for what it watches. */
 final class MonitoringTasks {
 
-    private static final Set<Integer> TASK_IDS = Set.of(
-            TpDailyTaskEnum.GAME_ANALYTICS_LABYRINTH.getId(),
-            TpDailyTaskEnum.GAME_ANALYTICS_POWER.getId(),
-            TpDailyTaskEnum.SQUAD_SCAN.getId(),
-            TpDailyTaskEnum.CHAT_CAPTURE.getId(),
-            TpDailyTaskEnum.RESOURCE_STOCKPILE_SCAN.getId());
+    private static final Map<Integer, String> BY_TASK_ID = Map.of(
+            TpDailyTaskEnum.GAME_ANALYTICS_LABYRINTH.getId(), "logs rankings",
+            TpDailyTaskEnum.GAME_ANALYTICS_POWER.getId(), "logs rankings",
+            TpDailyTaskEnum.SQUAD_SCAN.getId(), "logs heroes + gear",
+            TpDailyTaskEnum.CHAT_CAPTURE.getId(), "reads chat",
+            TpDailyTaskEnum.RESOURCE_STOCKPILE_SCAN.getId(), "counts resources");
 
-    private static final Set<String> CUSTOM_NAMES = Set.of(
-            "bg_telemetry", "bg_deals_telemetry", "bg_calendar", "chat_capture", "chat_reconcile",
-            "resource_stockpile_scan");
+    private static final Map<String, String> BY_CUSTOM_NAME = Map.of(
+            "bg_telemetry", "logs stats",
+            "bg_deals_telemetry", "reads deals",
+            "bg_calendar", "reads events",
+            "chat_reconcile", "reads chat");
 
     private MonitoringTasks() {
     }
 
-    static boolean isMonitoring(int taskId, String customName) {
-        return TASK_IDS.contains(taskId) || (customName != null && CUSTOM_NAMES.contains(customName));
+    /** What the task watches, or empty for a task that plays the game. */
+    static Optional<String> watching(int taskId, String customName) {
+        String byId = BY_TASK_ID.get(taskId);
+        return Optional.ofNullable(byId != null || customName == null ? byId : BY_CUSTOM_NAME.get(customName));
     }
 }
