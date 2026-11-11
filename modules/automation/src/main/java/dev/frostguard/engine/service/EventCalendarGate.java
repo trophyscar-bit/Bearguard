@@ -32,6 +32,8 @@ public final class EventCalendarGate {
     private static final DateTimeFormatter START_FORMAT = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss");
     /** Long enough past the UTC day roll for bg_calendar's sweep (00:12 UTC) to have finished. */
     private static final int SWEEP_SETTLED_MINUTES = 45;
+    /** Every row the State-calendar sweep writes carries this key prefix. */
+    private static final String STATE_CALENDAR_PREFIX = "STATE_GANTT_";
 
     private EventCalendarGate() {
     }
@@ -92,7 +94,7 @@ public final class EventCalendarGate {
      */
     public static String keyPrefixFor(String eventName) {
         String name = eventName == null ? "" : eventName;
-        return "STATE_GANTT_" + name.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_";
+        return STATE_CALENDAR_PREFIX + name.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_";
     }
 
     static Verdict check(List<EventScheduleEntry> entries, String scanMarker, String eventName,
@@ -110,6 +112,18 @@ public final class EventCalendarGate {
             // shows every event of the week, so absence from a chart that was read is absence from
             // the week. The 10 Nov sweep found seventeen live events and Alliance Mobilization was
             // not among them, which is exactly the night it logged six missing-tab warnings.
+            //
+            // Unless the sweep itself came back unsure. A bar the scan could not name is stored as
+            // "Unidentified", and any one of those could be this event under a name that did not
+            // read -- absence from an incomplete list is not absence from the week. Missing a live
+            // event's rewards costs more than another "tab not found", so an unsure calendar hands
+            // the decision back to the task.
+            long unnamed = unnamedBars(entries);
+            if (unnamed > 0) {
+                return new Verdict(true, null, eventName
+                        + ": today's calendar has " + unnamed + " bar(s) it could not name, so this"
+                        + " pass goes ahead rather than treat a gap in the list as proof.");
+            }
             return new Verdict(false, nextSweep(nowUtc), eventName
                     + " is not running; today's calendar does not carry it.");
         }
@@ -124,6 +138,24 @@ public final class EventCalendarGate {
                 .toLocalDateTime();
         return new Verdict(false, start, eventName + " is not running; the calendar has it starting "
                 + startLocal.format(START_FORMAT) + ".");
+    }
+
+    /**
+     * How many bars the last sweep stored without a name.
+     *
+     * <p>Counts the scan's own "Unidentified" marker, which is what it writes for a bar whose icon
+     * matched nothing and whose label did not read. It cannot count a bar whose label read as
+     * plausible nonsense -- the row stored as "er oe" on 11 Nov looks like any other name from
+     * here -- so this narrows the window for a wrong skip rather than closing it.</p>
+     */
+    private static long unnamedBars(List<EventScheduleEntry> entries) {
+        return entries.stream()
+                .filter(entry -> entry.getEventKey() != null
+                        && entry.getEventKey().startsWith(STATE_CALENDAR_PREFIX))
+                .filter(entry -> entry.getEventLabel() == null
+                        || entry.getEventLabel().isBlank()
+                        || entry.getEventLabel().toLowerCase().startsWith("unidentified"))
+                .count();
     }
 
     /**

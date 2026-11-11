@@ -94,6 +94,34 @@ class EventCalendarGateTest {
         assertTrue(verdict.reason().contains("does not carry it"), verdict.reason());
     }
 
+    /**
+     * A sweep that could not name every bar is not a list to prove absence from: one of those bars
+     * could be this event. Missing a live event costs more than another missing-tab warning, so the
+     * task looks for itself.
+     */
+    @Test
+    void anUnnamedBarInTodaysSweepMeansTheTaskStillLooks() {
+        EventScheduleEntry unidentified = new EventScheduleEntry("STATE_GANTT___UNIDENTIFIED_0_2026_11_11_2026_11_14",
+                "Unidentified - 2026-11-11", true, LocalDateTime.of(2026, 11, 11, 5, 0),
+                LocalDateTime.of(2026, 11, 14, 4, 59), null);
+
+        EventCalendarGate.Verdict verdict =
+                EventCalendarGate.check(List.of(OTHER_EVENT, unidentified), READ_TODAY, EVENT, NOW);
+
+        assertTrue(verdict.shouldRun());
+        assertTrue(verdict.nextStartUtc().isEmpty());
+        assertTrue(verdict.reason().contains("could not name"), verdict.reason());
+    }
+
+    /** A row with no label at all is the same kind of gap. */
+    @Test
+    void anUnlabelledRowAlsoCountsAsUnnamed() {
+        EventScheduleEntry blank = new EventScheduleEntry("STATE_GANTT_BLANK_2026_11_11", "  ",
+                true, LocalDateTime.of(2026, 11, 11, 5, 0), LocalDateTime.of(2026, 11, 14, 4, 59), null);
+
+        assertTrue(EventCalendarGate.check(List.of(OTHER_EVENT, blank), READ_TODAY, EVENT, NOW).shouldRun());
+    }
+
     /** Past windows only: it has been and gone, and tomorrow's chart gets the next say. */
     @Test
     void anEventWhoseWindowHasEndedParksUntilTheNextSweep() {
