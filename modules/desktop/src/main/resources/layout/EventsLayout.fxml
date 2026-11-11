@@ -119,6 +119,27 @@
             </ScrollPane>
         </Tab>
 
+        <Tab text="Winter Siege" closable="false">
+            <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
+                <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">
+                    <VBox styleClass="content-card">
+                        <HBox styleClass="header-yellow" maxWidth="Infinity" alignment="CENTER_LEFT">
+                            <CheckBox text="Winter Siege: claim finished missions" style="-fx-font-weight: bold;"
+                                      mnemonicParsing="false" fx:id="checkBoxWinterSiege" />
+                        </HBox>
+                        <VBox styleClass="task-section-inner">
+                            <Label wrapText="true" styleClass="task-card-description"
+                                   text="Every 3 hours while the event runs, in every phase, it opens Winter Siege and claims any finished Event Missions. It does not garrison, change squads, appoint Wardens, attack or buy from the shop. Skips the pass when no squads are garrisoned." />
+                            <Separator style="-fx-opacity: 0.25;" />
+                            <Label wrapText="true" style="-fx-font-style: italic;"
+                                   styleClass="task-card-description"
+                                   text="No additional configuration required" />
+                        </VBox>
+                    </VBox>
+                </VBox>
+            </ScrollPane>
+        </Tab>
+
         <Tab text="Mergeventure" closable="false">
             <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
                 <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">

@@ -609,6 +609,8 @@ public enum ConfigurationKeyEnum {
 
     DEAD_SHOT_SIGN_IN_ENABLED_BOOL       ("false",   Boolean.class,  ConfigCategory.EVENTS),
 
+    WINTER_SIEGE_ENABLED_BOOL            ("false",   Boolean.class,  ConfigCategory.EVENTS),
+
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
     // weeks) -- checked once a day, no-ops when nothing's there.
