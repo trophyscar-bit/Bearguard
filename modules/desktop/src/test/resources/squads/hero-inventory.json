@@ -1,0 +1,17 @@
+{
+  "capturedAt": "2026-11-10T23:32:00Z",
+  "heroXp": 283301,
+  "essenceStones": 3,
+  "enhancementXp": 4640,
+  "instructors": [
+    { "name": "Flint", "level": 78, "xpToNext": 2100000 },
+    { "name": "Bahiti", "level": 78, "xpToNext": 2100000 },
+    { "name": "Sergey", "level": 78, "xpToNext": 2100000 },
+    { "name": "Mia", "level": 79, "xpToNext": 2400000 },
+    { "name": "Molly", "level": 80, "xpToNext": null }
+  ],
+  "priority": [
+    { "hero": "Bahiti", "piece": "Boots", "forgeCost": 10, "enhanceCost": 1440 },
+    { "hero": "Bahiti", "piece": "Goggles", "forgeCost": 12, "enhanceCost": 1450 }
+  ]
+}

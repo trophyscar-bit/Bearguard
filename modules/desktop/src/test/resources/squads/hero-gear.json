@@ -1,0 +1,151 @@
+{
+  "pieces": [
+    {
+      "hero": "Mia",
+      "slot": "Goggles",
+      "enhancement": 100,
+      "masteryPercent": 60,
+      "onRole": true
+    },
+    {
+      "hero": "Mia",
+      "slot": "Boots",
+      "enhancement": 81,
+      "masteryPercent": 50,
+      "onRole": true
+    },
+    {
+      "hero": "Mia",
+      "slot": "Gauntlets",
+      "enhancement": 55,
+      "masteryPercent": 10,
+      "onRole": false
+    },
+    {
+      "hero": "Mia",
+      "slot": "Belt",
+      "enhancement": 50,
+      "masteryPercent": 0,
+      "onRole": false
+    },
+    {
+      "hero": "Flint",
+      "slot": "Gauntlets",
+      "enhancement": 85,
+      "masteryPercent": 58,
+      "onRole": true
+    },
+    {
+      "hero": "Flint",
+      "slot": "Belt",
+      "enhancement": 85,
+      "masteryPercent": 50,
+      "onRole": true
+    },
+    {
+      "hero": "Flint",
+      "slot": "Boots",
+      "enhancement": 50,
+      "masteryPercent": 10,
+      "onRole": false
+    },
+    {
+      "hero": "Flint",
+      "slot": "Goggles",
+      "enhancement": 50,
+      "masteryPercent": 0,
+      "onRole": false
+    },
+    {
+      "hero": "Bahiti",
+      "slot": "Goggles",
+      "enhancement": 80,
+      "masteryPercent": 50,
+      "onRole": true
+    },
+    {
+      "hero": "Bahiti",
+      "slot": "Boots",
+      "enhancement": 80,
+      "masteryPercent": 42,
+      "onRole": true
+    },
+    {
+      "hero": "Bahiti",
+      "slot": "Gauntlets",
+      "enhancement": 40,
+      "masteryPercent": 10,
+      "onRole": false
+    },
+    {
+      "hero": "Bahiti",
+      "slot": "Belt",
+      "enhancement": 40,
+      "masteryPercent": 10,
+      "onRole": false
+    },
+    {
+      "hero": "Sergey",
+      "slot": "Belt",
+      "enhancement": 76,
+      "masteryPercent": 46,
+      "onRole": true
+    },
+    {
+      "hero": "Sergey",
+      "slot": "Gauntlets",
+      "enhancement": 76,
+      "masteryPercent": 30,
+      "onRole": true
+    },
+    {
+      "hero": "Sergey",
+      "slot": "Goggles",
+      "enhancement": 50,
+      "masteryPercent": 0,
+      "onRole": false
+    },
+    {
+      "hero": "Sergey",
+      "slot": "Boots",
+      "enhancement": 50,
+      "masteryPercent": 0,
+      "onRole": false
+    },
+    {
+      "hero": "Molly",
+      "slot": "Goggles",
+      "enhancement": 70,
+      "masteryPercent": 30,
+      "onRole": true
+    },
+    {
+      "hero": "Molly",
+      "slot": "Boots",
+      "enhancement": 69,
+      "masteryPercent": 30,
+      "onRole": true
+    },
+    {
+      "hero": "Molly",
+      "slot": "Gauntlets",
+      "enhancement": 45,
+      "masteryPercent": 0,
+      "onRole": false
+    },
+    {
+      "hero": "Molly",
+      "slot": "Belt",
+      "enhancement": 40,
+      "masteryPercent": 0,
+      "onRole": false
+    }
+  ],
+  "heroWeights": {
+    "Bahiti": 1.14,
+    "Flint": 0.3,
+    "Mia": 0.3,
+    "Sergey": 0.105,
+    "Molly": 0.0
+  }
+}

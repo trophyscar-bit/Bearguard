@@ -1,5 +1,6 @@
 package dev.frostguard.engine.squads;
 
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -10,6 +11,8 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import dev.frostguard.api.domain.OcrSettingsData;
+import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.squads.HeroGear;
 import dev.frostguard.api.squads.HeroSkill;
@@ -38,6 +41,11 @@ public final class HeroScreenReader {
     private static final int[][] GEAR_LEVEL = {
             { 96, 348, 154, 373 }, { 614, 348, 672, 373 }, { 96, 568, 154, 593 }, { 614, 568, 672, 593 } };
 
+    // On saved frames a "+N" badge lit 129+ white pixels in its box and a bare tile at most 21;
+    // an "Lv.N" lit 133+ yellow in its box and a tile without one none.
+    private static final int MARK_MIN_PIXELS = 60;
+    private static final int WHITE_FLOOR = 230;
+
     // Skill levels run 1-5. Particle effects behind some titles add junk after the level
     // ("Snow's Grace Lv. 5 7"), so anything after the level digit is ignored.
     // "Lv" can come back as "lv" glued to the name ("Super Snowballlv.5", "YouthfulRagelv.5").
@@ -57,6 +65,20 @@ public final class HeroScreenReader {
             "Eugene", "Charlie", "Smith", "Cloris");
     private static final Pattern STAT_LINE = Pattern.compile("^([A-Za-z ]+?)\\s+\\+?([\\d,]+(?:\\.\\d+)?)%?$");
 
+    // A skill glow can wash out the title, so the plain read turns "Mia" into "AE"; the white mask
+    // still reads it.
+    private static final OcrSettingsData WHITE_NAME = OcrSettingsData.builder()
+            .textLayout(TextLayout.SINGLE_LINE).isolateForeground(true).targetColor(Color.WHITE).build();
+    // The Upgrade button prints the balance red when it is short of the cost and white otherwise.
+    private static final OcrSettingsData WHITE_XP = OcrSettingsData.builder()
+            .textLayout(TextLayout.SINGLE_LINE).allowedGlyphs("0123456789,./KMB")
+            .isolateForeground(true).targetColor(Color.WHITE).build();
+    private static final OcrSettingsData RED_XP = OcrSettingsData.builder()
+            .textLayout(TextLayout.SINGLE_LINE).allowedGlyphs("0123456789,")
+            .isolateForeground(true).targetColor(new Color(235, 50, 55)).build();
+    private static final Pattern XP_BOTH = Pattern.compile("^([\\d,.]+[KMB]?)/([\\d.]+[KMB]?)$");
+    private static final Pattern XP_COST = Pattern.compile("^/([\\d.]+[KMB]?)$");
+
     private HeroScreenReader() {
     }
 
@@ -70,11 +92,67 @@ public final class HeroScreenReader {
     public record Exclusive(String name, Integer level) {
     }
 
+    /** {@code toNext} comes off the Upgrade button, which rounds it ("2.4M"). */
+    public record HeroXp(long have, long toNext) {
+    }
+
     /** True when the Stats / Skills / Gear tab bar of a hero page is on screen. */
     public static boolean isHeroPage(RawImageData frame) {
         String tabs = String.join(" ", SquadOcr.lines(frame, 20, 1205, 700, 1270).stream()
                 .map(TextLine::text).toList());
         return tabs.contains("Skills") && tabs.contains("Gear");
+    }
+
+    /** True on the Stats tab with no pop-up over it: the Overall Stats button is only there. */
+    public static boolean isStatsTab(RawImageData frame) {
+        String row = String.join(" ", SquadOcr.lines(frame, 60, 935, 660, 1030).stream()
+                .map(TextLine::text).toList());
+        return row.contains("Escorts") && row.contains("Troops Capacity");
+    }
+
+    /** True on the Gear tab with no dialog over it, so the four tiles are where they should be. */
+    public static boolean isGearTab(RawImageData frame) {
+        return SquadOcr.text(frame, 70, 1085, 335, 1140, SquadOcr.LINE).contains("Unequip")
+                && SquadOcr.text(frame, 385, 1085, 650, 1140, SquadOcr.LINE).contains("Quick Equip");
+    }
+
+    /** The hero in the page title, or null unless it reads as a known hero. */
+    public static String readName(RawImageData frame) {
+        for (OcrSettingsData cfg : List.of(WHITE_NAME, SquadOcr.LINE)) {
+            String name = snapToKnownHero(heroName(SquadOcr.text(frame, 200, 15, 520, 62, cfg)));
+            if (name != null && KNOWN_HEROES.contains(name)) return name;
+        }
+        return null;
+    }
+
+    /** The XP balance and cost on the Stats tab's Upgrade button, or null when they don't read cleanly. */
+    public static HeroXp readHeroXp(RawImageData frame) {
+        return heroXp(SquadOcr.text(frame, 270, 1112, 500, 1148, WHITE_XP),
+                SquadOcr.text(frame, 270, 1112, 500, 1148, RED_XP));
+    }
+
+    static HeroXp heroXp(String white, String red) {
+        Matcher both = XP_BOTH.matcher(white);
+        if (both.matches()) {
+            Long have = abbreviated(both.group(1));
+            Long toNext = abbreviated(both.group(2));
+            return have != null && toNext != null && have >= toNext ? new HeroXp(have, toNext) : null;
+        }
+        Matcher cost = XP_COST.matcher(white);
+        Long have = SquadOcr.number(red);
+        Long toNext = cost.matches() ? abbreviated(cost.group(1)) : null;
+        return have != null && toNext != null && have < toNext ? new HeroXp(have, toNext) : null;
+    }
+
+    private static Long abbreviated(String text) {
+        char last = text.charAt(text.length() - 1);
+        long scale = last == 'K' ? 1_000L : last == 'M' ? 1_000_000L : last == 'B' ? 1_000_000_000L : 1L;
+        String digits = (scale == 1 ? text : text.substring(0, text.length() - 1)).replace(",", "");
+        try {
+            return Math.round(Double.parseDouble(digits) * scale);
+        } catch (NumberFormatException malformed) {
+            return null;
+        }
     }
 
     public static Detail readDetail(RawImageData frame) {
@@ -151,6 +229,49 @@ public final class HeroScreenReader {
             gear.add(new HeroGear(slot + 1, plus, mastery));
         }
         return gear;
+    }
+
+    /**
+     * Like {@link #readGear}, but a tile with no "+N" badge reads +0 and one with no "Lv.N" reads
+     * level 0, which leaves null for a mark that is there and didn't read.
+     */
+    public static List<HeroGear> readTiles(RawImageData frame) {
+        BufferedImage image = ImageConverter.toBufferedImage(frame);
+        List<HeroGear> tiles = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            int[] p = GEAR_PLUS[slot];
+            int[] l = GEAR_LEVEL[slot];
+            Integer plus = enhancement(SquadOcr.text(frame, p[0], p[1], p[2], p[3], SquadOcr.WHITE_PLUS_NUMBER),
+                    SquadOcr.text(frame, p[0], p[1], p[2], p[3], SquadOcr.PLUS_NUMBER));
+            if (plus == null && whitePixels(image, p) < MARK_MIN_PIXELS) plus = 0;
+            Integer level = mastery(SquadOcr.text(frame, l[0], l[1], l[2], l[3], SquadOcr.YELLOW_LEVEL));
+            if (level == null && yellowPixels(image, l) < MARK_MIN_PIXELS) level = 0;
+            tiles.add(new HeroGear(slot + 1, plus, level));
+        }
+        return tiles;
+    }
+
+    private static int whitePixels(BufferedImage image, int[] box) {
+        int count = 0;
+        for (int x = box[0]; x < box[2]; x++) {
+            for (int y = box[1]; y < box[3]; y++) {
+                int rgb = image.getRGB(x, y);
+                if (((rgb >> 16) & 0xFF) >= WHITE_FLOOR && ((rgb >> 8) & 0xFF) >= WHITE_FLOOR && (rgb & 0xFF) >= WHITE_FLOOR) count++;
+            }
+        }
+        return count;
+    }
+
+    private static int yellowPixels(BufferedImage image, int[] box) {
+        int count = 0;
+        for (int x = box[0]; x < box[2]; x++) {
+            for (int y = box[1]; y < box[3]; y++) {
+                int rgb = image.getRGB(x, y);
+                if (Math.abs(((rgb >> 16) & 0xFF) - 250) <= 30 && Math.abs(((rgb >> 8) & 0xFF) - 225) <= 30
+                        && Math.abs((rgb & 0xFF) - 100) <= 50) count++;
+            }
+        }
+        return count;
     }
 
     /**

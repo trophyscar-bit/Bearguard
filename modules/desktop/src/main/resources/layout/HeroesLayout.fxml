@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<!-- Troops > Heroes: gear grades and the rolling upgrade list, Drill Camp level ups, rally joiners and the scanned roster, one tab each. -->
+<StackPane maxHeight="Infinity" maxWidth="Infinity"
+           HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
+           xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
+
+    <TabPane fx:id="tabPane">
+        <tabs>
+            <Tab text="Hero Gear" closable="false">
+                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" styleClass="task-page-scroll">
+                    <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+
+                        <VBox styleClass="content-card">
+                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                <Label text="Gear Automation Status" />
+                            </HBox>
+                            <HBox alignment="CENTER_LEFT" spacing="14" styleClass="task-section-inner">
+                                <Label fx:id="labelHalt" styleClass="task-card-description" wrapText="true"
+                                       maxWidth="Infinity" HBox.hgrow="ALWAYS" />
+                                <Button fx:id="buttonClearHalt" mnemonicParsing="false" text="Clear" minWidth="80"
+                                        onAction="#clearHalt" />
+                            </HBox>
+                        </VBox>
+
+                        <VBox styleClass="content-card">
+                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                <Label text="Gear Grades" />
+                            </HBox>
+                            <VBox spacing="10" styleClass="task-section-inner">
+                                <Label styleClass="task-card-description" wrapText="true"
+                                       text="Each piece shows grade, enhancement, mastery and troop bonus. Main-role pieces are graded against a fixed target of 80, off-role pieces against 40." />
+                                <TableView fx:id="tableGrades" prefHeight="275" />
+                            </VBox>
+                        </VBox>
+
+                        <VBox styleClass="content-card">
+                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                <Label text="Next 10 Upgrades" />
+                            </HBox>
+                            <VBox spacing="10" styleClass="task-section-inner">
+                                <Label fx:id="labelStones" styleClass="task-card-description" wrapText="true" />
+                                <TableView fx:id="tableRolling" prefHeight="510" />
+                            </VBox>
+                        </VBox>
+
+                        <VBox styleClass="content-card">
+                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                <Label text="Auto-Buy Options" />
+                            </HBox>
+                            <VBox spacing="10" styleClass="task-section-inner">
+                                <CheckBox fx:id="checkBoxForgeEnabled" mnemonicParsing="false"
+                                          text="Run the gear check every night" />
+                                <CheckBox fx:id="checkBoxForgeLive" mnemonicParsing="false"
+                                          text="Actually spend Essence Stones (off = log what it would buy)" />
+                                <CheckBox fx:id="checkBoxQuickEquip" mnemonicParsing="false"
+                                          text="Quick Equip every hero first" />
+                                <CheckBox fx:id="checkBoxEnhance" mnemonicParsing="false"
+                                          text="Enhance the weakest gear after the scan" />
+                                <CheckBox fx:id="checkBoxEnhanceLive" mnemonicParsing="false"
+                                          text="Actually eat XP items" />
+                                <HBox alignment="CENTER_LEFT" spacing="14">
+                                    <Label styleClass="task-field-label" text="Enhance step" minWidth="160" />
+                                    <ComboBox fx:id="comboBoxEnhanceStep" prefWidth="160" />
+                                    <Label styleClass="label-muted" text="levels per raise" />
+                                </HBox>
+                                <HBox alignment="CENTER_LEFT" spacing="14">
+                                    <Label styleClass="task-field-label" text="Most raises per night" minWidth="160" />
+                                    <ComboBox fx:id="comboBoxEnhanceRaises" prefWidth="160" />
+                                </HBox>
+                                <Separator style="-fx-opacity: 0.25;" />
+                                <HBox alignment="CENTER_LEFT" spacing="14">
+                                    <Label styleClass="task-field-label" text="Focus" minWidth="160" />
+                                    <ComboBox fx:id="comboBoxFocus" prefWidth="160" />
+                                    <Label styleClass="label-muted" text="Rally squads uses the saved hero weights, led by your rally lead. Balanced treats the three march leads equally." wrapText="true" />
+                                </HBox>
+                                <HBox alignment="CENTER_LEFT" spacing="14">
+                                    <Label styleClass="task-field-label" text="Most buys per night" minWidth="160" />
+                                    <ComboBox fx:id="comboBoxMaxBuys" prefWidth="160" />
+                                </HBox>
+                                <HBox alignment="CENTER_LEFT" spacing="14">
+                                    <Label styleClass="task-field-label" text="Always keep" minWidth="160" />
+                                    <ComboBox fx:id="comboBoxReserve" prefWidth="160" />
+                                    <Label styleClass="label-muted" text="stones in reserve" />
+                                </HBox>
+                                <HBox alignment="CENTER_LEFT" spacing="18">
+                                    <Label styleClass="task-field-label" text="Heroes to upgrade" minWidth="160" />
+                                    <CheckBox fx:id="checkBoxMia" mnemonicParsing="false" text="Mia" />
+                                    <CheckBox fx:id="checkBoxFlint" mnemonicParsing="false" text="Flint" />
+                                    <CheckBox fx:id="checkBoxBahiti" mnemonicParsing="false" text="Bahiti" />
+                                    <CheckBox fx:id="checkBoxSergey" mnemonicParsing="false" text="Sergey" />
+                                    <CheckBox fx:id="checkBoxMolly" mnemonicParsing="false" text="Molly" />
+                                </HBox>
+                                <Label styleClass="task-card-note" wrapText="true"
+                                       text="Only Mastery Forging and, when ticked, Enhance are automated. Forging saves for the top item rather than buying something cheaper below it. Enhance uses XP items only while its second box is ticked. Reforge, Ascend, Redeem and anything priced in gems are never pressed." />
+                            </VBox>
+                        </VBox>
+                    </VBox>
+                </ScrollPane>
+            </Tab>
+
+            <Tab text="Hero Level Ups" closable="false">
+                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" styleClass="task-page-scroll">
+                    <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+
+                        <VBox styleClass="content-card">
+                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                <Label text="Drill Camp Instructors" />
+                            </HBox>
+                            <VBox spacing="10" styleClass="task-section-inner">
+                                <Label fx:id="labelXp" styleClass="task-card-description" wrapText="true" />
+                                <TableView fx:id="tableLevels" prefHeight="275" />
+                                <Label styleClass="task-card-note" wrapText="true"
+                                       text="Every other hero auto-levels to the lowest instructor, so XP goes to the lowest instructor first." />
+                            </VBox>
+                        </VBox>
+
+                        <VBox styleClass="content-card">
+                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                <Label text="Level Up Options" />
+                            </HBox>
+                            <VBox spacing="10" styleClass="task-section-inner">
+                                <CheckBox fx:id="checkBoxPlan" mnemonicParsing="false"
+                                          text="Log the level-up plan (dry run, touches nothing)" />
+                                <Separator style="-fx-opacity: 0.25;" />
+                                <CheckBox disable="true" mnemonicParsing="false" text="Level up heroes automatically (not built yet)" />
+                                <CheckBox disable="true" mnemonicParsing="false" text="Open XP bottles from the Backpack first (not built yet)" />
+                                <Label styleClass="task-card-note" wrapText="true"
+                                       text="Hero shards and Ascend are never used, for any hero." />
+                            </VBox>
+                        </VBox>
+                    </VBox>
+                </ScrollPane>
+            </Tab>
+
+            <Tab text="Rally Joiners" closable="false">
+                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" styleClass="task-page-scroll">
+                    <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+
+                        <VBox styleClass="content-card">
+                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                <Label text="Rally Joiners" />
+                            </HBox>
+                            <VBox spacing="10" styleClass="task-section-inner">
+                                <Label fx:id="labelJoiners" styleClass="task-card-description" wrapText="true" />
+                                <TableView fx:id="tableJoiners" prefHeight="275" />
+                                <Label styleClass="task-card-note" wrapText="true"
+                                       text="Joining a rally applies only the first expedition skill of the march's first hero, so joiners are ranked on that one skill." />
+                            </VBox>
+                        </VBox>
+                    </VBox>
+                </ScrollPane>
+            </Tab>
+
+            <Tab text="Roster" closable="false">
+                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" styleClass="task-page-scroll">
+                    <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+
+                        <VBox styleClass="content-card">
+                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                <Label text="Hero Roster" />
+                            </HBox>
+                            <VBox spacing="10" styleClass="task-section-inner">
+                                <Label fx:id="labelRoster" styleClass="task-card-description" wrapText="true" />
+                                <TableView fx:id="tableHeroes" prefHeight="275" />
+                            </VBox>
+                        </VBox>
+                    </VBox>
+                </ScrollPane>
+            </Tab>
+        </tabs>
+    </TabPane>
+</StackPane>

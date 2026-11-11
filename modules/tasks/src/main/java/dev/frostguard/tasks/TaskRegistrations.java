@@ -41,6 +41,8 @@ public class TaskRegistrations {
             case EXPERT_SKILL_TRAINING -> new ExpertSkillTrainingRoutine(profile, type);
             case DAWN_ACADEMY -> new DawnAcademyRoutine(profile, type);
             case SQUAD_SCAN -> new SquadScanRoutine(profile, type);
+            case HERO_UPGRADE_PLAN -> new HeroUpgradePlanRoutine(profile, type);
+            case HERO_GEAR_FORGE -> new HeroGearForgeRoutine(profile, type);
 
             // Economy
             case NOMADIC_MERCHANT -> new NomadicMerchantRoutine(profile, type);
