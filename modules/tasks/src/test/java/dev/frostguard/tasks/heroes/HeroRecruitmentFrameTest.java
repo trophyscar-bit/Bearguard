@@ -31,6 +31,10 @@ class HeroRecruitmentFrameTest {
 
     private static final String SHORT_TIMERS = "/herorecruitment/timers-running-20261110.png";
     private static final String DAY_TIMER = "/herorecruitment/timers-running-epic-days-20260820.png";
+    private static final String CHEST_CLOSED = "/herorecruitment/claim-chest-animation-20261111.png";
+    private static final String CHEST_FLASH = "/herorecruitment/claim-chest-flash-20261111.png";
+    private static final String REWARDS = "/herorecruitment/claim-rewards-screen-20261111.png";
+    private static final String AFTER_CLAIM = "/herorecruitment/after-claim-next-free-20261111.png";
 
     @Test
     void readsAdvancedCountdown() throws Exception {
@@ -56,8 +60,25 @@ class HeroRecruitmentFrameTest {
                 Duration.ofDays(1).plusHours(16).plusMinutes(24).plusSeconds(14));
     }
 
+    @Test
+    void readsAdvancedCountdownRightAfterAClaim() throws Exception {
+        assertTimer(AFTER_CLAIM, CommonGameAreas.HERO_RECRUIT_ADVANCED_TIMER_OCR_AREA,
+                Duration.ofMinutes(4).plusSeconds(29));
+    }
+
+    @Test
+    void recognisesTheRewardsScreenAfterAClaim() throws Exception {
+        assertTrue(rewardsShown(REWARDS));
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {SHORT_TIMERS, DAY_TIMER})
+    @ValueSource(strings = {SHORT_TIMERS, DAY_TIMER, AFTER_CLAIM, CHEST_CLOSED, CHEST_FLASH})
+    void rewardsCheckIgnoresEveryOtherFrame(String resource) throws Exception {
+        assertFalse(rewardsShown(resource));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {SHORT_TIMERS, DAY_TIMER, AFTER_CLAIM})
     void confirmsTheRecruitmentScreen(String resource) throws Exception {
         assertTrue(screenShown(resource));
     }
@@ -66,9 +87,22 @@ class HeroRecruitmentFrameTest {
     @ValueSource(strings = {
             "/herorecruitment/other-heroes-grid-20261110.png",
             "/herorecruitment/other-hero-detail-20261110.png",
-            "/herorecruitment/other-gear-details-popup-20261110.png"})
+            "/herorecruitment/other-gear-details-popup-20261110.png",
+            CHEST_CLOSED, CHEST_FLASH, REWARDS})
     void rejectsOtherScreens(String resource) throws Exception {
         assertFalse(screenShown(resource));
+    }
+
+    private boolean rewardsShown(String resource) throws Exception {
+        RawImageData frame = load(resource);
+        return HeroRecruitmentRoutine.showsRewardsScreen(area -> {
+            try {
+                return OcrEngine.recognizeText(frame, area.topLeft(), area.bottomRight(),
+                        CommonOCRSettings.HERO_RECRUIT_REWARDS_EXIT_SETTINGS);
+            } catch (OcrException unreadable) {
+                return null;
+            }
+        });
     }
 
     private boolean screenShown(String resource) throws Exception {

@@ -39,13 +39,14 @@ class HeroRecruitmentRoutineTest {
 
         routine.execute();
 
-        assertEquals(List.of("free:Advanced", "tap:Advanced"), routine.screenActions);
+        assertEquals(List.of("free:Advanced", "tap:Advanced"), routine.screenActions,
+                "no Back without the Rewards screen");
         assertEquals(List.of(), routine.timerReads);
         assertEquals(List.of("Advanced-screen-unconfirmed"), routine.dumps);
         assertTrue(routine.screenChecks >= 2, "kept checking until the timeout");
         assertTrue(routine.clock >= HeroRecruitmentRoutine.SCREEN_CONFIRM_TIMEOUT_MS);
         assertTrue(routine.clock <= HeroRecruitmentRoutine.SCREEN_CONFIRM_TIMEOUT_MS + 500,
-                "gave up about three seconds after the claim tap");
+                "gave up about ten seconds after the claim tap");
         assertFallbackRetry(before, routine);
     }
 
@@ -78,6 +79,41 @@ class HeroRecruitmentRoutineTest {
     }
 
     @Test
+    void rewardsScreenAfterTheChestIsLeftWithOneBackThenTimersRead() {
+        ScriptedRoutine routine = new ScriptedRoutine(true, false);
+        for (int check = 0; check < 9; check++) {
+            routine.screenAnswers.add(false);
+            routine.rewardsAnswers.add(false);
+        }
+        routine.screenAnswers.add(false);
+        routine.rewardsAnswers.add(true);
+        routine.screenAnswers.add(true);
+
+        routine.execute();
+
+        assertEquals(List.of("free:Advanced", "tap:Advanced", "back", "free:Epic"), routine.screenActions);
+        assertEquals(List.of(ADVANCED_TIMER, EPIC_TIMER), routine.timerReads);
+        assertEquals(List.of(), routine.dumps);
+        assertTrue(routine.clock > 3000L, "waited past the old three-second limit for the chest");
+        assertTrue(routine.scheduledTime().isAfter(LocalDateTime.now().plusMinutes(50)),
+                "scheduled from the real timers, not the fallback");
+    }
+
+    @Test
+    void screenThatStaysAwayAfterTheBackStopsWithoutASecondBack() {
+        ScriptedRoutine routine = new ScriptedRoutine(true, true);
+        routine.rewardsAnswers.add(true);
+        LocalDateTime before = LocalDateTime.now();
+
+        routine.execute();
+
+        assertEquals(List.of("free:Advanced", "tap:Advanced", "back"), routine.screenActions);
+        assertEquals(List.of(), routine.timerReads);
+        assertEquals(List.of("Advanced-screen-unconfirmed"), routine.dumps);
+        assertFallbackRetry(before, routine);
+    }
+
+    @Test
     void noClaimMeansNoScreenCheck() {
         ScriptedRoutine routine = new ScriptedRoutine(false, false);
 
@@ -98,6 +134,7 @@ class HeroRecruitmentRoutineTest {
         private final boolean advancedFree;
         private final boolean epicFree;
         private final Deque<Boolean> screenAnswers = new ArrayDeque<>();
+        private final Deque<Boolean> rewardsAnswers = new ArrayDeque<>();
         private final List<String> screenActions = new ArrayList<>();
         private final List<AreaData> timerReads = new ArrayList<>();
         private final List<String> dumps = new ArrayList<>();
@@ -132,6 +169,17 @@ class HeroRecruitmentRoutineTest {
             screenChecks++;
             Boolean answer = screenAnswers.poll();
             return answer != null && answer;
+        }
+
+        @Override
+        boolean rewardsScreenShown() {
+            Boolean answer = rewardsAnswers.poll();
+            return answer != null && answer;
+        }
+
+        @Override
+        void leaveRewardsScreen() {
+            screenActions.add("back");
         }
 
         @Override

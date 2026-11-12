@@ -116,6 +116,12 @@ public final class CommonOCRSettings {
             .allowedGlyphs("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ")
             .textLayout(TextLayout.SINGLE_LINE).build();
 
+    // Hero recruit Rewards screen hint "Tap anywhere to exit": pale grey with a dark outline on
+    // light blue, which reads only once the grey glyphs are isolated.
+    public static final OcrSettingsData HERO_RECRUIT_REWARDS_EXIT_SETTINGS =
+            buildConfig("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ", true, 197, 197, 196,
+                    TextLayout.SINGLE_LINE);
+
     // Daily sidebar status: "Intel Gain: 8" in green.
     public static final OcrSettingsData INTEL_GAIN_SETTINGS =
             buildConfig("IntelGain: 0123456789", true, 0, 193, 0, TextLayout.SINGLE_LINE);

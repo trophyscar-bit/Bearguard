@@ -10,6 +10,7 @@ import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.AreaData;
+import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.helper.TemplateSearchHelper;
@@ -70,8 +71,14 @@ public class HeroRecruitmentRoutine extends DelayedTask {
     /** Delay between OCR retry attempts (milliseconds) */
     private static final long OCR_RETRY_DELAY_MS = 200L;
 
-    /** How long a claim may take to hand the Hero Recruitment screen back (milliseconds) */
-    static final long SCREEN_CONFIRM_TIMEOUT_MS = 3000L;
+    /**
+     * How long a claim may take to reach its Rewards screen, or the Hero Recruitment screen,
+     * after the tap (milliseconds). In a live run the chest opened about 5 s after the tap.
+     */
+    static final long SCREEN_CONFIRM_TIMEOUT_MS = 10000L;
+
+    /** How long the Hero Recruitment screen may take to return after the single Back (milliseconds) */
+    static final long AFTER_REWARDS_BACK_TIMEOUT_MS = 3000L;
 
     /** Pause between Hero Recruitment screen checks (milliseconds) */
     private static final long SCREEN_CONFIRM_POLL_MS = 500L;
@@ -86,6 +93,9 @@ public class HeroRecruitmentRoutine extends DelayedTask {
             CommonGameAreas.HERO_RECRUIT_EPIC_BANNER_LABEL_AREA);
 
     private static final String SCREEN_LABEL = "recruitment";
+
+    /** The Rewards screen's exit hint, compared with spaces removed */
+    private static final String REWARDS_EXIT_LABEL = "tapanywhere";
 
     // Navigation coordinates
     private static final PointData NAV_TAP_1_MIN = new PointData(160, 1190);
@@ -283,8 +293,9 @@ public class HeroRecruitmentRoutine extends DelayedTask {
         if (checkAndClaimRecruitment(type, searchMin, searchMax, claimMin, claimMax)) {
             claimedThisRun = claimedThisRun.isEmpty() ? type : claimedThisRun + ", " + type;
             if (!awaitRecruitmentScreen()) {
-                logWarning(type + " recruitment was claimed but the Hero Recruitment screen did not come back within "
-                        + SCREEN_CONFIRM_TIMEOUT_MS + " ms. No further search, tap or timer read this run; "
+                logWarning(type + " recruitment was claimed but the Hero Recruitment screen did not come back"
+                        + " (Rewards screen within " + SCREEN_CONFIRM_TIMEOUT_MS + " ms, then one Back). "
+                        + "No further search, tap or timer read this run; "
                         + dumpFrame(type + "-screen-unconfirmed", timerArea));
                 return Optional.empty();
             }
@@ -300,14 +311,22 @@ public class HeroRecruitmentRoutine extends DelayedTask {
     }
 
     /**
-     * Waits until {@value #SCREEN_CONFIRM_TIMEOUT_MS} ms after the claim tap for the
-     * Hero Recruitment screen. Only reads the screen; it never taps or presses Back.
+     * Brings the Hero Recruitment screen back after a claim. The claim plays a chest
+     * animation and then holds a Rewards screen until it is left, with a paid
+     * "Recruit once" key button on it. So this waits up to {@value #SCREEN_CONFIRM_TIMEOUT_MS} ms
+     * after the claim tap for that Rewards screen, leaves it with exactly one Back (never a tap),
+     * and then waits up to {@value #AFTER_REWARDS_BACK_TIMEOUT_MS} ms for the Hero Recruitment screen.
      */
     private boolean awaitRecruitmentScreen() {
         long deadline = lastClaimAtMillis + SCREEN_CONFIRM_TIMEOUT_MS;
         while (true) {
             if (recruitmentScreenShown()) {
                 return true;
+            }
+            if (rewardsScreenShown()) {
+                logInfo("Recruit rewards shown; leaving them with one Back");
+                leaveRewardsScreen();
+                return pollRecruitmentScreen(nowMillis() + AFTER_REWARDS_BACK_TIMEOUT_MS);
             }
             if (nowMillis() >= deadline) {
                 return false;
@@ -316,16 +335,52 @@ public class HeroRecruitmentRoutine extends DelayedTask {
         }
     }
 
+    private boolean pollRecruitmentScreen(long deadline) {
+        while (true) {
+            pause(SCREEN_CONFIRM_POLL_MS);
+            if (recruitmentScreenShown()) {
+                return true;
+            }
+            if (nowMillis() >= deadline) {
+                return false;
+            }
+        }
+    }
+
+    /** The one Back that leaves a claim's Rewards screen. */
+    void leaveRewardsScreen() {
+        pressBack();
+    }
+
+    /** Reads the Rewards screen's exit hint once. */
+    boolean rewardsScreenShown() {
+        return showsRewardsScreen(readLabel(CommonOCRSettings.HERO_RECRUIT_REWARDS_EXIT_SETTINGS));
+    }
+
+    /**
+     * True when {@link CommonGameAreas#HERO_RECRUIT_REWARDS_EXIT_LABEL_AREA} reads
+     * "Tap anywhere to exit".
+     *
+     * @param readLabel OCR of one area; null when unreadable
+     */
+    static boolean showsRewardsScreen(Function<AreaData, String> readLabel) {
+        String text = readLabel.apply(CommonGameAreas.HERO_RECRUIT_REWARDS_EXIT_LABEL_AREA);
+        return text != null && text.toLowerCase(Locale.ROOT).replace(" ", "").contains(REWARDS_EXIT_LABEL);
+    }
+
     /** Reads the fixed screen labels once. */
     boolean recruitmentScreenShown() {
-        return showsRecruitmentScreen(area -> {
+        return showsRecruitmentScreen(readLabel(CommonOCRSettings.HERO_RECRUIT_SCREEN_LABEL_SETTINGS));
+    }
+
+    private Function<AreaData, String> readLabel(OcrSettingsData settings) {
+        return area -> {
             try {
-                return provider.extractText(CommonOCRSettings.HERO_RECRUIT_SCREEN_LABEL_SETTINGS,
-                        area.topLeft(), area.bottomRight());
+                return provider.extractText(settings, area.topLeft(), area.bottomRight());
             } catch (IOException | OcrException unreadable) {
                 return null;
             }
-        });
+        };
     }
 
     /**

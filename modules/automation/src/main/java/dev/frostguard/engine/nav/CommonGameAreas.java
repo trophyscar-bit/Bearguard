@@ -308,6 +308,9 @@ public final class CommonGameAreas {
     public static final AreaData HERO_RECRUIT_TITLE_LABEL_AREA           = region(410, 150, 705, 205);
     public static final AreaData HERO_RECRUIT_ADVANCED_BANNER_LABEL_AREA = region(30, 660, 300, 715);
     public static final AreaData HERO_RECRUIT_EPIC_BANNER_LABEL_AREA     = region(425, 1030, 690, 1085);
+    // "Tap anywhere to exit" under the Rewards screen a recruit claim opens. That screen stays
+    // until it is left, and a paid "Recruit once" key button sits just above this line.
+    public static final AreaData HERO_RECRUIT_REWARDS_EXIT_LABEL_AREA    = region(200, 1135, 520, 1185);
 
     // ── My Island (Life Essence) ─────────────────────────────────────
 
