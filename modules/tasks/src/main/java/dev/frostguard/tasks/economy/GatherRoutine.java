@@ -16,8 +16,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.TreeSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -663,7 +665,7 @@ public class GatherRoutine extends DelayedTask {
         recallButtons.sort(Comparator.comparingInt(button -> button.getPoint().getY()));
         int recalled = 0;
 
-        Set<Integer> gatheringRows = findWorldMarchingGatheringRows();
+        Set<Integer> gatheringRows = findWorldMarchingGatheringRows(recallButtons.size());
         for (ImageSearchResultData recallButton : recallButtons) {
             if (recallButton == null || !recallButton.isFound()) {
                 continue;
@@ -688,8 +690,34 @@ public class GatherRoutine extends DelayedTask {
         return recalled;
     }
 
+    /**
+     * True when the label read is worth taking again.
+     *
+     * <p>A recall re-sorts the list, and for a moment mid-animation fewer rows read as Gathering
+     * than there are recall controls on screen. On 2026-11-12 13:31:57 one row read as Gathering
+     * while the frame saved a second later showed two, plainly legible. Reading again costs a
+     * fraction of a second; deciding on the animating frame costs a march.
+     */
+    static boolean shouldRereadGatheringRows(int gatheringRows, int recallControls) {
+        return gatheringRows < recallControls;
+    }
+
     /** Rows of the World Marching list whose label reads Gathering. */
-    private Set<Integer> findWorldMarchingGatheringRows() {
+    private Set<Integer> findWorldMarchingGatheringRows(int recallControls) {
+        Set<Integer> rows = readGatheringRows();
+        if (shouldRereadGatheringRows(rows.size(), recallControls)) {
+            sleepTask(600);
+            Set<Integer> settled = readGatheringRows();
+            if (settled.size() > rows.size()) {
+                logDebug("World Marching list was still settling: Gathering rows " + rows.size()
+                        + " -> " + settled.size() + " after a re-read.");
+                return settled;
+            }
+        }
+        return rows;
+    }
+
+    private Set<Integer> readGatheringRows() {
         List<ImageSearchResultData> labels = templateSearchHelper.locateAllPatterns(
                 TemplatesEnum.MARCHES_ROW_GATHERING_LABEL,
                 SearchConfig.builder()
@@ -713,6 +741,28 @@ public class GatherRoutine extends DelayedTask {
             }
         }
         return rows;
+    }
+
+    /** Longest-returning first: it has earned the most and is the cheapest to give up. */
+    static final Comparator<ActiveGatherMarchCandidate> LONGEST_RETURNING_FIRST =
+            Comparator.comparing(ActiveGatherMarchCandidate::returnTime).reversed();
+
+    /**
+     * Says why a recall run stopped, in the words of what was actually observed.
+     *
+     * <p>This used to report "recall controls not detected" for every early stop, including the
+     * common case where the controls were plainly on screen and only the row did not match. That
+     * sent the next reader looking for a missing template instead of a stale row index.
+     */
+    static String describeRecallStop(RecallAttempt stoppedBy, int remaining) {
+        String why = switch (stoppedBy) {
+            case CONTROLS_NOT_FOUND -> "no recall control anywhere on the World Marching list";
+            case ROW_MISMATCH -> "the next march did not line up with a Gathering row on the World list";
+            case NOT_CONFIRMED -> "the game's Recall confirmation never appeared";
+            case RECALLED -> "nothing to report";
+        };
+        return String.format(
+                "High-priority gather recall stopped: %s; marches left out=%d", why, remaining);
     }
 
     private static String describeRows(Set<Integer> rows) {
@@ -758,17 +808,40 @@ public class GatherRoutine extends DelayedTask {
         return found == null ? List.of() : found;
     }
 
-    static RecallBatchResult executeRecallBatch(List<ActiveGatherMarchCandidate> candidates,
+    /** The next march to recall out of whatever is still gathering, or empty when none is. */
+    static Optional<ActiveGatherMarchCandidate> nextRecallTarget(
+            List<ActiveGatherMarchCandidate> remaining,
+            Comparator<ActiveGatherMarchCandidate> order) {
+        return remaining == null ? Optional.empty() : remaining.stream().min(order);
+    }
+
+    /**
+     * Recalls up to {@code limit} marches, re-reading the queue before each one.
+     *
+     * <p>The row index must never be carried across a recall. A recalled march turns into a
+     * Returning row and jumps to the TOP of the World Marching list, pushing the rows below it
+     * down, so an index read before the previous recall points at the wrong march. Observed live
+     * on 2026-11-12 13:31: two recalls landed, then the third was refused because the one
+     * remaining gather had moved from row #3 to row #4. Re-reading between recalls is what keeps
+     * the index honest; the Gathering-label gate still refuses anything it cannot confirm.
+     */
+    static RecallRun runRecallLoop(int limit,
+            Supplier<List<ActiveGatherMarchCandidate>> reread,
+            Comparator<ActiveGatherMarchCandidate> order,
             Function<ActiveGatherMarchCandidate, RecallAttempt> recall) {
         int recalled = 0;
-        for (ActiveGatherMarchCandidate candidate : candidates) {
-            RecallAttempt attempt = recall.apply(candidate);
-            if (attempt == RecallAttempt.CONTROLS_NOT_FOUND) {
-                return new RecallBatchResult(recalled, true);
+        for (int pass = 0; pass < limit; pass++) {
+            Optional<ActiveGatherMarchCandidate> next = nextRecallTarget(reread.get(), order);
+            if (next.isEmpty()) {
+                return new RecallRun(recalled, null, 0);
             }
-            if (attempt == RecallAttempt.RECALLED) recalled++;
+            RecallAttempt attempt = recall.apply(next.get());
+            if (attempt != RecallAttempt.RECALLED) {
+                return new RecallRun(recalled, attempt, limit - pass);
+            }
+            recalled++;
         }
-        return new RecallBatchResult(recalled, false);
+        return new RecallRun(recalled, null, 0);
     }
 
     // Builds a typed snapshot of active gather marches for explicit high-priority event recalls.
@@ -811,7 +884,7 @@ public class GatherRoutine extends DelayedTask {
         marchHelper.closeLeftMenu();
         sleepTask(250);
         RecallAttempt attempt = recallGatherMarchFromOpenPanelFlow(candidate, reason);
-        if (attempt == RecallAttempt.CONTROLS_NOT_FOUND) {
+        if (attempt == RecallAttempt.CONTROLS_NOT_FOUND || attempt == RecallAttempt.ROW_MISMATCH) {
             saveMissingRecallControlsScreenshot();
         }
         return attempt;
@@ -830,13 +903,13 @@ public class GatherRoutine extends DelayedTask {
         // The row has to be read as Gathering on this list before anything is tapped. A recall
         // control alone is not enough: rally and reinforcement rows can carry one too, and
         // recalling either would throw away someone else's battle, not a pile of ore.
-        Set<Integer> gatheringRows = findWorldMarchingGatheringRows();
+        Set<Integer> gatheringRows = findWorldMarchingGatheringRows(recallButtons.size());
         if (!gatheringRows.contains(queueIndex)) {
             logWarning(String.format(
                     "March row #%d does not read as Gathering on the World list (rows reading Gathering: %s)."
                             + " Leaving it alone rather than recalling something else.",
                     queueIndex + 1, describeRows(gatheringRows)));
-            return RecallAttempt.CONTROLS_NOT_FOUND;
+            return RecallAttempt.ROW_MISMATCH;
         }
 
         // Resolve the row by position, never by counting: a returning march shows speedup or view
@@ -860,7 +933,7 @@ public class GatherRoutine extends DelayedTask {
                     "No recall control on march row #%d (expected near y=%d); %d control(s) sit on other rows."
                             + " Leaving this march alone.",
                     queueIndex + 1, WorldMarchingList.rowCentreY(queueIndex), recallButtons.size()));
-            return RecallAttempt.CONTROLS_NOT_FOUND;
+            return RecallAttempt.ROW_MISMATCH;
         }
 
         tapInside(targetButton.getPoint(), targetButton.getPoint(), 1, 200);
@@ -868,7 +941,7 @@ public class GatherRoutine extends DelayedTask {
             logWarning(String.format(
                     "Tapped recall on march row #%d but no Recall confirmation appeared; confirming nothing.",
                     queueIndex + 1));
-            return RecallAttempt.CONTROLS_NOT_FOUND;
+            return RecallAttempt.NOT_CONFIRMED;
         }
         logInfo(String.format(
                 "Gather march recall | reason=%s | queue=#%d | type=%s | return=%s",
@@ -1330,24 +1403,24 @@ public class GatherRoutine extends DelayedTask {
             logInfo("Troop-slot demand wanted " + n + " slot(s) freed but no active gather marches to recall.");
             return 0;
         }
-        List<ActiveGatherMarchCandidate> longest = candidates.stream()
-                .sorted(Comparator.comparing(ActiveGatherMarchCandidate::returnTime).reversed())
-                .limit(n)
-                .collect(Collectors.toList());
-
         // Record BEFORE recalling so the return margin counts from now (mirrors recallAllGatherMarchesAndTrack).
         this.lastRecallTime = LocalDateTime.now();
         profile.setConfig(ConfigurationKeyEnum.GATHER_LAST_RECALL_TIME_STRING, lastRecallTime.toString());
         setShouldUpdateConfig(true);
 
-        int recalled = 0;
-        for (ActiveGatherMarchCandidate c : longest) {
-            if (recallGatherMarchByQueueFlow(c, RecallReason.HIGH_PRIORITY_EVENT) == RecallAttempt.RECALLED) {
-                recalled++;
-            }
-            sleepTask(300);
+        RecallRun run = runRecallLoop(Math.min(n, candidates.size()),
+                this::collectActiveGatherMarchCandidatesFlow,
+                LONGEST_RETURNING_FIRST,
+                candidate -> {
+                    RecallAttempt attempt =
+                            recallGatherMarchByQueueFlow(candidate, RecallReason.HIGH_PRIORITY_EVENT);
+                    if (attempt == RecallAttempt.RECALLED) sleepTask(300);
+                    return attempt;
+                });
+        if (run.stoppedBy() != null) {
+            logWarning(describeRecallStop(run.stoppedBy(), run.remaining()));
         }
-        return recalled;
+        return run.recalled();
     }
 
     // pernerch/2026-07-02: true when Bear Trap is configured to consume ALL gather marches.
@@ -1393,17 +1466,19 @@ public class GatherRoutine extends DelayedTask {
         writeProfileSetting(ConfigurationKeyEnum.GATHER_LAST_RECALL_TIME_STRING, lastRecallTime.toString());
         logInfo("Gather march recall for high-priority event. Recall time recorded: "
             + lastRecallTime.format(DATETIME_FORMATTER));
-        RecallBatchResult result = executeRecallBatch(candidates, candidate -> {
-            RecallAttempt attempt = recallGatherMarchByQueueFlow(candidate, RecallReason.HIGH_PRIORITY_EVENT);
-            if (attempt == RecallAttempt.RECALLED) sleepTask(300);
-            return attempt;
-        });
-        if (result.controlsMissing()) {
-            logWarning(String.format(
-                    "High-priority gather recall stopped: recall controls not detected; remaining marches=%d",
-                    candidates.size() - result.recalled()));
+        RecallRun run = runRecallLoop(candidates.size(),
+                this::collectActiveGatherMarchCandidatesFlow,
+                LONGEST_RETURNING_FIRST,
+                candidate -> {
+                    RecallAttempt attempt =
+                            recallGatherMarchByQueueFlow(candidate, RecallReason.HIGH_PRIORITY_EVENT);
+                    if (attempt == RecallAttempt.RECALLED) sleepTask(300);
+                    return attempt;
+                });
+        if (run.stoppedBy() != null) {
+            logWarning(describeRecallStop(run.stoppedBy(), run.remaining()));
         }
-        logInfo("Recalled " + result.recalled() + " gather march(es) for high-priority event.");
+        logInfo("Recalled " + run.recalled() + " gather march(es) for high-priority event.");
     }
 
     // pernerch/2026-07-02: calculates when to resume gather after all pending high-priority events end.
@@ -1577,7 +1652,7 @@ public class GatherRoutine extends DelayedTask {
     record ActiveGatherMarchCandidate(GatherType type, int queueIndex, LocalDateTime returnTime) {
     }
 
-    record RecallBatchResult(int recalled, boolean controlsMissing) {
+    record RecallRun(int recalled, RecallAttempt stoppedBy, int remaining) {
     }
 
     private record GatherFillResult(int deployed, int noNode, int blocked, int sameTargetBlocked,
@@ -1594,7 +1669,12 @@ public class GatherRoutine extends DelayedTask {
 
     enum RecallAttempt {
         RECALLED,
-        CONTROLS_NOT_FOUND
+        /** No recall control anywhere on the World Marching list. */
+        CONTROLS_NOT_FOUND,
+        /** Controls are on screen, but the targeted row is not a gather this routine owns. */
+        ROW_MISMATCH,
+        /** The control was tapped but the game's own confirmation never appeared. */
+        NOT_CONFIRMED
     }
 
     enum RecallReason {
