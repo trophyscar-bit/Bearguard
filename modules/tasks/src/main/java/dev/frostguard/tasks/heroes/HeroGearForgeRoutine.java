@@ -26,7 +26,9 @@ import dev.frostguard.engine.squads.ForgeDialogReader;
 import dev.frostguard.engine.squads.ForgeDialogReader.ForgeDialog;
 import dev.frostguard.engine.squads.GearDetailsNavigator;
 import dev.frostguard.engine.squads.GearEnhancePass;
+import dev.frostguard.engine.squads.GearAmount;
 import dev.frostguard.engine.squads.GearHeroes;
+import dev.frostguard.engine.squads.GearOrder;
 import dev.frostguard.engine.squads.GearManualRun;
 import dev.frostguard.engine.squads.GearEnhanceStep;
 import dev.frostguard.engine.squads.GearForgeGuard;
@@ -198,7 +200,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                     + frames.stopped(ENHANCE, "Heroes grid did not open"));
             return new GearNight.Enhanced(null, null);
         }
-        int levelsLeft = budget.levelsLeft(intSetting(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_LEVELS_INT));
+        int levelsLeft = budget.levelsLeft(enhanceAmount().levels());
         if (levelsLeft < 1) {
             logInfo("Gear enhance: tonight's levels are used up");
             return new GearNight.Enhanced(state, null);
@@ -255,9 +257,9 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         GearState state = saved;
         boolean live = Boolean.TRUE.equals(
                 profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_FORGE_LIVE_BOOL, Boolean.class));
-        int maxBuys = intSetting(ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT);
+        int maxBuys = forgeAmount().forges();
         int reserve = intSetting(ConfigurationKeyEnum.HERO_GEAR_FORGE_RESERVE_INT);
-        GearRanker.rolling(ranked(state), 10).forEach(upgrade -> logInfo("Gear forge, rolling: " + upgrade));
+        GearOrder.plan(ranked(state), forgeOrder(), 10).forEach(upgrade -> logInfo("Gear forge, rolling: " + upgrade));
         frames.startStep();
         if (!openHeroesGrid()) {
             forgeStopped("Heroes grid did not open");
@@ -269,7 +271,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                 logWarning("Gear forge: time cap reached, stopping");
                 return;
             }
-            List<Upgrade> rolling = GearRanker.rolling(ranked(state), 1);
+            List<Upgrade> rolling = GearOrder.plan(ranked(state), forgeOrder(), 1);
             if (rolling.isEmpty()) return;
             Upgrade next = rolling.getFirst();
             if (!openForgeDialog(next)) return;
@@ -475,6 +477,20 @@ public final class HeroGearForgeRoutine extends DelayedTask {
     private GearState ranked(GearState state) {
         String focus = profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, String.class);
         return new GearState(state.pieces(), GearRanker.weightsFor(state, focus, tickedHeroes(state)));
+    }
+
+    private GearAmount enhanceAmount() {
+        return GearAmount.choose(profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_AMOUNT_STRING, String.class),
+                profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_LEVELS_INT, Integer.class));
+    }
+
+    private GearAmount forgeAmount() {
+        return GearAmount.choose(profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_FORGE_AMOUNT_STRING, String.class),
+                profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT, Integer.class));
+    }
+
+    private String forgeOrder() {
+        return GearOrder.normalize(profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, String.class));
     }
 
     private int intSetting(ConfigurationKeyEnum key) {

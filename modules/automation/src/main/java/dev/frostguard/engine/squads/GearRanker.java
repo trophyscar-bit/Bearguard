@@ -135,6 +135,51 @@ public final class GearRanker {
         return List.copyOf(upgrades);
     }
 
+    /**
+     * The next {@code count} forges, weakest first: the ticked hero's piece with the lowest mastery goes first, and a
+     * tie goes to the lower gear level, so every hero is brought up evenly. With {@code leadsFirst} the rally leaders
+     * (heroes with real weight in a saved lead squad) all come before everyone else, weakest first inside each group.
+     * Only heroes with a weight above zero take part, so a hero left unticked never gets a forge.
+     */
+    public static List<Upgrade> rollingWeakest(GearState state, int count, boolean leadsFirst) {
+        Map<String, GearPiece> pieces = new LinkedHashMap<>();
+        for (GearPiece piece : state.pieces()) {
+            if (piece.known() && piece.onRole() && state.heroWeights().getOrDefault(piece.hero(), 0.0) > 0) {
+                pieces.put(piece.hero() + "/" + piece.slot(), piece);
+            }
+        }
+        List<Upgrade> upgrades = new ArrayList<>();
+        while (upgrades.size() < count) {
+            GearPiece weakest = null;
+            for (GearPiece piece : pieces.values()) {
+                if (piece.masteryPercent() >= MASTERY_CEILING) continue;
+                if (weakest == null || weaker(piece, weakest, state.heroWeights(), leadsFirst)) weakest = piece;
+            }
+            if (weakest == null) break;
+            GearPiece after = new GearPiece(weakest.hero(), weakest.slot(), weakest.enhancement(),
+                    weakest.masteryPercent() + forgeGain(weakest.masteryPercent()), true);
+            upgrades.add(new Upgrade(weakest.hero(), weakest.slot(), weakest.masteryPercent(), after.masteryPercent(),
+                    forgeCost(weakest.masteryPercent()), weakest.bonus(), after.bonus()));
+            pieces.put(weakest.hero() + "/" + weakest.slot(), after);
+        }
+        return List.copyOf(upgrades);
+    }
+
+    /** Heroes weighted at least this much in a saved lead squad count as rally leaders. */
+    static final double RALLY_LEAD_WEIGHT = 0.25;
+
+    private static boolean weaker(GearPiece a, GearPiece b, Map<String, Double> weights, boolean leadsFirst) {
+        if (leadsFirst) {
+            boolean aLeads = weights.getOrDefault(a.hero(), 0.0) >= RALLY_LEAD_WEIGHT;
+            boolean bLeads = weights.getOrDefault(b.hero(), 0.0) >= RALLY_LEAD_WEIGHT;
+            if (aLeads != bLeads) return aLeads;
+        }
+        if (a.masteryPercent() != b.masteryPercent()) return a.masteryPercent() < b.masteryPercent();
+        if (!a.enhancement().equals(b.enhancement())) return a.enhancement() < b.enhancement();
+        int byHero = a.hero().compareTo(b.hero());
+        return byHero != 0 ? byHero < 0 : a.slot().compareTo(b.slot()) < 0;
+    }
+
     private static GearPiece best(Iterable<GearPiece> pieces, Map<String, Double> weights) {
         GearPiece best = null;
         double bestScore = 0;

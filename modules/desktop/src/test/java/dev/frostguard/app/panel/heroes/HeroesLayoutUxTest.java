@@ -94,7 +94,7 @@ class HeroesLayoutUxTest {
         assertEquals(5, view.rows("tableGear").size());
         assertEquals(3, view.rows("tableUpgrades").size());
         assertEquals(5, view.rows("tableLevels").size());
-        assertEquals(List.of("Bahiti", "Boots", "42%", "44%", "10 stones", "10 stones", "Short by 7 stones"), view.rows("tableUpgrades").getFirst());
+        assertEquals(List.of("Molly", "Boots", "30%", "40%", "40 stones", "40 stones", "Short by 37 stones"), view.rows("tableUpgrades").getFirst());
 
         List<List<String>> joiners = view.rows("tableJoiners");
         assertFalse(joiners.isEmpty(), "joiners ranked");
@@ -188,7 +188,7 @@ class HeroesLayoutUxTest {
         onFx(() -> ran.tick(true, HeroesLayoutController.ENHANCE_REAL, HeroesLayoutController.FORGE_REAL));
         assertEquals("On \u00b7 Spending", ran.label("labelStatusLine").getText());
         assertTrue(ran.label("labelLastLine").getText().endsWith(": raised 0 levels, forged 0"), ran.label("labelLastLine").getText());
-        assertTrue(ran.label("labelTonightLine").getText().endsWith("up to 5 levels (XP items) \u00b7 no forge: needs 10 stones, you have 3"),
+        assertTrue(ran.label("labelTonightLine").getText().endsWith("every XP item you have \u00b7 no forge: needs 40 stones, you have 3"),
                 ran.label("labelTonightLine").getText());
         for (String id : List.of("labelStatusLine", "labelLastLine", "labelTonightLine")) {
             assertTrue(ran.label(id).getText().length() <= 90, ran.label(id).getText());
@@ -199,11 +199,18 @@ class HeroesLayoutUxTest {
     void withEnoughStonesTheNextNightSaysHowManyForgesItCanAfford() throws Exception {
         seed(true);
         editInventory("\"essenceStones\": 3", "\"essenceStones\": 25");
-        View view = onFx(this::open);
+        View view = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, "Rally squads")));
 
         onFx(() -> view.tick(true, HeroesLayoutController.ENHANCE_OFF, HeroesLayoutController.FORGE_REAL));
 
         assertTrue(view.label("labelTonightLine").getText().endsWith("forge up to 2 (25 stones)"), view.label("labelTonightLine").getText());
+
+        onFx(() -> {
+            view.<String>combo("comboBoxFocus").setValue("Weakest first");
+            return null;
+        });
+        assertTrue(view.label("labelTonightLine").getText().endsWith("no forge: needs 40 stones, you have 25"),
+                "the weakest piece costs 40, so nothing is bought: " + view.label("labelTonightLine").getText());
     }
 
     @Test
@@ -308,8 +315,8 @@ class HeroesLayoutUxTest {
         assertEquals("It stopped to be safe while raising gear levels: Mia Boots showed no new level (still Lv.81). "
                 + "It may stop again if that is still wrong.", view.label("labelHalt").getText());
         assertFalse(view.label("labelHalt").getText().contains("21:33"), "the time is in the header only");
-        for (String id : List.of("segmentEnhance", "segmentForge", "comboBoxEnhanceLevels", "comboBoxMaxBuys", "comboBoxReserve",
-                "comboBoxRunAt", "comboBoxScanDays", "comboBoxFocus", "switchQuickEquip", "gridHeroes")) {
+        for (String id : List.of("segmentEnhance", "segmentForge", "segmentEnhanceAmount", "segmentForgeAmount", "comboBoxReserve",
+                "comboBoxRunAt", "comboBoxFocus", "switchQuickEquip", "gridHeroes")) {
             assertTrue(view.disabled(id), id + " is locked while paused, so the caption is true");
         }
         assertEquals("Locked while paused.", view.label("labelEnhanceReason").getText());
@@ -323,7 +330,7 @@ class HeroesLayoutUxTest {
         assertFalse(view.toggle("switchNightly").isDisabled());
         assertFalse(view.disabled("segmentForge"));
         assertFalse(view.disabled("comboBoxRunAt"));
-        assertTrue(view.disabled("comboBoxMaxBuys"), "still greyed: Forge is on Practice");
+        assertTrue(view.disabled("segmentForgeAmount"), "still greyed: Forge is on Practice");
         assertEquals("Used when Forge mastery is For real.", view.label("labelForgeReason").getText());
         assertEquals("On", view.toggle("switchNightly").getText());
         assertFalse(view.toggle("switchNightly").getStyleClass().contains("paused"));
@@ -500,7 +507,7 @@ class HeroesLayoutUxTest {
         String utc = HeroesLayoutController.toUtc("07:15", ZoneId.systemDefault());
         assertEquals(List.of(Map.entry(ConfigurationKeyEnum.HERO_GEAR_FORGE_TIME_UTC_STRING, utc)), view.published);
         assertEquals(utc + " UTC", runAt.getTooltip().getText());
-        assertEquals("Your local time, every night.", view.texts((Parent) view.namespace().get("boxNightly")).stream()
+        assertEquals("Your local time, every night. It checks your gear first.", view.texts((Parent) view.namespace().get("boxNightly")).stream()
                 .filter(t -> t.startsWith("Your local")).findFirst().orElseThrow());
     }
 
@@ -515,12 +522,12 @@ class HeroesLayoutUxTest {
     }
 
     @Test
-    void theScanIsEveryNightUnlessChangedAndSaysSoInWords() throws Exception {
+    void thereIsNoScanFrequencyToPickBecauseTheCheckAlwaysRunsFirst() throws Exception {
         View view = onFx(this::load);
 
-        assertEquals(1, view.<Integer>combo("comboBoxScanDays").getValue());
-        assertEquals(List.of("Every night", "Every 2 days", "Every 3 days", "Once a week"),
-                view.<Integer>combo("comboBoxScanDays").getItems().stream().map(HeroesLayoutController::scanText).toList());
+        assertFalse(view.namespace().containsKey("comboBoxScanDays"));
+        assertFalse(view.namespace().containsKey("comboBoxEnhanceLevels"), "no pointless count");
+        assertFalse(view.namespace().containsKey("comboBoxMaxBuys"), "no pointless count");
     }
 
     @Test
@@ -578,7 +585,7 @@ class HeroesLayoutUxTest {
 
         assertEquals(List.of("Off", "Practice", "For real"), mode.getItems());
         assertEquals("Off", mode.getValue());
-        assertEquals(5, view.<Integer>combo("comboBoxEnhanceLevels").getValue());
+        assertEquals("All", view.segment("segmentEnhanceAmount").getValue(), "the default spends every XP item");
 
         onFx(() -> {
             mode.setValue(HeroesLayoutController.ENHANCE_PRACTICE);
@@ -607,7 +614,7 @@ class HeroesLayoutUxTest {
             return null;
         });
 
-        assertEquals(List.of("Forge will spend Essence Stones every night, up to 5 forges, always leaving 0 stones unspent. Turn spending on?"),
+        assertEquals(List.of("Forge will spend Essence Stones every night: every forge your stones allow, always leaving 0 stones unspent. Turn spending on?"),
                 view.asked());
         assertEquals("Practice", mode.getValue(), "a second thought falls back to practice");
         assertTrue(mode.button("Practice").isSelected());
@@ -676,7 +683,7 @@ class HeroesLayoutUxTest {
         View view = onFx(this::load);
         onFx(() -> view.tick(true, HeroesLayoutController.ENHANCE_PRACTICE, HeroesLayoutController.FORGE_PRACTICE));
 
-        for (String control : List.of("comboBoxEnhanceLevels", "comboBoxMaxBuys", "comboBoxReserve")) assertTrue(view.disabled(control), control);
+        for (String control : List.of("segmentEnhanceAmount", "segmentForgeAmount", "comboBoxReserve")) assertTrue(view.disabled(control), control);
         assertEquals("Used when Raise gear levels is For real.", view.label("labelEnhanceReason").getText());
         assertEquals("Used when Forge mastery is For real.", view.label("labelForgeReason").getText());
         for (String reason : List.of("labelEnhanceReason", "labelForgeReason", "labelReserveReason")) {
@@ -684,28 +691,131 @@ class HeroesLayoutUxTest {
         }
 
         onFx(() -> view.tick(true, HeroesLayoutController.ENHANCE_REAL, HeroesLayoutController.FORGE_REAL));
-        for (String control : List.of("comboBoxEnhanceLevels", "comboBoxMaxBuys", "comboBoxReserve")) assertFalse(view.disabled(control), control);
+        for (String control : List.of("segmentEnhanceAmount", "segmentForgeAmount", "comboBoxReserve")) assertFalse(view.disabled(control), control);
         for (String reason : List.of("labelEnhanceReason", "labelForgeReason", "labelReserveReason")) {
             assertFalse(view.label(reason).isVisible(), reason);
         }
         assertFalse(view.disabled("comboBoxFocus"), "the order still shapes the practice list");
-        for (String row : List.of("rowEnhanceLevels", "rowMaxBuys", "rowReserve")) {
+        for (String row : List.of("rowEnhanceAmount", "rowForgeAmount", "rowReserve")) {
             assertFalse(view.disabled(row), "the label and its reason are not greyed with the control: " + row);
         }
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void forgeOrderUsesPlainWordsWithoutNamingAnyHero() throws Exception {
+    void gearOrderOffersWeakestFirstAndRallyLeadersThenWeakestInAlphabeticalOrder() throws Exception {
         View view = onFx(this::load);
         ComboBox<String> order = (ComboBox<String>) view.namespace().get("comboBoxFocus");
 
-        assertEquals(List.of("Rally squads", "Balanced"), order.getItems());
-        assertEquals("Rally squads", order.getValue(), "an existing setting still loads");
-        assertEquals("Rally leaders first", order.getConverter().toString("Rally squads"));
-        assertEquals("All leaders evenly", order.getConverter().toString("Balanced"));
-        assertEquals("Balanced", order.getConverter().fromString(order.getConverter().toString("Balanced")));
+        assertEquals(List.of("Rally leaders first, then weakest", "Weakest first"), order.getItems());
+        assertEquals("Weakest first", order.getValue(), "weakest first is the default");
+        assertEquals("Molly", view.rows("tableUpgrades").getFirst().getFirst(), "Molly has the lowest mastery, so she goes first");
+        assertEquals("Boots", view.rows("tableUpgrades").getFirst().get(1), "and her lower gear level breaks the tie");
+    }
+
+    @Test
+    void anOldOrderSettingLoadsAsTheNewChoiceWithoutBeingRewritten() throws Exception {
+        seed(true);
+        View rally = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, "Rally squads")));
+        View balanced = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, "Balanced")));
+
+        assertEquals("Rally leaders first, then weakest", rally.<String>combo("comboBoxFocus").getValue());
+        assertEquals("Bahiti", rally.rows("tableUpgrades").getFirst().getFirst(), "the weakest rally leader goes first");
+        assertEquals("Weakest first", balanced.<String>combo("comboBoxFocus").getValue());
+        assertEquals(List.of(), rally.published, "loading writes nothing back");
+        assertEquals(List.of(), balanced.published);
+    }
+
+    @Test
+    void choosingAnOrderSavesIt() throws Exception {
+        View view = onFx(this::load);
+
+        onFx(() -> {
+            view.<String>combo("comboBoxFocus").setValue("Rally leaders first, then weakest");
+            return null;
+        });
+
+        assertEquals(List.of(Map.entry(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, "Rally leaders first, then weakest")), view.published);
         assertEquals("Bahiti", view.rows("tableUpgrades").getFirst().getFirst());
+    }
+
+    @Test
+    void theAmountsAreAllOrOnePerNightAndAnOldCountOfOneLoadsAsOnePerNight() throws Exception {
+        seed(true);
+        View fresh = onFx(this::load);
+        assertEquals(List.of("All", "One per night"), fresh.segment("segmentEnhanceAmount").getItems(), "alphabetical");
+        assertEquals("All", fresh.segment("segmentForgeAmount").getValue());
+
+        View oldOne = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_LEVELS_INT, 1,
+                ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT, 1)));
+        assertEquals("One per night", oldOne.segment("segmentEnhanceAmount").getValue());
+        assertEquals("One per night", oldOne.segment("segmentForgeAmount").getValue());
+
+        View oldFive = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_LEVELS_INT, 5,
+                ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT, 7)));
+        assertEquals("All", oldFive.segment("segmentEnhanceAmount").getValue());
+        assertEquals("All", oldFive.segment("segmentForgeAmount").getValue());
+
+        View chosen = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_GEAR_FORGE_AMOUNT_STRING, "All",
+                ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT, 1)));
+        assertEquals("All", chosen.segment("segmentForgeAmount").getValue(), "a saved choice beats an old count");
+        assertEquals(List.of(), oldOne.published, "nothing is written until a choice changes");
+    }
+
+    @Test
+    void changingAnAmountSavesTheNewKeyOnly() throws Exception {
+        View view = onFx(this::load);
+        onFx(() -> view.tick(true, HeroesLayoutController.ENHANCE_REAL, HeroesLayoutController.FORGE_REAL));
+        view.published.clear();
+
+        onFx(() -> {
+            view.segment("segmentEnhanceAmount").setValue("One per night");
+            view.segment("segmentForgeAmount").setValue("One per night");
+            return null;
+        });
+
+        assertEquals(List.of(Map.entry(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_AMOUNT_STRING, "One per night"),
+                Map.entry(ConfigurationKeyEnum.HERO_GEAR_FORGE_AMOUNT_STRING, "One per night")), view.published);
+    }
+
+    @Test
+    void everyGearActionNamesTheHeroesTheyWorkOnAndFollowsTheTicks() throws Exception {
+        View view = onFx(this::load);
+
+        assertEquals("Everything below works only on these heroes: Mia, Flint, Bahiti, Sergey, Molly.", view.label("labelScope").getText());
+        assertEquals("Uses XP items on the lowest gear of Mia, Flint, Bahiti, Sergey, Molly.", view.label("labelEnhanceScope").getText());
+        assertEquals("Spends Essence Stones on the weakest gear of Mia, Flint, Bahiti, Sergey, Molly.", view.label("labelForgeScope").getText());
+
+        onFx(() -> {
+            view.choice("Molly").setSelected(false);
+            view.choice("Sergey").setSelected(false);
+            return null;
+        });
+
+        assertEquals("Everything below works only on these heroes: Mia, Flint, Bahiti.", view.label("labelScope").getText());
+        assertEquals("Uses XP items on the lowest gear of Mia, Flint, Bahiti.", view.label("labelEnhanceScope").getText());
+        assertTrue(view.rows("tableUpgrades").stream().noneMatch(r -> r.getFirst().equals("Molly") || r.getFirst().equals("Sergey")),
+                "the plan only touches the ticked heroes: " + view.rows("tableUpgrades"));
+
+        onFx(() -> {
+            for (String hero : List.of("Mia", "Flint", "Bahiti")) view.choice(hero).setSelected(false);
+            return null;
+        });
+        assertEquals("Nothing is ticked, so the actions below do nothing.", view.label("labelScope").getText());
+        assertTrue(view.rows("tableUpgrades").isEmpty());
+    }
+
+    @Test
+    void theHeroesComeFirstAndTheGearActionsSitUnderThem() throws Exception {
+        View view = onFx(this::load);
+        VBox below = (VBox) view.namespace().get("boxNightly");
+
+        List<String> titles = view.texts(below).stream().filter(t -> List.of("Heroes to upgrade", "Raise gear levels", "Forge mastery",
+                "Wear best spare gear", "Run at").contains(t)).toList();
+
+        assertEquals(List.of("Heroes to upgrade", "Raise gear levels", "Forge mastery", "Wear best spare gear", "Run at"), titles);
+        assertTrue(view.texts(below).contains("Puts your best gear on ALL your heroes, not only the ticked ones. Spends nothing."),
+                "the one action that is not limited to the ticked heroes says so");
     }
 
     // ── Results ──────────────────────────────────────────────────────
@@ -714,16 +824,16 @@ class HeroesLayoutUxTest {
     void onlyTheNightsBuysSayCanAfford() throws Exception {
         seed(true);
         editInventory("\"essenceStones\": 3", "\"essenceStones\": 25");
-        View view = onFx(this::open);
+        View view = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, "Rally squads")));
 
         onFx(() -> {
-            view.maxBuys().setValue(1);
+            view.segment("segmentForgeAmount").setValue("One per night");
             return null;
         });
         assertEquals(List.of("Can afford", "Tomorrow night", "Short by 5 stones"), view.statuses(3));
 
         onFx(() -> {
-            view.maxBuys().setValue(2);
+            view.segment("segmentForgeAmount").setValue("All");
             return null;
         });
         assertEquals(List.of("Can afford", "Can afford", "Short by 5 stones"), view.statuses(3));
@@ -847,19 +957,11 @@ class HeroesLayoutUxTest {
     }
 
     @Test
-    void withThePlanSwitchOffTheLevelTableIsAnEmptyStateThatSaysHowToTurnItOn() throws Exception {
+    void theDrillCampTableShowsWhateverThePlanLogSwitchSays() throws Exception {
         View view = onFx(this::load);
 
-        assertFalse(view.table("tableLevels").isVisible());
-        assertEquals(List.of("The level-up plan is off", "Turn it on above to see which hero to level first."),
-                view.texts((VBox) view.namespace().get("boxLevelsEmpty")));
-
-        onFx(() -> {
-            view.toggle("switchPlan").setSelected(true);
-            return null;
-        });
-
-        assertTrue(view.table("tableLevels").isVisible());
+        assertFalse(view.toggle("switchPlan").isSelected());
+        assertTrue(view.table("tableLevels").isVisible(), "the table is data the check read, not a feature behind a switch");
         assertEquals(5, view.rows("tableLevels").size());
     }
 
@@ -1031,8 +1133,6 @@ class HeroesLayoutUxTest {
         Instant afterTonight = Instant.parse("2026-11-12T03:00:00Z");
         assertEquals("Tomorrow 21:30", HeroesLayoutController.friendly(
                 HeroesLayoutController.nextRun("02:30", afterTonight, zone).toInstant(), afterTonight, zone));
-        assertEquals("Every night", HeroesLayoutController.scanText(1));
-        assertEquals("Every 5 days", HeroesLayoutController.scanText(5));
         assertEquals("nonsense UTC", HeroesLayoutController.localTime("nonsense"));
     }
 
@@ -1184,7 +1284,7 @@ class HeroesLayoutUxTest {
                         .mapToDouble(n -> n.localToScene(n.getBoundsInLocal()).getMaxX()).max().orElse(edge);
                 if (Math.abs(edge - right) > 1) found.add(width + "px: a control stops " + (edge - right) + "px short of the shared right edge");
             });
-            Map<String, Integer> room = Map.of("comboBoxScanDays", 200, "segmentEnhance", 230, "segmentForge", 230, "comboBoxFocus", 200);
+            Map<String, Integer> room = Map.of("segmentEnhance", 230, "segmentForge", 230, "segmentEnhanceAmount", 230, "segmentForgeAmount", 230, "comboBoxFocus", 200);
             room.forEach((id, least) -> {
                 javafx.scene.layout.Region control = (javafx.scene.layout.Region) view.namespace().get(id);
                 if (shown(control) && control.getWidth() < least) found.add(width + "px: " + id + " is only " + control.getWidth() + " wide");
@@ -1288,11 +1388,6 @@ class HeroesLayoutUxTest {
 
         ToggleSwitch toggle(String id) {
             return (ToggleSwitch) namespace.get(id);
-        }
-
-        @SuppressWarnings("unchecked")
-        ComboBox<Integer> maxBuys() {
-            return (ComboBox<Integer>) namespace.get("comboBoxMaxBuys");
         }
 
         @SuppressWarnings("unchecked")

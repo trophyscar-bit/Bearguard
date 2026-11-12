@@ -59,26 +59,6 @@
                                 </HBox>
 
                                 <VBox fx:id="boxNightly">
-                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
-                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
-                                            <Label styleClass="hero-label" text="Run at" />
-                                            <Label styleClass="hero-caption" text="Your local time, every night." />
-                                        </VBox>
-                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT" spacing="8">
-                                            <ComboBox fx:id="comboBoxRunAt" prefWidth="240" minWidth="240" />
-                                        </HBox>
-                                    </HBox>
-
-                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
-                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
-                                            <Label styleClass="hero-label" text="Check gear" />
-                                            <Label styleClass="hero-caption" text="Reads every piece on your strongest heroes and grades it A to D." />
-                                        </VBox>
-                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
-                                            <ComboBox fx:id="comboBoxScanDays" prefWidth="240" minWidth="240" />
-                                        </HBox>
-                                    </HBox>
-
                                     <VBox styleClass="hero-row" spacing="8">
                                         <VBox spacing="4">
                                             <Label styleClass="hero-label" text="Heroes to upgrade" />
@@ -91,32 +71,26 @@
                                         </VBox>
                                     </VBox>
 
-                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
-                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
-                                            <Label styleClass="hero-label" text="Wear best spare gear" />
-                                            <Label styleClass="hero-caption" text="Puts your best gear on every hero. Spends nothing." />
-                                        </VBox>
-                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
-                                            <ToggleSwitch fx:id="switchQuickEquip" labelPosition="LEFT" />
-                                        </HBox>
-                                    </HBox>
+                                    <VBox styleClass="hero-row" spacing="4">
+                                        <Label fx:id="labelScope" styleClass="hero-caption" wrapText="true" maxWidth="Infinity" />
+                                    </VBox>
 
-                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                    <HBox styleClass="hero-row-bare" alignment="CENTER_LEFT" spacing="16">
                                         <VBox spacing="4" HBox.hgrow="ALWAYS">
                                             <Label styleClass="hero-label" text="Raise gear levels" />
-                                            <Label styleClass="hero-caption" text="Uses XP items on your lowest gear. Practice only shows the plan." />
+                                            <Label fx:id="labelEnhanceScope" styleClass="hero-caption" wrapText="true" maxWidth="Infinity" />
                                         </VBox>
                                         <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
                                             <Segmented fx:id="segmentEnhance" prefWidth="240" minWidth="240" maxWidth="240" />
                                         </HBox>
                                     </HBox>
-                                    <HBox fx:id="rowEnhanceLevels" styleClass="hero-row-sub" alignment="CENTER_LEFT" spacing="16">
+                                    <HBox fx:id="rowEnhanceAmount" styleClass="hero-row-sub" alignment="CENTER_LEFT" spacing="16">
                                         <VBox spacing="4" HBox.hgrow="ALWAYS">
-                                            <Label styleClass="hero-label" text="Most levels per night" />
+                                            <Label styleClass="hero-label" text="XP items to use" />
                                             <Label fx:id="labelEnhanceReason" styleClass="hero-caption" text="Used when Raise gear levels is For real." />
                                         </VBox>
                                         <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
-                                            <ComboBox fx:id="comboBoxEnhanceLevels" prefWidth="240" minWidth="240" />
+                                            <Segmented fx:id="segmentEnhanceAmount" prefWidth="240" minWidth="240" maxWidth="240" />
                                         </HBox>
                                     </HBox>
 
@@ -124,19 +98,19 @@
                                         <HBox styleClass="hero-row-bare" alignment="CENTER_LEFT" spacing="16">
                                             <VBox spacing="4" HBox.hgrow="ALWAYS">
                                                 <Label styleClass="hero-label" text="Forge mastery" />
-                                                <Label styleClass="hero-caption" text="Spends Essence Stones to raise mastery. Practice spends none." />
+                                                <Label fx:id="labelForgeScope" styleClass="hero-caption" wrapText="true" maxWidth="Infinity" />
                                             </VBox>
                                             <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
                                                 <Segmented fx:id="segmentForge" prefWidth="240" minWidth="240" maxWidth="240" />
                                             </HBox>
                                         </HBox>
-                                        <HBox fx:id="rowMaxBuys" styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                        <HBox fx:id="rowForgeAmount" styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
                                             <VBox spacing="4" HBox.hgrow="ALWAYS">
-                                                <Label styleClass="hero-label" text="Most forges per night" />
+                                                <Label styleClass="hero-label" text="Forges per night" />
                                                 <Label fx:id="labelForgeReason" styleClass="hero-caption" text="Used when Forge mastery is For real." />
                                             </VBox>
                                             <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
-                                                <ComboBox fx:id="comboBoxMaxBuys" prefWidth="240" minWidth="240" />
+                                                <Segmented fx:id="segmentForgeAmount" prefWidth="240" minWidth="240" maxWidth="240" />
                                             </HBox>
                                         </HBox>
                                         <HBox fx:id="rowReserve" styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
@@ -150,8 +124,8 @@
                                         </HBox>
                                         <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
                                             <VBox spacing="4" HBox.hgrow="ALWAYS">
-                                                <Label styleClass="hero-label" text="Gear order" />
-                                                <Label styleClass="hero-caption" text="Which hero's gear gets forged first." />
+                                                <Label styleClass="hero-label" text="Which gear first" />
+                                                <Label styleClass="hero-caption" text="Weakest first brings every ticked hero up evenly." />
                                             </VBox>
                                             <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
                                                 <ComboBox fx:id="comboBoxFocus" prefWidth="240" minWidth="240" />
@@ -159,6 +133,26 @@
                                         </HBox>
                                     </VBox>
 
+                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                            <Label styleClass="hero-label" text="Wear best spare gear" />
+                                            <Label styleClass="hero-caption" wrapText="true" maxWidth="Infinity"
+                                                   text="Puts your best gear on ALL your heroes, not only the ticked ones. Spends nothing." />
+                                        </VBox>
+                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                            <ToggleSwitch fx:id="switchQuickEquip" labelPosition="LEFT" />
+                                        </HBox>
+                                    </HBox>
+
+                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                            <Label styleClass="hero-label" text="Run at" />
+                                            <Label styleClass="hero-caption" text="Your local time, every night. It checks your gear first." />
+                                        </VBox>
+                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT" spacing="8">
+                                            <ComboBox fx:id="comboBoxRunAt" prefWidth="240" minWidth="240" />
+                                        </HBox>
+                                    </HBox>
                                 </VBox>
                             </VBox>
 
@@ -212,8 +206,8 @@
                                 <Label styleClass="hero-card-title" text="Settings" />
                                 <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
                                     <VBox spacing="4" HBox.hgrow="ALWAYS">
-                                        <Label styleClass="hero-label" text="Write the level-up plan" />
-                                        <Label styleClass="hero-caption" text="Practice only: shows what it would level and presses nothing." />
+                                        <Label styleClass="hero-label" text="Log a level-up plan" />
+                                        <Label styleClass="hero-caption" text="Practice only: writes which hero it would level to the log. Presses nothing." />
                                     </VBox>
                                     <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
                                         <ToggleSwitch fx:id="switchPlan" labelPosition="LEFT" />

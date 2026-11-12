@@ -36,7 +36,9 @@ import dev.frostguard.app.shared.AbstractProfileController;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.engine.schedule.TaskQueue;
 import dev.frostguard.engine.service.ScheduleService;
+import dev.frostguard.engine.squads.GearAmount;
 import dev.frostguard.engine.squads.GearHeroes;
+import dev.frostguard.engine.squads.GearOrder;
 import dev.frostguard.engine.squads.GearManualRun;
 import dev.frostguard.engine.squads.GearRanker;
 import dev.frostguard.engine.squads.GearRanker.GearPiece;
@@ -111,9 +113,6 @@ public final class HeroesLayoutController extends AbstractProfileController {
     static final String FORGE_REAL = "For real";
 
     private static final String NEVER_PRESSED = "Never pressed: Reforge, Ascend, Redeem, or anything that costs gems.";
-    private static final Map<String, String> FORGE_ORDER = Map.of(
-            GearRanker.FOCUS_RALLY, "Rally leaders first",
-            GearRanker.FOCUS_BALANCED, "All leaders evenly");
 
     private enum Kind { TEXT, NUMBER, PILL }
 
@@ -131,8 +130,6 @@ public final class HeroesLayoutController extends AbstractProfileController {
     @FXML private VBox boxLevelsEmpty;
     @FXML private VBox boxJoinersEmpty;
     @FXML private VBox boxRosterEmpty;
-    @FXML private HBox rowEnhanceLevels;
-    @FXML private HBox rowMaxBuys;
     @FXML private HBox rowReserve;
     @FXML private GridPane gridHeroes;
     @FXML private Label labelStatusLine;
@@ -165,13 +162,15 @@ public final class HeroesLayoutController extends AbstractProfileController {
     @FXML private ToggleSwitch switchQuickEquip;
     @FXML private ToggleSwitch switchPlan;
     @FXML private ComboBox<String> comboBoxRunAt;
-    @FXML private ComboBox<Integer> comboBoxScanDays;
     @FXML private Segmented segmentEnhance;
     @FXML private Segmented segmentForge;
     @FXML private ComboBox<String> comboBoxFocus;
-    @FXML private ComboBox<Integer> comboBoxMaxBuys;
+    @FXML private Segmented segmentEnhanceAmount;
+    @FXML private Segmented segmentForgeAmount;
+    @FXML private Label labelScope;
+    @FXML private Label labelEnhanceScope;
+    @FXML private Label labelForgeScope;
     @FXML private ComboBox<Integer> comboBoxReserve;
-    @FXML private ComboBox<Integer> comboBoxEnhanceLevels;
 
     private GearState gear;
     private Inventory inventory;
@@ -231,45 +230,17 @@ public final class HeroesLayoutController extends AbstractProfileController {
         for (int hour = 0; hour < 24; hour++) {
             for (int minute = 0; minute < 60; minute += 15) comboBoxRunAt.getItems().add(String.format(Locale.ROOT, "%02d:%02d", hour, minute));
         }
-        comboBoxScanDays.getItems().addAll(1, 2, 3, 7);
-        comboBoxScanDays.setConverter(new StringConverter<>() {
-            @Override
-            public String toString(Integer days) {
-                return scanText(days);
-            }
-
-            @Override
-            public Integer fromString(String text) {
-                return comboBoxScanDays.getItems().stream().filter(d -> scanText(d).equals(text)).findFirst().orElse(null);
-            }
-        });
         segmentEnhance.setItems(List.of(ENHANCE_OFF, ENHANCE_PRACTICE, ENHANCE_REAL), ENHANCE_REAL);
         segmentForge.setItems(List.of(FORGE_PRACTICE, FORGE_REAL), FORGE_REAL);
         segmentEnhance.hint(NEVER_PRESSED);
         segmentForge.hint(NEVER_PRESSED);
-        comboBoxFocus.getItems().addAll(GearRanker.FOCUS_RALLY, GearRanker.FOCUS_BALANCED);
-        // The stored values stay "Rally squads" and "Balanced"; only the words shown change.
-        comboBoxFocus.setConverter(new StringConverter<>() {
-            @Override
-            public String toString(String value) {
-                return value == null ? "" : FORGE_ORDER.getOrDefault(value, value);
-            }
+        segmentEnhanceAmount.setItems(GearAmount.CHOICES, null);
+        segmentForgeAmount.setItems(GearAmount.CHOICES, null);
+        comboBoxFocus.getItems().addAll(GearOrder.CHOICES);
+        comboBoxReserve.getItems().addAll(0, 5, 10, 15, 20, 25, 30, 50, 100);
 
-            @Override
-            public String fromString(String text) {
-                return FORGE_ORDER.entrySet().stream().filter(e -> e.getValue().equals(text))
-                        .map(Map.Entry::getKey).findFirst().orElse(text);
-            }
-        });
-        comboBoxMaxBuys.getItems().addAll(1, 2, 3, 5, 10);
-        comboBoxReserve.getItems().addAll(0, 10, 20, 50, 100);
-        comboBoxEnhanceLevels.getItems().addAll(1, 2, 3, 5, 10, 15, 20, 25);
-
-        registerComboBox(comboBoxScanDays, ConfigurationKeyEnum.HERO_GEAR_FORGE_SCAN_DAYS_INT);
         registerComboBox(comboBoxFocus, ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING);
-        registerComboBox(comboBoxMaxBuys, ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT);
         registerComboBox(comboBoxReserve, ConfigurationKeyEnum.HERO_GEAR_FORGE_RESERVE_INT);
-        registerComboBox(comboBoxEnhanceLevels, ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_LEVELS_INT);
         initializeChangeEvents();
         bridge(switchNightly, ConfigurationKeyEnum.HERO_GEAR_FORGE_ENABLED_BOOL);
         bridge(switchQuickEquip, ConfigurationKeyEnum.HERO_QUICK_EQUIP_ENABLED_BOOL);
@@ -298,11 +269,11 @@ public final class HeroesLayoutController extends AbstractProfileController {
         boxNightly.visibleProperty().bind(switchNightly.selectedProperty());
         boxNightly.managedProperty().bind(switchNightly.selectedProperty());
         // Only the control greys out; its label and the reason beside it stay at full strength.
-        comboBoxEnhanceLevels.disableProperty().bind(Bindings.notEqual(segmentEnhance.valueProperty(), ENHANCE_REAL).or(paused));
-        comboBoxMaxBuys.disableProperty().bind(Bindings.notEqual(segmentForge.valueProperty(), FORGE_REAL).or(paused));
+        segmentEnhanceAmount.disableProperty().bind(Bindings.notEqual(segmentEnhance.valueProperty(), ENHANCE_REAL).or(paused));
+        segmentForgeAmount.disableProperty().bind(Bindings.notEqual(segmentForge.valueProperty(), FORGE_REAL).or(paused));
         comboBoxReserve.disableProperty().bind(Bindings.notEqual(segmentForge.valueProperty(), FORGE_REAL).or(paused));
         // While a halt stands nothing below the master can be changed, and each reason says so.
-        for (Node locked : List.of(comboBoxRunAt, comboBoxScanDays, comboBoxFocus, switchQuickEquip, segmentEnhance, segmentForge, gridHeroes)) {
+        for (Node locked : List.of(comboBoxRunAt, comboBoxFocus, switchQuickEquip, segmentEnhance, segmentForge, gridHeroes)) {
             locked.disableProperty().bind(paused);
         }
         labelEnhanceReason.textProperty().bind(Bindings.when(paused).then("Locked while paused.")
@@ -311,8 +282,8 @@ public final class HeroesLayoutController extends AbstractProfileController {
                 .otherwise("Used when Forge mastery is For real."));
         labelReserveReason.textProperty().bind(Bindings.when(paused).then("Locked while paused.")
                 .otherwise("Used when Forge mastery is For real."));
-        reasonWhenDisabled(labelEnhanceReason, comboBoxEnhanceLevels);
-        reasonWhenDisabled(labelForgeReason, comboBoxMaxBuys);
+        reasonWhenDisabled(labelEnhanceReason, segmentEnhanceAmount);
+        reasonWhenDisabled(labelForgeReason, segmentForgeAmount);
         reasonWhenDisabled(labelReserveReason, comboBoxReserve);
         for (ToggleSwitch toggle : switches.keySet()) {
             toggle.textProperty().bind(Bindings.when(toggle.selectedProperty()).then("On").otherwise("Off"));
@@ -328,10 +299,25 @@ public final class HeroesLayoutController extends AbstractProfileController {
         switchNightly.disableProperty().bind(paused);
         labelNightlyCaption.textProperty().bind(Bindings.when(paused).then("Locked while paused. Use Resume upgrades above to change these.")
                 .otherwise("Checks your gear, then raises and forges what you allow below."));
-        switchPlan.selectedProperty().addListener((obs, was, now) -> fillLevels());
-        comboBoxFocus.valueProperty().addListener((obs, was, now) -> refreshRolling());
-        comboBoxMaxBuys.valueProperty().addListener((obs, was, now) -> refreshRolling());
-        comboBoxReserve.valueProperty().addListener((obs, was, now) -> refreshRolling());
+        comboBoxFocus.valueProperty().addListener((obs, was, now) -> {
+            refreshRolling();
+            showStatusLine();
+        });
+        segmentEnhanceAmount.valueProperty().addListener((obs, was, now) -> {
+            if (now == null) return;
+            showStatusLine();
+            publishWhenReady(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_AMOUNT_STRING, now);
+        });
+        segmentForgeAmount.valueProperty().addListener((obs, was, now) -> {
+            if (now == null) return;
+            refreshRolling();
+            showStatusLine();
+            publishWhenReady(ConfigurationKeyEnum.HERO_GEAR_FORGE_AMOUNT_STRING, now);
+        });
+        comboBoxReserve.valueProperty().addListener((obs, was, now) -> {
+            refreshRolling();
+            showStatusLine();
+        });
         comboBoxRunAt.valueProperty().addListener((obs, was, now) -> {
             if (now != null && !isLoadingProfile) {
                 publishWhenReady(ConfigurationKeyEnum.HERO_GEAR_FORGE_TIME_UTC_STRING, toUtc(now, zone(), now()));
@@ -362,7 +348,7 @@ public final class HeroesLayoutController extends AbstractProfileController {
     }
 
     /** A greyed row says why, right beside its control. */
-    private static void reasonWhenDisabled(Label reason, ComboBox<?> control) {
+    private static void reasonWhenDisabled(Label reason, Node control) {
         reason.visibleProperty().bind(control.disableProperty());
         reason.managedProperty().bind(control.disableProperty());
     }
@@ -387,9 +373,9 @@ public final class HeroesLayoutController extends AbstractProfileController {
     }
 
     private String spendQuestion() {
-        Integer buys = comboBoxMaxBuys.getValue();
         Integer reserve = comboBoxReserve.getValue();
-        return "Forge will spend Essence Stones every night, up to " + (buys != null ? buys : "5") + " forges, always leaving "
+        return "Forge will spend Essence Stones every night: "
+                + (forgeAmountChoice() == GearAmount.ONE ? "one forge" : "every forge your stones allow") + ", always leaving "
                 + (reserve != null ? reserve : 0) + " stones unspent. Turn spending on?";
     }
 
@@ -418,6 +404,12 @@ public final class HeroesLayoutController extends AbstractProfileController {
                         ConfigurationKeyEnum.HERO_GEAR_FORGE_LIVE_BOOL)) ? FORGE_REAL : FORGE_PRACTICE);
                 skipped = new LinkedHashSet<>(GearHeroes.skipped(
                         profile.getConfiguration(ConfigurationKeyEnum.HERO_GEAR_SKIP_HEROES_STRING)));
+                // Older counts and order words are read as the new choices. Nothing is written back until a choice is changed.
+                segmentEnhanceAmount.setValue(GearAmount.choose(profile.getConfiguration(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_AMOUNT_STRING),
+                        profile.getConfiguration(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_MAX_LEVELS_INT)).label());
+                segmentForgeAmount.setValue(GearAmount.choose(profile.getConfiguration(ConfigurationKeyEnum.HERO_GEAR_FORGE_AMOUNT_STRING),
+                        profile.getConfiguration(ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT)).label());
+                comboBoxFocus.setValue(GearOrder.normalize(profile.getConfiguration(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING)));
                 setRunAt(profile.getConfiguration(ConfigurationKeyEnum.HERO_GEAR_FORGE_TIME_UTC_STRING));
             } finally {
                 isLoadingProfile = false;
@@ -510,8 +502,28 @@ public final class HeroesLayoutController extends AbstractProfileController {
 
     /** How old a saved reading may be before the page says so: one scan interval and a grace of six hours. */
     private Duration staleLimit() {
-        Integer days = comboBoxScanDays.getValue();
-        return Duration.ofDays(days != null ? days : 1).plusHours(6);
+        return Duration.ofDays(1).plusHours(6);
+    }
+
+    private GearAmount enhanceAmountChoice() {
+        return GearAmount.choose(segmentEnhanceAmount.getValue(), null);
+    }
+
+    private GearAmount forgeAmountChoice() {
+        return GearAmount.choose(segmentForgeAmount.getValue(), null);
+    }
+
+    /** Says in plain words which heroes the gear actions work on, so the scope is never a guess. */
+    private void showScope() {
+        Set<String> heroes = GearHeroes.included(scannedHeroes(), skipped);
+        String names = String.join(", ", heroes);
+        labelScope.setText(scannedHeroes().isEmpty() ? "The gear actions below start after the first gear check."
+                : heroes.isEmpty() ? "Nothing is ticked, so the actions below do nothing."
+                : "Everything below works only on these heroes: " + names + ".");
+        labelEnhanceScope.setText(heroes.isEmpty() ? "Uses XP items on the lowest gear of the ticked heroes."
+                : "Uses XP items on the lowest gear of " + names + ".");
+        labelForgeScope.setText(heroes.isEmpty() ? "Spends Essence Stones on the weakest gear of the ticked heroes."
+                : "Spends Essence Stones on the weakest gear of " + names + ".");
     }
 
     void runHook(RunHook hook) {
@@ -906,11 +918,12 @@ public final class HeroesLayoutController extends AbstractProfileController {
         boolean forge = FORGE_REAL.equals(segmentForge.getValue());
         if (!enhance && !forge) return "spends nothing";
         List<String> plan = new ArrayList<>();
-        if (enhance) plan.add("up to " + (comboBoxEnhanceLevels.getValue() != null ? comboBoxEnhanceLevels.getValue() : 5) + " levels (XP items)");
+        if (enhance) plan.add(enhanceAmountChoice() == GearAmount.ONE ? "one level (XP items)" : "every XP item you have");
         if (forge) {
             int reserve = comboBoxReserve.getValue() != null ? comboBoxReserve.getValue() : 0;
-            if (inventory == null) plan.add("forge up to " + (comboBoxMaxBuys.getValue() != null ? comboBoxMaxBuys.getValue() : 5) + " (stones not counted)");
-            else if (canBuyTonight > 0) plan.add("forge up to " + canBuyTonight + " (" + inventory.essenceStones() + " stones)");
+            if (inventory == null) plan.add("forge (stones not counted)");
+            else if (canBuyTonight > 0) plan.add((forgeAmountChoice() == GearAmount.ONE ? "forge one" : "forge up to " + canBuyTonight)
+                    + " (" + inventory.essenceStones() + " stones)");
             else             plan.add("no forge: needs " + (nextForgeCost + reserve) + " stones, you have " + inventory.essenceStones());
         }
         return String.join(" \u00b7 ", plan);
@@ -936,6 +949,7 @@ public final class HeroesLayoutController extends AbstractProfileController {
 
     private void fillHeroChoices() {
         gridHeroes.getChildren().clear();
+        showScope();
         Set<String> heroes = scannedHeroes();
         show(gridHeroes, !heroes.isEmpty());
         show(boxHeroesEmpty, heroes.isEmpty());
@@ -949,6 +963,7 @@ public final class HeroesLayoutController extends AbstractProfileController {
                 if (now) skipped.remove(hero);
                 else skipped.add(hero);
                 publishWhenReady(ConfigurationKeyEnum.HERO_GEAR_SKIP_HEROES_STRING, GearHeroes.join(skipped));
+                showScope();
                 refreshRolling();
             });
             gridHeroes.add(choice, index % HERO_COLUMNS, index / HERO_COLUMNS);
@@ -1030,9 +1045,8 @@ public final class HeroesLayoutController extends AbstractProfileController {
         Set<String> included = GearHeroes.included(scannedHeroes(), skipped);
         GearState ranked = new GearState(gear.pieces(), GearRanker.weightsFor(gear, comboBoxFocus.getValue(), included));
         int reserve = comboBoxReserve.getValue() != null ? comboBoxReserve.getValue() : 0;
-        int maxBuys = comboBoxMaxBuys.getValue() != null ? comboBoxMaxBuys.getValue()
-                : Integer.parseInt(ConfigurationKeyEnum.HERO_GEAR_FORGE_MAX_BUYS_INT.getDefaultValue());
-        List<Upgrade> upgrades = GearRanker.rolling(ranked, ROLLING_COUNT);
+        int maxBuys = forgeAmountChoice().forges();
+        List<Upgrade> upgrades = GearOrder.plan(ranked, comboBoxFocus.getValue(), ROLLING_COUNT);
         canBuyTonight = 0;
         missingForNext = 0;
         if (inventory != null && !upgrades.isEmpty()) {
@@ -1099,10 +1113,9 @@ public final class HeroesLayoutController extends AbstractProfileController {
             labelXp.setText("Hero XP not counted yet");
         }
         labelLevelsAside.setText(inventory != null ? "Levels read " + friendly(inventory.capturedAt()) : "");
-        boolean planOn = switchPlan.isSelected();
-        labelLevelsEmptyTitle.setText(planOn ? "No Drill Camp data yet" : "The level-up plan is off");
-        labelLevelsEmptyText.setText(planOn ? "It appears after the first gear check." : "Turn it on above to see which hero to level first.");
-        setRows(tableLevels, boxLevelsEmpty, planOn ? rows : List.of());
+        labelLevelsEmptyTitle.setText("No Drill Camp data yet");
+        labelLevelsEmptyText.setText("It appears after the first gear check.");
+        setRows(tableLevels, boxLevelsEmpty, rows);
     }
 
     // ── Tables ───────────────────────────────────────────────────────
