@@ -30,10 +30,13 @@ public final class EnhanceDialogReader {
     public static final PointData QUICK_SELECT = new PointData(208, 1210);
     public static final PointData ENHANCE = new PointData(513, 1210);
     // Dragged down the gap between the first two tile columns, so a drag the game reads as a tap selects nothing.
+    // The list carries on past the finger: a 120px drag moved it 175px on the live run, so the drag is 80px.
     public static final PointData SCROLL_FROM = new PointData(154, 1100);
-    public static final PointData SCROLL_TO = new PointData(154, 980);
-    // A badged tile needs 85px in view, and the list shows 295, so a smaller step shows every one whole.
-    public static final int MAX_SCROLL_STEP = 170;
+    public static final PointData SCROLL_TO = new PointData(154, 1020);
+    // A badge is counted only while its tile's top is about 213px of the list's height, so a list moving
+    // up to 213px a frame still shows every selected tile in some frame. 200 leaves room for measuring error.
+    // EnhanceDialogReaderFrameTest proves the 213 on a real frame.
+    public static final int MAX_SCROLL_STEP = 200;
 
     private static final int[] COLUMN_LEFT = { 33, 170, 307, 444, 581 };
     private static final int BADGE_CENTRE_FROM_LEFT = 99;
@@ -268,6 +271,11 @@ public final class EnhanceDialogReader {
 
     private static boolean isDark(int rgb) {
         return ((rgb >> 16) & 0xFF) < 45 && ((rgb >> 8) & 0xFF) < 50 && (rgb & 0xFF) < 60;
+    }
+
+    /** True when a scroll of {@code offset} px cannot have carried a selected tile past both frames. */
+    public static boolean provesEveryTile(Integer offset) {
+        return offset != null && offset <= MAX_SCROLL_STEP;
     }
 
     /** How far the list moved up between two frames, or null when they don't overlap. */

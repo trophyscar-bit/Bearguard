@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
+import dev.frostguard.engine.squads.GearEnhanceStep;
 import dev.frostguard.engine.squads.GearRanker.GearState;
 import dev.frostguard.engine.squads.HeroGearStore;
 import dev.frostguard.engine.squads.HeroGearStore.GearHalt;
@@ -26,6 +27,17 @@ final class GearNight {
 
     /** A null {@code state} ends the night. A {@code halt} means a press went unconfirmed, so only Back may be used. */
     record Enhanced(GearState state, String halt) {
+    }
+
+    /**
+     * What an Enhance step that stopped leaves the Forge. A press that went unconfirmed halts the night,
+     * and a level that didn't save ends it. Any other stop ended unspent, so the Forge still runs: it goes
+     * Home first and re-reads every dialog against its own guard before it spends.
+     */
+    static Enhanced afterEnhanceStop(GearEnhanceStep.Outcome outcome) {
+        if (outcome.pressUnconfirmed()) return new Enhanced(null, outcome.stop());
+        if (outcome.saveFailed()) return new Enhanced(null, null);
+        return new Enhanced(outcome.state(), null);
     }
 
     interface Steps {

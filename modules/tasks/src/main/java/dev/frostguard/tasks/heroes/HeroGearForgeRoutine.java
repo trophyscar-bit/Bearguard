@@ -217,9 +217,10 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         logInfo("Gear enhance: " + outcome.raises() + " raises confirmed");
         if (outcome.note() != null) logInfo("Gear enhance: " + outcome.note());
         if (outcome.stop() != null) {
-            logWarning("Gear enhance: stopped, nothing forged tonight: " + outcome.stop() + "; "
-                    + frames.stopped(ENHANCE, outcome.stop()));
-            return new GearNight.Enhanced(null, outcome.pressUnconfirmed() ? outcome.stop() : null);
+            GearNight.Enhanced next = GearNight.afterEnhanceStop(outcome);
+            logWarning("Gear enhance: stopped, " + (next.state() != null ? "forge still runs its own checks" : "nothing forged tonight")
+                    + ": " + outcome.stop() + "; " + frames.stopped(ENHANCE, outcome.stop()));
+            return next;
         }
         return new GearNight.Enhanced(outcome.state(), null);
     }

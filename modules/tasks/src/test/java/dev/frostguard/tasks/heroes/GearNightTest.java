@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import dev.frostguard.api.squads.HeroGear;
+import dev.frostguard.engine.squads.GearEnhanceStep;
 import dev.frostguard.engine.squads.GearRanker.GearState;
 import dev.frostguard.engine.squads.HeroGearStore;
 import dev.frostguard.engine.squads.HeroGearStore.GearHalt;
@@ -65,6 +66,35 @@ class GearNightTest {
 
         assertEquals(List.of("quickEquip", "scan", "enhance", "home"), fake.calls);
         assertTrue(store.loadHalt(PROFILE).isEmpty());
+    }
+
+    @Test
+    void aCleanEnhanceStopStillRunsTheForge() throws IOException {
+        Fake fake = new Fake();
+        fake.enhanceResult = GearNight.afterEnhanceStop(new GearEnhanceStep.Outcome(ENHANCED, 0,
+                "LIST_SCAN_FAILED: the list moved too far to prove every tile was seen: 175", null, false, false));
+
+        run(fake);
+
+        assertEquals(List.of("quickEquip", "scan", "enhance", "forge", "home"), fake.calls);
+        assertSame(ENHANCED, fake.forgedFrom);
+        assertTrue(store.loadHalt(PROFILE).isEmpty());
+    }
+
+    @Test
+    void anUnconfirmedEnhancePressStillHaltsTheNight() {
+        GearNight.Enhanced enhanced = GearNight.afterEnhanceStop(
+                new GearEnhanceStep.Outcome(ENHANCED, 0, "PRESS_UNCONFIRMED: no read", null, true, false));
+
+        assertEquals(new GearNight.Enhanced(null, "PRESS_UNCONFIRMED: no read"), enhanced);
+    }
+
+    @Test
+    void anUnsavedEnhanceLevelStillEndsTheNight() {
+        GearNight.Enhanced enhanced = GearNight.afterEnhanceStop(
+                new GearEnhanceStep.Outcome(ENHANCED, 1, "could not save the gear state: disk", null, false, true));
+
+        assertEquals(new GearNight.Enhanced(null, null), enhanced);
     }
 
     @Test

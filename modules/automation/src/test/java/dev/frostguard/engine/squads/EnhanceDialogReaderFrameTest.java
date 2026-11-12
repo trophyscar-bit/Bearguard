@@ -119,6 +119,74 @@ class EnhanceDialogReaderFrameTest {
         assertEquals(TileKind.UNKNOWN, EnhanceDialogReader.kind(image, 33, 864));
     }
 
+    // Tile tops from well below the list to well above it, one pixel apart.
+    private static final int SWEEP_FROM = 780;
+    private static final int SWEEP_TO = 1140;
+
+    @Test
+    void everyStepThePassAcceptsCatchesEachSelectedTileInSomeFrame() throws Exception {
+        int safest = largestStepThatNeverMisses(caughtTops());
+
+        assertTrue(EnhanceDialogReader.MAX_SCROLL_STEP <= safest,
+                "a step of " + EnhanceDialogReader.MAX_SCROLL_STEP + " can carry a tile past every frame");
+        assertTrue(EnhanceDialogReader.MAX_SCROLL_STEP >= 175, "tonight's 175px step is refused");
+    }
+
+    @Test
+    void aStepJustPastTheProvenLimitCanHideATile() throws Exception {
+        boolean[] caught = caughtTops();
+
+        assertTrue(missesAtSomePhase(caught, largestStepThatNeverMisses(caught) + 1));
+    }
+
+    @Test
+    void realSwipeStepsAreJudgedByWhatTheyProve() throws Exception {
+        assertTrue(EnhanceDialogReader.provesEveryTile(
+                EnhanceDialogReader.scrollOffset(frame("enhance-list2"), frame("enhance-list3"))), "a real 199px step");
+        assertTrue(EnhanceDialogReader.provesEveryTile(
+                EnhanceDialogReader.scrollOffset(frame("enhance-list3"), frame("enhance-list4"))), "the list at rest");
+        assertFalse(EnhanceDialogReader.provesEveryTile(
+                EnhanceDialogReader.scrollOffset(frame("enhance-before"), frame("enhance-list1"))), "a real 231px step");
+        assertFalse(EnhanceDialogReader.provesEveryTile(
+                EnhanceDialogReader.scrollOffset(frame("enhance-list1"), frame("enhance-list2"))), "frames that don't overlap");
+        assertTrue(EnhanceDialogReader.provesEveryTile(175), "tonight's live step");
+    }
+
+    private static boolean[] caught;
+
+    // Which tile tops, on a real list frame, give a badge the reader counts. Worked out once.
+    private static synchronized boolean[] caughtTops() throws Exception {
+        if (caught == null) caught = sweepTops();
+        return caught;
+    }
+
+    private static boolean[] sweepTops() throws Exception {
+        BufferedImage list = image("enhance-list3");
+        boolean[] caught = new boolean[SWEEP_TO - SWEEP_FROM];
+        for (int top = SWEEP_FROM; top < SWEEP_TO; top++) {
+            BufferedImage copy = new BufferedImage(list.getWidth(), list.getHeight(), BufferedImage.TYPE_INT_RGB);
+            copy.getGraphics().drawImage(list, 0, 0, null);
+            caught[top - SWEEP_FROM] = !EnhanceDialogReader.badges(withBadge(copy, 0, top)).isEmpty();
+        }
+        return caught;
+    }
+
+    private static int largestStepThatNeverMisses(boolean[] caught) {
+        int step = 1;
+        while (!missesAtSomePhase(caught, step + 1)) step++;
+        return step;
+    }
+
+    // A tile carried up the list by step px a frame, from below it to above it, starting at every phase.
+    private static boolean missesAtSomePhase(boolean[] caught, int step) {
+        for (int phase = 0; phase < step; phase++) {
+            boolean seen = false;
+            for (int top = caught.length - 1 - phase; top >= 0; top -= step) seen |= caught[top];
+            if (!seen) return true;
+        }
+        return false;
+    }
+
     @Test
     void tellsTheEndsOfTheList() throws Exception {
         assertTrue(EnhanceDialogReader.isListTop(frame("enhance-before")));

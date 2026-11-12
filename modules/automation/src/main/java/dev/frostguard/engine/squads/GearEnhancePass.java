@@ -235,7 +235,7 @@ public final class GearEnhancePass {
             device.pause(900);
             RawImageData next = device.capture();
             Integer offset = reads.scrollOffset(frame, next);
-            if (offset == null || offset > EnhanceDialogReader.MAX_SCROLL_STEP) {
+            if (!EnhanceDialogReader.provesEveryTile(offset)) {
                 throw new Halt(Stop.LIST_SCAN_FAILED, "the list moved too far to prove every tile was seen: " + offset);
             }
             if (offset == 0) {
