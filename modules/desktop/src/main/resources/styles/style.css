@@ -47,6 +47,18 @@
     -fg-border-subtle: #262a36;
     -fg-input-bg: #0d0f15;
 
+    /* Status colours: text on the card (#181c24) and on its own tint both measured above 5.9:1. */
+    -fg-ok: #6fcf6f;
+    -fg-warn: #f5b84a;
+    -fg-error: #ff6b63;
+    -fg-info: #6ea8ff;
+    -fg-ok-bg: #16261c;
+    -fg-warn-bg: #2a2314;
+    -fg-error-bg: #2b1a1c;
+    -fg-info-bg: #162033;
+    -fg-control-off: #2a2f3d;
+    -fg-text-disabled: #8b97a6;
+
     -fx-background-color: -fg-bg-app;
 }
 
@@ -1152,8 +1164,8 @@
 /* Outer root VBox for task pages — transparent bg, consistent padding */
 .task-page-root {
     -fx-background-color: -fg-bg-app;
-    -fx-padding: 18;
-    -fx-spacing: 14;
+    -fx-padding: 24;
+    -fx-spacing: 16;
 }
 
 /* Transparent ScrollPane for task pages */
