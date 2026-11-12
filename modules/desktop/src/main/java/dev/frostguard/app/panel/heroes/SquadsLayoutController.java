@@ -30,6 +30,9 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import javafx.scene.control.Tooltip;
+import javafx.scene.layout.FlowPane;
+import javafx.scene.layout.VBox;
 
 /** Troops > Squads: runs the hero/troop/squad scan and shows how to set up each squad. */
 public final class SquadsLayoutController implements IProfileLoadListener {
@@ -42,15 +45,17 @@ public final class SquadsLayoutController implements IProfileLoadListener {
     @FXML private Button buttonScan;
     @FXML private Label labelStatus;
     @FXML private Label labelProblems;
-    @FXML private TableView<List<String>> tableSuggested;
+    @FXML private FlowPane cardsSuggested;
     @FXML private TableView<List<String>> tableSaved;
     @FXML private TableView<List<String>> tableTroops;
 
     @FXML
     private void initialize() {
-        columns(tableSuggested, "Squad", "Use", "Heroes (first = leads the march)", "Why");
         columns(tableSaved, "Squad", "State", "Heroes", "Infantry", "Lancer", "Marksman", "Capacity", "Power");
         columns(tableTroops, "Troop", "Type", "Count");
+        showSuggestedEmpty();
+        tableSaved.setPlaceholder(new Label("No saved squads read yet. Press Scan now."));
+        tableTroops.setPlaceholder(new Label("No troop counts read yet. Press Scan now."));
         labelStatus.setText("Select a profile.");
         SquadScanRegistry.addListener(this::onScanEvent);
     }
@@ -128,20 +133,18 @@ public final class SquadsLayoutController implements IProfileLoadListener {
         labelStatus.setText("Last scan " + when(snapshot.capturedAt()) + ": " + snapshot.heroes().size()
                 + " heroes, " + snapshot.savedSquads().stream().filter(s -> s.state() == SavedSquad.State.SAVED).count()
                 + " saved squads.");
-        labelProblems.setText(snapshot.problems().isEmpty() ? ""
-                : "Could not read: " + String.join("; ", snapshot.problems()));
+        showProblems(snapshot);
         SquadPlanner.Plan plan = SquadPlanner.plan(snapshot);
 
-        List<List<String>> suggested = new ArrayList<>();
+        cardsSuggested.getChildren().clear();
         for (SquadPlanner.Suggestion s : plan.squads()) {
-            suggested.add(row(String.valueOf(s.slot()), s.purpose(),
-                    s.heroes().isEmpty() ? "-" : String.join(", ", s.heroes()), s.why()));
+            cardsSuggested.getChildren().add(card(s.purpose(), s.heroes(), s.why()));
         }
         if (!plan.exploration().isEmpty()) {
-            suggested.add(row("-", "Exploration (5 heroes, any type)", String.join(", ", plan.exploration()),
+            cardsSuggested.getChildren().add(card("Exploration (5 heroes, any type)", plan.exploration(),
                     "Highest power. Exploration fights use hero stats, not troops."));
         }
-        tableSuggested.setItems(FXCollections.observableArrayList(suggested));
+        if (cardsSuggested.getChildren().isEmpty()) showSuggestedEmpty();
 
         List<List<String>> savedRows = new ArrayList<>();
         for (SavedSquad s : snapshot.savedSquads()) {
@@ -165,11 +168,68 @@ public final class SquadsLayoutController implements IProfileLoadListener {
         tableTroops.setItems(FXCollections.observableArrayList(troopRows));
     }
 
+    // One line on screen; the full list is a tooltip. Twenty-odd "card N could not be found again"
+    // entries as a paragraph ran off the window and buried the tables.
+    private void showProblems(SquadSnapshot snapshot) {
+        List<String> problems = snapshot.problems();
+        if (problems.isEmpty() && snapshot.troops() != null) {
+            labelProblems.setText("");
+            labelProblems.setTooltip(null);
+            return;
+        }
+        String headline = snapshot.troops() == null
+                ? "The last scan did not reach troops or saved squads. Press Scan now to retry."
+                : "Some of the last scan could not be read (" + problems.size() + "). Hover for details.";
+        labelProblems.setText(headline);
+        labelProblems.setTooltip(problems.isEmpty() ? null : new Tooltip(String.join("\n", problems)));
+    }
+
+    private void showSuggestedEmpty() {
+        Label empty = new Label("Press Scan now to get squad suggestions.");
+        empty.setStyle("-fx-text-fill: #636a75; -fx-padding: 24;");
+        cardsSuggested.getChildren().setAll(empty);
+    }
+
+    // One card per squad: what it is for, who leads it, and why those heroes.
+    private static VBox card(String purpose, List<String> heroes, String why) {
+        Label title = new Label(purpose);
+        title.setWrapText(true);
+        title.setStyle("-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #fcd176;");
+
+        FlowPane chips = new FlowPane(6, 6);
+        if (heroes == null || heroes.isEmpty()) {
+            Label none = new Label("No hero free for this slot");
+            none.setStyle("-fx-text-fill: #636a75; -fx-font-style: italic;");
+            chips.getChildren().add(none);
+        } else {
+            for (int i = 0; i < heroes.size(); i++) {
+                Label chip = new Label(i == 0 ? heroes.get(i) + "  (leads)" : heroes.get(i));
+                chip.setStyle("-fx-background-radius: 10; -fx-padding: 3 10 3 10; -fx-text-fill: "
+                        + (i == 0 ? "#11141a; -fx-background-color: #fcd176; -fx-font-weight: bold;"
+                                : "#e6edf3; -fx-background-color: #262a36;"));
+                chips.getChildren().add(chip);
+            }
+        }
+
+        Label reason = new Label(why == null ? "" : why);
+        reason.setWrapText(true);
+        reason.setStyle("-fx-text-fill: #9eaab6; -fx-font-size: 12px;");
+
+        VBox box = new VBox(10, title, chips, reason);
+        box.setPrefWidth(330);
+        box.setMinWidth(330);
+        box.setStyle("-fx-padding: 14; -fx-background-color: #181c24; -fx-background-radius: 10;"
+                + " -fx-border-color: #262a36; -fx-border-radius: 10;");
+        return box;
+    }
+
     private void clear() {
         labelProblems.setText("");
-        for (TableView<List<String>> table : List.of(tableSuggested, tableSaved, tableTroops)) {
+        labelProblems.setTooltip(null);
+        for (TableView<List<String>> table : List.of(tableSaved, tableTroops)) {
             table.getItems().clear();
         }
+        showSuggestedEmpty();
     }
 
     private static void columns(TableView<List<String>> table, String... headers) {

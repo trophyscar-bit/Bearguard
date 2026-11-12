@@ -11,16 +11,18 @@
             <Label text="How to set up each in-game squad, what is saved in each slot now, and the troops you have. The scan runs every night at 07:15 UTC, and Scan now runs it straight away. It only reads: nothing in the game is changed." wrapText="true" styleClass="label-muted" />
             <HBox spacing="10" alignment="CENTER_LEFT">
                 <Button fx:id="buttonScan" text="Scan now" onAction="#handleScan" styleClass="action-button-timeline" />
-                <Label fx:id="labelStatus" wrapText="true" />
+                <Label fx:id="labelStatus" wrapText="true" minWidth="0" maxWidth="Infinity" HBox.hgrow="ALWAYS" />
             </HBox>
-            <Label fx:id="labelProblems" wrapText="true" styleClass="label-muted" />
+            <Label fx:id="labelProblems" wrapText="true" minWidth="0" maxWidth="Infinity" styleClass="label-muted" />
         </VBox>
     </top>
     <center>
         <TabPane style="-fx-padding: 0 16 16 16;" VBox.vgrow="ALWAYS">
             <tabs>
                 <Tab text="Suggested squads" closable="false">
-                    <TableView fx:id="tableSuggested" />
+                    <ScrollPane fitToWidth="true" hbarPolicy="NEVER" style="-fx-background-color: transparent;">
+                        <FlowPane fx:id="cardsSuggested" hgap="12" vgap="12" style="-fx-padding: 12 4 12 4;" />
+                    </ScrollPane>
                 </Tab>
                 <Tab text="Saved squads (in game)" closable="false">
                     <TableView fx:id="tableSaved" />

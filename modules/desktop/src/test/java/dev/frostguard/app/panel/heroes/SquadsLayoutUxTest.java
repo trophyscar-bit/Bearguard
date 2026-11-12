@@ -60,11 +60,13 @@ class SquadsLayoutUxTest {
         View view = onFx(this::load);
 
         assertTrue(view.status().getText().startsWith("Last scan"), view.status().getText());
-        // The fixture scan (run5, Oct 31) logged one problem; it is shown, not hidden.
-        assertTrue(view.problems().getText().startsWith("Could not read: Expedition stats incomplete for Jessie"),
-                view.problems().getText());
+        // The fixture scan (run5, Oct 31) logged one problem. The screen shows one short line and
+        // keeps the detail in a tooltip, so a long list can never run off the window.
+        assertEquals("Some of the last scan could not be read (1). Hover for details.", view.problems().getText());
+        assertTrue(view.problems().getTooltip().getText().startsWith("Expedition stats incomplete for Jessie"),
+                view.problems().getTooltip().getText());
         // Twelve squad slots plus the exploration team.
-        assertEquals(13, view.table("tableSuggested").getItems().size());
+        assertEquals(13, ((javafx.scene.layout.FlowPane) view.namespace().get("cardsSuggested")).getChildren().size());
         assertEquals(12, view.table("tableSaved").getItems().size());
         assertEquals(5, view.table("tableTroops").getItems().size());
         // Setting up squads only: hero, gear, skill and joiner views live on the Heroes page.

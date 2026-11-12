@@ -130,7 +130,16 @@ public final class SquadScanRoutine extends DelayedTask {
 
             SquadSnapshot snapshot = new SquadSnapshot(Instant.now().toString(), List.copyOf(heroes),
                     troops, squads, List.copyOf(problems));
-            new SquadSnapshotStore(WorkspacePaths.current().root()).save(profile.getId(), snapshot);
+            SquadSnapshotStore store = new SquadSnapshotStore(WorkspacePaths.current().root());
+            if (isWorseThanSaved(store, snapshot)) {
+                logWarning("Squads scan: this scan read " + heroes.size() + " heroes and "
+                        + (troops == null ? "no troops" : "troops") + ", less than the saved scan; keeping the saved one. "
+                        + problems.size() + " problem(s): " + String.join("; ", problems));
+                publish(SquadScanRegistry.State.FAILED,
+                        "This scan came back incomplete, so the last good scan was kept. Try again.", null);
+                return;
+            }
+            store.save(profile.getId(), snapshot);
             logInfo("Squads scan saved: " + heroes.size() + " heroes, "
                     + (troops == null ? "no" : troops.stocks().size()) + " troop lines, "
                     + squads.stream().filter(s -> s.state() == SavedSquad.State.SAVED).count()
@@ -140,6 +149,23 @@ public final class SquadScanRoutine extends DelayedTask {
             publish(SquadScanRegistry.State.FAILED, e.getMessage(), null);
             throw new IllegalStateException("Squads scan failed: " + e.getMessage(), e);
         }
+    }
+
+    private boolean isWorseThanSaved(SquadSnapshotStore store, SquadSnapshot fresh) {
+        try {
+            return store.load(profile.getId()).map(saved -> isWorse(fresh, saved)).orElse(false);
+        } catch (IOException | RuntimeException unreadable) {
+            return false;
+        }
+    }
+
+    /**
+     * A scan that lost the Heroes grid or never reached troops must not replace one that read
+     * them: it would blank the Squads tables until the next night.
+     */
+    static boolean isWorse(SquadSnapshot fresh, SquadSnapshot saved) {
+        return (fresh.troops() == null && saved.troops() != null)
+                || fresh.heroes().size() < saved.heroes().size();
     }
 
     // ── schedule ────────────────────────────────────────────────────
