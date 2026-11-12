@@ -1,0 +1,168 @@
+/* Squads page. Follows DESIGN-BRIEF.md: Header, Status, Settings, Results; 4 px grid;
+   no text under 12 px or weaker than -fg-text-secondary. The status tokens (-fg-ok ...) are the shared
+   ones in style.css, the same as the Heroes page uses. */
+
+.sq-scroll {
+    -fx-background-color: -fg-bg-app;
+    -fx-background: -fg-bg-app;
+    -fx-padding: 0;
+}
+.sq-scroll > .viewport { -fx-background-color: -fg-bg-app; }
+
+/* Header */
+.sq-title { -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: -fg-text-primary; }
+.sq-sub { -fx-font-size: 13px; -fx-text-fill: -fg-text-secondary; }
+
+/* Buttons: one filled primary, the rest outlined. */
+.sq-btn-primary {
+    -fx-background-color: -fg-yellow;
+    -fx-background-radius: 4;
+    -fx-text-fill: #11141a;
+    -fx-font-size: 13px;
+    -fx-font-weight: 600;
+    -fx-padding: 0 16 0 16;
+    -fx-min-height: 32;
+    -fx-pref-height: 32;
+    -fx-cursor: hand;
+}
+.sq-btn-primary:disabled { -fx-opacity: 0.45; }
+.sq-btn-secondary {
+    -fx-background-color: transparent;
+    -fx-background-radius: 4;
+    -fx-border-color: -fg-border-subtle;
+    -fx-border-radius: 4;
+    -fx-text-fill: -fg-text-primary;
+    -fx-font-size: 13px;
+    -fx-font-weight: 600;
+    -fx-padding: 0 16 0 16;
+    -fx-min-height: 32;
+    -fx-pref-height: 32;
+    -fx-cursor: hand;
+}
+.sq-btn-secondary:hover { -fx-background-color: -fg-control-off; }
+
+/* Cards */
+.sq-card {
+    -fx-background-color: -fg-bg-card;
+    -fx-background-radius: 6;
+    -fx-border-color: -fg-border-subtle;
+    -fx-border-radius: 6;
+    -fx-padding: 16;
+}
+.sq-card-title { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -fg-text-primary; }
+.sq-label { -fx-font-size: 13px; -fx-text-fill: -fg-text-primary; }
+.sq-caption { -fx-font-size: 12px; -fx-text-fill: -fg-text-secondary; }
+.sq-row { -fx-min-height: 48; -fx-padding: 8 0 8 0; -fx-alignment: CENTER-LEFT; }
+.sq-divider { -fx-background-color: -fg-border-subtle; -fx-min-height: 1; -fx-pref-height: 1; -fx-max-height: 1; }
+.sq-unit { -fx-font-size: 13px; -fx-text-fill: -fg-text-secondary; }
+
+.sq-combo {
+    -fx-background-color: -fg-input-bg;
+    -fx-background-radius: 4;
+    -fx-border-color: -fg-border-subtle;
+    -fx-border-radius: 4;
+    -fx-font-size: 13px;
+    -fx-min-height: 32;
+    -fx-pref-height: 32;
+}
+.sq-combo:focused { -fx-border-color: -fg-module-blue; }
+.sq-combo:disabled { -fx-opacity: 0.45; }
+.sq-combo .list-cell { -fx-text-fill: -fg-text-primary; -fx-font-size: 13px; }
+
+/* Switch: track colours per the brief; the On/Off word is the switch's own text. */
+.sq-switch { -fx-font-size: 13px; }
+.sq-switch > .label-container > .label { -fx-font-size: 13px; -fx-text-fill: -fg-text-primary; }
+.sq-switch > .thumb { -fx-background-color: -fg-border-subtle, -fg-text-secondary; -fx-opacity: 1; }
+.sq-switch > .thumb-area { -fx-background-color: -fg-border-subtle, -fg-control-off; }
+.sq-switch:selected > .thumb { -fx-background-color: -fg-teal, #11141a; }
+.sq-switch:selected > .thumb-area { -fx-background-color: -fg-teal, -fg-teal; }
+.sq-switch:focused > .thumb-area { -fx-background-color: -fg-module-blue, -fg-control-off; }
+.sq-switch:selected:focused > .thumb-area { -fx-background-color: -fg-module-blue, -fg-teal; }
+
+/* Status banner */
+.sq-banner { -fx-padding: 12 16 12 16; -fx-background-radius: 6; -fx-border-radius: 6; -fx-border-width: 1; -fx-min-height: 56; }
+.sq-banner-info { -fx-background-color: -fg-info-bg; -fx-border-color: -fg-info; }
+.sq-banner-warn { -fx-background-color: -fg-warn-bg; -fx-border-color: -fg-warn; }
+.sq-banner-error { -fx-background-color: -fg-error-bg; -fx-border-color: -fg-error; }
+.sq-banner-ok { -fx-background-color: -fg-ok-bg; -fx-border-color: -fg-ok; }
+.sq-banner-title { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -fg-text-primary; }
+.sq-banner-text { -fx-font-size: 13px; -fx-text-fill: -fg-text-secondary; }
+.sq-banner-icon {
+    -fx-min-width: 20; -fx-pref-width: 20; -fx-max-width: 20;
+    -fx-min-height: 20; -fx-pref-height: 20; -fx-max-height: 20;
+    -fx-background-radius: 10; -fx-border-radius: 10; -fx-border-width: 1.5;
+    -fx-alignment: CENTER; -fx-font-size: 12px; -fx-font-weight: 700;
+}
+.sq-banner-info .sq-banner-icon { -fx-text-fill: -fg-info; -fx-border-color: -fg-info; }
+.sq-banner-warn .sq-banner-icon { -fx-text-fill: -fg-warn; -fx-border-color: -fg-warn; }
+.sq-banner-error .sq-banner-icon { -fx-text-fill: -fg-error; -fx-border-color: -fg-error; }
+.sq-banner-ok .sq-banner-icon { -fx-text-fill: -fg-ok; -fx-border-color: -fg-ok; }
+.sq-banner .progress-bar > .track { -fx-background-color: -fg-info-bg; -fx-background-insets: 0; -fx-background-radius: 1; -fx-pref-height: 2; -fx-min-height: 2; }
+.sq-banner .progress-bar > .bar { -fx-background-color: -fg-info; -fx-background-insets: 0; -fx-background-radius: 1; -fx-padding: 1; }
+
+/* Pills */
+.sq-pill {
+    -fx-padding: 0 8 0 8; -fx-min-height: 20; -fx-pref-height: 20;
+    -fx-background-radius: 999; -fx-border-radius: 999; -fx-border-width: 1;
+    -fx-font-size: 12px; -fx-font-weight: bold; -fx-alignment: CENTER;
+}
+.sq-pill-ok { -fx-background-color: -fg-ok-bg; -fx-text-fill: -fg-ok; -fx-border-color: rgba(111,207,111,0.4); }
+.sq-pill-warn { -fx-background-color: -fg-warn-bg; -fx-text-fill: -fg-warn; -fx-border-color: rgba(245,184,74,0.4); }
+.sq-pill-info { -fx-background-color: -fg-info-bg; -fx-text-fill: -fg-info; -fx-border-color: rgba(110,168,255,0.4); }
+.sq-pill-neutral { -fx-background-color: -fg-control-off; -fx-text-fill: -fg-text-primary; -fx-border-color: -fg-border-subtle; }
+.sq-pill-lead { -fx-background-color: -fg-yellow; -fx-text-fill: #11141a; -fx-border-color: -fg-yellow; }
+
+/* Suggested squads list */
+.sq-squad-title { -fx-font-size: 13px; -fx-text-fill: -fg-text-primary; }
+.sq-squad-why { -fx-font-size: 13px; -fx-text-fill: -fg-text-secondary; }
+
+/* Tables */
+.sq-table { -fx-background-color: transparent; -fx-border-color: -fg-border-subtle; -fx-border-radius: 6; -fx-background-radius: 6; }
+.sq-table .column-header-background { -fx-background-color: -fg-bg-table-alt; }
+.sq-table .column-header { -fx-background-color: -fg-bg-table-alt; -fx-size: 32; -fx-border-color: transparent transparent -fg-border-subtle transparent; }
+.sq-table .column-header-background .column-header .label { -fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: -fg-text-primary; }
+.sq-table .filler { -fx-background-color: -fg-bg-table-alt; }
+.sq-table .table-row-cell { -fx-background-color: -fg-bg-table-row; -fx-cell-size: 36; -fx-table-cell-border-color: transparent; }
+.sq-table .table-row-cell:odd { -fx-background-color: -fg-bg-table-alt; }
+.sq-table .table-row-cell:selected { -fx-background-color: -fg-control-off; }
+.sq-table .table-cell { -fx-text-fill: -fg-text-primary; -fx-font-size: 13px; -fx-padding: 0 12 0 12; -fx-alignment: CENTER-LEFT; }
+.sq-table .column-header.sq-num .label { -fx-alignment: CENTER-RIGHT; -fx-text-alignment: right; }
+.sq-table .table-cell.sq-num { -fx-alignment: CENTER-RIGHT; }
+
+.sq-table.sq-empty .column-header-background { -fx-pref-height: 0; -fx-min-height: 0; -fx-max-height: 0; visibility: hidden; }
+.sq-table.sq-empty { -fx-border-color: transparent; }
+
+/* Empty state and loading skeleton */
+.sq-empty-title { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -fg-text-primary; }
+.sq-empty-text { -fx-font-size: 13px; -fx-text-fill: -fg-text-secondary; -fx-text-alignment: center; }
+.sq-skeleton { -fx-background-color: -fg-bg-table-alt; -fx-background-radius: 4; -fx-min-height: 40; -fx-pref-height: 40; }
+
+/* Tabs: the app-wide tab style paints header and content in the page background; inside a card
+   they take the card's colour. The selected tab is filled and underlined, not only brighter. */
+.sq-tabs { -fx-pref-height: 34; -fx-min-height: 34; -fx-max-height: 34; -color-bg-default: -fg-bg-card; -color-border-default: -fg-border-subtle; -color-bg-subtle: -fg-control-off; }
+.sq-tabs > .tab-header-area > .tab-header-background { -fx-background-color: -fg-bg-card; -fx-border-color: transparent transparent -fg-border-subtle transparent; -fx-border-width: 0 0 1 0; }
+.sq-tabs > .tab-content-area { -fx-background-color: -fg-bg-card; -fx-pref-height: 0; -fx-max-height: 0; }
+.sq-tabs > .tab-header-area > .headers-region > .tab { -fx-padding: 4 16 4 16; -fx-background-color: transparent, transparent; }
+.sq-tabs > .tab-header-area > .headers-region > .tab:top:selected {
+    -fx-background-color: -fg-yellow, -fg-control-off;
+    -fx-background-insets: 0, 0 0 3 0;
+    -fx-background-radius: 4 4 0 0, 4 4 0 0;
+}
+.sq-tabs > .tab-header-area > .headers-region > .tab > .tab-container > .tab-label { -fx-font-size: 13px; -fx-text-fill: -fg-text-secondary; }
+.sq-tabs > .tab-header-area > .headers-region > .tab:selected > .tab-container > .tab-label { -fx-text-fill: -fg-text-primary; -fx-font-weight: 600; }
+
+/* Column headings, the Bear Trap strip's and the suggested list's */
+.sq-col-head { -fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: -fg-text-primary; }
+
+/* Totals above the troop table */
+.sq-tile { -fx-background-color: -fg-bg-table-alt; -fx-background-radius: 6; -fx-padding: 12 16 12 16; }
+.sq-tile-value { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -fg-text-primary; }
+
+/* The bear card's one verdict, and a warning line in a tile */
+.sq-verdict-ok { -fx-text-fill: -fg-ok; }
+.sq-verdict-warn { -fx-text-fill: -fg-warn; }
+
+.sq-link { -fx-background-color: transparent; -fx-text-fill: -fg-info; -fx-font-size: 13px; -fx-underline: true; -fx-padding: 4 0 4 0; -fx-cursor: hand; }
+.sq-link:disabled { -fx-opacity: 0.45; }
+
+.sq-badge { -fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: -fg-text-secondary; -fx-border-color: -fg-border-subtle; -fx-border-radius: 3; -fx-padding: 0 4 0 4; }

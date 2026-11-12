@@ -21,7 +21,6 @@ final class TaskSettingsCatalog {
     static final Set<TpDailyTaskEnum> NO_SETTINGS = EnumSet.of(
             TpDailyTaskEnum.GAME_ANALYTICS_LABYRINTH,
             TpDailyTaskEnum.GAME_ANALYTICS_POWER,
-            TpDailyTaskEnum.SQUAD_SCAN,
             TpDailyTaskEnum.INITIALIZE,
             TpDailyTaskEnum.TREK_AUTOMATION,
             TpDailyTaskEnum.TREK_SUPPLIES,

@@ -56,7 +56,15 @@ public final class SquadPlanner {
     public record JoinerScore(String hero, String skill, Integer level, Effect effect, double value, String onlyFor) {
     }
 
-    public record Suggestion(int slot, String purpose, List<String> heroes, String why) {
+    /** The joining skill a join suggestion is built on; {@code bonus} is shown as "25%" or "25%, Marksman only". */
+    public record SkillBonus(String name, Integer level, String bonus) {
+    }
+
+    /** {@code skill} is set for join suggestions only. */
+    public record Suggestion(int slot, String purpose, List<String> heroes, String why, SkillBonus skill) {
+        public Suggestion(int slot, String purpose, List<String> heroes, String why) {
+            this(slot, purpose, heroes, why, null);
+        }
     }
 
     public record Plan(List<HeroScore> heroScores, List<JoinerScore> joiners, List<String> exploration,
@@ -218,7 +226,9 @@ public final class SquadPlanner {
         JoinerScore pick = ranked.get(index);
         return new Suggestion(slot, purpose, List.of(pick.hero()),
                 why + " " + pick.skill() + " Lv " + pick.level() + ": " + format(pick.value()) + "%"
-                        + (pick.onlyFor() == null ? "." : ", " + pick.onlyFor() + " only."));
+                        + (pick.onlyFor() == null ? "." : ", " + pick.onlyFor() + " only."),
+                new SkillBonus(pick.skill(), pick.level(),
+                        format(pick.value()) + "%" + (pick.onlyFor() == null ? "" : ", " + pick.onlyFor() + " only")));
     }
 
     private static List<String> gatheringHeroes(List<HeroRecord> heroes) {

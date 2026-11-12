@@ -1,36 +1,92 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<?import atlantafx.base.controls.ToggleSwitch?>
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
+<?import javafx.geometry.Insets?>
 
-<BorderPane maxHeight="Infinity" maxWidth="Infinity" VBox.vgrow="ALWAYS"
+<ScrollPane fitToWidth="true" hbarPolicy="NEVER" stylesheets="@squads.css" styleClass="sq-scroll"
+            maxHeight="Infinity" maxWidth="Infinity" VBox.vgrow="ALWAYS"
             xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
-    <top>
-        <VBox spacing="8" style="-fx-padding: 16;">
-            <Label text="Squads" styleClass="module-title" />
-            <Label text="How to set up each in-game squad, what is saved in each slot now, and the troops you have. The scan runs every night at 07:15 UTC, and Scan now runs it straight away. It only reads: nothing in the game is changed." wrapText="true" styleClass="label-muted" />
-            <HBox spacing="10" alignment="CENTER_LEFT">
-                <Button fx:id="buttonScan" text="Scan now" onAction="#handleScan" styleClass="action-button-timeline" />
-                <Label fx:id="labelStatus" wrapText="true" minWidth="0" maxWidth="Infinity" HBox.hgrow="ALWAYS" />
-            </HBox>
-            <Label fx:id="labelProblems" wrapText="true" minWidth="0" maxWidth="Infinity" styleClass="label-muted" />
-        </VBox>
-    </top>
-    <center>
-        <TabPane style="-fx-padding: 0 16 16 16;" VBox.vgrow="ALWAYS">
-            <tabs>
-                <Tab text="Suggested squads" closable="false">
-                    <ScrollPane fitToWidth="true" hbarPolicy="NEVER" style="-fx-background-color: transparent;">
-                        <FlowPane fx:id="cardsSuggested" hgap="12" vgap="12" style="-fx-padding: 12 4 12 4;" />
-                    </ScrollPane>
-                </Tab>
-                <Tab text="Saved squads (in game)" closable="false">
-                    <TableView fx:id="tableSaved" />
-                </Tab>
-                <Tab text="Troops" closable="false">
-                    <TableView fx:id="tableTroops" />
-                </Tab>
-            </tabs>
-        </TabPane>
-    </center>
-</BorderPane>
+    <content>
+        <HBox alignment="TOP_LEFT" maxWidth="Infinity">
+            <padding><Insets top="24" right="24" bottom="24" left="24" /></padding>
+            <VBox spacing="16" maxWidth="960" HBox.hgrow="ALWAYS">
+
+                <!-- Header -->
+                <HBox spacing="16" alignment="CENTER_LEFT">
+                    <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
+                        <Label text="Squads" styleClass="sq-title" />
+                        <Label fx:id="labelStatus" wrapText="true" styleClass="sq-sub" />
+                        <Label fx:id="labelScan" wrapText="true" styleClass="sq-sub" visible="false" managed="false" />
+                    </VBox>
+                    <VBox spacing="4" alignment="CENTER_RIGHT" minWidth="-Infinity">
+                        <Button fx:id="buttonScan" text="Scan now" onAction="#handleScan" styleClass="sq-btn-primary" />
+                        <Label fx:id="labelScanHint" text="Wait for the current scan to finish." styleClass="sq-caption"
+                               visible="false" managed="false" />
+                    </VBox>
+                </HBox>
+
+                <!-- Status: only when something needs attention or a scan is running -->
+                <HBox fx:id="bannerBox" spacing="12" alignment="TOP_LEFT" styleClass="sq-banner" visible="false" managed="false">
+                    <Label fx:id="bannerIcon" styleClass="sq-banner-icon" />
+                    <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
+                        <Label fx:id="bannerTitle" wrapText="true" styleClass="sq-banner-title" />
+                        <Label fx:id="bannerText" wrapText="true" styleClass="sq-banner-text" />
+                        <ProgressBar fx:id="bannerProgress" maxWidth="Infinity" visible="false" managed="false" />
+                    </VBox>
+                    <Button fx:id="bannerAction" styleClass="sq-btn-secondary" visible="false" managed="false" onAction="#handleScan" />
+                </HBox>
+
+                <!-- The owner's question before a bear: are my squads right, and are there enough marksmen? -->
+                <VBox fx:id="bearStrip" styleClass="sq-card" spacing="12" visible="false" managed="false" />
+
+                <!-- Results. The tab strip only picks what is shown below it, so the card is as tall as
+                     what it shows and not as tall as its longest tab. -->
+                <VBox styleClass="sq-card" spacing="12">
+                    <TabPane fx:id="tabsResults" styleClass="sq-tabs" tabClosingPolicy="UNAVAILABLE" tabMinHeight="32" tabMaxHeight="32">
+                        <tabs>
+                            <Tab text="Suggested" closable="false" />
+                            <Tab text="Saved" closable="false" />
+                            <Tab text="Troops" closable="false" />
+                        </tabs>
+                    </TabPane>
+                    <VBox fx:id="listSuggested" />
+                    <VBox fx:id="panelSaved" visible="false" managed="false">
+                        <TableView fx:id="tableSaved" styleClass="sq-table" />
+                    </VBox>
+                    <VBox fx:id="panelTroops" spacing="12" visible="false" managed="false">
+                        <HBox fx:id="tilesTroops" spacing="16" />
+                        <TableView fx:id="tableTroops" styleClass="sq-table" />
+                    </VBox>
+                </VBox>
+
+                <!-- Settings: a card title and two rows, one 160 px control column -->
+                <VBox styleClass="sq-card" spacing="0">
+                    <Label text="Settings" styleClass="sq-card-title" />
+                    <Region styleClass="sq-divider" />
+                    <HBox styleClass="sq-row" spacing="16">
+                        <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
+                            <Label text="Scan every night" styleClass="sq-label" />
+                            <Label text="Reads your heroes, troops and saved squads while you are away." wrapText="true" styleClass="sq-caption" />
+                        </VBox>
+                        <HBox prefWidth="160" minWidth="160" maxWidth="160" alignment="CENTER_RIGHT">
+                            <ToggleSwitch fx:id="switchNightly" styleClass="sq-switch" />
+                        </HBox>
+                    </HBox>
+                    <Region styleClass="sq-divider" />
+                    <HBox styleClass="sq-row" spacing="16">
+                        <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
+                            <Label text="Run at" styleClass="sq-label" />
+                            <Label fx:id="captionRunAt" wrapText="true" styleClass="sq-caption" />
+                        </VBox>
+                        <HBox prefWidth="160" minWidth="160" maxWidth="160" alignment="CENTER_RIGHT">
+                            <ComboBox fx:id="comboRunAt" prefWidth="160" minWidth="160" maxWidth="160" styleClass="sq-combo" />
+                        </HBox>
+                    </HBox>
+                    <CheckBox fx:id="checkNightly" visible="false" managed="false" />
+                </VBox>
+            </VBox>
+        </HBox>
+    </content>
+</ScrollPane>
