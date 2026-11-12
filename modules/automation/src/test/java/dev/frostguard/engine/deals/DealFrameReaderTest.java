@@ -723,6 +723,25 @@ class DealFrameReaderTest {
         assertTrue(offerPriced(page, 99.99).title().contains("+50,000"), offerPriced(page, 99.99).title());
     }
 
+    /** Unlock Battle Stars, 2026-11-11: "up to" 315 Charm Design is the pass track; this level paid 90. */
+    @Test
+    void marksAPassTracksItemsAsUpToSoNoChannelPricesThem() throws Exception {
+        DealFrameReader.Page page = read("popup-battle-stars-unlock.png", "Hero Ascension Training");
+
+        DealOffer offer = offerPriced(page, 9.99);
+        Map<String, Long> items = quantities(offer);
+        assertEquals(315L, items.get("Charm Design" + DealFrameReader.UP_TO_SUFFIX), items.toString());
+        assertNull(items.get("Charm Design"), items.toString());
+        assertTrue(offer.items().stream().allMatch(i -> i.key().endsWith(DealFrameReader.UP_TO_SUFFIX)), items.toString());
+    }
+
+    @Test
+    void leavesAnOrdinaryPacksItemsUnmarked() throws Exception {
+        DealFrameReader.Page page = read("popup-hero-rally-unlock.png", "Hero Rally");
+
+        assertTrue(page.offers().get(0).items().stream().noneMatch(i -> i.key().endsWith(DealFrameReader.UP_TO_SUFFIX)));
+    }
+
     private static DealFrameReader.Page read(String name, String tab) throws Exception {
         BufferedImage image = ImageIO.read(Objects.requireNonNull(
                 DealFrameReaderTest.class.getResourceAsStream("/deals/" + name), name));

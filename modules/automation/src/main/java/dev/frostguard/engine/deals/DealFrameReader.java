@@ -503,6 +503,16 @@ public final class DealFrameReader {
     private static final int CHOICE_BELOW_OR = 100;
     private static final int CHOICE_OR_HALF_HEIGHT = 14;
     private static final Pattern SELECT_FIRST = Pattern.compile("(?i)select\\s*rewards?\\s*first");
+    /**
+     * "Purchase to receive up to the following rewards": a pass whose items are its full track, paid only as the
+     * pass levels up. Unlock Battle Stars printed 315 Charm Design for $9.99 on 2026-11-11 while the account's
+     * level paid 90; priced, it set a false lowest in three channels.
+     */
+    private static final Pattern UP_TO_REWARDS = Pattern.compile("(?i)receive\\s*up\\s*to\\s*the\\s*following");
+    /** Marks a pass-track item, as "(slot 1 choice)" marks a pick, so no channel prices it as a purchase grant. */
+    public static final String UP_TO_SUFFIX = " (up to)";
+    /** From a pop-up's title down past its first banner: the Battle Stars banner sits 60-115 px under the title. */
+    private static final int UP_TO_BAND_HEIGHT = 130;
     private static final Pattern REMAINING_CLAIMS = Pattern.compile("(?i)remaining\\s*claims");
     private static final Pattern CARD_PERIOD = Pattern.compile("(?i)\\b(weekly|monthly)\\s+card\\b");
     private static final Pattern LOGIN_DAILY = Pattern.compile("(?i)login\\s*daily");
@@ -663,6 +673,8 @@ public final class DealFrameReader {
         List<PriceButtonLocator.Box> tierButtons = buttons.stream()
                 .filter(b -> purchaseAll.isEmpty() || purchaseAll.get().button() != b).toList();
         String pageLimit = pageLimit(allLines, tierButtons);
+        boolean upToRewards = upToRewards(capture, Stream.concat(allLines.stream(), headerLines.stream()).toList(),
+                tabbed ? null : pageTitleLine, surface, tab, problems);
         List<DealOffer> offers = new ArrayList<>();
         List<DealItemLibrary.Match> tiles = new ArrayList<>();
         List<Integer> cardRowYs = new ArrayList<>();
@@ -885,6 +897,9 @@ public final class DealFrameReader {
             // Not while a choice is pending: Hero Rally's Unlock preview greys its $9.99 until a reward is picked.
             boolean choicePending = choiceOr.isPresent() || Stream.concat(allLines.stream(), headerLines.stream())
                     .anyMatch(l -> SELECT_FIRST.matcher(clean(l.text())).find());
+            if (upToRewards) {
+                merged.replaceAll(item -> new DealItem(item.key() + UP_TO_SUFFIX, item.quantity(), item.source()));
+            }
             offers.add(new DealOffer(surface, offerTab, title, priceUsd, priceText, remaining,
                     isGreyButton(image, button) && !choicePending, merged, frame,
                     cardLimit != null ? cardLimit : pageLimit,
@@ -1247,6 +1262,31 @@ public final class DealFrameReader {
         return whole.isPresent() || bottom - top < 2 * CARD_TITLE_UPPER_HEIGHT ? whole
                 : croppedTitleIn(image, CARD_TITLE_INSET_LEFT, CARD_TITLE_INSET_RIGHT, top,
                         top + CARD_TITLE_UPPER_HEIGHT);
+    }
+
+    /**
+     * Whether the page sells a pass track. Its banner under a pop-up's title is dark type on yellow, which the
+     * page-wide pass missed on Unlock Battle Stars (2026-11-11) and the band alone read whole.
+     */
+    private static boolean upToRewards(RawImageData capture, List<TextLine> pageLines, TextLine popupTitle,
+            String surface, String tab, List<String> problems) {
+        if (pageLines.stream().anyMatch(l -> UP_TO_REWARDS.matcher(clean(l.text())).find())) {
+            return true;
+        }
+        if (popupTitle == null) {
+            return false;
+        }
+        int top = popupTitle.bottom();
+        int bottom = Math.min(top + UP_TO_BAND_HEIGHT, FRAME_BOTTOM_RIGHT.getY());
+        try {
+            return OcrEngine.recognizeLines(capture, new PointData(FRAME_TOP_LEFT.getX(), top),
+                            new PointData(FRAME_BOTTOM_RIGHT.getX(), bottom), CommonOCRSettings.DEAL_PAGE_TEXT_SETTINGS)
+                    .stream().anyMatch(l -> UP_TO_REWARDS.matcher(clean(l.text())).find());
+        } catch (OcrException unreadable) {
+            problems.add(surface + " / " + tab + ": pass banner unreadable, its items are priced as a pack ("
+                    + unreadable.getMessage() + ")");
+            return false;
+        }
     }
 
     private static Optional<TextLine> croppedTitleIn(BufferedImage image, int left, int right, int top, int bottom) {
