@@ -324,6 +324,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final int TASK_LIST_SCROLL_PASSES = 3;
 
     private static final String TASK_LIST_KEY_PREFIX = "TASKLIST_";
+    private static final DateTimeFormatter BATTLE_STAGE_KEY_FORMAT =
+            DateTimeFormatter.ofPattern("yyyyMMddHHmm");
 
     /** Rows are classified down this column, inside every row's rounded fill. */
     private static final int TASK_LIST_ROW_PROBE_X = 34;
@@ -706,6 +708,22 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final Pattern REWARD_EXPIRES = Pattern.compile(
             "Reward expires in\\s*(?:(\\d+)\\s*d\\s*)?(\\d{1,2}):(\\d{2}):(\\d{2})", Pattern.CASE_INSENSITIVE);
 
+    /**
+     * A battle time this alliance signed a facility up for: "UTC 2026/11/13 13:00", under the
+     * facility's card on Alliance - Battle - Fortress - Signed up.
+     *
+     * <p>Three are listed per facility and they are candidates, not three battles: a sign-up picks
+     * three of five offered times and the time most alliances picked becomes the one battle. This
+     * is still the only screen that gives a facility battle an exact time -- the State calendar
+     * draws "Fortress Battles" as a band of whole days, and the Task List hangs its times off a
+     * date heading that does not always read.</p>
+     */
+    private static final Pattern BATTLE_STAGE = Pattern.compile(
+            "UTC\\s*(\\d{4})/(\\d{1,2})/(\\d{1,2})\\s+(\\d{1,2}):(\\d{2})", Pattern.CASE_INSENSITIVE);
+
+    /** Rows for those candidates, one each, replaced whole on every Fortress scan. */
+    private static final String FACILITY_BATTLE_KEY_PREFIX = "FACILITY_BATTLE_CANDIDATE_";
+
     private static final PointData CALENDAR_PANEL_TOP_LEFT = new PointData(10, 230);
 
     private static final PointData CALENDAR_PANEL_BOTTOM_RIGHT = new PointData(710, 1200);
@@ -797,6 +815,14 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             sleepTask(PANEL_SETTLE_MS);
         }
 
+        // Candidates are keyed by their own time, so yesterday's would linger as tomorrow's if they
+        // were not cleared: the panel lists only what is still signed up for, and so should we.
+        int forgottenCandidates = EventScheduleService.obtain().forgetAll(FACILITY_BATTLE_KEY_PREFIX);
+        if (forgottenCandidates > 0) {
+            logInfo("bg_telemetry | Fortress: cleared " + forgottenCandidates
+                    + " candidate battle time(s) from the previous read.");
+        }
+
         recordFacilitiesFrom(readPanelBlock(FORTRESS_PANEL_TOP_LEFT, FORTRESS_PANEL_BOTTOM_RIGHT));
         // One scroll to pick up facilities beyond the first screenful; a re-seen card just
         // overwrites itself since recordOneFacility writes by facility-name key.
@@ -829,6 +855,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     }
 
     private void recordOneFacility(String facilityName, String followingText) {
+        recordBattleStages(facilityName, followingText);
+
         Matcher expires = REWARD_EXPIRES.matcher(followingText);
         if (!expires.find()) {
             return; // occupiable/unoccupied cards show no "Reward expires in" line
@@ -848,6 +876,42 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
         EventScheduleService.obtain().recordWindow(
                 "FORTRESS_" + facilityName.toUpperCase().replaceAll("[^A-Z0-9]+", "_"),
                 label, true, nowUtc, nowUtc.plus(remaining));
+    }
+
+    /**
+     * Stores every candidate time listed under one facility card, for a rally joiner to wait on.
+     *
+     * <p>The times are printed in UTC and stored as read -- no conversion, no inference. A line
+     * whose date or time does not parse is skipped rather than guessed at: the panel prints three
+     * per facility, so one unreadable line costs a candidate, while a wrong one would send a rally
+     * at the wrong hour. Which candidate becomes the real battle is decided by other alliances'
+     * votes and is not on this screen, so nothing here records a battle, only a possibility.</p>
+     */
+    private void recordBattleStages(String facilityName, String followingText) {
+        Matcher stage = BATTLE_STAGE.matcher(followingText);
+        int recorded = 0;
+        while (stage.find()) {
+            LocalDateTime startUtc;
+            try {
+                startUtc = LocalDateTime.of(
+                        Integer.parseInt(stage.group(1)), Integer.parseInt(stage.group(2)),
+                        Integer.parseInt(stage.group(3)), Integer.parseInt(stage.group(4)),
+                        Integer.parseInt(stage.group(5)));
+            } catch (RuntimeException notATime) {
+                logWarning("bg_telemetry | Fortress: " + facilityName + " lists a time \""
+                        + stage.group() + "\" that is not a time; skipping it.");
+                continue;
+            }
+            String key = FACILITY_BATTLE_KEY_PREFIX
+                    + facilityName.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_"
+                    + startUtc.format(BATTLE_STAGE_KEY_FORMAT);
+            EventScheduleService.obtain().recordWindow(key, facilityName, false, startUtc, null);
+            recorded++;
+        }
+        if (recorded > 0) {
+            logInfo("bg_telemetry | Fortress: " + facilityName + " is signed up for " + recorded
+                    + " candidate battle time(s); one of them becomes the battle.");
+        }
     }
 
     /** One slow step down the chart. 250px against an ~800px viewport, so every step overlaps the

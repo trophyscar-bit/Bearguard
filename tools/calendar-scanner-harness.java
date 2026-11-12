@@ -53,6 +53,21 @@ public final class GateHarness {
         failures += expectName(credible, "oe", false);
         failures += expectName(credible, null, false);
 
+        // bg_telemetry's Fortress stage pattern, against lines exactly as tesseract returned them
+        // from the 12 Nov Alliance - Battle - Fortress - Signed up frames.
+        Class<?> telemetry = Class.forName("dev.frostguard.engine.listener.task.impl.bg_telemetry");
+        java.lang.reflect.Field field = telemetry.getDeclaredField("BATTLE_STAGE");
+        field.setAccessible(true);
+        java.util.regex.Pattern stage = (java.util.regex.Pattern) field.get(null);
+
+        failures += expectStage(stage, "UTC 2026/11/13 3:00", "2026-11-13T03:00");
+        failures += expectStage(stage, "X?200-7597) UTC 2026/11/13 9:00", "2026-11-13T09:00");
+        failures += expectStage(stage, "9223Km away UTC 2026/11/13 14:00", "2026-11-13T14:00");
+        failures += expectStage(stage, "(9529km away UTC 2026/11/13 17:00", "2026-11-13T17:00");
+        failures += expectNoStage(stage, "Controlled by Phaethon Mercenaries");
+        failures += expectNoStage(stage, "Stages already signed up for:");
+        failures += expectNoStage(stage, "Reward expires in 02:14:51");
+
         System.out.println(failures == 0 ? "HARNESS PASS" : "HARNESS FAIL: " + failures);
         if (failures > 0) {
             System.exit(1);
@@ -78,6 +93,31 @@ public final class GateHarness {
             return 1;
         }
         System.out.println("  ok refused \"" + line + "\"");
+        return 0;
+    }
+
+    private static int expectStage(java.util.regex.Pattern stage, String line, String expected) {
+        java.util.regex.Matcher m = stage.matcher(line);
+        if (!m.find()) {
+            System.out.println("  FAIL stage not found in \"" + line + "\"");
+            return 1;
+        }
+        String got = String.format("%s-%02d-%02dT%02d:%s", m.group(1), Integer.parseInt(m.group(2)),
+                Integer.parseInt(m.group(3)), Integer.parseInt(m.group(4)), m.group(5));
+        if (!got.equals(expected)) {
+            System.out.println("  FAIL stage \"" + line + "\" -> " + got + ", wanted " + expected);
+            return 1;
+        }
+        System.out.println("  ok stage \"" + line + "\" -> " + got);
+        return 0;
+    }
+
+    private static int expectNoStage(java.util.regex.Pattern stage, String line) {
+        if (stage.matcher(line).find()) {
+            System.out.println("  FAIL expected no stage in \"" + line + "\"");
+            return 1;
+        }
+        System.out.println("  ok no stage in \"" + line + "\"");
         return 0;
     }
 

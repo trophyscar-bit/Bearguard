@@ -3,6 +3,7 @@ package dev.frostguard.tasks.events;
 import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import dev.frostguard.api.configs.TemplatesEnum;
@@ -16,6 +17,7 @@ import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
+import dev.frostguard.engine.service.EventCalendarGate;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -36,6 +38,29 @@ import dev.frostguard.vision.convert.ImageConverter;
  * and goes ahead only when the map's Missions button appears behind it.
  */
 public class WinterSiegeRoutine extends DelayedTask {
+
+    /** The name the State calendar stores this event under, for the gate to find its window. */
+    private static final String CALENDAR_EVENT_NAME = "Winter Siege";
+
+    /**
+     * Waits for the event instead of visiting its screen when the calendar says it is not on.
+     *
+     * <p>Winter Siege runs for a few days and is then off for weeks, so outside its window every
+     * pass is a navigation that can only come back empty.</p>
+     */
+    private boolean parkedUntilTheEventOpens() {
+        EventCalendarGate.Verdict verdict =
+                EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
+        if (verdict.shouldRun()) {
+            verdict.note().ifPresent(this::logInfo);
+            return false;
+        }
+        LocalDateTime nextStart = verdict.nextStartLocal().orElseThrow();
+        logInfo(verdict.reason() + " Waiting until " + nextStart.format(DATETIME_FORMATTER) + ".");
+        reschedule(nextStart);
+        return true;
+    }
+
 
     static final AreaData HOME_RAIL_AREA = AreaData.of(540, 80, 719, 700);
     static final AreaData EVENTS_HEADER_AREA = AreaData.of(70, 0, 300, 80);
@@ -88,6 +113,9 @@ public class WinterSiegeRoutine extends DelayedTask {
 
     @Override
     protected void execute() {
+        if (parkedUntilTheEventOpens()) {
+            return;
+        }
         claimed = 0;
         frameMissing = false;
         Outcome outcome = visit();

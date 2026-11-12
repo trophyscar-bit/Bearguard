@@ -1,6 +1,7 @@
 package dev.frostguard.tasks.events;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
@@ -8,6 +9,7 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.engine.nav.SearchConfigConstants;
+import dev.frostguard.engine.service.EventCalendarGate;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
@@ -34,6 +36,29 @@ import dev.frostguard.engine.service.StatisticsService;
  * CTAs, not something a free claim pass should ever tap.
  */
 public class HeroRallyClaimRoutine extends DelayedTask {
+
+    /** The name the State calendar stores this event under, for the gate to find its window. */
+    private static final String CALENDAR_EVENT_NAME = "Hero Rally";
+
+    /**
+     * Waits for the event instead of walking the Deals panel when the calendar says it is not on.
+     *
+     * <p>There is nothing to claim while Hero Rally is not running, and the walk costs a panel open
+     * and a template search every pass to find that out.</p>
+     */
+    private boolean parkedUntilTheEventOpens() {
+        EventCalendarGate.Verdict verdict =
+                EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
+        if (verdict.shouldRun()) {
+            verdict.note().ifPresent(this::logInfo);
+            return false;
+        }
+        LocalDateTime nextStart = verdict.nextStartLocal().orElseThrow();
+        logInfo(verdict.reason() + " Waiting until " + nextStart.format(DATETIME_FORMATTER) + ".");
+        reschedule(nextStart);
+        return true;
+    }
+
 
     private static final PointData REWARD_REVEAL_TAP_ANYWHERE = new PointData(358, 1182);
     private static final int MAX_CLAIM_LOOPS = 10;
@@ -65,6 +90,10 @@ public class HeroRallyClaimRoutine extends DelayedTask {
 
     @Override
     protected void execute() {
+        if (parkedUntilTheEventOpens()) {
+            return;
+        }
+
         ImageSearchResultData dealsBtn = templateSearchHelper.locatePattern(
                 TemplatesEnum.HOME_DEALS_BUTTON, SearchConfigConstants.SINGLE_WITH_RETRIES);
         if (!dealsBtn.isFound()) {
