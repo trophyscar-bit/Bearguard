@@ -516,18 +516,33 @@ public final class AllianceGiftLedger {
             if (remaining < LOOSE_MIN_OVERLAP || previous.size() < LOOSE_MIN_OVERLAP) {
                 break;
             }
-            if (!sameCard(current.get(k), previous.get(0))
-                    && !(previous.size() > 1 && sameCard(current.get(k), previous.get(1)))) {
+            boolean first = sameCard(current.get(k), previous.get(0));
+            if (!first && !(previous.size() > 1 && sameCard(current.get(k), previous.get(1)))) {
                 continue;
             }
-            int slack = 1 + remaining / 8;
-            List<String> tail = current.subList(k, current.size());
-            List<String> head = previous.subList(0, Math.min(previous.size(), remaining + slack));
-            if (commonRun(tail, head) >= Math.min(tail.size(), head.size()) - slack) {
+            // A card like the old second one, followed by one like the old first, is a new purchase
+            // of the same pack: on 2026-11-12 00:46 a new "Snow Warrior Pack 3" sat just above the
+            // old top two, and lining up on it lost one of the four new purchases.
+            if (!first && k + 1 < current.size() && sameCard(current.get(k + 1), previous.get(0))
+                    && looseFits(previous, current, k + 1)) {
+                return k + 1;
+            }
+            if (looseFits(previous, current, k)) {
                 return k;
             }
         }
         return -1;
+    }
+
+    private static boolean looseFits(List<String> previous, List<String> current, int k) {
+        int remaining = current.size() - k;
+        if (remaining < LOOSE_MIN_OVERLAP) {
+            return false;
+        }
+        int slack = 1 + remaining / 8;
+        List<String> tail = current.subList(k, current.size());
+        List<String> head = previous.subList(0, Math.min(previous.size(), remaining + slack));
+        return commonRun(tail, head) >= Math.min(tail.size(), head.size()) - slack;
     }
 
     /** Below this many cards a loose match is too easy to make by chance. */
@@ -701,10 +716,22 @@ public final class AllianceGiftLedger {
             // reference so the next pass can still line up against it.
             return new PassResult(list.size(), 0, false, false, false);
         }
+        List<String> keep = current;
+        boolean keepReachedEnd = reachedEnd;
+        if (aligned && !reachedEnd && !firstPass) {
+            // A pass cut short is trusted for its new rows only. Below them its stitch can be wrong:
+            // on 2026-11-11 23:41 one dropped five cards and repeated others after row 22, yet its top
+            // lined up; kept as the reference, it left the 00:46 pass unable to line up, and that
+            // pass's 4 new purchases went unlogged. The new rows go on top of the old reference.
+            List<String> merged = new ArrayList<>(current.subList(0, fresh));
+            merged.addAll(previous);
+            keep = merged;
+            keepReachedEnd = previousReachedEnd;
+        }
         Map<String, Object> reference = new java.util.LinkedHashMap<>();
-        reference.put("reachedEnd", reachedEnd);
+        reference.put("reachedEnd", keepReachedEnd);
         reference.put("savedAt", now.toString());
-        reference.put("list", current);
+        reference.put("list", keep);
         Path temp = root.resolve("last-list.json.tmp");
         MAPPER.writeValue(temp.toFile(), reference);
         Files.move(temp, last, java.nio.file.StandardCopyOption.REPLACE_EXISTING,

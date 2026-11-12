@@ -398,6 +398,66 @@ class AllianceGiftLedgerTest {
         assertEquals(12, Files.readAllLines(dir.resolve("gifts.jsonl")).size());
     }
 
+    /** Distinct buyers: digits decide, so no two of them are one card read twice (and no 0 or 1, which fold). */
+    private static String[] buyers(String letters, int from, int count) {
+        String[] out = new String[count];
+        int n = from;
+        for (int i = 0; i < count; i++) {
+            while (String.valueOf(n).matches(".*[01].*")) {
+                n++;
+            }
+            out[i] = letters + n++;
+        }
+        return out;
+    }
+
+    private static String[] concat(String[]... parts) {
+        return java.util.Arrays.stream(parts).flatMap(java.util.Arrays::stream).toArray(String[]::new);
+    }
+
+    @Test
+    void aPassCutShortLeavesTheOldListBelowItsNewRowsAsTheReference(@TempDir Path dir) throws Exception {
+        // 2026-11-11 23:41: a pass cut short read its top right but stitched its lower half wrong
+        // (five cards dropped, others repeated). Its top lined up, so its 2 new rows were logged; kept
+        // whole as the reference, it left the 00:46 pass unable to line up, and 4 purchases went unlogged.
+        AllianceGiftLedger ledger = new AllianceGiftLedger(dir);
+        java.time.Instant then = java.time.Instant.parse("2026-11-12T03:35:00Z");
+        String[] old = buyers("b", 222, 40);
+        ledger.recordPass(purchases(old), false, true, then);
+
+        String[] firstNew = buyers("b", 2222, 2);
+        String[] junk = buyers("b", 3222, 5);
+        String[] cutShort = concat(firstNew, java.util.Arrays.copyOfRange(old, 0, 21),
+                java.util.Arrays.copyOfRange(old, 26, 32), junk);
+        AllianceGiftLedger.PassResult partial = ledger.recordPass(purchases(cutShort), false, false, then.plusSeconds(3960));
+        assertTrue(partial.aligned());
+        assertEquals(2, partial.fresh());
+
+        // The next whole pass: four more on top, everything else as before but two cards misread.
+        String[] next = concat(buyers("b", 4222, 4), firstNew, old);
+        next[4 + 2 + 5] = "Zyxwv" + old[5].substring(1);
+        next[4 + 2 + 12] = "Zyxwv" + old[12].substring(1);
+        AllianceGiftLedger.PassResult whole = ledger.recordPass(purchases(next), false, true, then.plusSeconds(7860));
+        assertTrue(whole.aligned());
+        assertEquals(4, whole.fresh());
+    }
+
+    @Test
+    void aNewCardLikeTheOldSecondJustAboveTheOldTopIsNew() {
+        // 2026-11-12 00:46: four new purchases, the last a "Snow Warrior Pack 3" like the old second
+        // card, then the old top two. The loose match took that new card for the old second one.
+        List<String> previous = new ArrayList<>(List.of("Alliance Gift I||Daily Deals", "Alliance Gift I||Snow Warrior Pack 3",
+                "Alliance Gift V|Ann|Mythic Wonder Adventure Pack"));
+        for (String b : buyers("b", 222, 12)) {
+            previous.add("Alliance Gift I|" + b + "|Daily Deals");
+        }
+        List<String> current = new ArrayList<>(List.of("Alliance Gift I|Bob|Daily Deals", "Alliance Gift I||Snow Warrior Pack 2",
+                "Alliance Gift I||Snow Warrior Pack 4", "Alliance Gift I||Snow Warrior Pack 3"));
+        current.addAll(previous);
+        current.remove(4 + 9); // the new pass drops a card lower down, so only the loose match applies
+        assertEquals(4, AllianceGiftLedger.looseRowCount(previous, current));
+    }
+
     /**
      * Screens of 2026-11-11, copied out of the live pass folders (which keep a week) into a folder of
      * their own. Not committed: list screens can show player names.
