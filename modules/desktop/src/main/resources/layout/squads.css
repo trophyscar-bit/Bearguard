@@ -166,3 +166,15 @@
 .sq-link:disabled { -fx-opacity: 0.45; }
 
 .sq-badge { -fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: -fg-text-secondary; -fx-border-color: -fg-border-subtle; -fx-border-radius: 3; -fx-padding: 0 4 0 4; }
+
+.sq-group-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fg-text-primary;
+}
+.sq-check-warn {
+    -fx-text-fill: -fg-warn;
+}
+.sq-check-info {
+    -fx-text-fill: -fg-info;
+}

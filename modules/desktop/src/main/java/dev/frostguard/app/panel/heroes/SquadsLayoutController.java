@@ -1,5 +1,6 @@
 package dev.frostguard.app.panel.heroes;
 
+import dev.frostguard.engine.squads.JoinSizing;
 import java.util.Optional;
 import dev.frostguard.engine.squads.JoinPlanStore;
 import java.io.IOException;
@@ -108,6 +109,10 @@ public final class SquadsLayoutController extends AbstractProfileController {
     @FXML private Label captionRunAt;
     @FXML private javafx.scene.control.TextField fieldPerJoin;
     @FXML private Label messagePerJoin;
+    @FXML private VBox listJobs;
+    @FXML private Label labelJobsNote;
+    @FXML private Label labelScope;
+    @FXML private Label labelPlan;
     @FXML private TabPane tabsResults;
     @FXML private VBox listSuggested;
     @FXML private VBox panelSaved;
@@ -118,14 +123,17 @@ public final class SquadsLayoutController extends AbstractProfileController {
 
     @FXML
     private void initialize() {
-        for (int minutes = 0; minutes < 24 * 60; minutes += 15) {
-            comboRunAt.getItems().add(String.format(Locale.ROOT, "%02d:%02d", minutes / 60, minutes % 60));
+        // Whole hours only: the scan takes the game for minutes, so no one can usefully choose between
+        // 02:00 and 02:15. A stored time that is not on the hour is added when the profile loads.
+        for (int hour = 0; hour < 24; hour++) {
+            comboRunAt.getItems().add(String.format(Locale.ROOT, "%02d:00", hour));
         }
         registerCheckBox(checkNightly, ConfigurationKeyEnum.SQUAD_SCAN_NIGHTLY_ENABLED_BOOL);
         // The alliance's join size changes, so it is a setting (default 100,000), not a constant.
         registerRangedIntegerField(fieldPerJoin, messagePerJoin, ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOPS_INT,
                 "Troops per join", 10_000, 1_000_000);
         initializeChangeEvents();
+        fieldPerJoin.textProperty().addListener((obs, was, is) -> refreshJoinCard());
 
         // The switch is the control; the hidden check box is what the shared config binding drives.
         switchNightly.selectedProperty().bindBidirectional(checkNightly.selectedProperty());
@@ -161,13 +169,19 @@ public final class SquadsLayoutController extends AbstractProfileController {
             loadRunAt(profile);
         }
         if (changed) loadSaved();
+        refreshJoinCard();
     }
 
     private void loadRunAt(ProfileAux profile) {
         loadingTime = true;
         try {
             Object utc = profile.getConfiguration(ConfigurationKeyEnum.SQUAD_SCAN_TIME_UTC_STRING);
-            comboRunAt.setValue(toLocal(utc == null ? "07:15" : utc.toString()));
+            String local = toLocal(utc == null ? "07:15" : utc.toString());
+            if (!comboRunAt.getItems().contains(local)) {
+                comboRunAt.getItems().add(local);
+                FXCollections.sort(comboRunAt.getItems());
+            }
+            comboRunAt.setValue(local);
         } finally {
             loadingTime = false;
         }
@@ -175,7 +189,7 @@ public final class SquadsLayoutController extends AbstractProfileController {
     }
 
     private void showResultsTab(int index) {
-        VBox[] panels = {listSuggested, panelSaved, panelTroops};
+        VBox[] panels = {panelSaved, listSuggested, panelTroops};
         for (int i = 0; i < panels.length; i++) {
             panels[i].setVisible(i == index);
             panels[i].setManaged(i == index);
@@ -349,6 +363,8 @@ public final class SquadsLayoutController extends AbstractProfileController {
         showBearStrip(bear, snapshot, issues);
         showStatus(snapshot, bear, issues);
 
+        fillJobs(snapshot);
+        refreshJoinCard();
         fillSuggested(plan);
         fillSaved(snapshot);
         fillTroops(snapshot);
@@ -824,6 +840,90 @@ public final class SquadsLayoutController extends AbstractProfileController {
         }
     }
 
+    // ── what each squad is for ──────────────────────────────────────
+
+    private boolean hosting() {
+        Object raw = config(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL);
+        return raw != null && Boolean.parseBoolean(raw.toString());
+    }
+
+    private Object config(ConfigurationKeyEnum key) {
+        if (currentProfile == null) return null;
+        try {
+            return currentProfile.getConfiguration(key);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** The Troops per join the player has typed, or the stored setting, or the default. */
+    private long perJoin() {
+        String typed = fieldPerJoin == null || fieldPerJoin.getText() == null ? "" : fieldPerJoin.getText().replace(",", "").trim();
+        if (typed.matches("[0-9]{1,9}")) return Long.parseLong(typed);
+        Object raw = config(ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOPS_INT);
+        try {
+            return raw == null ? JoinSizing.TARGET : Long.parseLong(raw.toString().trim());
+        } catch (NumberFormatException e) {
+            return JoinSizing.TARGET;
+        }
+    }
+
+    private void fillJobs(SquadSnapshot snapshot) {
+        List<SquadJobs.Row> rows = SquadJobs.rows(snapshot, hosting(), leadSlot(), joinSlots(), troopSlots(), perJoin());
+        listJobs.getChildren().clear();
+        if (rows.isEmpty()) {
+            listJobs.getChildren().add(blankslate("No squads have a job yet", "Choose them on the Bear Trap page.", false));
+        } else {
+            HBox head = new HBox(12, fixed(head("Squad"), 72), fixed(head("Used for"), 190), grow(head("Heroes")),
+                    fixed(rightHead("Sends (infantry / lancer / marksman)"), 330));
+            listJobs.getChildren().add(head);
+            for (SquadJobs.Row row : rows) {
+                listJobs.getChildren().add(divider());
+                Label heroes = cell(row.heroes());
+                heroes.setWrapText(true);
+                HBox line = new HBox(12, fixed(cell("Squad " + row.slot()), 72), fixed(cell(row.job()), 190), grow(heroes),
+                        fixed(rightCell(row.sends()), 330));
+                line.setAlignment(Pos.CENTER_LEFT);
+                VBox box = new VBox(4, line);
+                box.setPadding(new Insets(8, 0, 8, 0));
+                if (!row.check().isEmpty()) {
+                    Label check = new Label(row.check());
+                    check.setWrapText(true);
+                    check.getStyleClass().add("sq-caption");
+                    if (row.level() == SquadJobs.Level.WARN) check.getStyleClass().add("sq-check-warn");
+                    else if (row.level() == SquadJobs.Level.INFO) check.getStyleClass().add("sq-check-info");
+                    box.getChildren().add(check);
+                }
+                listJobs.getChildren().add(box);
+            }
+        }
+        String note = SquadJobs.unusedNote(snapshot, hosting(), leadSlot(), joinSlots(), troopSlots());
+        labelJobsNote.setText(note);
+        labelJobsNote.setVisible(!note.isEmpty());
+        labelJobsNote.setManaged(!note.isEmpty());
+    }
+
+    /** The scope of Troops per join, and what the last scan's troops allow. */
+    private void refreshJoinCard() {
+        if (labelScope == null) return;
+        labelScope.setText(SquadJobs.perJoinScope(hosting(), leadSlot(), joinSlots(), troopSlots()));
+        SquadSnapshot snap = shown;
+        if (snap == null || snap.troops() == null || snap.troops().stocks().isEmpty()) {
+            labelPlan.setText("Not known yet. Press Scan now to read your troops.");
+            return;
+        }
+        JoinSizing.Plan plan = JoinSizing.fromSnapshot(snap, hosting(), leadSlot(), joinSlots(), troopSlots(), perJoin());
+        StringBuilder words = new StringBuilder();
+        if (plan.host() != null) words.append("Your rally squad takes ").append(SquadJobs.count(plan.host().total())).append(". ");
+        words.append(plan.joins().isEmpty()
+                ? "Your troops cannot make a useful join."
+                : "You can send: " + joinsOf(plan.summary()) + ".");
+        if (plan.marksmenShort() > 0) {
+            words.append(" Marksmen are short by ").append(SquadJobs.count(plan.marksmenShort())).append(".");
+        }
+        labelPlan.setText(words.toString());
+    }
+
     // ── results: suggested squads ───────────────────────────────────
 
     private void fillSuggested(SquadPlanner.Plan plan) {
@@ -1229,6 +1329,10 @@ public final class SquadsLayoutController extends AbstractProfileController {
 
     private void showEmpty() {
         bearPart = null;
+        listJobs.getChildren().setAll(blankslate("Not scanned yet", "Press Scan now to read your squads.", false));
+        labelJobsNote.setVisible(false);
+        labelJobsNote.setManaged(false);
+        refreshJoinCard();
         showSuggestedEmpty();
         bearStrip.setVisible(false);
         bearStrip.setManaged(false);

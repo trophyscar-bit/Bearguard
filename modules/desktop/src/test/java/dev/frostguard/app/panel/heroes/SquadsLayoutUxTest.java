@@ -142,7 +142,7 @@ class SquadsLayoutUxTest {
         assertEquals(12, view.table("tableSaved").getItems().size());
         assertEquals(3, view.table("tableTroops").getItems().size());
         TabPane tabs = (TabPane) view.namespace().get("tabsResults");
-        assertEquals(List.of("Suggested", "Saved", "Troops"), tabs.getTabs().stream().map(t -> t.getText()).toList());
+        assertEquals(List.of("Saved squads", "Suggested heroes", "Troops at home"), tabs.getTabs().stream().map(t -> t.getText()).toList());
         assertEquals(7, view.table("tableSaved").getColumns().size());
         assertEquals("Check counts: 1 infantry, 1 lancer", view.table("tableSaved").getItems().get(0).get(1));
         assertEquals("No troops", view.table("tableSaved").getItems().get(4).get(1));
@@ -151,6 +151,66 @@ class SquadsLayoutUxTest {
         String tiles = allText((javafx.scene.Node) view.namespace().get("tilesTroops"));
         assertTrue(tiles.contains("553,807"), tiles);
         assertTrue(tiles.contains("The game rounds this to 553.8K."), tiles);
+    }
+
+    @Test
+    void theCardsAreGroupedByWhatTheOwnerIsDoing() throws Exception {
+        View view = onFx(() -> load(Scan.REAL));
+        javafx.scene.Node root = ((javafx.scene.control.ScrollPane) view.root()).getContent();
+        String page = allText(root);
+        // Three groups in the order the owner thinks in, each with a one-line explainer.
+        int jobs = page.indexOf("What each squad is for");
+        int join = page.indexOf("Troops per join and the nightly re-check");
+        int heroes = page.indexOf("Heroes per squad");
+        assertTrue(jobs >= 0 && join > jobs && heroes > join, page);
+        assertTrue(page.contains("Every squad the bot uses has one job in the Bear Trap."), page);
+        assertTrue(page.contains("Each Bear Trap join sends this many troops."), page);
+        assertTrue(page.contains("Who should lead and who should join the bear"), page);
+        // The old catch-all Settings card is gone.
+        assertFalse(page.contains("Settings"), page);
+        assertFalse(page.contains("Run at"), page);
+    }
+
+    @Test
+    void eachSquadIsShownByItsJobAndTheScopeIsSaid() throws Exception {
+        View view = onFx(() -> load(Scan.REAL));
+        String jobs = allText((javafx.scene.Node) view.namespace().get("listJobs"));
+        assertTrue(jobs.contains("Rally host"), jobs);
+        assertTrue(jobs.contains("Bear join with heroes"), jobs);
+        assertTrue(jobs.contains("Bear join, troops only"), jobs);
+        assertTrue(jobs.indexOf("Squad 1") < jobs.indexOf("Squad 2") && jobs.indexOf("Squad 5") < jobs.indexOf("Squad 8"),
+                "squads stay in number order: " + jobs);
+        // A saved squad that has no job is named, so nothing is silently ignored.
+        String note = view.label("labelJobsNote").getText();
+        assertTrue(note.startsWith("Saved but not used by the bot:"), note);
+        assertEquals("Applies to join squads 1, 2, 3, 4 and 5 only. Squad 8, your rally, always sends as many as it can carry.",
+                view.label("labelScope").getText());
+    }
+
+    @Test
+    void aSquadThatDoesNotSendTheSettingIsFlaggedInWords() throws Exception {
+        View view = onFx(() -> load(Scan.REAL));
+        String jobs = allText((javafx.scene.Node) view.namespace().get("listJobs"));
+        // The real Oct 31 scan: squad 1 sends 69,698, not the 100,000 setting.
+        assertTrue(jobs.contains("Sends 69,698, but Troops per join is 100,000. Edit the squad in the game to match."), jobs);
+    }
+
+    @Test
+    void theLiveStateReadsInWordsAndTheRunTimeIsAnHourList() throws Exception {
+        View view = onFx(() -> load(Scan.REAL));
+        String plan = view.label("labelPlan").getText();
+        assertTrue(plan.contains("Your rally squad takes") && plan.contains("You can send:"), plan);
+        javafx.scene.control.ComboBox<?> runAt = (javafx.scene.control.ComboBox<?>) view.namespace().get("comboRunAt");
+        // Whole hours (24), plus the stored time when it is not on the hour.
+        assertTrue(runAt.getItems().size() <= 25, "not 96 quarter-hours: " + runAt.getItems().size());
+        assertTrue(runAt.getItems().contains(runAt.getValue()));
+    }
+
+    @Test
+    void noScanYetSaysTheTroopsAreNotKnown() throws Exception {
+        View view = onFx(() -> load(Scan.NONE));
+        assertEquals("Not known yet. Press Scan now to read your troops.", view.label("labelPlan").getText());
+        assertTrue(allText((javafx.scene.Node) view.namespace().get("listJobs")).contains("Press Scan now to read your squads."));
     }
 
     @Test
@@ -283,7 +343,7 @@ class SquadsLayoutUxTest {
         if (renderDir == null) return;
         for (Scan scan : Scan.values()) {
             for (int width : new int[] {1280, 900}) {
-                String[] names = {"suggested", "saved", "troops"};
+                String[] names = {"saved", "suggested", "troops"};
                 for (int tab = 0; tab < names.length; tab++) {
                     int index = tab;
                     View view = onFx(() -> load(scan));
@@ -386,6 +446,7 @@ class SquadsLayoutUxTest {
         Parent root = loader.load();
         ProfileAux profile = new ProfileAux(1L, "Default", "0", true, 50L, "", 0L);
         // The account's bear setup: lead on squad 8, hero joins on 1 to 3, troop-only joins on 4 and 5.
+        profile.setConfig(dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, true);
         profile.setConfig(dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_RALLY_FLAG_INT, 8);
         profile.setConfig(dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, "1,2,3");
         profile.setConfig(dev.frostguard.api.configs.ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOP_FLAG_STRING, "4,5");

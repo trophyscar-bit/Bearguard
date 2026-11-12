@@ -38,37 +38,45 @@
                     <Button fx:id="bannerAction" styleClass="sq-btn-secondary" visible="false" managed="false" onAction="#handleScan" />
                 </HBox>
 
-                <!-- The owner's question before a bear: are my squads right, and are there enough marksmen? -->
-                <VBox fx:id="bearStrip" styleClass="sq-card" spacing="12" visible="false" managed="false" />
-
-                <!-- Results. The tab strip only picks what is shown below it, so the card is as tall as
-                     what it shows and not as tall as its longest tab. -->
+                <!-- 1. What each squad is for -->
                 <VBox styleClass="sq-card" spacing="12">
-                    <TabPane fx:id="tabsResults" styleClass="sq-tabs" tabClosingPolicy="UNAVAILABLE" tabMinHeight="32" tabMaxHeight="32">
-                        <tabs>
-                            <Tab text="Suggested" closable="false" />
-                            <Tab text="Saved" closable="false" />
-                            <Tab text="Troops" closable="false" />
-                        </tabs>
-                    </TabPane>
-                    <VBox fx:id="listSuggested" />
-                    <VBox fx:id="panelSaved" visible="false" managed="false">
-                        <TableView fx:id="tableSaved" styleClass="sq-table" />
+                    <VBox spacing="4">
+                        <Label text="What each squad is for" styleClass="sq-card-title" />
+                        <Label text="Every squad the bot uses has one job in the Bear Trap. Squads with no job are left alone." wrapText="true" styleClass="sq-caption" />
                     </VBox>
-                    <VBox fx:id="panelTroops" spacing="12" visible="false" managed="false">
-                        <HBox fx:id="tilesTroops" spacing="16" />
-                        <TableView fx:id="tableTroops" styleClass="sq-table" />
-                    </VBox>
+                    <VBox fx:id="listJobs" spacing="0" />
+                    <Label fx:id="labelJobsNote" wrapText="true" styleClass="sq-caption" visible="false" managed="false" />
                 </VBox>
 
-                <!-- Settings: a card title and two rows, one 160 px control column -->
+                <!-- 2. Troops per join and the nightly re-check -->
                 <VBox styleClass="sq-card" spacing="0">
-                    <Label text="Settings" styleClass="sq-card-title" />
+                    <VBox spacing="4">
+                        <Label text="Troops per join and the nightly re-check" styleClass="sq-card-title" />
+                        <Label text="Each Bear Trap join sends this many troops. Every night the scan reads your troops again and works out how many joins they allow." wrapText="true" styleClass="sq-caption" />
+                    </VBox>
+                    <Region styleClass="sq-divider" />
+                    <HBox styleClass="sq-row" spacing="16">
+                        <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
+                            <Label text="Troops per join" styleClass="sq-label" />
+                            <Label fx:id="labelScope" wrapText="true" styleClass="sq-caption" />
+                            <Label fx:id="messagePerJoin" wrapText="true" styleClass="sq-caption" visible="false" managed="false" />
+                        </VBox>
+                        <HBox prefWidth="160" minWidth="160" maxWidth="160" alignment="CENTER_RIGHT">
+                            <TextField fx:id="fieldPerJoin" prefWidth="160" minWidth="160" maxWidth="160" />
+                        </HBox>
+                    </HBox>
+                    <Region styleClass="sq-divider" />
+                    <HBox styleClass="sq-row" spacing="16">
+                        <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
+                            <Label text="What your troops allow" styleClass="sq-label" />
+                            <Label fx:id="labelPlan" wrapText="true" styleClass="sq-caption" />
+                        </VBox>
+                    </HBox>
                     <Region styleClass="sq-divider" />
                     <HBox styleClass="sq-row" spacing="16">
                         <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
                             <Label text="Scan every night" styleClass="sq-label" />
-                            <Label text="Reads your heroes, troops and saved squads while you are away." wrapText="true" styleClass="sq-caption" />
+                            <Label text="Reads your heroes, troops and saved squads while you are away. The scan takes the game for about six minutes." wrapText="true" styleClass="sq-caption" />
                         </VBox>
                         <HBox prefWidth="160" minWidth="160" maxWidth="160" alignment="CENTER_RIGHT">
                             <ToggleSwitch fx:id="switchNightly" styleClass="sq-switch" />
@@ -77,25 +85,43 @@
                     <Region styleClass="sq-divider" />
                     <HBox styleClass="sq-row" spacing="16">
                         <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
-                            <Label text="Run at" styleClass="sq-label" />
+                            <Label text="Scan at" styleClass="sq-label" />
                             <Label fx:id="captionRunAt" wrapText="true" styleClass="sq-caption" />
                         </VBox>
                         <HBox prefWidth="160" minWidth="160" maxWidth="160" alignment="CENTER_RIGHT">
                             <ComboBox fx:id="comboRunAt" prefWidth="160" minWidth="160" maxWidth="160" styleClass="sq-combo" />
                         </HBox>
                     </HBox>
-                    <Region styleClass="sq-divider" />
-                    <HBox styleClass="sq-row" spacing="16">
-                        <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
-                            <Label text="Troops per join" styleClass="sq-label" />
-                            <Label text="How many troops each Bear Trap join march sends. One march carries about 101,400 at most." wrapText="true" styleClass="sq-caption" />
-                            <Label fx:id="messagePerJoin" wrapText="true" styleClass="sq-caption" visible="false" managed="false" />
-                        </VBox>
-                        <HBox prefWidth="160" minWidth="160" maxWidth="160" alignment="CENTER_RIGHT">
-                            <TextField fx:id="fieldPerJoin" prefWidth="160" minWidth="160" maxWidth="160" />
-                        </HBox>
-                    </HBox>
                     <CheckBox fx:id="checkNightly" visible="false" managed="false" />
+                </VBox>
+
+                <!-- 3. Heroes per squad -->
+                <VBox spacing="4">
+                    <Label text="Heroes per squad" styleClass="sq-group-title" />
+                    <Label text="Who should lead and who should join the bear, checked against the heroes you own." wrapText="true" styleClass="sq-caption" />
+                </VBox>
+
+                <!-- The owner's question before a bear: are my squads right, and are there enough marksmen? -->
+                <VBox fx:id="bearStrip" styleClass="sq-card" spacing="12" visible="false" managed="false" />
+
+                <!-- Results. The tab strip only picks what is shown below it, so the card is as tall as
+                     what it shows and not as tall as its longest tab. Tabs are in alphabetical order. -->
+                <VBox styleClass="sq-card" spacing="12">
+                    <TabPane fx:id="tabsResults" styleClass="sq-tabs" tabClosingPolicy="UNAVAILABLE" tabMinHeight="32" tabMaxHeight="32">
+                        <tabs>
+                            <Tab text="Saved squads" closable="false" />
+                            <Tab text="Suggested heroes" closable="false" />
+                            <Tab text="Troops at home" closable="false" />
+                        </tabs>
+                    </TabPane>
+                    <VBox fx:id="panelSaved">
+                        <TableView fx:id="tableSaved" styleClass="sq-table" />
+                    </VBox>
+                    <VBox fx:id="listSuggested" visible="false" managed="false" />
+                    <VBox fx:id="panelTroops" spacing="12" visible="false" managed="false">
+                        <HBox fx:id="tilesTroops" spacing="16" />
+                        <TableView fx:id="tableTroops" styleClass="sq-table" />
+                    </VBox>
                 </VBox>
             </VBox>
         </HBox>
