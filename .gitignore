@@ -106,3 +106,12 @@ chat-debug/
 # The converted weights themselves are committed -- see the note in tools/ocr/onnx/README.md.
 tools/ocr/convert-venv/
 newui-verify/
+
+# Screen dumps and debug captures. They carry player names, the account HUD and chat, so they
+# must never enter history (see the privacy guard in the project's sanitation notes).
+/human_play_frames*/
+/labyrinth-debug/**/*.png
+/fb_frames/
+/fish_catalog/**/*.png
+/ocr-debug/
+/temp/
