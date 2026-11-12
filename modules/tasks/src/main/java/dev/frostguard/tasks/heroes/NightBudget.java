@@ -34,9 +34,25 @@ final class NightBudget {
      * moved off the slot is a night of its own, so it never uses up the real one.
      */
     static NightBudget open(HeroGearStore store, long profileId, Instant now, LocalTime slotUtc) throws IOException {
+        return open(store, profileId, now, slotUtc, false);
+    }
+
+    /**
+     * As {@link #open(HeroGearStore, long, Instant, LocalTime)}, but a manual run (Run now) picks a finished night
+     * up again rather than finding it closed. It keeps what the night already spent, so pressing Run now again and
+     * again can never buy or level past the night's own caps.
+     */
+    static NightBudget open(HeroGearStore store, long profileId, Instant now, LocalTime slotUtc, boolean manual) throws IOException {
         String slot = slotFor(now, slotUtc).toString();
         NightLedger saved = store.loadNightLedger(profileId).orElse(null);
-        if (saved != null && sameSlot(saved, slot)) return new NightBudget(store, profileId, saved);
+        if (saved != null && sameSlot(saved, slot)) {
+            if (manual && saved.finished()) {
+                NightLedger again = saved.reopened(now);
+                store.saveNightLedger(profileId, again);
+                return new NightBudget(store, profileId, again);
+            }
+            return new NightBudget(store, profileId, saved);
+        }
         NightLedger fresh = new NightLedger(now.toString(), slot, 0, 0, false);
         store.saveNightLedger(profileId, fresh);
         return new NightBudget(store, profileId, fresh);
@@ -82,12 +98,12 @@ final class NightBudget {
     /** Counts a buy before its tap, or returns false when the cap or the count says not to make it. */
     boolean spendBuy(int maxBuys, Instant now) throws IOException {
         if (now.isAfter(deadline()) || buysLeft(maxBuys) < 1) return false;
-        save(new NightLedger(ledger.startedAt(), ledger.slot(), ledger.buys() + 1, ledger.levels(), ledger.finished()));
+        save(ledger.withBuys(ledger.buys() + 1));
         return true;
     }
 
     void spendLevels(int levels) throws IOException {
-        save(new NightLedger(ledger.startedAt(), ledger.slot(), ledger.buys(), ledger.levels() + levels, ledger.finished()));
+        save(ledger.withLevels(ledger.levels() + levels));
     }
 
     /**
@@ -116,7 +132,19 @@ final class NightBudget {
     }
 
     void finish() throws IOException {
-        save(new NightLedger(ledger.startedAt(), ledger.slot(), ledger.buys(), ledger.levels(), true));
+        save(ledger.finishedNow());
+    }
+
+    /** Notes whether this step really presses, so the page can say how the night ran. */
+    void markMode(boolean live) throws IOException {
+        NightLedger updated = ledger.withMode(live);
+        if (updated != ledger) save(updated);
+    }
+
+    /** Keeps what a dry run would have done, so a practice night can report its plan. */
+    void recordPlan(String line) throws IOException {
+        NightLedger updated = ledger.withPlanned(line);
+        if (updated != ledger) save(updated);
     }
 
     private void save(NightLedger updated) throws IOException {

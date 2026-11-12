@@ -81,6 +81,12 @@ final class GearNight {
 
     static void run(Steps steps, HeroGearStore store, long profileId, LocalTime slotUtc, Supplier<Instant> clock)
             throws IOException {
+        run(steps, store, profileId, slotUtc, clock, false);
+    }
+
+    /** {@code manual} is Run now: a finished night is picked up again, still bound by what it already spent. */
+    static void run(Steps steps, HeroGearStore store, long profileId, LocalTime slotUtc, Supplier<Instant> clock, boolean manual)
+            throws IOException {
         boolean backsOnly = false;
         boolean started = false;
         boolean noOp = false;
@@ -96,7 +102,7 @@ final class GearNight {
                 saveHalt(steps, store, profileId, inFlightHalt(inFlight.get(), clock));
                 return;
             }
-            NightBudget budget = NightBudget.open(store, profileId, clock.get(), slotUtc);
+            NightBudget budget = NightBudget.open(store, profileId, clock.get(), slotUtc, manual);
             if (budget.finished()) {
                 noOp = true;
                 steps.alreadyFinished();

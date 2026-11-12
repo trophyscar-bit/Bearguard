@@ -498,6 +498,22 @@ class GearNightTest {
         GearNight.run(fake, store, PROFILE, SLOT, () -> NOW);
     }
 
+    @Test
+    void aFinishedNightStaysClosedToTheNightlyButRunNowRunsItAgain() throws IOException {
+        Fake first = new Fake();
+        run(first);
+        assertEquals(List.of("quickEquip", "scan", "enhance", "forge", "home"), first.calls);
+
+        Fake nightly = new Fake();
+        run(nightly);
+        assertEquals(List.of("finished"), nightly.calls, "the nightly finds tonight's night closed");
+
+        Fake manual = new Fake();
+        GearNight.run(manual, store, PROFILE, SLOT, () -> NOW.plusSeconds(3600), true);
+        assertEquals(List.of("quickEquip", "scan", "enhance", "forge", "home"), manual.calls);
+        assertTrue(store.loadNightLedger(PROFILE).orElseThrow().finished(), "and it finishes the night again");
+    }
+
     @FunctionalInterface
     private interface QuickEquipStep {
         String run();

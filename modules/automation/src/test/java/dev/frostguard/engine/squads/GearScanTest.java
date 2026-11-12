@@ -71,14 +71,18 @@ class GearScanTest {
     @ParameterizedTest
     @CsvSource({
             "2026-11-10T07:40:00Z, 7, false",
-            "2026-11-03T07:45:00Z, 7, false",
+            "2026-11-04T01:45:00Z, 7, false",
+            "2026-11-03T07:45:00Z, 7, true",
             "2026-11-03T07:44:59Z, 7, true",
             "2026-11-09T07:44:00Z, 1, true",
-            "2026-11-09T07:46:00Z, 1, false",
+            "2026-11-09T07:46:00Z, 1, true",
+            "2026-11-09T13:44:00Z, 1, true",
+            "2026-11-09T13:46:00Z, 1, false",
+            "2026-11-09T21:00:00Z, 1, false",
             "2026-11-10T07:46:00Z, 7, true",
             "not a time, 7, true",
     })
-    void aScanIsDueOnlyPastItsAge(String scannedAt, int days, boolean due) {
+    void aScanIsDueOnlyPastItsAgeLessSixHours(String scannedAt, int days, boolean due) {
         assertEquals(due, GearScan.isDue(new GearState(List.of(), Map.of(), scannedAt), NOW, days));
     }
 

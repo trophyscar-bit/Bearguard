@@ -262,4 +262,97 @@ class NightBudgetTest {
 
         assertFalse(ran[0]);
     }
+
+    @Test
+    void aPracticeNightKeepsItsPlanAndItsModeThroughEveryLaterSave() throws IOException {
+        NightBudget budget = NightBudget.open(store, PROFILE, NOW, SLOT);
+
+        budget.markMode(false);
+        budget.recordPlan("raise Molly Boots to Lv.70");
+        budget.recordPlan("forge Bahiti Boots 42% to 44% (10 stones)");
+        budget.recordPlan("raise Molly Boots to Lv.70");
+        assertTrue(budget.spendBuy(5, NOW));
+        budget.spendLevels(2);
+        budget.finish();
+
+        HeroGearStore.NightLedger saved = store.loadNightLedger(PROFILE).orElseThrow();
+        assertEquals(java.util.List.of("raise Molly Boots to Lv.70", "forge Bahiti Boots 42% to 44% (10 stones)"), saved.plan());
+        assertEquals("practice", saved.mode());
+        assertEquals(1, saved.buys());
+        assertEquals(2, saved.levels());
+        assertTrue(saved.finished());
+    }
+
+    @Test
+    void oneLiveStepMakesTheWholeNightLive() throws IOException {
+        NightBudget budget = NightBudget.open(store, PROFILE, NOW, SLOT);
+
+        budget.markMode(false);
+        budget.markMode(true);
+        budget.markMode(false);
+
+        assertEquals("live", store.loadNightLedger(PROFILE).orElseThrow().mode());
+    }
+
+    @Test
+    void aLedgerSavedBeforePlansWereKeptStillLoads() throws IOException {
+        Files.createDirectories(workspace.resolve("squads"));
+        Files.writeString(workspace.resolve("squads").resolve("hero-gear-night-" + PROFILE + ".json"),
+                "{\"startedAt\":\"2026-11-10T02:30:00Z\",\"slot\":\"2026-11-10T02:30:00Z\",\"buys\":1,\"levels\":2,\"finished\":true}");
+
+        HeroGearStore.NightLedger loaded = store.loadNightLedger(PROFILE).orElseThrow();
+
+        assertEquals(java.util.List.of(), loaded.plan());
+        assertEquals(null, loaded.mode());
+        assertEquals(2, loaded.levels());
+    }
+
+    @Test
+    void aManualRunPicksAFinishedNightUpAgainButKeepsWhatItSpent() throws IOException {
+        NightBudget night = NightBudget.open(store, PROFILE, NOW, SLOT);
+        assertTrue(night.spendBuy(2, NOW));
+        assertTrue(night.spendBuy(2, NOW));
+        night.spendLevels(3);
+        night.recordPlan("raise Mia Boots to Lv.82");
+        night.finish();
+        Instant later = NOW.plus(Duration.ofHours(9));
+
+        assertTrue(NightBudget.open(store, PROFILE, later, SLOT).finished(), "the nightly finds a finished night closed");
+        NightBudget manual = NightBudget.open(store, PROFILE, later, SLOT, true);
+
+        assertFalse(manual.finished());
+        assertEquals(later.plus(Duration.ofMinutes(20)), manual.deadline(), "a fresh time cap");
+        assertEquals(0, manual.buysLeft(2), "the buys it already made still count");
+        assertEquals(2, manual.levelsLeft(5), "so do the levels");
+        HeroGearStore.NightLedger saved = store.loadNightLedger(PROFILE).orElseThrow();
+        assertEquals(NOW.toString(), saved.slot(), "it is still the same night");
+        assertEquals(java.util.List.of(), saved.plan());
+    }
+
+    @Test
+    void pressingRunNowAgainAndAgainNeverBuysPastTheNightsCaps() throws IOException {
+        NightBudget night = NightBudget.open(store, PROFILE, NOW, SLOT);
+        assertTrue(night.spendBuy(1, NOW));
+        night.finish();
+
+        for (int press = 1; press <= 3; press++) {
+            Instant at = NOW.plus(Duration.ofMinutes(30L * press));
+            NightBudget manual = NightBudget.open(store, PROFILE, at, SLOT, true);
+            assertFalse(manual.spendBuy(1, at), "press " + press + " is out of buys");
+            manual.finish();
+        }
+
+        assertEquals(1, store.loadNightLedger(PROFILE).orElseThrow().buys());
+    }
+
+    @Test
+    void aManualRunOnAnUnfinishedNightJustContinuesIt() throws IOException {
+        NightBudget night = NightBudget.open(store, PROFILE, NOW, SLOT);
+        assertTrue(night.spendBuy(3, NOW));
+
+        NightBudget manual = NightBudget.open(store, PROFILE, NOW.plus(Duration.ofMinutes(5)), SLOT, true);
+
+        assertEquals(2, manual.buysLeft(3));
+        assertEquals(NOW.plus(Duration.ofMinutes(20)), manual.deadline(), "the original time cap stands");
+    }
 }

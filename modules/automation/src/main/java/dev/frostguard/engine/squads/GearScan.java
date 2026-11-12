@@ -81,12 +81,16 @@ public final class GearScan {
     private GearScan() {
     }
 
-    /** Due when nothing is saved, no valid scan time is, or the last scan is older than {@code maxAgeDays}. */
+    /** A scan a few hours short of its age still counts as due, so a nightly scan can't skip a night by minutes. */
+    private static final Duration DUE_GRACE = Duration.ofHours(6);
+
+    /** Due when nothing is saved, no valid scan time is, or the last scan is {@code maxAgeDays} old, less a few hours' grace. */
     public static boolean isDue(GearState saved, Instant now, int maxAgeDays) {
         if (saved == null || saved.scannedAt() == null) return true;
         try {
             Instant scanned = Instant.parse(saved.scannedAt());
-            return scanned.isAfter(now) || Duration.between(scanned, now).compareTo(Duration.ofDays(maxAgeDays)) > 0;
+            return scanned.isAfter(now)
+                    || Duration.between(scanned, now).compareTo(Duration.ofDays(maxAgeDays).minus(DUE_GRACE)) >= 0;
         } catch (DateTimeException malformed) {
             return true;
         }

@@ -26,6 +26,8 @@ import dev.frostguard.engine.squads.ForgeDialogReader;
 import dev.frostguard.engine.squads.ForgeDialogReader.ForgeDialog;
 import dev.frostguard.engine.squads.GearDetailsNavigator;
 import dev.frostguard.engine.squads.GearEnhancePass;
+import dev.frostguard.engine.squads.GearHeroes;
+import dev.frostguard.engine.squads.GearManualRun;
 import dev.frostguard.engine.squads.GearEnhanceStep;
 import dev.frostguard.engine.squads.GearForgeGuard;
 import dev.frostguard.engine.squads.GearRanker;
@@ -59,12 +61,6 @@ public final class HeroGearForgeRoutine extends DelayedTask {
 
     // Coordinates measured on 720x1280 frames.
     private static final PointData HEROES_BUTTON = new PointData(188, 1225);
-    private static final Map<String, ConfigurationKeyEnum> HERO_SWITCHES = Map.of(
-            "Mia", ConfigurationKeyEnum.HERO_GEAR_FORGE_MIA_BOOL,
-            "Flint", ConfigurationKeyEnum.HERO_GEAR_FORGE_FLINT_BOOL,
-            "Bahiti", ConfigurationKeyEnum.HERO_GEAR_FORGE_BAHITI_BOOL,
-            "Sergey", ConfigurationKeyEnum.HERO_GEAR_FORGE_SERGEY_BOOL,
-            "Molly", ConfigurationKeyEnum.HERO_GEAR_FORGE_MOLLY_BOOL);
     private static final int READ_RETRIES = 3;
     private static final int SETTLE_RETRIES = 3;
     private static final String DEFAULT_TIME = "02:30";
@@ -98,9 +94,11 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         boolean enabled = Boolean.TRUE.equals(
                 profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_FORGE_ENABLED_BOOL, Boolean.class));
         LocalTime slot = slotUtc();
+        // Run now: not bound to the slot window, and a finished night is picked up again with what it already spent.
+        boolean manual = GearManualRun.consume(profile.getId()) && enabled;
         setRecurring(enabled);
         if (enabled) reschedule(SquadScanRoutine.nextOccurrenceLocal(Instant.now(), slot, ZoneId.systemDefault()));
-        if (!enabled || !SquadScanRoutine.withinSlotWindow(Instant.now(), slot)) {
+        if (!enabled || !manual && !SquadScanRoutine.withinSlotWindow(Instant.now(), slot)) {
             logInfo("Gear forge: not the nightly slot");
             return;
         }
@@ -163,7 +161,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                 public void backOutHome() {
                     HeroGearForgeRoutine.this.backOutHome();
                 }
-            }, store, profile.getId(), slot, Instant::now);
+            }, store, profile.getId(), slot, Instant::now, manual);
         } catch (IOException e) {
             logWarning("Gear forge: gear state unreadable or unsaved: " + e.getMessage());
         }
@@ -207,7 +205,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         }
         Instant reserveAt = budget.reserveAt();
         Instant stopBy = reserveAt.minus(WALK_MARGIN);
-        GearEnhanceStep.Settings settings = new GearEnhanceStep.Settings(tickedHeroes(),
+        GearEnhanceStep.Settings settings = new GearEnhanceStep.Settings(tickedHeroes(state),
                 levelsLeft,
                 Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_LIVE_BOOL, Boolean.class)),
                 stopBy);
@@ -216,6 +214,8 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                 store, profile.getId(), Instant::now);
         logInfo("Gear enhance: " + outcome.raises() + " raises confirmed");
         if (outcome.note() != null) logInfo("Gear enhance: " + outcome.note());
+        keepPlan(settings.live(), outcome.note() != null && outcome.note().startsWith(WOULD_RAISE)
+                ? "raise " + outcome.note().substring(WOULD_RAISE.length()) : null);
         if (outcome.stop() != null) {
             GearNight.Enhanced next = GearNight.afterEnhanceStop(outcome);
             logWarning("Gear enhance: stopped, " + (next.state() != null ? "forge still runs its own checks" : "nothing forged tonight")
@@ -223,6 +223,18 @@ public final class HeroGearForgeRoutine extends DelayedTask {
             return next;
         }
         return new GearNight.Enhanced(outcome.state(), null);
+    }
+
+    private static final String WOULD_RAISE = "would raise ";
+
+    /** Saves how this step ran and, for a dry run, what it would have done. A failed save only loses the report. */
+    private void keepPlan(boolean live, String planned) {
+        try {
+            budget.markMode(live);
+            if (planned != null) budget.recordPlan(planned);
+        } catch (IOException e) {
+            logWarning("Gear night: could not save the practice report: " + e.getMessage());
+        }
     }
 
     // No tap on this path: the screen may be a dialog or prompt left by an unconfirmed press.
@@ -270,6 +282,8 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                     return;
                 }
                 case SAVE -> {
+                    // Practice reports the same stone check a real night makes, so it never claims a forge it could not afford.
+                    if (!live) keepPlan(false, "skip forge (" + before.stonesHave() + " of " + (before.stonesNeeded() + reserve) + " stones)");
                     return;
                 }
                 case RESYNC -> {
@@ -277,7 +291,12 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                     return;
                 }
                 case BUY -> {
-                    if (!live) return;
+                    if (!live) {
+                        keepPlan(false, "forge " + next.hero() + " " + next.slot() + " " + next.fromMastery() + "% to "
+                                + next.toMastery() + "% (" + next.stones() + " stones)");
+                        return;
+                    }
+                    keepPlan(true, null);
                     if (!budget.spendBuy(maxBuys, Instant.now())) {
                         logWarning("Gear forge: time cap reached, stopping");
                         return;
@@ -445,17 +464,17 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         return HeroCards.isHeroesGrid(capture());
     }
 
-    private Set<String> tickedHeroes() {
-        Set<String> included = new LinkedHashSet<>();
-        HERO_SWITCHES.forEach((hero, key) -> {
-            if (Boolean.TRUE.equals(profile.getConfig(key, Boolean.class))) included.add(hero);
-        });
-        return included;
+    /** The heroes the scan read, less any left out on the Heroes page. */
+    private Set<String> tickedHeroes(GearState state) {
+        Set<String> scanned = new LinkedHashSet<>();
+        state.pieces().forEach(piece -> scanned.add(piece.hero()));
+        return GearHeroes.included(scanned, GearHeroes.skipped(
+                profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_SKIP_HEROES_STRING, String.class)));
     }
 
     private GearState ranked(GearState state) {
         String focus = profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, String.class);
-        return new GearState(state.pieces(), GearRanker.weightsFor(state, focus, tickedHeroes()));
+        return new GearState(state.pieces(), GearRanker.weightsFor(state, focus, tickedHeroes(state)));
     }
 
     private int intSetting(ConfigurationKeyEnum key) {

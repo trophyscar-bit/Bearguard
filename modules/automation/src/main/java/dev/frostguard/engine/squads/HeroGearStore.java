@@ -34,15 +34,60 @@ public final class HeroGearStore {
      * What one night has used of its time cap, its buys and its enhance levels. {@code slot} is the
      * forge slot instant the night belongs to; a ledger saved before it was kept has none.
      */
-    public record NightLedger(String startedAt, String slot, int buys, int levels, boolean finished) {
+    public record NightLedger(String startedAt, String slot, int buys, int levels, boolean finished,
+                              List<String> plan, String mode) {
+
+        public static final String PRACTICE = "practice";
+        public static final String LIVE = "live";
+
+        /** {@code plan} is what a practice night would have done, one line each; {@code mode} is how the night ran. */
+        public NightLedger {
+            plan = plan == null ? List.of() : List.copyOf(plan);
+        }
+
+        public NightLedger(String startedAt, String slot, int buys, int levels, boolean finished) {
+            this(startedAt, slot, buys, levels, finished, List.of(), null);
+        }
 
         // A ledger saved before levels were counted holds raises of up to five levels each.
         @JsonCreator
         static NightLedger read(@JsonProperty("startedAt") String startedAt, @JsonProperty("slot") String slot,
                                 @JsonProperty("buys") int buys, @JsonProperty("levels") Integer levels,
-                                @JsonProperty("raises") Integer raises, @JsonProperty("finished") boolean finished) {
+                                @JsonProperty("raises") Integer raises, @JsonProperty("finished") boolean finished,
+                                @JsonProperty("plan") List<String> plan, @JsonProperty("mode") String mode) {
             int used = levels != null ? levels : raises != null ? raises * GearEnhancePlanner.STEP : 0;
-            return new NightLedger(startedAt, slot, buys, used, finished);
+            return new NightLedger(startedAt, slot, buys, used, finished, plan, mode);
+        }
+
+        public NightLedger withBuys(int newBuys) {
+            return new NightLedger(startedAt, slot, newBuys, levels, finished, plan, mode);
+        }
+
+        public NightLedger withLevels(int newLevels) {
+            return new NightLedger(startedAt, slot, buys, newLevels, finished, plan, mode);
+        }
+
+        /** A finished night picked up again by Run now: a fresh time cap and plan, but the same buys and levels already spent. */
+        public NightLedger reopened(java.time.Instant now) {
+            return new NightLedger(now.toString(), slot, buys, levels, false, List.of(), null);
+        }
+
+        public NightLedger finishedNow() {
+            return new NightLedger(startedAt, slot, buys, levels, true, plan, mode);
+        }
+
+        /** Adds one line to what a practice night would have done, once. */
+        public NightLedger withPlanned(String line) {
+            if (plan.contains(line)) return this;
+            List<String> more = new java.util.ArrayList<>(plan);
+            more.add(line);
+            return new NightLedger(startedAt, slot, buys, levels, finished, more, mode);
+        }
+
+        /** Live as soon as any step really presses; practice only while every step is a dry run. */
+        public NightLedger withMode(boolean live) {
+            String next = live || LIVE.equals(mode) ? LIVE : PRACTICE;
+            return next.equals(mode) ? this : new NightLedger(startedAt, slot, buys, levels, finished, plan, next);
         }
     }
 
