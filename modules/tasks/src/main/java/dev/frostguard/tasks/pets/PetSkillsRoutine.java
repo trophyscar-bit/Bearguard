@@ -229,6 +229,9 @@ public class PetSkillsRoutine extends DelayedTask {
      */
     private LocalDateTime gatheringRetryAt;
 
+    /** The shortest countdown on a busy march slot, read when the bonus march found no free slot. */
+    private Duration soonestMarchRelease;
+
     /**
      * Set when a processed skill is not learned or is locked. Such a skill has no cooldown to read
      * and its status won't change within the day, so the task should sleep until the daily reset
@@ -339,6 +342,7 @@ public class PetSkillsRoutine extends DelayedTask {
         this.navigationAttempts = 0;
         this.earliestCooldown = null;
         this.gatheringRetryAt = null;
+        this.soonestMarchRelease = null;
         this.skillUnusable = false;
         this.readyNowCooldownUnread = false;
         logDebug("Execution state reset");
@@ -618,7 +622,44 @@ public class PetSkillsRoutine extends DelayedTask {
         } else {
             logWarning("Gathering bonus march not deployed: " + result.logValue + ". Retrying while the skill is Active.");
         }
-        scheduleGatheringActiveRecheck();
+        Duration delay = gatheringRecheckDelay(result, soonestMarchRelease);
+        if (result == GatheringDeployResult.NO_IDLE_MARCH) {
+            logInfo("Next bonus march attempt in " + delay.toMinutes() + " min"
+                    + (soonestMarchRelease == null ? " (no march countdown read)."
+                            : " (soonest march countdown " + soonestMarchRelease.toMinutes() + " min)."));
+        }
+        updateEarliestCooldown(LocalDateTime.now().plus(delay));
+    }
+
+    /**
+     * How long to wait before looking at the Gathering skill again after a deploy attempt.
+     *
+     * <p>With no free march slot this used to be the same 1-minute recheck as every other outcome,
+     * so on 11 November, with every slot out gathering, the task re-opened the Pets menu every 90
+     * seconds for as long as the skill stayed Active. A slot cannot free before the soonest march
+     * countdown runs out, so wait for that plus a minute, never longer than
+     * {@value #GATHERING_DEPLOY_RETRY_MINUTES} minutes, and that full hour when no countdown read.
+     */
+    static Duration gatheringRecheckDelay(GatheringDeployResult result, Duration soonestRelease) {
+        Duration recheck = Duration.ofMinutes(GATHERING_ACTIVE_RECHECK_MINUTES);
+        if (result != GatheringDeployResult.NO_IDLE_MARCH) {
+            return recheck;
+        }
+        Duration cap = Duration.ofMinutes(GATHERING_DEPLOY_RETRY_MINUTES);
+        if (soonestRelease == null) {
+            return cap;
+        }
+        Duration wait = soonestRelease.plusMinutes(1);
+        return wait.compareTo(cap) > 0 ? cap : wait.compareTo(recheck) < 0 ? recheck : wait;
+    }
+
+    /** The shortest positive countdown on any busy slot, or null when none read. */
+    static Duration soonestMarchRelease(List<MarchSlotState> queue) {
+        return queue.stream()
+                .filter(slot -> !slot.isIdle() && slot.countdown() != null && slot.countdown().compareTo(Duration.ZERO) > 0)
+                .map(MarchSlotState::countdown)
+                .min(Duration::compareTo)
+                .orElse(null);
     }
 
     private void scheduleGatheringActiveRecheck() {
@@ -1171,7 +1212,10 @@ public class PetSkillsRoutine extends DelayedTask {
             navigationHelper.ensureCorrectScreenLocation(LaunchPoint.WORLD);
             sleepTask(500);
 
-            if (!marchHelper.checkMarchesAvailable()) {
+            List<MarchSlotState> queue = marchHelper.readMarchQueue();
+            soonestMarchRelease = soonestMarchRelease(queue);
+            if (queue.stream().noneMatch(MarchSlotState::isIdle)) {
+                logInfo("No idle march slot");
                 return GatheringDeployResult.NO_IDLE_MARCH;
             }
 
@@ -1561,7 +1605,7 @@ public class PetSkillsRoutine extends DelayedTask {
         return true;
     }
 
-    private enum GatheringDeployResult {
+    enum GatheringDeployResult {
         DEPLOYED("deployed"),
         NO_IDLE_MARCH("no idle march slot"),
         NO_TROOPS("no deployable troops"),
