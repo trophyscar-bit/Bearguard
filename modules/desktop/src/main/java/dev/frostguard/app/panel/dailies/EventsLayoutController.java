@@ -15,10 +15,13 @@ public class EventsLayoutController extends AbstractProfileController {
 
     @FXML
     private CheckBox checkBoxTundraEvent, checkBoxTundraUseGems, checkBoxTundraSSR, checkBoxHeroMission,
-        checkBoxMercenaryEvent, checkBoxJourneyofLight, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour;
+        checkBoxMercenaryEvent, checkBoxJourneyofLight, checkBoxJourneyofLightAssembleCommon,
+        checkBoxJourneyofLightAssemblePremium, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour, checkBoxMergeventure, checkBoxMergeventureBoard,
+        checkBoxMergeventureUseMax, checkBoxMergeventureMissions, checkBoxMergeventureAtlasPath,
+        checkBoxMergeventureHarvest, checkBoxMergeventureCaravan, checkBoxMergeventureSaveSojourner, checkBoxSignInEarn;
 
     @FXML
-    private TextField textfieldTundraActivationHour;
+    private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours;
 
     @FXML
     private ComboBox<Integer> comboBoxMercenaryFlag, comboBoxHeroMissionFlag;
@@ -48,7 +51,19 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxHeroMission, ConfigurationKeyEnum.HERO_MISSION_EVENT_BOOL);
         checkBoxMappings.put(checkBoxMercenaryEvent, ConfigurationKeyEnum.MERCENARY_EVENT_BOOL);
         checkBoxMappings.put(checkBoxJourneyofLight, ConfigurationKeyEnum.JOURNEY_OF_LIGHT_BOOL);
+        checkBoxMappings.put(checkBoxJourneyofLightAssembleCommon, ConfigurationKeyEnum.JOURNEY_OF_LIGHT_ASSEMBLE_COMMON_BOOL);
+        checkBoxMappings.put(checkBoxJourneyofLightAssemblePremium, ConfigurationKeyEnum.JOURNEY_OF_LIGHT_ASSEMBLE_PREMIUM_BOOL);
         checkBoxMappings.put(checkBoxMyriadBazaar, ConfigurationKeyEnum.MYRIAD_BAZAAR_EVENT_BOOL);
+        checkBoxMappings.put(checkBoxMergeventure, ConfigurationKeyEnum.MERGEVENTURE_ENABLED_BOOL);
+        checkBoxMappings.put(checkBoxMergeventureBoard, ConfigurationKeyEnum.MERGEVENTURE_PLAY_BOARD_BOOL);
+        checkBoxMappings.put(checkBoxMergeventureUseMax, ConfigurationKeyEnum.MERGEVENTURE_USE_MAX_PIECES_BOOL);
+        checkBoxMappings.put(checkBoxMergeventureMissions, ConfigurationKeyEnum.MERGEVENTURE_MISSIONS_BOOL);
+        checkBoxMappings.put(checkBoxMergeventureAtlasPath, ConfigurationKeyEnum.MERGEVENTURE_ATLAS_PATH_BOOL);
+        checkBoxMappings.put(checkBoxMergeventureHarvest, ConfigurationKeyEnum.MERGEVENTURE_HARVEST_BOOL);
+        checkBoxMappings.put(checkBoxMergeventureCaravan, ConfigurationKeyEnum.MERGEVENTURE_CARAVAN_BOOL);
+        checkBoxMappings.put(checkBoxMergeventureSaveSojourner, ConfigurationKeyEnum.MERGEVENTURE_SAVE_FOR_SOJOURNER_BOOL);
+        textFieldMappings.put(textfieldMergeventureSpendHours, ConfigurationKeyEnum.MERGEVENTURE_SPEND_HOURS_INT);
+        checkBoxMappings.put(checkBoxSignInEarn, ConfigurationKeyEnum.SIGN_IN_EARN_ENABLED_BOOL);
 
         comboBoxMappings.put(comboBoxMercenaryFlag, ConfigurationKeyEnum.MERCENARY_FLAG_INT);
         comboBoxMappings.put(comboBoxHeroMissionFlag, ConfigurationKeyEnum.HERO_MISSION_FLAG_INT);
@@ -58,11 +73,23 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxTundraUseGems.disableProperty().bind(checkBoxTundraEvent.selectedProperty().not());
         checkBoxTundraSSR.disableProperty().bind(checkBoxTundraEvent.selectedProperty().not());
         checkBoxTundraEventActivationHour.disableProperty().bind(checkBoxTundraEvent.selectedProperty().not());
+        checkBoxJourneyofLightAssembleCommon.disableProperty().bind(checkBoxJourneyofLight.selectedProperty().not());
+        checkBoxJourneyofLightAssemblePremium.disableProperty().bind(checkBoxJourneyofLight.selectedProperty().not());
         textfieldTundraActivationHour.disableProperty().bind(
             checkBoxTundraEvent.selectedProperty().not().or(checkBoxTundraEventActivationHour.selectedProperty().not())
         );
         comboBoxHeroMissionFlag.disableProperty().bind(checkBoxHeroMission.selectedProperty().not());
         comboBoxMercenaryFlag.disableProperty().bind(checkBoxMercenaryEvent.selectedProperty().not());
+        for (CheckBox option : new CheckBox[] {checkBoxMergeventureBoard, checkBoxMergeventureMissions,
+                checkBoxMergeventureAtlasPath, checkBoxMergeventureHarvest, checkBoxMergeventureCaravan}) {
+            option.disableProperty().bind(checkBoxMergeventure.selectedProperty().not());
+        }
+        checkBoxMergeventureUseMax.disableProperty().bind(
+            checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureBoard.selectedProperty().not()));
+        checkBoxMergeventureSaveSojourner.disableProperty().bind(
+            checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
+        textfieldMergeventureSpendHours.disableProperty().bind(
+            checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
     }
 
     private void prepareActivationTimeField() {

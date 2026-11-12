@@ -59,7 +59,9 @@ function Restart-Bearguard {
             }
         }
 
-    Start-Process -FilePath $Launcher -WorkingDirectory $Root -WindowStyle Hidden
+    # Via Explorer, so Bearguard lands in no job object: started directly from a Claude
+    # session it dies with the Claude app when that is closed for its nightly update.
+    Start-Process explorer.exe -ArgumentList ('"' + (Join-Path $Root 'launch-bearguard.vbs') + '"')
     Write-WatchLog "  relaunched; auto-start brings the queue back on its own."
 }
 

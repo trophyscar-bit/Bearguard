@@ -81,6 +81,15 @@ public final class DiagnosticSnapshotStore {
                 DesktopFrames.platform());
     }
 
+    /**
+     * A store that saves regardless of the diagnostic master switch. For evidence
+     * of an action the bot takes on its own, such as closing the game, which is
+     * rare and cannot be explained afterwards without the frame.
+     */
+    public static DiagnosticSnapshotStore alwaysOnForCurrentWorkspace() {
+        return new DiagnosticSnapshotStore(WorkspacePaths.current().root());
+    }
+
     public Path directory() {
         return workspaceRoot.resolve("logs").resolve("snapshot");
     }

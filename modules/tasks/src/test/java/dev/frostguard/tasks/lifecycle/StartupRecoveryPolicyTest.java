@@ -9,13 +9,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class StartupRecoveryPolicyTest {
 
     @Test
-    void permitsOnlyOneForegroundGameBack() {
-        assertEquals(StartupRecoveryPolicy.UnknownBlockerAction.TRY_GAME_BACK,
-                StartupRecoveryPolicy.forUnknownBlocker(true, 0));
+    void permitsThreeForegroundGameBacks() {
+        for (int completed = 0; completed < 3; completed++) {
+            assertEquals(StartupRecoveryPolicy.UnknownBlockerAction.TRY_GAME_BACK,
+                    StartupRecoveryPolicy.forUnknownBlocker(true, completed));
+        }
         assertEquals(StartupRecoveryPolicy.UnknownBlockerAction.COOLDOWN_AND_RELEASE_SLOT,
-                StartupRecoveryPolicy.forUnknownBlocker(true, 1));
+                StartupRecoveryPolicy.forUnknownBlocker(true, 3));
         assertEquals(StartupRecoveryPolicy.UnknownBlockerAction.COOLDOWN_AND_RELEASE_SLOT,
-                StartupRecoveryPolicy.forUnknownBlocker(true, 2));
+                StartupRecoveryPolicy.forUnknownBlocker(true, 4));
     }
 
     @Test

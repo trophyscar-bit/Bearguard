@@ -3,9 +3,12 @@ package dev.frostguard.tasks.social;
 import java.awt.image.BufferedImage;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -56,6 +59,65 @@ final class ChatPass {
     private int knownBefore;
     private int barrenScreens;
 
+    /**
+     * Messages the transcript already held, counted across the screens since the walk last found
+     * anything new. A bridge needs real matches: two screens that read as empty, or as a banner and
+     * nothing else, have not touched history, and calling that "caught up" is how a gap hides.
+     */
+    private final List<ChatMessage> knownRunMessages = new java.util.ArrayList<>();
+    private final List<ChatMessage> knownThisScreenMessages = new java.util.ArrayList<>();
+
+    /** Picks out of the matched messages the group stored close together; see the store. */
+    private java.util.function.UnaryOperator<List<ChatMessage>> stretch;
+
+    /** When the frames were photographed, so messages are filed at that and not at read time. */
+    private Instant stampedAt;
+
+    void useStretchCheck(java.util.function.UnaryOperator<List<ChatMessage>> largestStretch) {
+        this.stretch = largestStretch;
+    }
+
+    /**
+     * Files this walk's messages at the moment its frames were photographed. Reading can run hours
+     * after photographing when the reader is busy, and a message stamped at read time lands in the
+     * wrong hour of the wrong day.
+     */
+    void useCaptureTime(Instant photographedAt) {
+        this.stampedAt = photographedAt;
+    }
+
+    /**
+     * How many stored messages, close together in the transcript, the barren screens must show
+     * before they count as a bridge; fewer will do once there have been several such screens.
+     */
+    private static final int KNOWN_MESSAGES_TO_BRIDGE = 3;
+    private static final int KNOWN_MESSAGES_TO_BRIDGE_AFTER_MANY = 2;
+    private static final int MANY_BARREN_SCREENS = 4;
+
+    /**
+     * A body shorter than this proves little on its own: "ok" and "jajaja" repeat all day, so
+     * matching one is not evidence of being in the same place in the conversation. World is mostly
+     * such lines, though, so they are counted -- a stretch needs at least one longer message among
+     * them, or enough short ones that matching them all in order by chance is not credible.
+     */
+    private static final int LONG_ENOUGH_TO_PROVE_HISTORY = 8;
+    private static final int SHORT_MESSAGES_THAT_PROVE_HISTORY_ALONE = 5;
+
+    /**
+     * Where each collected message first appeared: the screen it was read on and how far down that
+     * screen it sat.
+     *
+     * <p>The walk reads newest first, so the order messages are collected in is not the order they
+     * were said in, and it is not even consistent: a message re-read on an older screen and
+     * replaced by its fuller copy moves to the end. Time needs the real order, and this is where it
+     * is kept. The first appearance is the one that counts -- anything first seen on an older
+     * screen is older than everything first seen on a newer one, because a message that was on
+     * both is what links them.
+     */
+    private final Map<String, long[]> where = new HashMap<>();
+    private int screenNumber;
+    private int lineOnScreen;
+
     ChatPass(String channel, Function<String, Optional<String>> translate,
              OcrSettingsData latin, OcrSettingsData cjk, OcrSettingsData cyrillic,
              int textColumnRight) {
@@ -104,16 +166,33 @@ final class ChatPass {
             }
         }
 
-        List<ChatMessage> read = ChatFrameReader.read(lines, channel, Instant.now(), translate,
+        List<ChatMessage> read = ChatFrameReader.read(lines, channel,
+                stampedAt != null ? stampedAt : Instant.now(), translate,
                 line -> ChatQuoteBar.isQuoteRow(image, line));
+        beginScreen();
         for (ChatMessage m : read) {
             keep(m);
         }
 
+        return new Screen(lines.size(), read.size(), endScreen());
+    }
+
+    /**
+     * Closes the screen that was being filled and says how many messages on it the transcript did
+     * not already hold. Separate from {@link #addScreen} so the bookkeeping can be tested without a
+     * picture to read.
+     */
+    int endScreen() {
         int fresh = unseen - knownBefore;
         knownBefore = unseen;
-        barrenScreens = fresh == 0 ? barrenScreens + 1 : 0;
-        return new Screen(lines.size(), read.size(), fresh);
+        if (fresh == 0) {
+            barrenScreens++;
+            knownRunMessages.addAll(knownThisScreenMessages);
+        } else {
+            barrenScreens = 0;
+            knownRunMessages.clear();
+        }
+        return fresh;
     }
 
     /** Messages found that the transcript did not already hold. */
@@ -135,11 +214,51 @@ final class ChatPass {
 
     /** Whether this walk has reached history it has already read. */
     boolean reachedKnownHistory() {
-        return barrenScreens >= BARREN_SCREENS_BEFORE_STOP;
+        if (barrenScreens < BARREN_SCREENS_BEFORE_STOP) {
+            return false;
+        }
+        if (known == null) {
+            return true;
+        }
+        List<ChatMessage> group = evidence();
+        int needed = barrenScreens >= MANY_BARREN_SCREENS
+                ? KNOWN_MESSAGES_TO_BRIDGE_AFTER_MANY : KNOWN_MESSAGES_TO_BRIDGE;
+        int longOnes = (int) group.stream()
+                .filter(m -> m.body().length() >= LONG_ENOUGH_TO_PROVE_HISTORY).count();
+        return group.size() >= needed
+                && (longOnes >= 1 || group.size() >= SHORT_MESSAGES_THAT_PROVE_HISTORY_ALONE);
+    }
+
+    /** The stored messages seen since anything was last new, narrowed to one stretch of the transcript. */
+    private List<ChatMessage> evidence() {
+        return stretch == null ? knownRunMessages : stretch.apply(knownRunMessages);
+    }
+
+    /** Why a walk did or did not count as caught up, for the log. */
+    String explainBridge() {
+        List<ChatMessage> group = known == null ? knownRunMessages : evidence();
+        long longOnes = group.stream().filter(m -> m.body().length() >= LONG_ENOUGH_TO_PROVE_HISTORY).count();
+        return barrenScreens + " screen(s) with nothing new, " + knownRunMessages.size()
+                + " stored message(s) among them, " + group.size() + " in one stretch of the transcript ("
+                + longOnes + " of them longer than " + LONG_ENOUGH_TO_PROVE_HISTORY + " characters)";
     }
 
     /** Everything worth storing from this walk, in the order it was read. */
     List<ChatMessage> messages() {
+        return build(false);
+    }
+
+    /**
+     * Everything worth storing from this walk, in the order it was said: oldest first.
+     *
+     * <p>What a reconcile needs. Its estimates are spread between stored messages either side of a
+     * gap, which only means anything if the messages in the gap are in the order they happened.
+     */
+    List<ChatMessage> chronological() {
+        return build(true);
+    }
+
+    private List<ChatMessage> build(boolean oldestFirst) {
         List<ChatMessage> out = new ArrayList<>(collected.size());
         for (ChatMessage m : collected.values()) {
             if (!m.author().isBlank()) {
@@ -147,7 +266,17 @@ final class ChatPass {
             }
             roster.addAll(m.mentions());
         }
-        for (ChatMessage m : collected.values()) {
+        List<ChatMessage> ordered = new ArrayList<>(collected.values());
+        if (oldestFirst) {
+            Map<ChatMessage, long[]> position = new java.util.IdentityHashMap<>();
+            for (Map.Entry<String, ChatMessage> entry : collected.entrySet()) {
+                position.put(entry.getValue(), where.getOrDefault(entry.getKey(), new long[] {0, 0}));
+            }
+            // Higher screen number is older, so it sorts first; within a screen the top is older.
+            ordered.sort(Comparator.<ChatMessage>comparingLong(m -> -position.get(m)[0])
+                    .thenComparingLong(m -> position.get(m)[1]));
+        }
+        for (ChatMessage m : ordered) {
             // A message the walk never attributed to anybody was never seen with a name on it,
             // because overlapping scroll steps mean a real message is seen two or three times and
             // the attributed copy wins. Those are game announcements or a strip of a message whose
@@ -530,7 +659,15 @@ final class ChatPass {
      * beats an unattributed one. A mention is carried across either way: the copy with the fuller
      * body is not always the copy that kept its mention.
      */
-    private void keep(ChatMessage m) {
+    /** Starts a new screen for the purposes of ordering. */
+    void beginScreen() {
+        screenNumber++;
+        lineOnScreen = 0;
+        knownThisScreenMessages.clear();
+    }
+
+    void keep(ChatMessage m) {
+        int line = lineOnScreen++;
         String key = ChatLineCleaner.mergeKey(m.body());
         String match = collected.containsKey(key) ? key : null;
         if (match == null) {
@@ -543,11 +680,14 @@ final class ChatPass {
         }
         if (match == null) {
             collected.put(key, m);
+            where.put(key, new long[] {screenNumber, line});
             // Counted separately from the walk's own novelty. A message the transcript already
             // holds is not news, however new it is to this scroll, and treating it as news is what
             // kept a busy channel reading all seventy-six of its screens every pass for a night.
             if (known == null || !known.test(m)) {
                 unseen++;
+            } else {
+                knownThisScreenMessages.add(m);
             }
             return;
         }
@@ -559,8 +699,13 @@ final class ChatPass {
             String mention = end < 0 ? other.body() : other.body().substring(0, end);
             winner = winner.withBody(mention + " " + winner.body());
         }
+        long[] firstSeen = where.remove(match);
         collected.remove(match);
-        collected.put(ChatLineCleaner.mergeKey(winner.body()), winner);
+        String winnerKey = ChatLineCleaner.mergeKey(winner.body());
+        collected.put(winnerKey, winner);
+        if (firstSeen != null) {
+            where.put(winnerKey, firstSeen);
+        }
     }
 
     private static boolean better(ChatMessage candidate, ChatMessage held) {

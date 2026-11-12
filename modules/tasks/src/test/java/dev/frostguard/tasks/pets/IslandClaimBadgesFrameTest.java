@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.PointData;
+import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.vision.color.ColorBlobFinder;
 import dev.frostguard.vision.color.GameColors;
 
@@ -93,7 +94,7 @@ class IslandClaimBadgesFrameTest {
         // A failed navigation leaves the world map up, where the marching panel's gathering icon
         // passes every crystal rule. Tapping it starts a march, so the screen check - not the shape
         // rules - is what makes a wrong screen harmless.
-        assertFalse(badges(worldMap()).isEmpty(), "the decoy must still be present for this to prove anything");
+        assertTrue(badgeShapedGreen(worldMap()), "the decoy must still be present for this to prove anything");
         assertFalse(IslandClaimBadges.onIslandScreen(worldMap()));
     }
 
@@ -102,20 +103,53 @@ class IslandClaimBadgesFrameTest {
         // The Infirmary's green cross is a second, unrelated decoy, and the city view matters more
         // than the world map because it is where the bot idles between tasks. Caught live at
         // (611,484), 36x33 at 0.58 fill.
-        assertFalse(badges(cityView()).isEmpty(), "the decoy must still be present for this to prove anything");
+        assertTrue(badgeShapedGreen(cityView()), "the decoy must still be present for this to prove anything");
         assertFalse(IslandClaimBadges.onIslandScreen(cityView()));
     }
 
     @Test
-    void theHudCounterWouldPassTheShapeRulesIfTheWindowLetItThrough() throws Exception {
-        // The counter in the top bar is the same artwork as a badge. Only the search window keeps it
-        // from becoming a tap target, so that exclusion must never be widened past it.
+    void theHudCounterStillLooksExactlyLikeABadgeAndIsExcludedByRegion() throws Exception {
+        // The counter in the top bar is the same artwork as a badge and must keep passing the shape
+        // rules, because onIslandScreen recognises the island by finding it. It is kept out of the
+        // tap targets by its own region, not by the search window, which now reaches the top of the
+        // screen so that a badge over a station at the back of the island can be seen.
         List<ColorBlobFinder.Blob> hud = ColorBlobFinder.find(
-                island(), AreaData.of(0, 0, 720, 200), GameColors::isVividGreen, 400);
+                topBadgeIsland(), CommonGameAreas.ISLAND_ESSENCE_COUNTER, GameColors::isVividGreen, 400);
 
         assertTrue(hud.stream().anyMatch(IslandClaimBadges::isClaimBadge),
                 "expected the HUD crystal to look exactly like a badge");
-        assertTrue(badges(island()).stream().allMatch(blob -> blob.centre().row() > 100));
+        assertTrue(badges(topBadgeIsland()).stream().noneMatch(blob -> blob.centre().isWithin(
+                        CommonGameAreas.ISLAND_ESSENCE_COUNTER.topLeft(),
+                        CommonGameAreas.ISLAND_ESSENCE_COUNTER.bottomRight())),
+                "the essence counter must never become a tap target");
+    }
+
+    @Test
+    void findsABadgeSittingAtTheVeryTopOfTheScreen() throws Exception {
+        // A crafting station at the back of the island carries its badge level with the HUD. This
+        // frame is the redesigned island, where the badge spans y=29..85 - entirely inside the strip
+        // an earlier y=100 window cut off, which is why that station was never claimed.
+        List<ColorBlobFinder.Blob> found = badges(topBadgeIsland());
+
+        assertEquals(1, found.size(), "expected exactly the one badge on this frame");
+        ColorBlobFinder.Blob badge = found.getFirst();
+        assertTrue(Math.abs(badge.centre().col() - 358) <= 6 && Math.abs(badge.centre().row() - 58) <= 6,
+                "badge not where it was measured: " + badge);
+        assertTrue(badge.centre().row() < 100,
+                "this fixture only proves anything while the badge sits above the old window edge");
+    }
+
+    @Test
+    void stillRecognisesTheRedesignedIslandScreen() throws Exception {
+        assertTrue(IslandClaimBadges.onIslandScreen(topBadgeIsland()));
+    }
+
+    @Test
+    void ignoresTheGardenFoliageOnTheRedesignedIsland() throws Exception {
+        // The redesigned island is full of hedges and flower beds. They are far larger than a crystal
+        // but ragged, and the biggest badge-shaped one measured 597 pixels against a real badge at
+        // 1316-1324, which is what the pixel floor is holding apart.
+        assertTrue(badges(topBadgeIsland()).stream().allMatch(blob -> blob.pixelCount() >= 750));
     }
 
     @Test
@@ -145,6 +179,19 @@ class IslandClaimBadgesFrameTest {
         return new ColorBlobFinder.Blob(new PointData(col, row), 1300, 40, 57, 0.59);
     }
 
+    /**
+     * Whether the frame carries green artwork of badge proportions, measured below the production
+     * pixel floor on purpose. These decoys are smaller than a real crystal, so the floor happens to
+     * reject them too; the point of the tests that use this is that the screen check is what holds
+     * when something decoy-shaped IS large enough, so the proof must not rest on the floor.
+     */
+    private boolean badgeShapedGreen(BufferedImage frame) {
+        return ColorBlobFinder.find(frame, CommonGameAreas.ISLAND_CLAIM_BADGE_AREA,
+                        GameColors::isVividGreen, 400)
+                .stream()
+                .anyMatch(IslandClaimBadges::isClaimBadge);
+    }
+
     private List<ColorBlobFinder.Blob> badges(BufferedImage frame) {
         return IslandClaimBadges.candidates(frame).stream()
                 .filter(IslandClaimBadges::isClaimBadge)
@@ -169,6 +216,10 @@ class IslandClaimBadgesFrameTest {
 
     private BufferedImage transition() throws Exception {
         return load("/pets/screen-transition-blank-20260823.png");
+    }
+
+    private BufferedImage topBadgeIsland() throws Exception {
+        return load("/pets/my-island-top-badge-20261010.png");
     }
 
     private BufferedImage load(String resource) throws Exception {

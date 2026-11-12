@@ -1,11 +1,13 @@
 package dev.frostguard.tasks.lifecycle;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Objects;
 
 import javax.imageio.ImageIO;
@@ -16,20 +18,23 @@ import org.junit.jupiter.api.Test;
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.ImageSearchResultData;
+import dev.frostguard.api.domain.PointData;
 import dev.frostguard.vision.detection.CloseCrossDetector;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
 
 /**
- * The blue close button on a startup offer, which the shared close-cross detector cannot see.
+ * The blue close button on a startup offer.
  *
  * <p>A Charm Master Pack offer with this button blocked startup seven times: the bot sent its one
- * bounded Android Back, which a Unity-drawn modal ignores, and gave up. InitializeRoutine now asks
- * the shared detector first and falls back to the colour template only when it finds nothing.
+ * bounded Android Back, which a Unity-drawn modal ignores, and gave up. The shared close-cross
+ * detector found nothing on this frame until its glyph-mask change; it now finds the button.
+ * InitializeRoutine still asks the shared detector first and falls back to the colour template
+ * only when it finds nothing.
  */
 class CloseableStartupOverlayBlueFallbackTest {
 
     /** Mirrors InitializeRoutine's CLOSEABLE_OVERLAY_SEARCH_AREA. */
-    private static final AreaData SEARCH_AREA = AreaData.of(540, 65, 680, 240);
+    private static final AreaData SEARCH_AREA = AreaData.of(540, 20, 719, 280);
     private static final int THRESHOLD = 90;
     private static final String BLUE = "/startup/closeable-offer-overlay-blue-20260908.png";
 
@@ -43,9 +48,14 @@ class CloseableStartupOverlayBlueFallbackTest {
     }
 
     @Test
-    void theSharedDetectorFindsNothingOnTheBlueButtonAnywhereOnScreen() throws IOException {
-        // Why the fallback exists. If this ever starts matching, the fallback can go.
-        assertTrue(CloseCrossDetector.locate(image(BLUE), AreaData.of(0, 0, 719, 1279)).isEmpty());
+    void theSharedDetectorAndTheBlueTemplateAgreeOnTheBlueButton() throws IOException {
+        List<CloseCrossDetector.Detection> detections = CloseCrossDetector.locate(image(BLUE), SEARCH_AREA);
+        assertEquals(1, detections.size(), detections::toString);
+        ImageSearchResultData close = blueTemplate(BLUE);
+        assertTrue(close.isFound());
+        PointData shared = detections.getFirst().center();
+        assertTrue(Math.hypot(shared.getX() - close.getPoint().getX(), shared.getY() - close.getPoint().getY()) <= 20,
+                () -> "shared detector " + shared + " vs blue template " + close.getPoint());
     }
 
     @Test

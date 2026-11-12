@@ -18,24 +18,24 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import dev.frostguard.api.runtime.WorkspacePaths;
+import dev.frostguard.data.metrics.MetricStore;
 
 /**
- * Reads the telemetry history that {@code bg_telemetry} appends to
- * {@code data/telemetry/profiles/<id>/history.jsonl} and turns it into the "what did the bot
- * earn" reports the Statistics tab shows.
+ * Turns this profile's recorded observations into the "what did the bot earn" reports the
+ * Statistics tab shows.
  *
  * <p>He wants the Statistics page to answer real questions —
  * "how many resources did I gather overnight", "how much power / how many gems
  * did botting earn me today / this week / total" — instead of run counts. Each
- * report is a delta between the snapshot at the start of a window and the most
- * recent one, so it reads directly off the same history the bot already logs.</p>
+ * report is a delta between the first reading inside a window and the last one.</p>
  *
- * <p>previously read {@code telemetry/history.jsonl} off
- * {@code user.dir} and filtered by profile NAME within one shared file -- and a row with no
- * "profile" field (or a null caller-supplied name) was accepted for every profile, not rejected.
- * Now that {@code bg_telemetry} writes one file per profile ID under the workspace, {@link #load}
- * just opens that profile's own file directly. There is nothing left to filter, so that bug class
- * is gone by construction rather than patched.</p>
+ * <p>The readings come from {@link dev.frostguard.data.metrics.MetricStore}, which records a
+ * value against the moment it was actually seen. Two earlier shapes of this are worth not
+ * repeating: one shared {@code history.jsonl} filtered by profile NAME, where a row with no
+ * "profile" field was accepted for every profile; and then a per-profile file whose rows were
+ * copies of a config cache, so a subtraction measured when a value was believed rather than when
+ * it changed. Both bug classes are gone by construction -- readings are keyed by profile id, and
+ * a reading is only written when something was actually read.</p>
  */
 public final class TelemetryReport {
 
@@ -74,46 +74,49 @@ public final class TelemetryReport {
 
     /** Overload taking an explicit workspace root, for tests that don't want a real installed
      *  workspace on disk. */
+    /**
+     * Loads this profile's readings from the metric store.
+     *
+     * <p>It used to read {@code history.jsonl}, which was not a record of readings. bg_telemetry
+     * wrote a row every two hours containing whatever sat in the config cache, and that cache only
+     * moved when a reading passed a plausibility guard, so a row's timestamp said when a value was
+     * copied rather than when it was seen. Subtracting two of those rows measured when the guard
+     * changed its mind. That is how the tab came to report eight hours of construction speedup
+     * arriving inside one eleven-minute interval.</p>
+     *
+     * <p>The store holds one row per reading, written by whoever read it at the moment they read
+     * it. Readings taken in the same moment are grouped back into a sample here, because everything
+     * below already reasons in samples, and that reasoning was never the problem.</p>
+     */
     public static TelemetryReport load(Path workspaceRoot, long profileId) {
-        List<Sample> out = new ArrayList<>();
-        Path file = workspaceRoot.resolve("data").resolve("telemetry")
-                .resolve("profiles").resolve(String.valueOf(profileId)).resolve("history.jsonl");
-        if (!Files.isReadable(file)) {
-            return new TelemetryReport(out);
-        }
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            for (String line : Files.readAllLines(file)) {
-                if (line == null || line.isBlank()) continue;
-                JsonNode node;
-                try {
-                    node = mapper.readTree(line);
-                } catch (IOException badLine) {
-                    continue; // one corrupt line never sinks the whole history
-                }
-                Instant at = parseInstant(node.path("capturedAt").asText(null));
-                if (at == null) continue;
-                Map<String, Long> values = new LinkedHashMap<>();
-                for (String metric : METRICS) {
-                    JsonNode v = node.get(metric);
-                    if (v != null && v.isNumber()) {
-                        values.put(metric, v.asLong());
-                    }
-                }
-                // Activity fields are flattened as "run.<Task>" / "ctr.<Counter>".
-                Map<String, Long> activity = new LinkedHashMap<>();
-                node.fields().forEachRemaining(f -> {
-                    String k = f.getKey();
-                    if ((k.startsWith("run.") || k.startsWith("ctr.")) && f.getValue().isNumber()) {
-                        activity.put(k, f.getValue().asLong());
-                    }
-                });
-                out.add(new Sample(at, values, activity));
+        MetricStore store = new MetricStore(workspaceRoot
+                .resolve("data").resolve("telemetry").resolve("metrics.db"));
+
+        Map<Instant, Map<String, Long>> valuesAt = new java.util.TreeMap<>();
+        Map<Instant, Map<String, Long>> activityAt = new java.util.TreeMap<>();
+        Instant dawn = Instant.EPOCH;
+        Instant never = Instant.now().plus(java.time.Duration.ofDays(3650));
+        for (String metric : store.metrics(profileId)) {
+            boolean isActivity = metric.startsWith("run.") || metric.startsWith("ctr.");
+            if (!isActivity && !METRICS.contains(metric)) {
+                continue;
             }
-        } catch (IOException e) {
-            return new TelemetryReport(new ArrayList<>());
+            for (MetricStore.Observation o : store.between(profileId, metric, dawn, never)) {
+                Map<Instant, Map<String, Long>> into = isActivity ? activityAt : valuesAt;
+                into.computeIfAbsent(o.observedAt(), k -> new LinkedHashMap<>()).put(metric, o.value());
+            }
         }
-        out.sort((a, b) -> a.at().compareTo(b.at()));
+
+        java.util.TreeSet<Instant> moments = new java.util.TreeSet<>();
+        moments.addAll(valuesAt.keySet());
+        moments.addAll(activityAt.keySet());
+
+        List<Sample> out = new ArrayList<>();
+        for (Instant at : moments) {
+            out.add(new Sample(at,
+                    valuesAt.getOrDefault(at, new LinkedHashMap<>()),
+                    activityAt.getOrDefault(at, new LinkedHashMap<>())));
+        }
         return new TelemetryReport(despike(out));
     }
 
@@ -209,7 +212,33 @@ public final class TelemetryReport {
 
     public int size() { return samples.size(); }
 
-    public Sample latest() { return samples.isEmpty() ? null : samples.get(samples.size() - 1); }
+    /**
+     * The current value of every metric: for each one, the newest reading there is.
+     *
+     * <p>Deliberately not the newest sample. A sample is one instant, and the readings do not all
+     * arrive at the same instant -- bg_telemetry records power, gems and coal when it runs, and
+     * ResourceStockpileRoutine records the stockpiles a few seconds later and the speedups a few
+     * seconds after that. Returning the last sample therefore returned whichever three-to-six
+     * metrics happened to share the final millisecond.</p>
+     *
+     * <p>The Statistics tab skips any metric this does not carry ("metric never captured"), so on
+     * 9/13 it drew six tiles -- steel and the five speedups, the group written last -- and silently
+     * dropped power, gems, meat, wood, coal and iron. The old JSONL wrote one row per sample with
+     * every field in it, so this could not happen there; it became possible the moment readings
+     * were stored one metric at a time.</p>
+     */
+    public Sample latest() {
+        if (samples.isEmpty()) {
+            return null;
+        }
+        Map<String, Long> current = new LinkedHashMap<>();
+        Map<String, Long> activity = new LinkedHashMap<>();
+        for (Sample s : samples) {          // oldest first, so later readings overwrite earlier ones
+            s.values().forEach((k, v) -> { if (v != null) current.put(k, v); });
+            s.activity().forEach((k, v) -> { if (v != null) activity.put(k, v); });
+        }
+        return new Sample(samples.get(samples.size() - 1).at(), current, activity);
+    }
 
     public List<Sample> samples() { return samples; }
 

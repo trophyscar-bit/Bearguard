@@ -220,8 +220,8 @@ class ChannelPackagingTest(unittest.TestCase):
         self.assertIn("Remove an abandoned draft release", workflow)
         self.assertIn('java-version: "21.0.12+8.0.LTS"', workflow)
         for launcher_hash in (
-            "5c728d3662d64c428d003874f6d62b798bbbe329f595b2b15a2ab5ab1fd1faa9",
-            "9c7452d890f39c7f4fdb2e5519993514c84f071deef222fe49784acfd459c209",
+            "0839eabebe4e41aadaa6b21e5ce5e58cf3a39a90ab1945df9867a5150da53ab5",
+            "7da88867920501293e3d2e15d159db390aadd158f89dd78de5333837749d5268",
         ):
             self.assertIn(launcher_hash, installers)
             self.assertIn(launcher_hash, workflow)

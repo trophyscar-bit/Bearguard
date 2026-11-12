@@ -17,10 +17,15 @@ import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.helper.CharacterSwitchHelper;
+import dev.frostguard.engine.nav.CommonGameAreas;
+import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.detection.CloseCrossDetector;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
+import dev.frostguard.vision.ocr.OcrException;
+import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.function.BooleanSupplier;
@@ -54,7 +59,7 @@ import java.util.function.BooleanSupplier;
  * <ul>
  * <li>Game not installed: Throws StopExecutionException (stops queue)</li>
  * <li>Reconnect state detected: Throws ProfileInReconnectStateException</li>
- * <li>Home screen not found: Tries one bounded in-game Back action, then pauses the profile</li>
+ * <li>Home screen not found: Tries a few bounded in-game Back actions, then pauses the profile</li>
  * <li>Verified Google Play redirect: Requires operator action and releases the
  * emulator slot during a profile cooldown</li>
  * </ul>
@@ -81,7 +86,8 @@ public class InitializeRoutine extends DelayedTask {
 	private static final PointData UPDATE_TITLE_AREA_BOTTOM_RIGHT = new PointData(470, 350);
 	private static final PointData UPDATE_BUTTON_AREA_TOP_LEFT = new PointData(200, 850);
 	private static final PointData UPDATE_BUTTON_AREA_BOTTOM_RIGHT = new PointData(520, 1050);
-	private static final AreaData CLOSEABLE_OVERLAY_SEARCH_AREA = AreaData.of(540, 65, 680, 240);
+	private static final AreaData CLOSEABLE_OVERLAY_SEARCH_AREA = AreaData.of(540, 20, 719, 280);
+	private static final int MAX_CLOSEABLE_OVERLAY_CENTER_Y = 240;
 	private static final int UPDATE_PATTERN_THRESHOLD = 90;
 	private static final int UPDATE_POSTCONDITION_TIMEOUT_MINUTES = 10;
 	private static final int UPDATE_POSTCONDITION_POLL_DELAY_MS = 5000;
@@ -91,7 +97,12 @@ public class InitializeRoutine extends DelayedTask {
 	private static final String GOOGLE_PLAY_PACKAGE = "com.android.vending";
 	private static final int MAX_WELCOME_BACK_DISMISSALS = 1;
 	private static final int MAX_CLOSEABLE_OVERLAY_DISMISSALS = 3;
+	private static final int MAX_TREK_EXIT_HINT_DISMISSALS = 3;
 	private static final int UNKNOWN_BLOCKER_BACK_SETTLE_MS = 2000;
+	// The arrow scores 0.94-1.00 on full screens and about 0.8 on the darker Dawn Academy view;
+	// dimmed dialogs over it score about 0.7 and the city home screen 0.3.
+	static final AreaData GAME_BACK_ARROW_AREA = new AreaData(new PointData(0, 0), new PointData(130, 110));
+	static final int GAME_BACK_ARROW_THRESHOLD = 75;
 	private static final int MAX_UNKNOWN_BLOCKER_POSTCONDITION_ATTEMPTS = 3;
 	private static final int STARTUP_PATTERN_THRESHOLD = 90;
 
@@ -104,9 +115,10 @@ public class InitializeRoutine extends DelayedTask {
 	private int unknownBlockerBackAttempts = 0;
 	private int welcomeBackDismissals = 0;
 	private int closeableOverlayDismissals = 0;
+	private int trekExitHintDismissals = 0;
 	private String lastVerifiedStartupState = "initialization started";
 	private RawImageData lastStartupFrame;
-	private final DiagnosticSnapshotStore startupSnapshots = DiagnosticSnapshotStore.forCurrentWorkspace();
+	private final DiagnosticSnapshotStore startupSnapshots = DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace();
 
 	/**
 	 * Helper for character switching operations.
@@ -354,6 +366,13 @@ public class InitializeRoutine extends DelayedTask {
 				continue;
 			}
 
+			if (dismissTrekExitHintIfPresent()) {
+				logInfo("Verified Trek exit hint dismissed. Waiting for a fresh home/world postcondition.");
+				sleepTask(2000);
+				attempts++;
+				continue;
+			}
+
 			// Passive checks and later recoveries do not retain a screenshot.
 			logWarning("Home screen not found on an unsupported startup screen. "
 					+ "Waiting 5 seconds for a passive state change before retrying...");
@@ -429,6 +448,10 @@ public class InitializeRoutine extends DelayedTask {
 			}
 			if (dismissCloseableStartupOverlayIfPresent()) {
 				logInfo("Verified closeable startup overlay dismissed during the game update flow.");
+				continue;
+			}
+			if (dismissTrekExitHintIfPresent()) {
+				logInfo("Verified Trek exit hint dismissed during the game update flow.");
 				continue;
 			}
 
@@ -528,8 +551,7 @@ public class InitializeRoutine extends DelayedTask {
 		if (capture == null) {
 			return false;
 		}
-		CloseCrossDetector.Detection detectedClose = CloseCrossDetector.locate(
-				capture, CLOSEABLE_OVERLAY_SEARCH_AREA)
+		CloseCrossDetector.Detection detectedClose = locateCloseableStartupControls(capture)
 				.stream()
 				.findFirst()
 				.orElse(null);
@@ -539,10 +561,9 @@ public class InitializeRoutine extends DelayedTask {
 					detectedClose.center().getX(), detectedClose.center().getY(), detectedClose.score(),
 					detectedClose.width(), detectedClose.height());
 		} else {
-			// The grayscale cross finder does not see the white X on the blue close button -- it
-			// finds nothing anywhere on that frame -- and a Charm Master Pack offer with that
-			// button blocked startup seven times before it was tracked down. The colour template
-			// still matches it, so it is the fallback when the shared detector comes back empty.
+			// A Charm Master Pack offer with a blue close button blocked startup seven times while
+			// the grayscale cross finder saw nothing on its frame. The finder now matches that saved
+			// frame, but the colour template stays as the fallback when it comes back empty.
 			close = OpenCvPatternLocator.locatePattern(capture,
 					TemplatesEnum.GAME_START_CLOSEABLE_OVERLAY_CLOSE_BLUE.getTemplate(),
 					CLOSEABLE_OVERLAY_SEARCH_AREA.topLeft(), CLOSEABLE_OVERLAY_SEARCH_AREA.bottomRight(),
@@ -565,6 +586,52 @@ public class InitializeRoutine extends DelayedTask {
 			return false;
 		}
 		lastVerifiedStartupState = "closeable startup overlay close action sent";
+		logInfo("Tapped the verified startup-overlay close control; waiting for a fresh home/world postcondition.");
+		return true;
+	}
+
+	static java.util.List<CloseCrossDetector.Detection> locateCloseableStartupControls(RawImageData capture) {
+		return CloseCrossDetector.locate(capture, CLOSEABLE_OVERLAY_SEARCH_AREA)
+				.stream()
+				.filter(candidate -> candidate.center().getY() <= MAX_CLOSEABLE_OVERLAY_CENTER_Y)
+				.toList();
+	}
+
+	private boolean dismissTrekExitHintIfPresent() {
+		if (trekExitHintDismissals >= MAX_TREK_EXIT_HINT_DISMISSALS) {
+			return false;
+		}
+
+		RawImageData capture = captureStartupFrame("lower Trek exit-hint inspection");
+		if (capture == null) {
+			return false;
+		}
+
+		TrekExitHintClassifier.Evidence evidence;
+		try {
+			String ocrText = emuManager.readText(
+					EMULATOR_NUMBER,
+					CommonGameAreas.STARTUP_EXIT_HINT_OCR_AREA.topLeft(),
+					CommonGameAreas.STARTUP_EXIT_HINT_OCR_AREA.bottomRight(),
+					CommonOCRSettings.STARTUP_EXIT_HINT_SETTINGS,
+					true);
+			evidence = TrekExitHintClassifier.inspect(ocrText);
+		} catch (IOException | OcrException | RuntimeException exception) {
+			logDebug("Lower startup exit-hint OCR unavailable: " + exception.getMessage());
+			return false;
+		}
+		if (!evidence.detected()) {
+			return false;
+		}
+
+		trekExitHintDismissals++;
+		lastVerifiedStartupState = "Trek exit hint in lower band";
+		logInfo("Trek exit hint verified from one fresh lower-band frame"
+				+ "; normalizedEvidence='" + evidence.normalizedText() + "'"
+				+ "; dismissal=" + trekExitHintDismissals + "/" + MAX_TREK_EXIT_HINT_DISMISSALS + ".");
+		tapInside(CommonGameAreas.STARTUP_EXIT_HINT_TAP_AREA);
+		lastVerifiedStartupState = "Trek lower-centre exit action sent";
+		logInfo("Tapped the verified lower-centre Trek exit-hint area; outcome pending a fresh home/world frame.");
 		return true;
 	}
 
@@ -690,6 +757,9 @@ public class InitializeRoutine extends DelayedTask {
 			if (dismissCloseableStartupOverlayIfPresent()) {
 				logInfo("Verified closeable startup overlay dismissed after the required resource download.");
 			}
+			if (dismissTrekExitHintIfPresent()) {
+				logInfo("Verified Trek exit hint dismissed after the required resource download.");
+			}
 			if (attempt % RESOURCE_DOWNLOAD_PROGRESS_LOG_INTERVAL == 0) {
 				logInfo("Required resource download still in progress ("
 						+ attempt * RESOURCE_DOWNLOAD_POLL_DELAY_MS / 1000 + " seconds elapsed).");
@@ -758,14 +828,16 @@ public class InitializeRoutine extends DelayedTask {
 	 * Strategy after known startup-state checks and passive waiting are exhausted:
 	 * <ol>
 	 * <li>Verify that Whiteout Survival owns the foreground window</li>
-	 * <li>Send Android Back at most once</li>
+	 * <li>Send Android Back, up to MAX_UNKNOWN_BLOCKER_BACK_ATTEMPTS times</li>
 	 * <li>Re-run only verified startup handlers while waiting for home/world</li>
 	 * <li>Otherwise enter a cooldown that stops only the game and releases the slot</li>
 	 * </ol>
 	 */
 	private boolean recoverUnknownStartupBlocker() {
 		boolean gameForeground = isGameForeground();
-		if (StartupRecoveryPolicy.forUnknownBlocker(gameForeground, unknownBlockerBackAttempts)
+		// One Back is not enough when a restart lands the game several screens deep
+		// (e.g. inside a ranking list); each Back is followed by a home check.
+		while (StartupRecoveryPolicy.forUnknownBlocker(gameForeground, unknownBlockerBackAttempts)
 				== StartupRecoveryPolicy.UnknownBlockerAction.TRY_GAME_BACK) {
 			unknownBlockerBackAttempts++;
 			lastVerifiedStartupState = "unknown startup screen with Whiteout Survival foreground";
@@ -773,14 +845,22 @@ public class InitializeRoutine extends DelayedTask {
 					+ " passive checks. Whiteout Survival owns the foreground window; sending bounded Android Back recovery "
 					+ unknownBlockerBackAttempts + "/"
 					+ StartupRecoveryPolicy.MAX_UNKNOWN_BLOCKER_BACK_ATTEMPTS + ".");
-			pressBack();
-			lastVerifiedStartupState = "bounded Android Back sent to foreground game";
+			// Trek, Dawn Academy, Expert and Deals screens ignore Android Back (seen 27 Oct on the
+			// Trek landing: three Backs, no change); their own top-left arrow is the way out.
+			if (tapGameBackArrowIfShown()) {
+				lastVerifiedStartupState = "in-game back arrow tapped on foreground game";
+			} else {
+				pressBack();
+				lastVerifiedStartupState = "bounded Android Back sent to foreground game";
+			}
 
 			for (int attempt = 1; attempt <= MAX_UNKNOWN_BLOCKER_POSTCONDITION_ATTEMPTS; attempt++) {
 				sleepTask(UNKNOWN_BLOCKER_BACK_SETTLE_MS);
 				if (searchForHomeScreen()) {
 					lastVerifiedStartupState = "home/world screen after bounded Android Back";
-					logInfo("Home screen found after one bounded Android Back recovery.");
+					logInfo("Home screen found after bounded Android Back recovery "
+							+ unknownBlockerBackAttempts + "/"
+							+ StartupRecoveryPolicy.MAX_UNKNOWN_BLOCKER_BACK_ATTEMPTS + ".");
 					return true;
 				}
 
@@ -792,11 +872,29 @@ public class InitializeRoutine extends DelayedTask {
 				if (dismissCloseableStartupOverlayIfPresent()) {
 					logInfo("Verified closeable startup overlay dismissed after bounded Android Back recovery.");
 				}
+				if (dismissTrekExitHintIfPresent()) {
+					logInfo("Verified Trek exit hint dismissed after bounded Android Back recovery.");
+				}
 			}
+			gameForeground = isGameForeground();
 		}
 
 		deferUnknownStartupBlocker(gameForeground);
 		return false;
+	}
+
+	private boolean tapGameBackArrowIfShown() {
+		ImageSearchResultData arrow = templateSearchHelper.locatePattern(TemplatesEnum.GAME_BACK_ARROW,
+				SearchConfig.builder()
+						.withCoordinates(GAME_BACK_ARROW_AREA.topLeft(), GAME_BACK_ARROW_AREA.bottomRight())
+						.withThreshold(GAME_BACK_ARROW_THRESHOLD)
+						.build());
+		if (!arrow.isFound()) {
+			return false;
+		}
+		logInfo("In-game back arrow is showing; tapping it instead of Android Back.");
+		tapInside(arrow);
+		return true;
 	}
 
 	private boolean isGameForeground() {
@@ -824,7 +922,7 @@ public class InitializeRoutine extends DelayedTask {
 				"home/world",
 				"unsupported startup screen",
 				gameForeground
-						? "One bounded Android Back sent only while Whiteout Survival owned the foreground window"
+						? unknownBlockerBackAttempts + " bounded Android Back(s) sent only while Whiteout Survival owned the foreground window"
 						: "No input sent because Whiteout Survival did not own the foreground window",
 				"Stop the game, release the slot, and retry initialization after fifteen minutes"))
 				.withEvidencePath(snapshot.saved() ? snapshot.relativePath() : "");
@@ -931,7 +1029,7 @@ public class InitializeRoutine extends DelayedTask {
 	 */
 	private void handleInitializationSuccess() {
 		logInfo("Initialization successful. Reading initial stamina value.");
-		staminaHelper.updateStaminaFromProfile();
+		staminaHelper.updateStaminaFromHud();
 		logInfo("Initialization task completed successfully.");
 	}
 

@@ -31,9 +31,9 @@ class MonumentAlbumsHubFrameTest {
 
     private static final String FIXTURE = "/monument/tundra-albums-hub-20260820.png";
 
-    /** Copies of the production constants -- see MonumentRoutine.MILESTONE_CHEST_CANDIDATES. */
-    private static final int[] CHEST_X = {191, 275, 365, 456, 547, 637};
-    private static final int CHEST_Y = 173;
+    /** The production slots, so the fixture checks what actually ships. */
+    private static final int[] CHEST_X = MonumentRoutine.MILESTONE_CHEST_SLOT_X;
+    private static final int CHEST_Y = MonumentRoutine.MILESTONE_CHEST_SLOT_Y;
 
     private static BufferedImage frame() throws Exception {
         return ImageIO.read(Objects.requireNonNull(

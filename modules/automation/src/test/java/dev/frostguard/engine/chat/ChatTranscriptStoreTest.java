@@ -139,6 +139,162 @@ class ChatTranscriptStoreTest {
     }
 
     @Test
+    void messagesEitherSideOfMidnightGoToTheirOwnDaysNotTheFirstOnesDay() throws IOException {
+        // One pass used to file everything under the day of its first message, so a reconcile whose
+        // estimated times span days -- or an ordinary pass straddling midnight -- put the later
+        // messages into the wrong day's file and out of that day's digest.
+        Instant late = Instant.parse("2026-08-21T23:59:00Z");
+        Instant early = Instant.parse("2026-08-22T00:01:00Z");
+        ChatTranscriptStore s = store();
+
+        assertEquals(2, s.append(List.of(msg(late, "Snowcrow", "rally in five"),
+                msg(early, "Wrenley", "bear trap tonight at nine"))));
+
+        assertTrue(Files.readString(s.fileFor(late)).contains("rally in five"));
+        assertFalse(Files.readString(s.fileFor(late)).contains("bear trap"));
+        assertTrue(Files.readString(s.fileFor(early)).contains("bear trap tonight at nine"));
+    }
+
+    @Test
+    void saysWhatTimeAStoredMessageWasFiledUnderIncludingAfterARestart() throws IOException {
+        Instant at = Instant.parse("2026-08-21T22:15:00Z");
+        ChatTranscriptStore s = store();
+        s.append(List.of(msg(at, "Snowcrow", "rally in five")));
+
+        // Read the way the walk reads it: a different spelling of the same message still finds it.
+        assertEquals(java.util.Optional.of(at),
+                s.storedAt(msg(at.plusSeconds(600), "Snowcrow", "rally in five")));
+        assertEquals(java.util.Optional.empty(),
+                s.storedAt(msg(at, "Wrenley", "who has spare speedups")));
+
+        ChatTranscriptStore restarted = store();
+        restarted.primeFromDisk();
+        assertEquals(java.util.Optional.of(at),
+                restarted.storedAt(msg(at, "Snowcrow", "rally in five")));
+    }
+
+    @Test
+    void namesTheNewestStoredTimeBeforeALimitForOneChannelOnly() throws IOException {
+        Instant thursday = Instant.parse("2026-09-24T17:32:00Z");
+        Instant sunday = Instant.parse("2026-09-28T03:56:00Z");
+        ChatTranscriptStore s = store();
+        s.append(List.of(msg(thursday, "Snowcrow", "rally in five"),
+                msg(sunday, "Wrenley", "bear trap tonight at nine"),
+                new ChatMessage(thursday.plusSeconds(60), "alliance", "Other", "ICE", 0,
+                        "who has spare speedups", "", List.of(), ChatMessage.Kind.TEXT, "")));
+
+        // The store's helper messages are "world"; the alliance one must not answer for world.
+        assertEquals(java.util.Optional.of(thursday), s.newestStoredBefore("world", sunday));
+        assertEquals(java.util.Optional.of(thursday.plusSeconds(60)),
+                s.newestStoredBefore("alliance", sunday));
+        assertEquals(java.util.Optional.empty(), s.newestStoredBefore("world", thursday));
+    }
+
+    @Test
+    void aMessageTheReaderSpeltDifferentlyThisTimeIsStillTheSameStoredMessage() throws IOException {
+        // The signature joined channel and key with a NUL while the code that splits it looked for a
+        // space, so the key always came back empty and only exact matches ever de-duplicated. A
+        // clipped or misread copy of a message already stored was stored again, and a walk that
+        // met one never recognised it as history.
+        Instant at = Instant.parse("2026-08-21T22:15:00Z");
+        ChatTranscriptStore s = store();
+        s.append(List.of(msg(at, "Snowcrow", "En 1:45 hora batalla de la fundicion de la legion 2")));
+
+        ChatMessage reread = msg(at.plusSeconds(600), "Snowcrow",
+                "En 1:45 hora batalla de la fundicion q a de la legion 2");
+        assertTrue(s.alreadyStored(reread));
+        assertEquals(java.util.Optional.of(at), s.storedAt(reread));
+        assertEquals(0, s.append(List.of(reread)));
+    }
+
+    @Test
+    void anEstimatedMessageIsMarkedInItsLineAndAnOrdinaryOneIsNot() throws IOException {
+        Instant at = Instant.parse("2026-08-21T22:15:00Z");
+        ChatTranscriptStore s = store();
+
+        s.append(List.of(msg(at, "Snowcrow", "rally in five")), true);
+        s.append(List.of(msg(at, "Wrenley", "bear trap tonight at nine")), false);
+
+        List<String> lines = Files.readAllLines(s.fileFor(at));
+        assertTrue(lines.get(0).contains("\"est\":true"));
+        assertFalse(lines.get(1).contains("\"est\""));
+    }
+
+    @Test
+    void aWiderWindowKeepsMessagesFromLookingNewOnceTheyAreOlderThanTheOrdinaryOne() throws IOException {
+        Instant at = Instant.parse("2026-08-21T22:15:00Z");
+        ChatTranscriptStore narrow = new ChatTranscriptStore(dir.resolve("narrow"), ZoneOffset.UTC, 2);
+        ChatTranscriptStore wide = new ChatTranscriptStore(dir.resolve("wide"), ZoneOffset.UTC, 2);
+        wide.widenWindow(10);
+        List<ChatMessage> three = List.of(msg(at, "A", "rally in five"),
+                msg(at, "B", "bear trap tonight at nine"),
+                msg(at, "C", "who has spare speedups"));
+        narrow.append(three);
+        wide.append(three);
+
+        // Two slots hold the last two; the first has fallen out and reads as new again.
+        assertEquals(1, narrow.append(List.of(msg(at, "A", "rally in five"))));
+        assertEquals(0, wide.append(List.of(msg(at, "A", "rally in five"))));
+    }
+
+    @Test
+    void messagesStoredOneAfterAnotherAreOneStretchButScatteredRepeatsAreNot() throws IOException {
+        Instant at = Instant.parse("2026-10-24T05:00:00Z");
+        ChatTranscriptStore s = store();
+        ChatMessage rally = msg(at, "A", "join the rally please everyone");
+        ChatMessage thanks = msg(at, "B", "thanks for the help everyone");
+        ChatMessage speedups = msg(at, "C", "who has spare speedups for tonight");
+
+        // Stored back to back: a real stretch of conversation.
+        s.append(List.of(rally, thanks, speedups));
+        assertEquals(List.of(rally, thanks, speedups), s.stretchOf(List.of(rally, thanks, speedups), 40));
+
+        // Stored two hundred unrelated messages apart: no group of them is a stretch of three.
+        ChatTranscriptStore scattered = new ChatTranscriptStore(dir.resolve("scattered"), ZoneOffset.UTC);
+        scattered.append(List.of(rally));
+        for (int i = 0; i < 100; i++) {
+            scattered.append(List.of(msg(at, "X", unrelated(i))));
+        }
+        scattered.append(List.of(thanks));
+        for (int i = 100; i < 200; i++) {
+            scattered.append(List.of(msg(at, "X", unrelated(i))));
+        }
+        scattered.append(List.of(speedups));
+        assertEquals(1, scattered.stretchOf(List.of(rally, thanks, speedups), 40).size());
+    }
+
+    @Test
+    void oneStrayMatchFarAwayDoesNotHideThreeThatSitTogether() throws IOException {
+        Instant at = Instant.parse("2026-10-24T05:00:00Z");
+        ChatTranscriptStore s = new ChatTranscriptStore(dir.resolve("stray"), ZoneOffset.UTC);
+        ChatMessage old = msg(at, "A", "an unrelated old line from long ago");
+        s.append(List.of(old));
+        for (int i = 0; i < 100; i++) {
+            s.append(List.of(msg(at, "X", unrelated(i))));
+        }
+        ChatMessage one = msg(at, "B", "join the rally please everyone");
+        ChatMessage two = msg(at, "C", "thanks for the help everyone");
+        ChatMessage three = msg(at, "D", "who has spare speedups for tonight");
+        s.append(List.of(one, two, three));
+
+        List<ChatMessage> group = s.stretchOf(List.of(old, one, two, three), 40);
+        assertEquals(List.of(one, two, three), group);
+    }
+
+    @Test
+    void messagesTheStoreHasNeverSeenAreNotPlaced() {
+        ChatTranscriptStore s = new ChatTranscriptStore(dir.resolve("empty"), ZoneOffset.UTC);
+        ChatMessage stranger = msg(Instant.parse("2026-10-24T05:00:00Z"), "A", "nobody stored this line");
+        assertTrue(s.stretchOf(List.of(stranger), 40).isEmpty());
+    }
+
+    /** Bodies that share no run of characters, so none is mistaken for a reread of another. */
+    private static String unrelated(int i) {
+        return Long.toString(i * 2654435761L + 12345L, 36) + " " + Long.toString(i * 40503L + 977L, 36)
+                + " " + Long.toString(i * 7919L + 31L, 36) + " " + Long.toString(i * 104729L + 7L, 36);
+    }
+
+    @Test
     void reportsItsOwnSizeForTheStartupFigure() throws IOException {
         ChatTranscriptStore s = store();
         s.append(List.of(msg(Instant.parse("2026-08-21T22:15:00Z"), "Snowcrow", "rally in five")));

@@ -75,6 +75,7 @@ public class StatisticsLayoutController extends AbstractProfileController {
         COUNTER_CATEGORIES.put("Gather Marches Deployed", "Economy");
         COUNTER_CATEGORIES.put("Nomadic Merchant Free Resources Claimed", "Economy");
         COUNTER_CATEGORIES.put("Nomadic Merchant VIP Points Purchased", "Economy");
+        COUNTER_CATEGORIES.put("Nomadic Merchant Free Refresh Taps Dispatched", "Economy");
         COUNTER_CATEGORIES.put("Nomadic Merchant Daily Refresh Used", "Economy");
         COUNTER_CATEGORIES.put("Storehouse Chests Opened", "Economy");
         COUNTER_CATEGORIES.put("Alliance Gifts Collected", "Economy");

@@ -32,6 +32,22 @@ class ResourceStockpileGuardPolicyTest {
                 "30 minutes against a cached 2434 is the misread that reported +1d 21h 21m");
     }
 
+    /**
+     * The 9/13 misread: wood 411.7M read as 11.9M, the leading digit dropped.
+     *
+     * <p>The guard refusing this is what keeps it out of the store, because the readings are
+     * recorded after the guard rather than before it. Recorded raw, it put a cliff in the wood
+     * series that the despike could only take back out once a later reading existed to contradict
+     * it -- so anyone opening the Statistics tab in between saw 400M of wood vanish.</p>
+     */
+    @Test
+    void aDroppedLeadingDigitIsImplausible() {
+        assertFalse(plausible(11_900_000L, 411_700_000L, STOCKPILE),
+                "11.9M against a standing 411.7M is the leading digit falling off, not a spend");
+        assertTrue(plausible(411_900_000L, 411_700_000L, STOCKPILE),
+                "the same reading with its leading digit intact is an ordinary hour of gathering");
+    }
+
     /** Small piles move by large ratios for entirely ordinary reasons. */
     @Test
     void smallSpeedupMovesArePlausibleDespiteTheRatio() {

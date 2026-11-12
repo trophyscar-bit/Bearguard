@@ -54,6 +54,17 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 
 		int islandsCared = 0;
 		for (int i = 0; i < 4; i++) {
+			// Caring for an island travels to it on the world map and comes back to the map, not to
+			// this menu, so every pass after the first has to re-enter it. Without this the next
+			// attempts check taps the Caring tab coordinate while the world map is up, finds nothing,
+			// and reports the day's attempts as spent after a single island.
+			if (i > 0 && !navigateToLifeEssenceMenu()) {
+				logWarning("Could not return to the Life Essence menu after caring for " + islandsCared
+						+ " island(s). Retrying in " + retryOffsetMinutes + " minutes.");
+				reschedule(LocalDateTime.now().plusMinutes(retryOffsetMinutes));
+				return;
+			}
+
 			// Check if daily attempts are available
 			if (!checkDailyAttemptsAvailable()) {
 				closeAllMenus();
@@ -133,6 +144,26 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 
 		if (dailyAttemptIndicator.isFound()) {
 			logInfo("Daily caring attempt is available");
+			return true;
+		}
+
+		// A missing indicator is only evidence of an exhausted allowance if the Caring tab is really
+		// open. The tab is reached by a fixed tap, so any screen the routine did not expect produces
+		// the same empty read, and treating that as "spent" throws away the rest of the day. Re-enter
+		// the menu and look once more before believing it.
+		logInfo("Daily caring indicator not found. Re-entering the menu to tell an empty allowance"
+				+ " apart from the wrong screen.");
+		if (!navigateToLifeEssenceMenu()) {
+			logWarning("Could not re-enter the Life Essence menu, so the allowance is unknown rather"
+					+ " than spent.");
+			return false;
+		}
+
+		tapNear(CARING_TAB_BUTTON);
+		sleepTask(2000);
+		if (templateSearchHelper.locatePattern(TemplatesEnum.LIFE_ESSENCE_DAILY_CARING_AVAILABLE,
+				SearchConfig.builder().build()).isFound()) {
+			logInfo("Daily caring attempt is available after re-entering the menu");
 			return true;
 		}
 

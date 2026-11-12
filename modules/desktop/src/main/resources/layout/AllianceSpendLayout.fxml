@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<VBox maxHeight="Infinity" maxWidth="Infinity" HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
+      xmlns="http://javafx.com/javafx/17.0.12" xmlns:fx="http://javafx.com/fxml/1">
+    <children>
+        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="task-page-scroll"
+                    vbarPolicy="AS_NEEDED" VBox.vgrow="ALWAYS">
+            <content>
+                <VBox maxHeight="Infinity" maxWidth="Infinity" styleClass="task-page-root" VBox.vgrow="ALWAYS">
+                    <children>
+                        <VBox styleClass="content-card">
+                            <children>
+                                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                                    <children>
+                                        <Label text="Alliance Spend" />
+                                    </children>
+                                </HBox>
+                                <VBox styleClass="task-section-inner">
+                                    <children>
+                                        <Label styleClass="task-card-description"
+                                               text="Before the chest pass claims Alliance Gifts, scroll the whole list, photograph it and log every gift and who sent it. Runs inside Claim chests on the Alliance tab, so that must be on too. Output: data/alliance-spend/ (gifts.jsonl plus the photographs of each pass)."
+                                               wrapText="true" />
+                                        <Separator style="-fx-opacity: 0.25;" />
+
+                                        <VBox spacing="10" styleClass="task-subsection">
+                                            <children>
+                                                <Label styleClass="task-subsection-title" text="Gift Logging" />
+                                                <CheckBox fx:id="checkBoxSpendEnabled" mnemonicParsing="false" text="Log alliance gifts" />
+                                                <CheckBox fx:id="checkBoxSpendAnonymize" mnemonicParsing="false" text="Anonymise sender names (store a hash instead)" />
+                                                <HBox alignment="CENTER_LEFT" spacing="8">
+                                                    <children>
+                                                        <Label styleClass="task-field-label" text="Max scrolls per pass" />
+                                                        <TextField fx:id="textfieldSpendMaxScrolls" prefWidth="70" />
+                                                    </children>
+                                                </HBox>
+                                            </children>
+                                        </VBox>
+                                    </children>
+                                </VBox>
+                            </children>
+                        </VBox>
+                    </children>
+                </VBox>
+            </content>
+        </ScrollPane>
+    </children>
+</VBox>

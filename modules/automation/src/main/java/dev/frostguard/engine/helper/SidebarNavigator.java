@@ -123,8 +123,24 @@ public final class SidebarNavigator {
         if (bottomScan.rowIcon().isFound()) {
             return SidebarRowLookup.fromRow(bottomScan.rowIcon());
         }
+
+        // The panel keeps whatever scroll offset the previous routine left behind, so the row may
+        // well sit above the opening viewport. A downward-only scan can never reach it: the first
+        // swipe at the bottom boundary changes nothing, the scan calls that a finished list, and
+        // the destination is reported absent while it is on screen one swipe up. Scan back toward
+        // the top before concluding anything.
+        ScrollScanResult topScan = scan(destination, ScrollDirection.TOWARD_TOP, bottomScan.frame());
+        if (!topScan.completed()) {
+            log.warn("Sidebar scan did not complete on a verified " + destination.section()
+                    + " section: " + destination);
+            return SidebarRowLookup.sidebarUnavailable();
+        }
+        if (topScan.rowIcon().isFound()) {
+            return SidebarRowLookup.fromRow(topScan.rowIcon());
+        }
         log.info("Sidebar destination unavailable after bounded icon scan: " + destination
-                + " bottomBoundary=" + bottomScan.boundaryReached());
+                + " bottomBoundary=" + bottomScan.boundaryReached()
+                + " topBoundary=" + topScan.boundaryReached());
         return SidebarRowLookup.fromRow(ImageSearchResultData.miss());
     }
 
@@ -359,7 +375,9 @@ public final class SidebarNavigator {
 
     private enum ScrollDirection {
         TOWARD_BOTTOM(CommonGameAreas.SIDEBAR_SCROLL_TOWARD_BOTTOM_FROM,
-                CommonGameAreas.SIDEBAR_SCROLL_TOWARD_BOTTOM_TO);
+                CommonGameAreas.SIDEBAR_SCROLL_TOWARD_BOTTOM_TO),
+        TOWARD_TOP(CommonGameAreas.SIDEBAR_SCROLL_TOWARD_TOP_FROM,
+                CommonGameAreas.SIDEBAR_SCROLL_TOWARD_TOP_TO);
 
         private final PointData from;
         private final PointData to;

@@ -57,9 +57,33 @@ class CloseCrossDetectorTest {
     @Test
     void locatesObservedCrossStylesAcrossThemesAndPositions() throws IOException {
         assertNear("cross-offer-top-right.png", 610, 176);
+        assertNear("cross-charm-master-live-top-right.png", 610, 176);
         assertNear("cross-blue-top-right.png", 680, 40);
         assertNear("cross-orange-top-right.png", 665, 155);
         assertNear("cross-tip-middle-right.png", 635, 445);
+    }
+
+    @Test
+    void locatesCraftsmanStyleCrossWithSecondMaskedTemplate() throws IOException {
+        BufferedImage frame = read("cross-craftsman-top-right.png");
+        List<CloseCrossDetector.Detection> detections = CloseCrossDetector.locate(
+                frame, AreaData.of(540, 65, 719, 280));
+
+        assertTrue(detections.stream().anyMatch(candidate -> near(candidate.center(), 664, 229)),
+                () -> "Craftsman cross was not found: " + detections);
+    }
+
+    @Test
+    void locatesMyriadBazaarCrossInTheNewHighStartupBand() throws IOException {
+        BufferedImage frame = read("myriad-bazaar-high-close-control-20261017.png");
+
+        assertTrue(CloseCrossDetector.locate(frame, AreaData.of(540, 65, 719, 280)).isEmpty(),
+                "the former y=65 lower boundary must exclude Myriad's high close control");
+        List<CloseCrossDetector.Detection> detections = CloseCrossDetector.locate(
+                frame, AreaData.of(540, 20, 719, 280));
+
+        assertTrue(detections.stream().anyMatch(candidate -> near(candidate.center(), 680, 43)),
+                () -> "Myriad high close cross was not found: " + detections);
     }
 
     @Test
@@ -91,6 +115,13 @@ class CloseCrossDetectorTest {
     }
 
     @Test
+    void rejectsAllianceMenuWithoutCloseControl() throws IOException {
+        BufferedImage allianceMenu = read("alliance-menu-no-close-control.png");
+        List<CloseCrossDetector.Detection> detections = CloseCrossDetector.locate(allianceMenu, Region.HALF_RIGHT);
+        assertTrue(detections.isEmpty(), () -> "Alliance menu matched as a close cross: " + detections);
+    }
+
+    @Test
     void locatesCrossDirectlyFromRawEmulatorFrame() throws IOException {
         BufferedImage frame = read("cross-offer-top-right.png");
         List<CloseCrossDetector.Detection> detections = CloseCrossDetector.locate(
@@ -110,7 +141,7 @@ class CloseCrossDetectorTest {
         assertTrue(match != null,
                 () -> fixture + " expected a close cross near " + x + "," + y
                         + " but got " + detections);
-        assertTrue(match.score() >= 55.0);
+        assertTrue(match.score() >= 78.0);
         assertTrue(match.center().isWithin(match.bounds().topLeft(), match.bounds().bottomRight()));
         assertTrue(match.width() >= 30 && match.height() >= 30);
     }
