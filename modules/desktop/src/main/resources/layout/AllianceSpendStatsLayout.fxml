@@ -34,8 +34,8 @@
                     <TableColumn fx:id="colBuyer" prefWidth="220.0" text="Buyer" />
                     <TableColumn fx:id="colBuyerCount" prefWidth="90.0" text="Purchases" />
                     <TableColumn fx:id="colBuyerUsd" prefWidth="110.0" text="Total" />
-                    <TableColumn fx:id="colBuyerKnown" prefWidth="120.0" text="Known prices" />
-                    <TableColumn fx:id="colBuyerEst" prefWidth="140.0" text="Estimated (by tier)" />
+                    <TableColumn fx:id="colBuyerKnown" prefWidth="120.0" text="Exact" />
+                    <TableColumn fx:id="colBuyerEst" prefWidth="140.0" text="Estimated" />
                 </columns>
             </TableView>
         </VBox>
@@ -50,7 +50,6 @@
                     <TableColumn fx:id="colAt" prefWidth="130.0" text="Logged" />
                     <TableColumn fx:id="colWho" prefWidth="150.0" text="Buyer" />
                     <TableColumn fx:id="colPack" prefWidth="230.0" text="Pack" />
-                    <TableColumn fx:id="colTier" prefWidth="110.0" text="Gift" />
                     <TableColumn fx:id="colUsd" prefWidth="80.0" text="USD" />
                     <TableColumn fx:id="colSource" prefWidth="220.0" text="Price from" />
                 </columns>
@@ -60,7 +59,7 @@
         <TitledPane fx:id="paneUnpriced" text="Packs without a known price" expanded="false" styleClass="stat-titled-pane">
             <VBox spacing="6">
                 <Label styleClass="label-muted" wrapText="true"
-                       text="These are priced by gift tier until the deal scan sees them or a price is added to data/alliance-spend/pack-prices.json (pack name to USD)." />
+                       text="These are priced by the size of the gift they sent until the deal scan sees them or a price is added to data/alliance-spend/pack-prices.json (pack name to USD)." />
                 <Label fx:id="lblUnpriced" wrapText="true" />
             </VBox>
         </TitledPane>

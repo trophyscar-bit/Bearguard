@@ -2,9 +2,12 @@ package dev.frostguard.app.panel.misc;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import dev.frostguard.api.runtime.WorkspacePaths;
@@ -13,14 +16,19 @@ import dev.frostguard.engine.alliance.AllianceSpendReport.BuyerTotal;
 import dev.frostguard.engine.alliance.AllianceSpendReport.PriceSource;
 import dev.frostguard.engine.alliance.AllianceSpendReport.Purchase;
 import javafx.application.Platform;
+import javafx.beans.property.SimpleDoubleProperty;
+import javafx.beans.property.SimpleIntegerProperty;
+import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import javafx.util.Callback;
 
 /**
  * The Alliance Spend tab under Statistics: what the alliance bought through gift packs, read from
@@ -29,7 +37,7 @@ import javafx.scene.control.TableView;
  */
 public class AllianceSpendStatsController {
 
-    private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("MMM d HH:mm");
+    private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("MM/dd/yyyy");
 
     private static final Map<String, Integer> WINDOWS = new LinkedHashMap<>();
     static {
@@ -46,16 +54,15 @@ public class AllianceSpendStatsController {
     @FXML private Label lblUnpriced;
     @FXML private TableView<BuyerTotal> tableBuyers;
     @FXML private TableColumn<BuyerTotal, String> colBuyer;
-    @FXML private TableColumn<BuyerTotal, String> colBuyerCount;
-    @FXML private TableColumn<BuyerTotal, String> colBuyerUsd;
-    @FXML private TableColumn<BuyerTotal, String> colBuyerKnown;
-    @FXML private TableColumn<BuyerTotal, String> colBuyerEst;
+    @FXML private TableColumn<BuyerTotal, Number> colBuyerCount;
+    @FXML private TableColumn<BuyerTotal, Number> colBuyerUsd;
+    @FXML private TableColumn<BuyerTotal, Number> colBuyerKnown;
+    @FXML private TableColumn<BuyerTotal, Number> colBuyerEst;
     @FXML private TableView<Purchase> tablePurchases;
-    @FXML private TableColumn<Purchase, String> colAt;
+    @FXML private TableColumn<Purchase, Purchase> colAt;
     @FXML private TableColumn<Purchase, String> colWho;
     @FXML private TableColumn<Purchase, String> colPack;
-    @FXML private TableColumn<Purchase, String> colTier;
-    @FXML private TableColumn<Purchase, String> colUsd;
+    @FXML private TableColumn<Purchase, Double> colUsd;
     @FXML private TableColumn<Purchase, String> colSource;
 
     private AllianceSpendReport report;
@@ -63,19 +70,21 @@ public class AllianceSpendStatsController {
     @FXML
     private void initialize() {
         colBuyer.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().buyer()));
-        colBuyerCount.setCellValueFactory(c -> new SimpleStringProperty(String.valueOf(c.getValue().purchases())));
-        colBuyerUsd.setCellValueFactory(c -> new SimpleStringProperty(money(c.getValue().usd())));
-        colBuyerKnown.setCellValueFactory(c -> new SimpleStringProperty(money(c.getValue().knownUsd())));
-        colBuyerEst.setCellValueFactory(c -> new SimpleStringProperty(money(c.getValue().estimatedUsd())));
-        colAt.setCellValueFactory(c -> new SimpleStringProperty(
-                c.getValue().at().format(WHEN) + (c.getValue().backlog() ? " *" : "")));
+        colBuyerCount.setCellValueFactory(c -> new SimpleIntegerProperty(c.getValue().purchases()));
+        colBuyerUsd.setCellValueFactory(c -> new SimpleDoubleProperty(c.getValue().usd()));
+        colBuyerUsd.setCellFactory(shownAs(usd -> money(usd.doubleValue())));
+        colBuyerKnown.setCellValueFactory(c -> new SimpleDoubleProperty(c.getValue().knownUsd()));
+        colBuyerKnown.setCellFactory(shownAs(usd -> money(usd.doubleValue())));
+        colBuyerEst.setCellValueFactory(c -> new SimpleDoubleProperty(c.getValue().estimatedUsd()));
+        colBuyerEst.setCellFactory(shownAs(usd -> money(usd.doubleValue())));
+        colAt.setCellValueFactory(c -> new SimpleObjectProperty<>(c.getValue()));
+        colAt.setComparator(Comparator.comparing(Purchase::at));
+        colAt.setCellFactory(shownAs(AllianceSpendStatsController::logged));
         colWho.setCellValueFactory(c -> new SimpleStringProperty(
                 c.getValue().anonymous() || c.getValue().buyer() == null ? "(anonymous)" : c.getValue().buyer()));
         colPack.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().pack()));
-        colTier.setCellValueFactory(c -> new SimpleStringProperty(
-                c.getValue().tier() == null ? "?" : c.getValue().tier().replace("Alliance Gift ", "Tier ")));
-        colUsd.setCellValueFactory(c -> new SimpleStringProperty(
-                c.getValue().usd() == null ? "?" : money(c.getValue().usd())));
+        colUsd.setCellValueFactory(c -> new SimpleObjectProperty<>(c.getValue().usd()));
+        colUsd.setCellFactory(shownAs(usd -> usd == null ? "?" : money(usd)));
         colSource.setCellValueFactory(c -> new SimpleStringProperty(sourceLabel(c.getValue().source())
                 + (c.getValue().priceNote() == null ? "" : " (" + c.getValue().priceNote() + ")")));
 
@@ -122,27 +131,27 @@ public class AllianceSpendStatsController {
 
         double known = AllianceSpendReport.usd(shown, false);
         double estimated = AllianceSpendReport.usd(shown, true) - known;
-        lblHeadline.setText(shown.size() + " purchases · " + money(known) + " known + ~" + money(estimated) + " estimated");
+        lblHeadline.setText(shown.size() + " purchases · " + money(known) + " exact + ~" + money(estimated) + " estimated");
         lblPeriods.setText(periodLine("24h", report.since(now.minusDays(1)))
                 + "     " + periodLine("7 days", report.since(now.minusDays(7)))
                 + "     " + periodLine("30 days", report.since(now.minusDays(30))));
 
         long backlog = shown.stream().filter(Purchase::backlog).count();
         long unpriceable = AllianceSpendReport.unpriceable(shown);
-        StringBuilder note = new StringBuilder();
-        note.append("Known = a price file entry or the deal scan's price for that pack. Estimated = the pack sells at"
-                + " several prices (lowest that fits its gift tier is used) or the scan has not priced it"
-                + " (tier I $4.99, II $9.99, III $19.99, IV $49.99).");
+        List<String> notes = new ArrayList<>(List.of(
+                "Total = Exact + Estimated.",
+                "Exact: the pack's price is in the price file or the deal scan.",
+                "Estimated: no exact price, so it is guessed from the deal scan or from the size of the gift it sent."));
         if (unpriceable > 0) {
-            note.append(" ").append(unpriceable).append(" purchase(s) have no tier and no scanned price and are not in the totals.");
+            notes.add(unpriceable + " purchase(s) have no gift size and no scanned price and are not in the totals.");
         }
         if (report.unreadableLines() > 0) {
-            note.append(" ").append(report.unreadableLines()).append(" unreadable line(s) in gifts.jsonl were skipped.");
+            notes.add(report.unreadableLines() + " unreadable line(s) in gifts.jsonl were skipped.");
         }
         if (backlog > 0) {
-            note.append(" * ").append(backlog).append(" were already in the list when logging began, so their time is when they were first seen.");
+            notes.add("* " + backlog + " were already in the list when logging began, so their date is when they were first seen.");
         }
-        lblNote.setText(note.toString());
+        lblNote.setText(notes.stream().map(n -> "• " + n).collect(Collectors.joining("\n")));
 
         tableBuyers.setItems(FXCollections.observableArrayList(AllianceSpendReport.byBuyer(shown)));
         tablePurchases.setItems(FXCollections.observableArrayList(shown));
@@ -151,6 +160,22 @@ public class AllianceSpendStatsController {
         lblUnpriced.setText(unpriced.isEmpty() ? "None."
                 : unpriced.entrySet().stream().map(e -> e.getKey() + " (" + e.getValue() + ")")
                         .collect(Collectors.joining(", ")));
+    }
+
+    /** The day a purchase was logged, starred when it was already in the list as logging began. */
+    static String logged(Purchase purchase) {
+        return purchase.at().format(WHEN) + (purchase.backlog() ? " *" : "");
+    }
+
+    /** Shows a value as text while the column keeps sorting on the value itself, not on that text. */
+    private static <S, T> Callback<TableColumn<S, T>, TableCell<S, T>> shownAs(Function<T, String> text) {
+        return column -> new TableCell<>() {
+            @Override
+            protected void updateItem(T item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty ? null : text.apply(item));
+            }
+        };
     }
 
     private static String periodLine(String label, List<Purchase> list) {
@@ -166,7 +191,7 @@ public class AllianceSpendStatsController {
             case OPERATOR -> "price file";
             case DEAL_SCAN -> "deal scan";
             case SCAN_RANGE -> "estimate: scan range";
-            case TIER_ESTIMATE -> "estimate: tier";
+            case TIER_ESTIMATE -> "estimate: gift size";
             case NONE -> "-";
         };
     }
