@@ -727,6 +727,30 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         return id == null ? 0L : id;
     }
 
+    private static final String NAV_TITLE_KEY = "navTitle";
+
+    /** Sorts the buttons inside each sidebar group alphabetically; the group labels stay where they are. */
+    private void sortNavGroups() {
+        java.util.List<Node> sorted = new java.util.ArrayList<>();
+        java.util.List<Button> run = new java.util.ArrayList<>();
+        Runnable flush = () -> {
+            run.sort(java.util.Comparator.comparing(
+                    (Button b) -> String.valueOf(b.getProperties().get(NAV_TITLE_KEY)), NavOrder.BY_NAME));
+            sorted.addAll(run);
+            run.clear();
+        };
+        for (Node child : buttonsContainer.getChildren()) {
+            if (child instanceof Button button && button.getProperties().containsKey(NAV_TITLE_KEY)) {
+                run.add(button);
+            } else {
+                flush.run();
+                sorted.add(child);
+            }
+        }
+        flush.run();
+        buttonsContainer.getChildren().setAll(sorted);
+    }
+
     private void addNavGroupLabel(String text) {
         Label label = new Label(text);
         label.getStyleClass().add("nav-group-label");
@@ -988,6 +1012,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         installTabbedHub("Economy", MaterialDesignC.CASH_MULTIPLE, economyOrder, economyRoots);
         installTabbedHub("Troops", MaterialDesignS.SHIELD_OUTLINE, troopsOrder, troopsRoots);
         installTabbedHub("Account", MaterialDesignA.ACCOUNT_OUTLINE, accountOrder, accountRoots);
+        configTabs.getTabs().sort(java.util.Comparator.comparing(Tab::getText, NavOrder.BY_NAME));
         configTabs.getTabs().forEach(tab -> indexTab(configButton, configTabs, tab, tab.getText(),
                 MaterialDesignT.TUNE, tab.getContent() == settingsPages.get("Chat")
                         ? settingsOf(moduleControllers.get("Chat"), settingsPages.get("Chat")) : Map.of()));
@@ -996,6 +1021,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         todayController.attachSettings(moduleControllers, settingsPages, moduleControllers.get("Events"), customTasksCtrl);
 
         profileManagerLayoutController.addProfileLoadListener(this);
+        sortNavGroups();
     }
 
     /**
@@ -1047,10 +1073,11 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         installHub("Events", MaterialDesignC.CALENDAR_STAR, flatEntries);
     }
 
-    private void installHub(String hubName, Ikon icon, java.util.LinkedHashMap<String, Parent> entries) {
-        if (entries.isEmpty()) {
+    private void installHub(String hubName, Ikon icon, java.util.LinkedHashMap<String, Parent> unsortedEntries) {
+        if (unsortedEntries.isEmpty()) {
             return;
         }
+        final java.util.LinkedHashMap<String, Parent> entries = NavOrder.sortedByKey(unsortedEntries);
         SideNav nav = buildSideNav(entries);
         onShowActions.put(nav.root(), nav.reattach());
         Button hubButton = createAndConfigureButton(hubName, icon, nav.root(), String.valueOf(entries.size()));
@@ -2011,6 +2038,7 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
         button.setGraphic(content);
         button.setMaxWidth(Double.MAX_VALUE);
         button.getStyleClass().add("nav-button");
+        button.getProperties().put(NAV_TITLE_KEY, title);
 
         button.setOnAction(e -> {
             hideSearchOverlay();

@@ -593,7 +593,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         return tasksByKey.values().stream()
                 .filter(task -> task.name().toLowerCase(Locale.ROOT).contains(wanted))
                 .sorted(Comparator.comparing((Task task) -> !task.name().toLowerCase(Locale.ROOT).startsWith(wanted))
-                        .thenComparing(Task::name))
+                        .thenComparing(Task::name, dev.frostguard.app.panel.launcher.NavOrder.BY_NAME))
                 .limit(MAX_SEARCH_RESULTS)
                 .map(task -> new TodaySearchBar.Hit(task.key(), task.name(), searchState(task, now),
                         rowsByKey.get(task.key()).isScheduled(), runDecision(task, rowsByKey.get(task.key()))))

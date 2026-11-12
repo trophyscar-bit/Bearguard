@@ -51,6 +51,7 @@ public class DawnAcademyLayoutController extends AbstractProfileController {
         for (ExpertSkillItemEnum.Expert expert : ExpertSkillItemEnum.Expert.values()) {
             comboGiftExpert.getItems().add(expert.name());
         }
+        comboGiftExpert.getItems().sort(dev.frostguard.app.panel.launcher.NavOrder.BY_NAME);
         comboBoxMappings.put(comboGiftExpert, ConfigurationKeyEnum.DAWN_ACADEMY_GIFT_EXPERT_STRING);
         registerPriorityList(skillPriorities, ConfigurationKeyEnum.EXPERT_SKILL_TRAINING_PRIORITIES_STRING,
                 ExpertSkillItemEnum.class);
