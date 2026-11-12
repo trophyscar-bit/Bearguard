@@ -357,6 +357,9 @@ public final class CommonGameAreas {
     public static final AreaData PROFILE_SETTINGS_SWITCH_CHARACTER_CONFIRM_DIALOG_NAME_OCR_AREA =
             region(170, 650, 550, 700);
 
+    /** "The Labyrinth" title on the zone map: the positive anchor that the map is showing. */
+    public static final AreaData LABYRINTH_MAP_TITLE = region(85, 18, 365, 64);
+
     // ── character name above furnace template (relative offsets) ─────
 
     public static final int CHARACTER_NAME_ABOVE_FURNACE_TOP_OFFSET_Y    = 60;

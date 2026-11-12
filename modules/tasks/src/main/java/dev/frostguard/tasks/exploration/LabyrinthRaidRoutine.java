@@ -9,12 +9,17 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
+import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
+import dev.frostguard.engine.nav.CommonGameAreas;
+import dev.frostguard.engine.nav.CommonOCRSettings;
+import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
@@ -56,17 +61,15 @@ public class LabyrinthRaidRoutine extends DelayedTask {
     private static final int ACTION_SETTLE_MS = 800;
     private static final int MAX_RAID_CLAIMS_PER_ZONE = 15;
 
-    // -- Left-menu entry point (same panel Life Essence/Monument already use) --
-    private static final PointData LEFT_MENU_SCROLL_START = new PointData(220, 700);
-    private static final PointData LEFT_MENU_SCROLL_END = new PointData(220, 300);
-    /** Whichever Labyrinth-zone row is currently showing in the collapsed panel -- tapping it
-     *  opens the SAME "The Labyrinth" hub map regardless of which zone the row itself names. */
-    private static final PointData LABYRINTH_ROW_ICON = new PointData(404, 836);
-
-    // -- Labyrinth hub map (both zones visible at once) --
-    private static final PointData RESEARCH_CENTER_BUILDING = new PointData(157, 700);
-    private static final PointData GEAR_FORGE_BUILDING = new PointData(578, 780);
+    // -- Labyrinth hub map --
+    // Both zones are found by the same banner templates DailyLabyrinthRoutine uses (dungeons 4 and 5),
+    // not fixed points: they are only on the map on their open days (Friday and Saturday). On saved
+    // frames the banners score 93.7-100 where shown and at most 71.3 on other days' maps. The old
+    // blind left-menu tap landed on a hero screen on 2026-11-12 and OCR'd its skills bar as 'a'.
+    static final TemplatesEnum RESEARCH_CENTER_BANNER = TemplatesEnum.LABYRINTH_DUNGEON_4;
+    static final TemplatesEnum GEAR_FORGE_BANNER = TemplatesEnum.LABYRINTH_DUNGEON_5;
     private static final PointData HUB_BACK_ARROW = new PointData(44, 40);
+    private static final int NAV_FAILED_RETRY_HOURS = 1;
 
     // -- Zone screen (Research Center / Gear Forge -- identical layout, different skin) --
     private static final PointData ZONE_CLOSE_X = new PointData(682, 40);
@@ -471,11 +474,17 @@ public class LabyrinthRaidRoutine extends DelayedTask {
 
     @Override
     protected void execute() {
-        navigateToLabyrinthHub();
+        if (!navigateToLabyrinthHub()) {
+            saveRaidFrame("Labyrinth map", "not_reached");
+            logWarning(logLine("did not reach the Labyrinth map (no 'The Labyrinth' title on screen); "
+                    + "tapping nothing and retrying in " + NAV_FAILED_RETRY_HOURS + " hour (fallback)."));
+            reschedule(LocalDateTime.now().plusHours(NAV_FAILED_RETRY_HOURS));
+            return;
+        }
 
         int totalClaimed = 0;
-        totalClaimed += raidZone("Research Center", RESEARCH_CENTER_BUILDING);
-        totalClaimed += raidZone("Gear Forge", GEAR_FORGE_BUILDING);
+        totalClaimed += raidZone("Research Center", RESEARCH_CENTER_BANNER);
+        totalClaimed += raidZone("Gear Forge", GEAR_FORGE_BANNER);
 
         tapWithJitter(HUB_BACK_ARROW);
         sleepTask(ACTION_SETTLE_MS);
@@ -486,13 +495,14 @@ public class LabyrinthRaidRoutine extends DelayedTask {
         reschedule(LocalDateTime.now().plusHours(IDLE_RECHECK_HOURS));
     }
 
-    private void navigateToLabyrinthHub() {
-        marchHelper.openLeftMenuCitySection(true);
-        sleepTask(500);
-        swipe(LEFT_MENU_SCROLL_START, LEFT_MENU_SCROLL_END);
-        sleepTask(700);
-        tapWithJitter(LABYRINTH_ROW_ICON);
+    private boolean navigateToLabyrinthHub() {
+        if (!navigationHelper.navigateToLabyrinth()) {
+            return false;
+        }
         sleepTask(PANEL_SETTLE_MS);
+        return CommonOCRSettings.isLabyrinthMapTitle(readStringValue(
+                CommonGameAreas.LABYRINTH_MAP_TITLE.topLeft(), CommonGameAreas.LABYRINTH_MAP_TITLE.bottomRight(),
+                CommonOCRSettings.LABYRINTH_MAP_LABEL_SETTINGS));
     }
 
     /**
@@ -528,8 +538,15 @@ public class LabyrinthRaidRoutine extends DelayedTask {
         }
     }
 
-    private int raidZone(String zoneName, PointData buildingPoint) {
-        tapWithJitter(buildingPoint);
+    private int raidZone(String zoneName, TemplatesEnum banner) {
+        ImageSearchResultData zone = templateSearchHelper.locatePattern(
+                banner, SearchConfigConstants.SINGLE_WITH_2_RETRIES);
+        if (!zone.isFound()) {
+            logInfo(logLine(zoneName + ": not on the Labyrinth map now (it opens Friday and Saturday); "
+                    + "skipping it without tapping."));
+            return 0;
+        }
+        tapInside(zone);
         sleepTask(PANEL_SETTLE_MS);
 
         int claimed = 0;

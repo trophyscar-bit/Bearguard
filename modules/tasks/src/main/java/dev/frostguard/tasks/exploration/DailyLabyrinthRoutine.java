@@ -12,6 +12,8 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.engine.input.TapJitterPolicy;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
+import dev.frostguard.engine.nav.CommonGameAreas;
+import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.vision.ocr.OcrEngine;
@@ -152,14 +154,6 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final PointData GAIA_ZONE_BANNER = new PointData(300, 1030);
     private static final PointData GAIA_ZONE_LABEL_TL = new PointData(140, 1005);
     private static final PointData GAIA_ZONE_LABEL_BR = new PointData(460, 1080);
-    /** White label text over the map/banner. */
-    private static final OcrSettingsData ZONE_LABEL_SETTINGS =
-            OcrSettingsData.assembler()
-                    .charWhitelist("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 :")
-                    .textLayout(TextLayout.SINGLE_LINE)
-                    .stripBackground(true)
-                    .setTextColor(new java.awt.Color(255, 255, 255))
-                    .build();
 
     // -- Squad Config screen --
     /** "Quick Deploy" button on the Squad Config screen (auto-fills heroes + troops IN PLACE).
@@ -402,11 +396,6 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     private static final java.util.regex.Pattern SCOUT_ROW = java.util.regex.Pattern.compile(
             "([0-9]+(?:\\.[0-9]+)?)\\s*%?\\s*(Infantry|Lancer|Marksman)\\s+(Attack|Defense|Lethality|Health)\\s*\\+?\\s*([0-9]+(?:\\.[0-9]+)?)\\s*%?",
             java.util.regex.Pattern.CASE_INSENSITIVE);
-
-    /** "The Labyrinth" title on the zone map -- how we confirm we're back on the map between zones. */
-    private static final PointData MAP_ANCHOR_TL = new PointData(85, 18);
-    private static final PointData MAP_ANCHOR_BR = new PointData(365, 64);
-    private static final String    MAP_ANCHOR_TEXT = "labyrinth";
 
     // Stage screen: the "Challenge" button (white text, blue button).
     private static final PointData STAGE_ANCHOR_TL = new PointData(255, 1195);
@@ -1371,19 +1360,23 @@ public class DailyLabyrinthRoutine extends DelayedTask {
      */
     private void returnToLabyrinthMap(String tag) {
         for (int i = 0; i < 4; i++) {
-            String title = readStringValue(MAP_ANCHOR_TL, MAP_ANCHOR_BR, ZONE_LABEL_SETTINGS);
-            if (title != null && title.toLowerCase(java.util.Locale.ROOT).contains(MAP_ANCHOR_TEXT)) {
+            if (CommonOCRSettings.isLabyrinthMapTitle(readMapTitle())) {
                 return;
             }
             pressBack();
             sleepTask(LABYRINTH_LOAD_DELAY);
         }
-        String title = readStringValue(MAP_ANCHOR_TL, MAP_ANCHOR_BR, ZONE_LABEL_SETTINGS);
-        if (title == null || !title.toLowerCase(java.util.Locale.ROOT).contains(MAP_ANCHOR_TEXT)) {
+        String title = readMapTitle();
+        if (!CommonOCRSettings.isLabyrinthMapTitle(title)) {
             logWarning(tag + ": couldn't get back to the Labyrinth map after 4 back presses (title "
                     + "reads '" + title + "'). Remaining zones this pass will likely be skipped by "
                     + "their own label check, which is the safe outcome.");
         }
+    }
+
+    private String readMapTitle() {
+        return readStringValue(CommonGameAreas.LABYRINTH_MAP_TITLE.topLeft(),
+                CommonGameAreas.LABYRINTH_MAP_TITLE.bottomRight(), CommonOCRSettings.LABYRINTH_MAP_LABEL_SETTINGS);
     }
 
     private void setupZoneFormation(ZoneFormation zone) {
@@ -1398,7 +1391,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
 
         // Enter the zone by reading its map label (the documented rule): a LOCKED zone's line reads
         // "Opens in …"; an OPEN zone shows just name + countdown. Only tap the banner if it's open.
-        String zoneLabel = readStringValue(zone.labelTl(), zone.labelBr(), ZONE_LABEL_SETTINGS);
+        String zoneLabel = readStringValue(zone.labelTl(), zone.labelBr(), CommonOCRSettings.LABYRINTH_MAP_LABEL_SETTINGS);
         logInfo(tag + ": label OCR = '" + zoneLabel + "'.");
 
         // This gate was "if the label says 'Opens in' it's locked, OTHERWISE it's

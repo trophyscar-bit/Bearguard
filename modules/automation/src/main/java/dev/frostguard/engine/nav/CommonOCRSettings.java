@@ -21,6 +21,20 @@ public final class CommonOCRSettings {
     private static final String LATIN_LETTERS =
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ";
 
+    // White title and zone-label text over the Labyrinth map.
+    public static final OcrSettingsData LABYRINTH_MAP_LABEL_SETTINGS =
+            OcrSettingsData.builder()
+                    .textLayout(TextLayout.SINGLE_LINE)
+                    .isolateForeground(true)
+                    .targetColor(new Color(255, 255, 255))
+                    .allowedGlyphs("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 :")
+                    .build();
+
+    /** True when a read of {@link CommonGameAreas#LABYRINTH_MAP_TITLE} names the Labyrinth map. */
+    public static boolean isLabyrinthMapTitle(String title) {
+        return title != null && title.toLowerCase(java.util.Locale.ROOT).contains("labyrinth");
+    }
+
     // Shop labels can wrap to multiple lines and selected/unselected tabs use different colours.
     public static final OcrSettingsData SHOP_TAB_TEXT_SETTINGS =
             OcrSettingsData.builder()
