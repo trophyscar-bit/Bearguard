@@ -86,6 +86,7 @@ public class WanderTheaterRoutine extends DelayedTask {
     static final int PROTECTED_COST = 5;
     private static final int MAX_ROUNDS = 12;
     private static final int SELECT_POLLS = 20;
+    private static final long CONFIRM_SETTLE_MS = 5000;
     /** The name the State calendar stores this event under, for the gate to find its window. */
     static final String CALENDAR_EVENT_NAME = "Wander Theater";
 
@@ -288,7 +289,14 @@ public class WanderTheaterRoutine extends DelayedTask {
                 break;
             }
             tapNear(FLOOR_ONE_PROTECTED, 6);
-            if (!awaitSelect()) {
+            boolean landed = awaitSelect();
+            if (!landed && rollNeverStarted(before)) {
+                // On 2026-11-12 the tap 3 s after a Confirm was swallowed: still Floor 1, no Talismans spent.
+                logInfo("Wander Theater: the Floor-1 roll did not start; tapping Protected Exploration again.");
+                tapNear(FLOOR_ONE_PROTECTED, 6);
+                landed = awaitSelect();
+            }
+            if (!landed) {
                 logWarning("Wander Theater: the Floor-1 Protected Exploration did not land on a floor with a reward.");
                 break;
             }
@@ -301,6 +309,15 @@ public class WanderTheaterRoutine extends DelayedTask {
             logInfo("Wander Theater: cashed out " + rounds + " round" + (rounds == 1 ? "" : "s") + " for Wonderstar Coins.");
             StatisticsService.obtain().addToCounter(profile, "Wander Theater Rounds Cashed", rounds);
         }
+    }
+
+    /** Still on Floor 1 with the same Talisman count: the Protected tap never started a roll. */
+    private boolean rollNeverStarted(int before) {
+        if (!found(TemplatesEnum.WANDER_THEATER_FLOOR_ONE, FLOOR_ONE_TOP_LEFT, FLOOR_ONE_BOTTOM_RIGHT)) {
+            return false;
+        }
+        Integer now = readTalismans();
+        return now != null && now == before;
     }
 
     /** Two boxes that must agree, so a misread never spends Talismans that are not there. */
@@ -374,7 +391,8 @@ public class WanderTheaterRoutine extends DelayedTask {
             return false;
         }
         tapNear(DIALOG_CONFIRM, 6);
-        sleepTask(3000);
+        // The round's reward and the drop back to Floor 1 play out after Confirm; 3 s was not always enough.
+        sleepTask(CONFIRM_SETTLE_MS);
         return true;
     }
 
