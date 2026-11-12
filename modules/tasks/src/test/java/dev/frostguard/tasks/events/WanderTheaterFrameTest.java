@@ -27,7 +27,7 @@ import dev.frostguard.vision.ocr.OcrEngine;
 
 /**
  * Live 720x1280 captures of Wander Theater from 2026-11-09: the Wanderer Missions tab with the troop
- * mission claimable, the same tab right after that claim, the theater page (tutorial and Floor 2), and
+ * mission claimable, the same tab right after that claim, the theater page (Floors 1 to 3), and
  * the City rail with the event icon. The rail frame is blacked out except around the icon, because the
  * world map shows other players.
  */
@@ -84,7 +84,7 @@ class WanderTheaterFrameTest {
 
     @Test
     void titlesIdentifyTheEventAndTheMissionsTab() throws Exception {
-        assertTrue(find("theater-tutorial.png", TemplatesEnum.WANDER_THEATER_TITLE).isFound());
+        assertTrue(find("theater-floor1.png", TemplatesEnum.WANDER_THEATER_TITLE).isFound());
         assertTrue(find("theater-floor2.png", TemplatesEnum.WANDER_THEATER_TITLE).isFound());
         assertTrue(find("missions-claimable.png", TemplatesEnum.WANDER_THEATER_TITLE).isFound());
         assertTrue(find("missions-claimed-one.png", TemplatesEnum.WANDER_THEATER_MISSIONS_TITLE).isFound());
