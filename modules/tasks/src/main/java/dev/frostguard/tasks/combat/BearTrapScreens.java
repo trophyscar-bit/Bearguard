@@ -23,6 +23,8 @@ final class BearTrapScreens {
 
     /** The tile popup over the world map. The chat ticker below 1100 is left out on purpose. */
     static final AreaData MAP_POPUP_TEXT = new AreaData(new PointData(100, 150), new PointData(620, 1100));
+    /** The "Marching 6/6" panel down the left of the world map. */
+    static final AreaData MARCH_PANEL_TEXT = new AreaData(new PointData(0, 200), new PointData(260, 300));
     /** The coordinate bar above the bottom menu on the world map. */
     static final AreaData MAP_COORDINATE_BAR = new AreaData(new PointData(150, 1040), new PointData(520, 1100));
 
@@ -34,7 +36,11 @@ final class BearTrapScreens {
     private static final Pattern TRAP_TITLE = Pattern.compile("hunt\\w*\\s*trap\\s*([0-9Il|!])", Pattern.CASE_INSENSITIVE);
     // White coordinates over artwork read as "K:786. Y:236" or "x:.752 Y:234", so X may come back as K.
     private static final Pattern MAP_COORDS = Pattern.compile("[xk]\\W{0,3}(\\d{2,4})\\D{0,3}y\\W{0,3}(\\d{2,4})", Pattern.CASE_INSENSITIVE);
-    private static final Pattern RAGING_BEAR = Pattern.compile("lv\\W{0,2}\\s*\\d+\\s*raging\\s*bear", Pattern.CASE_INSENSITIVE);
+    // The level prefix is optional and loose: the popup's "Lv. 1" was read as "Ly. 1" on Nov 12 and a
+    // popup that was really open got rejected. The chat line "Rally and defeat Raging Bear" has no
+    // number before it, so it still does not match.
+    private static final Pattern RAGING_BEAR = Pattern.compile("(?:l\\w?\\W{0,2}\\s*)?\\d+\\s*raging\\s*bear", Pattern.CASE_INSENSITIVE);
+    private static final Pattern MARCH_QUEUE = Pattern.compile("march\\w*\\W{0,3}\\s*(\\d)\\s*/\\s*(\\d)", Pattern.CASE_INSENSITIVE);
     private static final Pattern NOT_ELIGIBLE = Pattern.compile("eligib|inelig", Pattern.CASE_INSENSITIVE);
     private static final Pattern BATTLE_SKILLS = Pattern.compile("use\\s*all\\s*available\\s*battle\\s*skill", Pattern.CASE_INSENSITIVE);
 
@@ -85,6 +91,15 @@ final class BearTrapScreens {
     /** True for the bear's own popup ("Lv. 1 Raging Bear"); the chat "Rally and defeat Raging Bear" is not it. */
     static boolean isRagingBearPopup(List<TextLine> lines) {
         return anyMatches(lines, RAGING_BEAR);
+    }
+
+    /** True when the "Marching 6/6" panel on the map shows every march slot in use. */
+    static boolean marchQueueFull(List<TextLine> lines) {
+        for (TextLine line : lines) {
+            java.util.regex.Matcher m = MARCH_QUEUE.matcher(line.text());
+            if (m.find() && m.group(1).equals(m.group(2)) && !"0".equals(m.group(1))) return true;
+        }
+        return false;
     }
 
     /** The game refusing a rally because this account already took part in this bear. */

@@ -84,6 +84,17 @@
                             <ComboBox fx:id="comboRunAt" prefWidth="160" minWidth="160" maxWidth="160" styleClass="sq-combo" />
                         </HBox>
                     </HBox>
+                    <Region styleClass="sq-divider" />
+                    <HBox styleClass="sq-row" spacing="16">
+                        <VBox spacing="4" HBox.hgrow="ALWAYS" minWidth="0">
+                            <Label text="Troops per join" styleClass="sq-label" />
+                            <Label text="How many troops each Bear Trap join march sends. One march carries about 101,400 at most." wrapText="true" styleClass="sq-caption" />
+                            <Label fx:id="messagePerJoin" wrapText="true" styleClass="sq-caption" visible="false" managed="false" />
+                        </VBox>
+                        <HBox prefWidth="160" minWidth="160" maxWidth="160" alignment="CENTER_RIGHT">
+                            <TextField fx:id="fieldPerJoin" prefWidth="160" minWidth="160" maxWidth="160" />
+                        </HBox>
+                    </HBox>
                     <CheckBox fx:id="checkNightly" visible="false" managed="false" />
                 </VBox>
             </VBox>

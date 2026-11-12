@@ -139,6 +139,9 @@ private static final OcrSettingsData WHITE_TEXT_OCR = OcrSettingsData.builder()
             .isolateForeground(true).targetColor(java.awt.Color.WHITE).build();
 
 private static final PointData BEAR_CENTER_POINT_VALUE = new PointData(370, 507);
+// Where to tap for the bear when the first tap opens nothing: the bear's body and a little around it.
+private static final List<PointData> BEAR_TAP_POINTS = List.of(BEAR_CENTER_POINT_VALUE,
+        new PointData(395, 470), new PointData(340, 525), new PointData(430, 530));
 
 
 private static final PointData AUTOJOIN_BUTTON_TL_VALUE = new PointData(260, 1200);
@@ -224,6 +227,7 @@ public BearTrapRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
 
 @Override
     protected void execute() {
+        endShownByGame = null;
         hydrateConfiguration();
 
 
@@ -240,7 +244,15 @@ public BearTrapRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
             if (isVisuallyTriggered) {
                 logInfo(routineLogBearTrapLine("Task was Visually Triggered! Bypassing scheduled configuration and forcing 30-minute Active execution."));
                 LocalDateTime now = LocalDateTime.now(ZoneId.of("UTC"));
-                timing = new TrapTimingShape(now, now, now.plusMinutes(TRAP_DURATION_MINUTES_VALUE));
+                LocalDateTime scheduledActivation = null;
+                try {
+                    scheduledActivation = computeTrapTiming().activationTime;
+                } catch (RuntimeException e) {
+                    logDebug(routineLogBearTrapLine("No scheduled window to take the end from: " + e.getMessage()));
+                }
+                // Not "now + 30": a restart mid-bear would then outstay the game's bear.
+                timing = new TrapTimingShape(now, now,
+                        BearTrapEnd.restartedEnd(now, scheduledActivation, TRAP_DURATION_MINUTES_VALUE));
             } else {
                 timing = computeTrapTiming();
                 logTrapTimingFlow(timing);
@@ -472,11 +484,11 @@ private void performTrapActivePhase(LocalDateTime trapEndTime) {
         LocalDateTime now = LocalDateTime.now(ZoneId.of("UTC"));
         long iterationCount = 0;
 
-        while (now.isBefore(trapEndTime)) {
+        while (now.isBefore(endOf(trapEndTime))) {
             checkPreemption();
 
             iterationCount++;
-            long secondsRemaining = ChronoUnit.SECONDS.between(now, trapEndTime);
+            long secondsRemaining = ChronoUnit.SECONDS.between(now, endOf(trapEndTime));
 
             tryStartOwnRallyFlow(secondsRemaining);
             handleJoinRallies2(trapEndTime);
@@ -814,6 +826,24 @@ private void handleJoinRallies2(LocalDateTime trapEndTime) {
         }
     }
 
+// The end the game itself showed on the bear (UTC), once read; never later than the planned end.
+private volatile LocalDateTime endShownByGame;
+
+private LocalDateTime endOf(LocalDateTime planned) {
+        return BearTrapEnd.earliest(planned, endShownByGame);
+    }
+
+private void learnEndFromScreen(List<dev.frostguard.vision.ocr.TextLine> lines) {
+        BearTrapEnd.endsIn(lines).ifPresent(left -> {
+            LocalDateTime end = LocalDateTime.now(ZoneId.of("UTC")).plus(left);
+            LocalDateTime before = endShownByGame;
+            endShownByGame = end;
+            if (before == null || Math.abs(Duration.between(before, end).getSeconds()) > 60) {
+                logInfo(routineLogBearTrapLine("The game's bear ends at " + end + " UTC (" + left.toMinutes() + " min left)."));
+            }
+        });
+    }
+
 private void returnToMapAfterJoinError() {
         try {
             navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
@@ -825,10 +855,11 @@ private void returnToMapAfterJoinError() {
 // Stays on the War screen so a newly opened rally is taken at once. It leaves only to refresh the
 // list: after a stretch with no rallies showing, and at the session limit.
 private void runJoinSession(LocalDateTime trapEndTime) {
+        joinListScroller.reset();
         Instant sessionStart = Instant.now();
         Instant lastRallySeen = sessionStart;
 
-        while (LocalDateTime.now(ZoneId.of("UTC")).isBefore(trapEndTime)
+        while (LocalDateTime.now(ZoneId.of("UTC")).isBefore(endOf(trapEndTime))
                 && Duration.between(sessionStart, Instant.now()).getSeconds() < JOIN_SESSION_LIMIT_SECONDS_VALUE) {
             checkPreemption();
 
@@ -850,8 +881,27 @@ private void runJoinSession(LocalDateTime trapEndTime) {
                     && Duration.between(lastRallySeen, Instant.now()).getSeconds() >= JOIN_NO_RALLY_REENTRY_SECONDS_VALUE) {
                 return;
             }
+            scrollJoinList(joinListScroller.afterNothingToJoin());
             sleepTask(JOIN_SCAN_IDLE_MS_VALUE);
         }
+    }
+
+private final BearJoinListScroller joinListScroller = new BearJoinListScroller();
+
+// The War list is a plain vertical list; a swipe up moves it down. The coordinates are the middle of
+// the list area; they have not been checked against a War-screen frame (none was saved on Nov 12).
+private static final PointData JOIN_LIST_SWIPE_LOW = new PointData(360, 900);
+private static final PointData JOIN_LIST_SWIPE_HIGH = new PointData(360, 480);
+
+private void scrollJoinList(BearJoinListScroller.Move move) {
+        if (move == BearJoinListScroller.Move.DOWN) {
+            swipe(JOIN_LIST_SWIPE_LOW, JOIN_LIST_SWIPE_HIGH, 600);
+        } else {
+            for (int i = 0; i < BearJoinListScroller.MAX_STEPS_DOWN; i++) {
+                swipe(JOIN_LIST_SWIPE_HIGH, JOIN_LIST_SWIPE_LOW, 400);
+            }
+        }
+        sleepTask(500);
     }
 
 private List<PointData> locateOpenRallies() {
@@ -1393,10 +1443,20 @@ private long beginOwnRally() {
             return 0;
         }
 
-        tapInside(BEAR_CENTER_POINT_VALUE, BEAR_CENTER_POINT_VALUE, 1, 200);
-        sleepTask(800);
-
-        List<dev.frostguard.vision.ocr.TextLine> popup = readScreenText(BearTrapScreens.MAP_POPUP_TEXT);
+        // The popup slides in over about a second and the camera may sit a little off the bear, so
+        // the first tap is not trusted: read for the popup, and tap a little around the bear if it
+        // is not there (Nov 12: the popup was read before it had finished opening).
+        List<dev.frostguard.vision.ocr.TextLine> popup = List.of();
+        for (PointData tap : BEAR_TAP_POINTS) {
+            tapInside(tap, tap, 1, 200);
+            for (int look = 0; look < 4; look++) {
+                sleepTask(look == 0 ? 800 : 500);
+                popup = readScreenText(BearTrapScreens.MAP_POPUP_TEXT);
+                if (BearTrapScreens.isRagingBearPopup(popup) || BearTrapScreens.saysNotEligible(popup)) break;
+            }
+            if (BearTrapScreens.isRagingBearPopup(popup) || BearTrapScreens.saysNotEligible(popup)) break;
+        }
+        learnEndFromScreen(popup);
         if (BearTrapScreens.saysNotEligible(popup)) {
             markOwnRallyNotEligible("own-rally-not-eligible");
             return 0;
@@ -1458,6 +1518,13 @@ private long beginOwnRally() {
 
         if (!holdRallyButton.isFound()) {
             saveJoinDiagnostic("own-rally-no-hold");
+            // Every march busy (joins use them all) leaves the popup up and the Rally tap does nothing.
+            if (BearTrapScreens.marchQueueFull(readScreenText(BearTrapScreens.MARCH_PANEL_TEXT))) {
+                logWarning(routineLogBearTrapLine("All marches are busy, so the own rally cannot start yet; it will retry when one returns."));
+                navigationHelper.ensureCorrectScreenLocation(LaunchPoint.ANY);
+                ownRallyActive.set(false);
+                return 0;
+            }
             if (BearTrapScreens.saysNotEligible(readScreenText(WHOLE_MAP_TEXT_AREA))) {
                 markOwnRallyNotEligible("own-rally-not-eligible");
                 return 0;

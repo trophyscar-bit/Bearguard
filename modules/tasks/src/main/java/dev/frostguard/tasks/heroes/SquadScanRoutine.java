@@ -1,5 +1,8 @@
 package dev.frostguard.tasks.heroes;
 
+import dev.frostguard.engine.squads.JoinSizing;
+import dev.frostguard.engine.squads.JoinPlanStore;
+import dev.frostguard.engine.diagnostics.DiagnosticSnapshotStore;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -144,6 +147,7 @@ public final class SquadScanRoutine extends DelayedTask {
                     + (troops == null ? "no" : troops.stocks().size()) + " troop lines, "
                     + squads.stream().filter(s -> s.state() == SavedSquad.State.SAVED).count()
                     + " saved squads, " + problems.size() + " problem(s)");
+            storeJoinPlan(snapshot);
             publish(SquadScanRegistry.State.SUCCEEDED, "Scan complete", snapshot);
         } catch (RuntimeException | IOException e) {
             publish(SquadScanRegistry.State.FAILED, e.getMessage(), null);
@@ -419,19 +423,105 @@ public final class SquadScanRoutine extends DelayedTask {
 
     // ── troops and saved squads ─────────────────────────────────────
 
-    private boolean openTroopsPreview() {
-        tapInside(CommonGameAreas.PROFILE_AVATAR);
-        sleepTask(2500);
-        if (!TroopsScreenReader.isChiefProfile(capture())) {
-            dismissProfilePopup();
+    // The nightly join plan: the troops just read, the host squad first, then the joins in flag order.
+    private void storeJoinPlan(SquadSnapshot snapshot) {
+        try {
+            if (snapshot.troops() == null || snapshot.troops().stocks().isEmpty()) return;
+            Integer perJoinSetting = profile.getConfig(ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOPS_INT, Integer.class);
+            long perJoin = perJoinSetting == null ? JoinSizing.TARGET : perJoinSetting;
+            Boolean hosting = profile.getConfig(ConfigurationKeyEnum.BEAR_TRAP_CALL_RALLY_BOOL, Boolean.class);
+            Integer hostFlag = profile.getConfig(ConfigurationKeyEnum.BEAR_TRAP_RALLY_FLAG_INT, Integer.class);
+            JoinSizing.Plan plan = JoinSizing.fromSnapshot(snapshot, Boolean.TRUE.equals(hosting),
+                    hostFlag == null ? 0 : hostFlag,
+                    flagList(profile.getConfig(ConfigurationKeyEnum.BEAR_TRAP_JOIN_FLAG_INT, String.class)),
+                    flagList(profile.getConfig(ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOP_FLAG_STRING, String.class)),
+                    perJoin);
+            JoinPlanStore.Stored stored = new JoinPlanStore(WorkspacePaths.current().root())
+                    .save(profile.getId(), plan, perJoin, Instant.now());
+            logInfo("Squads scan: join plan " + stored.summary()
+                    + (stored.changedAt() != null && stored.previousSummary() != null ? " (was " + stored.previousSummary() + ")" : ""));
+        } catch (IOException | RuntimeException e) {
+            logWarning("Squads scan: could not work out the join plan: " + e.getMessage());
         }
-        if (!TroopsScreenReader.isChiefProfile(capture())) {
+    }
+
+    static List<Integer> flagList(String csv) {
+        List<Integer> out = new ArrayList<>();
+        if (csv == null) return out;
+        for (String part : csv.split(",")) {
+            try {
+                out.add(Integer.parseInt(part.trim()));
+            } catch (NumberFormatException ignored) {
+                // a blank or stray entry is not a flag
+            }
+        }
+        return out;
+    }
+
+    private boolean openTroopsPreview() {
+        boolean open = openChiefProfile(new ProfileSteps() {
+            public void tapAvatar() { tapInside(CommonGameAreas.PROFILE_AVATAR); }
+            public void pause(int ms) { sleepTask(ms); }
+            public RawImageData look() { return capture(); }
+            public boolean isProfile(RawImageData frame) { return TroopsScreenReader.isChiefProfile(frame); }
+            public void dismissCard() { dismissProfilePopup(); }
+            public void failed(RawImageData frame, int attempt) {
+                keepProfileFrame(frame, attempt);
+                logWarning("Squads scan: Chief Profile not recognised (attempt " + attempt + " of " + PROFILE_ATTEMPTS + ")");
+            }
+            public void backHome() { navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME); }
+        });
+        if (!open) {
             problems.add("Chief Profile did not open, so troops and saved squads were not read");
             return false;
         }
         tapNear(PROFILE_TROOPS_BUTTON, 15);
         sleepTask(2000);
         return true;
+    }
+
+    /** What opening the Chief Profile needs from the screen; a seam so the retry can be tested. */
+    interface ProfileSteps {
+        void tapAvatar();
+        void pause(int ms);
+        RawImageData look();
+        boolean isProfile(RawImageData frame);
+        void dismissCard();
+        void failed(RawImageData frame, int attempt);
+        void backHome();
+    }
+
+    // The profile can be slow to draw or open behind a card, and one miss used to cost the whole
+    // night's troop and squad read (Nov 12: the avatar was tapped from Home, the screen changed, but
+    // "Chief Profile" was not read in the two captures taken 2.5 s later). Three tries, each with a
+    // longer look, and the frame is kept when one fails so the cause can be seen.
+    static boolean openChiefProfile(ProfileSteps steps) {
+        for (int attempt = 1; attempt <= PROFILE_ATTEMPTS; attempt++) {
+            steps.tapAvatar();
+            steps.pause(2500);
+            RawImageData frame = steps.look();
+            for (int look = 0; look < 4 && !steps.isProfile(frame); look++) {
+                steps.dismissCard();
+                steps.pause(1000);
+                frame = steps.look();
+            }
+            if (steps.isProfile(frame)) return true;
+            steps.failed(frame, attempt);
+            if (attempt < PROFILE_ATTEMPTS) steps.backHome();
+        }
+        return false;
+    }
+
+    private static final int PROFILE_ATTEMPTS = 3;
+
+    private void keepProfileFrame(RawImageData frame, int attempt) {
+        try {
+            DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace()
+                    .write(frame, "squad-scan", "chief-profile-not-open-" + attempt, Instant.now())
+                    .ifPresent(path -> logInfo("Squads scan: kept the frame at " + path));
+        } catch (RuntimeException e) {
+            logWarning("Squads scan: could not keep the Chief Profile frame: " + e.getMessage());
+        }
     }
 
     // The profile can open behind a "You're getting popular!" card whose only button is "Amazing!".

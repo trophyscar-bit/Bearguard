@@ -77,6 +77,30 @@ class BearTrapScreensTest {
                 List.of(line("Use all available", 505), line("Battle Skills?", 530))));
     }
 
+    // Nov 12 live reads (logged by the bot; the frames name players, so only their text is kept here).
+    @Test
+    void aPopupWhoseLevelWasMisreadStillCounts() {
+        assertTrue(BearTrapScreens.isRagingBearPopup(List.of(line("Ly. 1 Raging Bear", 840), line("Damage Rewards", 870))));
+        assertTrue(BearTrapScreens.isRagingBearPopup(List.of(line("Lv. 1 Raging Bear", 840))));
+        assertTrue(BearTrapScreens.isRagingBearPopup(List.of(line("1 Raging Bear", 840))));
+    }
+
+    @Test
+    void theMapBehindAnUnfinishedPopupAndTheChatTickerAreNotThePopup() {
+        // The 14:00 read, taken before the popup had opened.
+        assertFalse(BearTrapScreens.isRagingBearPopup(List.of(
+                line("Not garrisoned", 330), line("[RIP]Alliance Banner", 360), line("Ends in: 00:29:", 540))));
+        assertFalse(BearTrapScreens.isRagingBearPopup(List.of(line("Rally and defeat Raging Bear together", 1150))));
+    }
+
+    @Test
+    void aFullMarchPanelIsRecognised() {
+        assertTrue(BearTrapScreens.marchQueueFull(List.of(line("Marching 6/6", 238))));
+        assertFalse(BearTrapScreens.marchQueueFull(List.of(line("Marching 5/6", 238))));
+        assertFalse(BearTrapScreens.marchQueueFull(List.of(line("Marching 0/0", 238))));
+        assertFalse(BearTrapScreens.marchQueueFull(List.of(line("Rallying 00:00:51", 283))));
+    }
+
     private static TextLine line(String text, int top) {
         return new TextLine(text, 200, top, 200, 24, 90f);
     }

@@ -1,5 +1,7 @@
 package dev.frostguard.app.panel.heroes;
 
+import java.util.Optional;
+import dev.frostguard.engine.squads.JoinPlanStore;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -104,6 +106,8 @@ public final class SquadsLayoutController extends AbstractProfileController {
     @FXML private CheckBox checkNightly;
     @FXML private ComboBox<String> comboRunAt;
     @FXML private Label captionRunAt;
+    @FXML private javafx.scene.control.TextField fieldPerJoin;
+    @FXML private Label messagePerJoin;
     @FXML private TabPane tabsResults;
     @FXML private VBox listSuggested;
     @FXML private VBox panelSaved;
@@ -118,6 +122,9 @@ public final class SquadsLayoutController extends AbstractProfileController {
             comboRunAt.getItems().add(String.format(Locale.ROOT, "%02d:%02d", minutes / 60, minutes % 60));
         }
         registerCheckBox(checkNightly, ConfigurationKeyEnum.SQUAD_SCAN_NIGHTLY_ENABLED_BOOL);
+        // The alliance's join size changes, so it is a setting (default 100,000), not a constant.
+        registerRangedIntegerField(fieldPerJoin, messagePerJoin, ConfigurationKeyEnum.BEAR_TRAP_JOIN_TROOPS_INT,
+                "Troops per join", 10_000, 1_000_000);
         initializeChangeEvents();
 
         // The switch is the control; the hidden check box is what the shared config binding drives.
@@ -263,6 +270,37 @@ public final class SquadsLayoutController extends AbstractProfileController {
         labelScanHint.setManaged(disabled);
     }
 
+    // The nightly scan stores the Bear Trap join plan; a plan that differs from the night before is said once.
+    private void showJoinPlanChange() {
+        if (currentProfile == null) return;
+        try {
+            new JoinPlanStore(WorkspacePaths.current().root()).load(currentProfile.getId())
+                    .flatMap(stored -> joinPlanLine(stored, Instant.now()))
+                    .ifPresent(line -> banner(Tone.INFO, line, null, null, false));
+        } catch (IOException | RuntimeException e) {
+            // no stored plan is not a problem worth a banner
+        }
+    }
+
+    /** "Join plan changed: 3 \u00d7 100k + 1 \u00d7 62k (was 4 \u00d7 100k)", for a change in the last 36 hours. */
+    static Optional<String> joinPlanLine(JoinPlanStore.Stored stored, Instant now) {
+        if (stored == null || stored.changedAt() == null || stored.previousSummary() == null) return Optional.empty();
+        try {
+            if (Duration.between(Instant.parse(stored.changedAt()), now).toHours() >= 36) return Optional.empty();
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+        return Optional.of("Join plan changed: " + joinsOf(stored.summary()) + " (was " + joinsOf(stored.previousSummary()) + ")");
+    }
+
+    /** "Host 135.6k · Joins: 3 × 100k · Marksmen short by 5k" -> "3 × 100k". */
+    private static String joinsOf(String summary) {
+        int at = summary.indexOf("Joins: ");
+        String joins = at < 0 ? summary : summary.substring(at + "Joins: ".length());
+        int end = joins.indexOf(" · ");
+        return end < 0 ? joins : joins.substring(0, end);
+    }
+
     // ── loading ─────────────────────────────────────────────────────
 
     private void loadSaved() {
@@ -325,6 +363,7 @@ public final class SquadsLayoutController extends AbstractProfileController {
         if (scanIsClean(snapshot)) {
             setScanQuality("Scan complete \u00b7 " + when, true);
             clearBanner();
+            showJoinPlanChange();
             return;
         }
         // The state is said once, in the banner. The header carries only when the scan ran.
