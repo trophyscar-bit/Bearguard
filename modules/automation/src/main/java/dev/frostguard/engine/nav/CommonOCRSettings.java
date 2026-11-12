@@ -84,6 +84,13 @@ public final class CommonOCRSettings {
     public static final OcrSettingsData HUD_STAMINA_SETTINGS =
             buildConfig("0123456789,", true, 254, 254, 254, TextLayout.SINGLE_LINE);
 
+    // A HUD count always printed in full, such as the gem balance "59,293", cropped to its digits alone.
+    // Digits and comma only, read as one word: with K/M/B allowed or a line layout, Tesseract invented a
+    // digit after the first one ("53,893" as "593,893"). Over 30 saved frames in the bg_telemetry HUD
+    // sampler these settings fixed both frames that carried the fault and changed no other reading.
+    public static final OcrSettingsData HUD_FULL_NUMBER_SETTINGS =
+            buildConfig("0123456789,", true, 255, 255, 255, TextLayout.SINGLE_WORD);
+
     public static final OcrSettingsData STAMINA_FRACTION_SETTINGS =
             buildConfig("0123456789/", true, 255, 255, 255, TextLayout.SINGLE_LINE);
 

@@ -45,6 +45,14 @@ public final class GameColors {
         return blue(rgb) > 200 && red(rgb) < 110 && green(rgb) > 120 && blue(rgb) - red(rgb) > 110;
     }
 
+    /**
+     * The bright blue of the HUD gem diamond, e.g. (41,121,210). The navy City Bonus backdrop
+     * (0,50,95), the white digits and the green "+" beside it all fail.
+     */
+    public static boolean isGemDiamondBlue(int rgb) {
+        return blue(rgb) >= 180 && blue(rgb) > red(rgb) + 70 && blue(rgb) > green(rgb) + 20;
+    }
+
     /** Blue circular march-queue activity icons such as stationed, attack, and rally rows. */
     public static boolean isMarchQueueIconBlue(int rgb) {
         return blue(rgb) > 150 && green(rgb) > 90 && red(rgb) < 120;

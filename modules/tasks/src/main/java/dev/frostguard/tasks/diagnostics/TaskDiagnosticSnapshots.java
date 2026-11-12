@@ -42,6 +42,12 @@ public final class TaskDiagnosticSnapshots {
                 DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace());
     }
 
+    /** {@link #captureAlwaysWithRegion} for the frame that was actually read, already in hand. */
+    public static String saveAlwaysWithRegion(RawImageData frame, String activity, String type, AreaData region) {
+        return captureWithRegion(() -> frame, activity, type, region,
+                DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace());
+    }
+
     static String captureWithRegion(Supplier<RawImageData> takeFrame, String activity, String type,
             AreaData region, DiagnosticSnapshotStore store) {
         try {

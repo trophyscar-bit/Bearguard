@@ -2,13 +2,13 @@ package dev.frostguard.tasks.economy;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Objects;
+import java.util.OptionalLong;
 
 import javax.imageio.ImageIO;
 
@@ -17,11 +17,11 @@ import org.junit.jupiter.api.Test;
 
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.domain.ImageSearchResultData;
-import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.engine.helper.HudGemReader;
+import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.vision.match.OpenCvPatternLocator;
-import dev.frostguard.vision.ocr.OcrEngine;
 
 /**
  * The gather speed boost path from live 27 Oct 2026 captures: the home HUD's City Bonus button,
@@ -71,10 +71,19 @@ class GatherSpeedFrameTest {
     }
 
     @Test
-    void theGemCountReadsOnCityBonus() throws Exception {
-        String text = OcrEngine.recognizeText(frame("city-bonus-wars.png"), GatherSpeedRoutine.GEMS_TOP_LEFT,
-                GatherSpeedRoutine.GEMS_BOTTOM_RIGHT, OcrSettingsData.forWhiteTextOnDark());
-        assertEquals(446_571L, GatherSpeedRoutine.parseGems(text), "read '" + text + "'");
+    void theGemCountReadsBetweenTheDiamondAndThePlusOnCityBonus() throws Exception {
+        HudGemReader.Reading reading = HudGemReader.read(frame("city-bonus-wars.png"),
+                CommonGameAreas.CITY_BONUS_GEM_BAND);
+        assertEquals(OptionalLong.of(446_571L), reading.gems(), reading.evidence());
+    }
+
+    @Test
+    void theGemCountIsUnknownWithoutTheDiamondRatherThanReadFromAGuessedCrop() throws Exception {
+        RawImageData frame = frame("city-bonus-wars.png");
+        // Paint the diamond (x 540-584) with the backdrop navy; the digits and the "+" stay.
+        paint(frame, 535, 15, 586, 65, 0, 50, 95);
+        HudGemReader.Reading reading = HudGemReader.read(frame, CommonGameAreas.CITY_BONUS_GEM_BAND);
+        assertTrue(reading.gems().isEmpty(), reading.evidence());
     }
 
     @Test
@@ -83,7 +92,6 @@ class GatherSpeedFrameTest {
         assertFalse(GatherSpeedRoutine.spentFor(464_517L, 464_517L, 250));
         assertFalse(GatherSpeedRoutine.spentFor(null, 464_267L, 250));
         assertFalse(GatherSpeedRoutine.spentFor(464_517L, null, 250));
-        assertNull(GatherSpeedRoutine.parseGems("+"));
     }
 
     private PointData use(ImageSearchResultData row) {
@@ -122,5 +130,17 @@ class GatherSpeedFrameTest {
             }
         }
         return RawImageData.capture(rgba, image.getWidth(), image.getHeight(), 32);
+    }
+
+    private static void paint(RawImageData frame, int x1, int y1, int x2, int y2, int r, int g, int b) {
+        byte[] rgba = frame.getData();
+        for (int y = y1; y < y2; y++) {
+            for (int x = x1; x < x2; x++) {
+                int o = y * frame.stride() + x * 4;
+                rgba[o] = (byte) r;
+                rgba[o + 1] = (byte) g;
+                rgba[o + 2] = (byte) b;
+            }
+        }
     }
 }

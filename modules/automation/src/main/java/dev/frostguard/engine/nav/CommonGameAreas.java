@@ -43,6 +43,9 @@ public final class CommonGameAreas {
     // ── account / energy panel ───────────────────────────────────────
 
     public static final AreaData PROFILE_AVATAR        = region(24, 24, 61, 61);
+    // The gem pill on City Bonus, diamond and "+" included; HudGemReader finds the digits inside it.
+    // The pill's position depends on the number of digits, so the band is wide on purpose.
+    public static final AreaData CITY_BONUS_GEM_BAND   = region(520, 22, 710, 58);
     // Chief Stamina now lives on the main HUD, in a green bar under the avatar, on both the City and
     // the World map. The October 2026 Chief Profile redesign removed the stamina button this used to
     // reach from the profile -- that slot became the Gift Showcase bar, so the old tap opened Gifting
