@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<?import atlantafx.base.controls.ToggleSwitch?>
+<?import dev.frostguard.app.panel.heroes.Segmented?>
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 
-<!-- Troops > Heroes: gear grades and the rolling upgrade list, Drill Camp level ups, rally joiners and the scanned roster, one tab each. -->
-<StackPane maxHeight="Infinity" maxWidth="Infinity"
+<!-- Troops > Heroes. Every tab follows one order: header, status, settings, results. Built to bearguard-design/DESIGN-BRIEF.md. -->
+<StackPane maxHeight="Infinity" maxWidth="Infinity" stylesheets="@heroes.css"
            HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS"
            xmlns="http://javafx.com/javafx/23.0.1" xmlns:fx="http://javafx.com/fxml/1">
 
@@ -12,110 +14,185 @@
         <tabs>
             <Tab text="Hero Gear" closable="false">
                 <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" styleClass="task-page-scroll">
-                    <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+                    <VBox styleClass="task-page-root" alignment="TOP_LEFT">
+                        <VBox styleClass="hero-page" maxWidth="960" spacing="16">
 
-                        <VBox styleClass="content-card">
-                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                                <Label text="Gear Automation Status" />
+                            <!-- Header -->
+                            <HBox alignment="TOP_LEFT" spacing="16">
+                                <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                    <Label styleClass="hero-title" text="Hero Gear" />
+                                    <Label fx:id="labelStatusLine" styleClass="hero-status-line" wrapText="true" maxWidth="Infinity" />
+                                    <Label fx:id="labelLastLine" styleClass="hero-status-line" wrapText="true" maxWidth="Infinity" />
+                                    <Label fx:id="labelTonightLine" styleClass="hero-status-line" wrapText="true" maxWidth="Infinity" />
+                                </VBox>
+                                <VBox alignment="TOP_RIGHT" spacing="4" minWidth="-Infinity">
+                                    <Button fx:id="buttonRunNow" mnemonicParsing="false" styleClass="hero-button-primary" minWidth="-Infinity"
+                                            text="Run now" onAction="#runNow" />
+                                    <Label fx:id="labelRunReason" styleClass="hero-caption" wrapText="true" maxWidth="200" alignment="CENTER_RIGHT" />
+                                </VBox>
                             </HBox>
-                            <HBox alignment="CENTER_LEFT" spacing="14" styleClass="task-section-inner">
-                                <Label fx:id="labelHalt" styleClass="task-card-description" wrapText="true"
-                                       maxWidth="Infinity" HBox.hgrow="ALWAYS" />
-                                <Button fx:id="buttonClearHalt" mnemonicParsing="false" text="Clear" minWidth="80"
-                                        onAction="#clearHalt" />
+
+                            <!-- Status: only when the routine has stopped itself. -->
+                            <HBox fx:id="boxHalt" styleClass="status-banner" alignment="CENTER_LEFT" spacing="12"
+                                  visible="false" managed="false">
+                                <Label styleClass="status-banner-icon" text="||" />
+                                <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                    <Label styleClass="status-banner-title" text="Gear upgrades are paused" />
+                                    <Label fx:id="labelHalt" styleClass="status-banner-text" wrapText="true" maxWidth="Infinity" />
+                                </VBox>
+                                <Button fx:id="buttonClearHalt" mnemonicParsing="false" styleClass="hero-button-primary" minWidth="-Infinity"
+                                        text="Resume upgrades" onAction="#clearHalt" />
                             </HBox>
-                        </VBox>
 
-                        <VBox styleClass="content-card">
-                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                                <Label text="Nightly Gear Options" />
-                            </HBox>
-                            <VBox spacing="12" styleClass="task-section-inner">
-                                <CheckBox fx:id="checkBoxForgeEnabled" mnemonicParsing="false"
-                                          text="Run the hero gear check every night" />
-                                <VBox fx:id="boxNightly" spacing="12">
-                                    <VBox spacing="6">
-                                        <HBox alignment="CENTER_LEFT" spacing="16">
-                                            <Label styleClass="task-field-label" text="Heroes whose gear gets upgraded:" />
-                                            <CheckBox fx:id="checkBoxMia" mnemonicParsing="false" text="Mia" />
-                                            <CheckBox fx:id="checkBoxFlint" mnemonicParsing="false" text="Flint" />
-                                            <CheckBox fx:id="checkBoxMolly" mnemonicParsing="false" text="Molly" />
-                                            <CheckBox fx:id="checkBoxBahiti" mnemonicParsing="false" text="Bahiti" />
-                                            <CheckBox fx:id="checkBoxSergey" mnemonicParsing="false" text="Sergey" />
-                                            <Label styleClass="label-muted" text="(your top 5)" />
+                            <!-- Settings -->
+                            <VBox styleClass="hero-card">
+                                <Label styleClass="hero-card-title" text="Settings" />
+
+                                <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                    <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                        <Label styleClass="hero-label" text="Run every night" />
+                                        <Label fx:id="labelNightlyCaption" styleClass="hero-caption" />
+                                    </VBox>
+                                    <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                        <ToggleSwitch fx:id="switchNightly" labelPosition="LEFT" />
+                                    </HBox>
+                                </HBox>
+
+                                <VBox fx:id="boxNightly">
+                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                            <Label styleClass="hero-label" text="Run at" />
+                                            <Label styleClass="hero-caption" text="Your local time, every night." />
+                                        </VBox>
+                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT" spacing="8">
+                                            <ComboBox fx:id="comboBoxRunAt" prefWidth="240" minWidth="240" />
                                         </HBox>
-                                        <Label styleClass="label-muted" wrapText="true"
-                                               text="Enhance and Forge only touch the heroes ticked here." />
+                                    </HBox>
+
+                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                            <Label styleClass="hero-label" text="Check gear" />
+                                            <Label styleClass="hero-caption" text="Reads every piece on your strongest heroes and grades it A to D." />
+                                        </VBox>
+                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                            <ComboBox fx:id="comboBoxScanDays" prefWidth="240" minWidth="240" />
+                                        </HBox>
+                                    </HBox>
+
+                                    <VBox styleClass="hero-row" spacing="8">
+                                        <VBox spacing="4">
+                                            <Label styleClass="hero-label" text="Heroes to upgrade" />
+                                            <Label fx:id="labelHeroesInfo" styleClass="hero-caption" />
+                                        </VBox>
+                                        <GridPane fx:id="gridHeroes" styleClass="hero-choices" />
+                                        <VBox fx:id="boxHeroesEmpty" styleClass="hero-blank">
+                                            <Label styleClass="hero-blank-title" text="No heroes read yet" />
+                                            <Label styleClass="hero-blank-text" text="They appear after the first gear check." />
+                                        </VBox>
                                     </VBox>
 
-                                    <VBox styleClass="task-subsection">
-                                        <Label styleClass="task-subsection-title" text="1. Quick Equip (spends nothing)" />
-                                        <CheckBox fx:id="checkBoxQuickEquip" mnemonicParsing="false"
-                                                  text="Quick Equip every hero (all 21), so better spare gear gets worn instead of eaten" />
-                                    </VBox>
+                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                            <Label styleClass="hero-label" text="Wear best spare gear" />
+                                            <Label styleClass="hero-caption" text="Puts your best gear on every hero. Spends nothing." />
+                                        </VBox>
+                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                            <ToggleSwitch fx:id="switchQuickEquip" labelPosition="LEFT" />
+                                        </HBox>
+                                    </HBox>
 
-                                    <VBox styleClass="task-subsection">
-                                        <Label styleClass="task-subsection-title" text="2. Gear scan" />
-                                        <Label fx:id="labelScanInfo" styleClass="task-card-description" wrapText="true" />
-                                    </VBox>
+                                    <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                            <Label styleClass="hero-label" text="Raise gear levels" />
+                                            <Label styleClass="hero-caption" text="Uses XP items on your lowest gear. Practice only shows the plan." />
+                                        </VBox>
+                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                            <Segmented fx:id="segmentEnhance" prefWidth="240" minWidth="240" maxWidth="240" />
+                                        </HBox>
+                                    </HBox>
+                                    <HBox fx:id="rowEnhanceLevels" styleClass="hero-row-sub" alignment="CENTER_LEFT" spacing="16">
+                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                            <Label styleClass="hero-label" text="Most levels per night" />
+                                            <Label fx:id="labelEnhanceReason" styleClass="hero-caption" text="Used when Raise gear levels is For real." />
+                                        </VBox>
+                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                            <ComboBox fx:id="comboBoxEnhanceLevels" prefWidth="240" minWidth="240" />
+                                        </HBox>
+                                    </HBox>
 
-                                    <VBox styleClass="task-subsection">
-                                        <Label styleClass="task-subsection-title" text="3. Enhance (uses Enhancement XP items, not stones)" />
-                                        <CheckBox fx:id="checkBoxEnhance" mnemonicParsing="false"
-                                                  text="Level up the lowest gear on the 5 heroes" />
-                                        <CheckBox fx:id="checkBoxEnhanceLive" mnemonicParsing="false"
-                                                  text="Actually use XP items (off: only log what it would do)" />
-                                        <HBox fx:id="rowEnhanceLevels" alignment="CENTER_LEFT" spacing="14">
-                                            <Label styleClass="task-field-label" text="Most levels per night" minWidth="160" />
-                                            <ComboBox fx:id="comboBoxEnhanceLevels" prefWidth="120" />
-                                            <Label styleClass="label-muted" text="one level is one press; the lowest piece goes first" />
+                                    <VBox styleClass="hero-danger">
+                                        <HBox styleClass="hero-row-bare" alignment="CENTER_LEFT" spacing="16">
+                                            <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                                <Label styleClass="hero-label" text="Forge mastery" />
+                                                <Label styleClass="hero-caption" text="Spends Essence Stones to raise mastery. Practice spends none." />
+                                            </VBox>
+                                            <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                                <Segmented fx:id="segmentForge" prefWidth="240" minWidth="240" maxWidth="240" />
+                                            </HBox>
+                                        </HBox>
+                                        <HBox fx:id="rowMaxBuys" styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                            <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                                <Label styleClass="hero-label" text="Most forges per night" />
+                                                <Label fx:id="labelForgeReason" styleClass="hero-caption" text="Used when Forge mastery is For real." />
+                                            </VBox>
+                                            <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                                <ComboBox fx:id="comboBoxMaxBuys" prefWidth="240" minWidth="240" />
+                                            </HBox>
+                                        </HBox>
+                                        <HBox fx:id="rowReserve" styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                            <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                                <Label styleClass="hero-label" text="Keep stones unspent" />
+                                                <Label fx:id="labelReserveReason" styleClass="hero-caption" text="Used when Forge mastery is For real." />
+                                            </VBox>
+                                            <HBox styleClass="hero-control" alignment="CENTER_RIGHT" spacing="8">
+                                                <ComboBox fx:id="comboBoxReserve" prefWidth="240" minWidth="240" />
+                                            </HBox>
+                                        </HBox>
+                                        <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                            <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                                <Label styleClass="hero-label" text="Gear order" />
+                                                <Label styleClass="hero-caption" text="Which hero's gear gets forged first." />
+                                            </VBox>
+                                            <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                                <ComboBox fx:id="comboBoxFocus" prefWidth="240" minWidth="240" />
+                                            </HBox>
                                         </HBox>
                                     </VBox>
 
-                                    <VBox styleClass="task-subsection">
-                                        <Label styleClass="task-subsection-title" text="4. Forge (uses Essence Stones)" />
-                                        <CheckBox fx:id="checkBoxForgeLive" mnemonicParsing="false"
-                                                  text="Actually spend Essence Stones (off: only log what it would buy)" />
-                                        <HBox fx:id="rowMaxBuys" alignment="CENTER_LEFT" spacing="14">
-                                            <Label styleClass="task-field-label" text="Most forges per night" minWidth="160" />
-                                            <ComboBox fx:id="comboBoxMaxBuys" prefWidth="120" />
-                                        </HBox>
-                                        <HBox fx:id="rowReserve" alignment="CENTER_LEFT" spacing="14">
-                                            <Label styleClass="task-field-label" text="Always keep" minWidth="160" />
-                                            <ComboBox fx:id="comboBoxReserve" prefWidth="120" />
-                                            <Label styleClass="label-muted" text="stones" />
-                                        </HBox>
-                                        <HBox alignment="CENTER_LEFT" spacing="14">
-                                            <Label styleClass="task-field-label" text="Forge order" minWidth="160" />
-                                            <ComboBox fx:id="comboBoxFocus" prefWidth="560" />
-                                        </HBox>
-                                    </VBox>
-
-                                    <Label styleClass="task-card-note" wrapText="true"
-                                           text="Forging saves up for the top item rather than buying something cheaper below it. Reforge, Ascend, Redeem and anything priced in gems are never pressed." />
                                 </VBox>
                             </VBox>
-                        </VBox>
 
-                        <VBox styleClass="content-card">
-                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                                <Label text="Gear Grades" />
-                            </HBox>
-                            <VBox spacing="10" styleClass="task-section-inner">
-                                <Label styleClass="task-card-description" wrapText="true"
-                                       text="Each piece shows grade, enhancement, mastery and troop bonus. Main-role pieces are graded against a fixed target of 80, off-role pieces against 40." />
-                                <TableView fx:id="tableGrades" prefHeight="275" />
+                            <!-- Results: what it sees -->
+                            <VBox styleClass="hero-card">
+                                <HBox alignment="CENTER_LEFT" spacing="16">
+                                    <Label styleClass="hero-card-title" text="Your gear" />
+                                    <Label fx:id="labelGearHelp" styleClass="hero-help" text="(i)" />
+                                    <Label fx:id="labelGearInfo" styleClass="hero-card-aside" HBox.hgrow="ALWAYS" maxWidth="Infinity" alignment="CENTER_RIGHT" />
+                                </HBox>
+                                <TableView fx:id="tableGear" styleClass="hero-table" />
+                                <HBox alignment="CENTER_RIGHT">
+                                    <Hyperlink fx:id="linkGear" styleClass="hero-link" onAction="#toggleGear" />
+                                </HBox>
+                                <VBox fx:id="boxGearEmpty" styleClass="hero-blank">
+                                    <Label styleClass="hero-blank-title" text="No gear read yet" />
+                                    <Label styleClass="hero-blank-text" text="The first gear check reads every piece on your strongest heroes." />
+                                </VBox>
                             </VBox>
-                        </VBox>
 
-                        <VBox styleClass="content-card">
-                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                                <Label text="Next 10 Upgrades" />
-                            </HBox>
-                            <VBox spacing="10" styleClass="task-section-inner">
-                                <Label fx:id="labelStones" styleClass="task-card-description" wrapText="true" />
-                                <Label fx:id="labelRollingOrder" styleClass="task-card-description" wrapText="true" />
-                                <TableView fx:id="tableRolling" prefHeight="510" />
+                            <VBox styleClass="hero-card">
+                                <HBox alignment="CENTER_LEFT" spacing="16">
+                                    <Label styleClass="hero-card-title" text="What Forge buys next" HBox.hgrow="ALWAYS" maxWidth="Infinity" />
+                                    <Label fx:id="labelStones" styleClass="hero-card-aside" />
+                                </HBox>
+                                <TableView fx:id="tableUpgrades" styleClass="hero-table" />
+                                <HBox alignment="CENTER_LEFT" spacing="16">
+                                    <Label fx:id="labelUpgradesMore" styleClass="hero-caption" HBox.hgrow="ALWAYS" maxWidth="Infinity" />
+                                    <Hyperlink fx:id="linkUpgrades" styleClass="hero-link" onAction="#toggleUpgrades" />
+                                </HBox>
+                                <VBox fx:id="boxUpgradesEmpty" styleClass="hero-blank">
+                                    <Label fx:id="labelUpgradesEmptyTitle" styleClass="hero-blank-title" />
+                                    <Label fx:id="labelUpgradesEmptyText" styleClass="hero-blank-text" />
+                                </VBox>
                             </VBox>
                         </VBox>
                     </VBox>
@@ -124,32 +201,37 @@
 
             <Tab text="Hero Level Ups" closable="false">
                 <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" styleClass="task-page-scroll">
-                    <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
-
-                        <VBox styleClass="content-card">
-                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                                <Label text="Drill Camp Instructors" />
-                            </HBox>
-                            <VBox spacing="10" styleClass="task-section-inner">
-                                <Label fx:id="labelXp" styleClass="task-card-description" wrapText="true" />
-                                <TableView fx:id="tableLevels" prefHeight="275" />
-                                <Label styleClass="task-card-note" wrapText="true"
-                                       text="Every other hero auto-levels to the lowest instructor, so XP goes to the lowest instructor first." />
+                    <VBox styleClass="task-page-root" alignment="TOP_LEFT">
+                        <VBox styleClass="hero-page" maxWidth="960" spacing="16">
+                            <VBox spacing="4">
+                                <Label styleClass="hero-title" text="Hero Level Ups" />
+                                <Label fx:id="labelXp" styleClass="hero-status-line" />
                             </VBox>
-                        </VBox>
 
-                        <VBox styleClass="content-card">
-                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                                <Label text="Level Up Options" />
-                            </HBox>
-                            <VBox spacing="10" styleClass="task-section-inner">
-                                <CheckBox fx:id="checkBoxPlan" mnemonicParsing="false"
-                                          text="Log the level-up plan (dry run, touches nothing)" />
-                                <Separator style="-fx-opacity: 0.25;" />
-                                <CheckBox disable="true" mnemonicParsing="false" text="Level up heroes automatically (not built yet)" />
-                                <CheckBox disable="true" mnemonicParsing="false" text="Open XP bottles from the Backpack first (not built yet)" />
-                                <Label styleClass="task-card-note" wrapText="true"
-                                       text="Hero shards and Ascend are never used, for any hero." />
+                            <VBox styleClass="hero-card">
+                                <Label styleClass="hero-card-title" text="Settings" />
+                                <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
+                                    <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                        <Label styleClass="hero-label" text="Write the level-up plan" />
+                                        <Label styleClass="hero-caption" text="Practice only: shows what it would level and presses nothing." />
+                                    </VBox>
+                                    <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                        <ToggleSwitch fx:id="switchPlan" labelPosition="LEFT" />
+                                    </HBox>
+                                </HBox>
+                                <Label styleClass="hero-caption-footer" text="Hero shards and Ascend are never used, for any hero." />
+                            </VBox>
+
+                            <VBox styleClass="hero-card">
+                                <HBox alignment="CENTER_LEFT" spacing="16">
+                                    <Label styleClass="hero-card-title" text="Drill Camp heroes" HBox.hgrow="ALWAYS" maxWidth="Infinity" />
+                                    <Label fx:id="labelLevelsAside" styleClass="hero-card-aside" />
+                                </HBox>
+                                <TableView fx:id="tableLevels" styleClass="hero-table" />
+                                <VBox fx:id="boxLevelsEmpty" styleClass="hero-blank">
+                                    <Label fx:id="labelLevelsEmptyTitle" styleClass="hero-blank-title" />
+                                    <Label fx:id="labelLevelsEmptyText" styleClass="hero-blank-text" />
+                                </VBox>
                             </VBox>
                         </VBox>
                     </VBox>
@@ -158,17 +240,23 @@
 
             <Tab text="Rally Joiners" closable="false">
                 <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" styleClass="task-page-scroll">
-                    <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+                    <VBox styleClass="task-page-root" alignment="TOP_LEFT">
+                        <VBox styleClass="hero-page" maxWidth="960" spacing="16">
+                            <VBox spacing="4">
+                                <Label styleClass="hero-title" text="Rally Joiners" />
+                                <Label fx:id="labelJoiners" styleClass="hero-status-line" />
+                            </VBox>
 
-                        <VBox styleClass="content-card">
-                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                                <Label text="Rally Joiners" />
-                            </HBox>
-                            <VBox spacing="10" styleClass="task-section-inner">
-                                <Label fx:id="labelJoiners" styleClass="task-card-description" wrapText="true" />
-                                <TableView fx:id="tableJoiners" prefHeight="275" />
-                                <Label styleClass="task-card-note" wrapText="true"
-                                       text="Joining a rally applies only the first expedition skill of the march's first hero, so joiners are ranked on that one skill." />
+                            <VBox styleClass="hero-card">
+                                <HBox alignment="CENTER_LEFT" spacing="16">
+                                    <Label styleClass="hero-card-title" text="Best heroes to send" HBox.hgrow="ALWAYS" maxWidth="Infinity" />
+                                    <Label styleClass="hero-card-aside" text="Higher rally score helps rallies more" />
+                                </HBox>
+                                <TableView fx:id="tableJoiners" styleClass="hero-table" />
+                                <VBox fx:id="boxJoinersEmpty" styleClass="hero-blank">
+                                    <Label styleClass="hero-blank-title" text="No squad scan yet" />
+                                    <Label styleClass="hero-blank-text" text="Scan on the Squads page to read your heroes." />
+                                </VBox>
                             </VBox>
                         </VBox>
                     </VBox>
@@ -177,15 +265,23 @@
 
             <Tab text="Roster" closable="false">
                 <ScrollPane fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" styleClass="task-page-scroll">
-                    <VBox spacing="14" styleClass="task-page-root" maxWidth="Infinity">
+                    <VBox styleClass="task-page-root" alignment="TOP_LEFT">
+                        <VBox styleClass="hero-page" maxWidth="960" spacing="16">
+                            <VBox spacing="4">
+                                <Label styleClass="hero-title" text="Roster" />
+                                <Label fx:id="labelRoster" styleClass="hero-status-line" />
+                            </VBox>
 
-                        <VBox styleClass="content-card">
-                            <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
-                                <Label text="Hero Roster" />
-                            </HBox>
-                            <VBox spacing="10" styleClass="task-section-inner">
-                                <Label fx:id="labelRoster" styleClass="task-card-description" wrapText="true" />
-                                <TableView fx:id="tableHeroes" prefHeight="275" />
+                            <VBox styleClass="hero-card">
+                                <HBox alignment="CENTER_LEFT" spacing="16">
+                                    <Label styleClass="hero-card-title" text="All your heroes" HBox.hgrow="ALWAYS" maxWidth="Infinity" />
+                                    <Label fx:id="labelRosterAside" styleClass="hero-card-aside" />
+                                </HBox>
+                                <TableView fx:id="tableHeroes" styleClass="hero-table" />
+                                <VBox fx:id="boxRosterEmpty" styleClass="hero-blank">
+                                    <Label styleClass="hero-blank-title" text="No squad scan yet" />
+                                    <Label styleClass="hero-blank-text" text="Scan on the Squads page to read your heroes." />
+                                </VBox>
                             </VBox>
                         </VBox>
                     </VBox>
