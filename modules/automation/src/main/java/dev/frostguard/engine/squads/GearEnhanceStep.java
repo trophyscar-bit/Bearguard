@@ -74,7 +74,8 @@ public final class GearEnhanceStep {
 
     private static Outcome raise(GearState saved, Settings settings, Navigator navigator, Raiser raiser,
                                  HeroGearStore store, long profileId, Supplier<Instant> clock) {
-        List<Raise> plan = inWalkOrder(GearEnhancePlanner.plan(saved.pieces(), settings.heroes(), settings.maxLevels(), saved.heroWeights()), saved);
+        // In priority order, not list order: the parts on hand rarely cover the whole plan, and the first raises must be the best ones.
+        List<Raise> plan = GearEnhancePlanner.plan(saved.pieces(), settings.heroes(), settings.maxLevels(), saved.heroWeights());
         GearState state = saved;
         int raises = 0;
         try {
@@ -119,22 +120,6 @@ public final class GearEnhanceStep {
             return new Outcome(state, raises, "could not save the gear state: " + e.getMessage(), null, false, true);
         }
         return new Outcome(state, raises, null, null, false);
-    }
-
-    /**
-     * The plan decides which pieces get the parts and how many levels each; this puts the visits in the order the
-     * heroes come in the list, so the walk goes forward by the right arrow and never back. A piece's own raises keep
-     * their order, since each assumes the one before it.
-     */
-    static List<Raise> inWalkOrder(List<Raise> plan, GearState state) {
-        List<String> order = new java.util.ArrayList<>();
-        state.pieces().forEach(piece -> {
-            if (!order.contains(piece.hero())) order.add(piece.hero());
-        });
-        return plan.stream().sorted(java.util.Comparator.comparingInt(raise -> {
-            int at = order.indexOf(raise.hero());
-            return at < 0 ? Integer.MAX_VALUE : at;
-        })).toList();
     }
 
     private static Outcome restoreScanDate(Outcome outcome, String scannedAt, HeroGearStore store, long profileId) {

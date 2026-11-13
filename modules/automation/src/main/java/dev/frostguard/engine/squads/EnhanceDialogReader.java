@@ -54,7 +54,8 @@ public final class EnhanceDialogReader {
     private static final Pattern BAR = Pattern.compile("^(\\d+)/(\\d+)$");
     private static final Pattern PARTS_COUNT = Pattern.compile("(\\d+)/(\\d+)");
     // "9/126" under the Enhancement Parts tile, the first tile of the list: selected of owned.
-    private static final int PARTS_LEFT = 70;
+    // The count is right-aligned, so a longer one (126/126) grows left; the crop starts at the tile's left edge.
+    private static final int PARTS_LEFT = 40;
     private static final int PARTS_TOP = 936;
     private static final int PARTS_RIGHT = 142;
     private static final int PARTS_BOTTOM = 964;

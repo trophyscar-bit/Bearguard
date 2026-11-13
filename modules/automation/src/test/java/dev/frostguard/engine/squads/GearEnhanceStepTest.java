@@ -78,14 +78,15 @@ class GearEnhanceStepTest {
     }
 
     @Test
-    void theVisitsFollowTheHeroesInListOrderWhateverOrderThePlanChoseThem() {
-        List<GearEnhancePlanner.Raise> plan = List.of(new GearEnhancePlanner.Raise("Flint", "Belt", 40, 45),
-                new GearEnhancePlanner.Raise("Mia", "Boots", 81, 85), new GearEnhancePlanner.Raise("Flint", "Belt", 45, 50));
+    void theBestHeroIsRaisedFirstEvenWhenAnotherComesFirstInTheList() throws IOException {
+        // Mia is first in the list, but Flint is the hero who fights most: the parts on hand go to Flint first.
+        GearState weighted = new GearState(GEAR.pieces(), Map.of("Mia", 0.3, "Flint", 1.14, "Molly", 0.0), NOW.toString());
+        store.saveGear(PROFILE, weighted);
 
-        List<GearEnhancePlanner.Raise> walk = GearEnhanceStep.inWalkOrder(plan, GEAR);
+        GearEnhanceStep.run(weighted, new Settings(TICKED, 10, true, STOP_BY), navigator, (raise, live) -> reached(raise),
+                store, PROFILE, () -> now);
 
-        assertEquals(List.of("Mia", "Flint", "Flint"), walk.stream().map(GearEnhancePlanner.Raise::hero).toList(), "Mia comes first in the list");
-        assertEquals(45, walk.get(2).from(), "a piece's own raises keep their order");
+        assertEquals("Flint/Belt", navigator.opened.getFirst(), "priority order, not list order: " + navigator.opened);
     }
 
     @Test

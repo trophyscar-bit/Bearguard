@@ -58,6 +58,14 @@ final class GearNight {
         /** The state to work from, or null to end the night. */
         GearState scanIfDue() throws IOException;
 
+        /**
+         * Spends hero XP on the instructors, one level a press, when the check found a level it covers. Null to carry
+         * on, or the reason the night must halt because a press went unconfirmed.
+         */
+        default String levelUps() {
+            return null;
+        }
+
         Enhanced enhance(GearState state);
 
         void forge(GearState state) throws IOException;
@@ -122,6 +130,13 @@ final class GearNight {
             }
             GearState scanned = steps.scanIfDue();
             if (scanned != null) {
+                String levelHalt = steps.levelUps();
+                if (levelHalt != null) {
+                    backsOnly = true;
+                    saveHalt(steps, store, profileId,
+                            new GearHalt("Level up: " + levelHalt, clock.get().toString(), GearHalt.LEVEL_UP));
+                    return;
+                }
                 Enhanced enhanced = steps.enhance(scanned);
                 if (enhanced.halt() != null) {
                     backsOnly = true;

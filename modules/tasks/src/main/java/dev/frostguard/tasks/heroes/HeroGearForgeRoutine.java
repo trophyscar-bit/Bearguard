@@ -38,6 +38,8 @@ import dev.frostguard.engine.squads.GearRanker;
 import dev.frostguard.engine.squads.GearRanker.GearState;
 import dev.frostguard.engine.squads.GearRanker.Upgrade;
 import dev.frostguard.engine.squads.GearScan;
+import dev.frostguard.engine.squads.HeroLevelUpPass;
+import dev.frostguard.engine.squads.HeroUpgradePlanner;
 import dev.frostguard.engine.squads.GearScanScreens;
 import dev.frostguard.engine.squads.HeroCards;
 import dev.frostguard.engine.squads.HeroGearStore;
@@ -147,6 +149,11 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                 }
 
                 @Override
+                public String levelUps() {
+                    return HeroGearForgeRoutine.this.levelUps(store);
+                }
+
+                @Override
                 public GearNight.Enhanced enhance(GearState state) {
                     return HeroGearForgeRoutine.this.enhance(store, state);
                 }
@@ -190,6 +197,87 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         GearState state = store.loadGear(profile.getId()).orElse(null);
         return GearScan.isDue(state, Instant.now(), intSetting(ConfigurationKeyEnum.HERO_GEAR_FORGE_SCAN_DAYS_INT))
                 ? scan(store, state) : state;
+    }
+
+    private static final String LEVEL_UP = "level-up";
+
+    /**
+     * Spends hero XP on the instructors when the check saw a level it covers; walks nothing when none is
+     * affordable, so a quiet night costs nothing. Practice only logs what it would do. Null to carry on, or why
+     * the night must halt.
+     */
+    private String levelUps(HeroGearStore store) {
+        if (!Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.HERO_LEVEL_UP_ENABLED_BOOL, Boolean.class))) return null;
+        boolean live = Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.HERO_LEVEL_UP_LIVE_BOOL, Boolean.class));
+        HeroUpgradePlanner.Inventory inventory;
+        try {
+            inventory = store.loadInventory(profile.getId()).orElse(null);
+        } catch (IOException e) {
+            logWarning("Level up: the saved inventory is unreadable, skipped: " + e.getMessage());
+            return null;
+        }
+        if (inventory == null) {
+            logInfo("Level up: no inventory from the gear check yet");
+            return null;
+        }
+        HeroUpgradePlanner.Plan plan = HeroUpgradePlanner.plan(inventory);
+        plan.waiting().stream().filter(line -> line.contains("XP")).forEach(line -> logInfo("Level up, waiting: " + line));
+        if (plan.steps().stream().noneMatch(step -> step.spend() == HeroUpgradePlanner.Spend.HERO_XP)) {
+            logInfo("Level up: no instructor's next level is covered, nothing to do");
+            return null;
+        }
+        java.util.Map<String, Integer> levels = new java.util.LinkedHashMap<>();
+        java.util.Set<String> canLevel = new java.util.LinkedHashSet<>();
+        inventory.instructors().forEach(instructor -> {
+            levels.put(instructor.name(), instructor.level());
+            if (instructor.xpToNext() != null) canLevel.add(instructor.name());
+        });
+        frames.startStep();
+        if (!openHeroesGrid()) {
+            logWarning("Level up: the Heroes grid did not open, skipped; " + frames.stopped(LEVEL_UP, "Heroes grid did not open"));
+            return null;
+        }
+        long started = System.currentTimeMillis();
+        HeroLevelUpPass.Outcome outcome = new HeroLevelUpPass(new GearScanScreens(gearDevice(LEVEL_UP, budget.reserveAt())),
+                levelUpDevice(budget.reserveAt())).run(levels, canLevel, live);
+        outcome.notes().forEach(note -> logInfo("Level up: " + note));
+        outcome.upgraded().forEach(done -> logInfo("Level up: upgraded " + done));
+        logInfo(String.format(java.util.Locale.ROOT, "Level up: %s, %d level%s, %.1f s", live ? "for real" : "practice",
+                outcome.upgraded().size(), outcome.upgraded().size() == 1 ? "" : "s", (System.currentTimeMillis() - started) / 1000.0));
+        if (outcome.halt() != null) {
+            logWarning("Level up: stopped: " + outcome.halt() + "; " + frames.stopped(LEVEL_UP, outcome.halt()));
+            return live ? outcome.halt() : null;
+        }
+        return null;
+    }
+
+    private HeroLevelUpPass.Device levelUpDevice(Instant stopAt) {
+        return new HeroLevelUpPass.Device() {
+            @Override
+            public RawImageData capture() {
+                return HeroGearForgeRoutine.this.capture();
+            }
+
+            @Override
+            public void tap(PointData point, int radius) {
+                tapNear(point, radius);
+            }
+
+            @Override
+            public void pause(int millis) {
+                sleepTask(millis);
+            }
+
+            @Override
+            public boolean pastDeadline() {
+                return Instant.now().isAfter(stopAt);
+            }
+
+            @Override
+            public void readFailed(RawImageData frame, String failure) {
+                HeroGearForgeRoutine.this.readFailed(LEVEL_UP, frame, failure);
+            }
+        };
     }
 
     private GearNight.Enhanced enhance(HeroGearStore store, GearState state) {

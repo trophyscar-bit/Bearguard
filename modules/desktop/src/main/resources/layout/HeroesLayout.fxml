@@ -77,6 +77,17 @@
 
                                     <HBox styleClass="hero-row-bare" alignment="CENTER_LEFT" spacing="16">
                                         <VBox spacing="4" HBox.hgrow="ALWAYS">
+                                            <Label styleClass="hero-label" text="Level up heroes" />
+                                            <Label styleClass="hero-caption" wrapText="true" maxWidth="Infinity"
+                                                   text="Spends hero XP on your five instructors, the lowest level first, so the Drill Camp lifts everyone else with them." />
+                                        </VBox>
+                                        <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
+                                            <Segmented fx:id="segmentLevelUp" prefWidth="240" minWidth="240" maxWidth="240" />
+                                        </HBox>
+                                    </HBox>
+
+                                    <HBox styleClass="hero-row-bare" alignment="CENTER_LEFT" spacing="16">
+                                        <VBox spacing="4" HBox.hgrow="ALWAYS">
                                             <Label styleClass="hero-label" text="Raise gear levels" />
                                             <Label fx:id="labelEnhanceScope" styleClass="hero-caption" wrapText="true" maxWidth="Infinity" />
                                         </VBox>

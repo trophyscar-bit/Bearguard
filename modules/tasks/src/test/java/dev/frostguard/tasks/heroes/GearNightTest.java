@@ -111,6 +111,31 @@ class GearNightTest {
     }
 
     @Test
+    void heroLevelUpsRunBetweenTheCheckAndTheEnhance() throws IOException {
+        Fake fake = new Fake();
+        fake.levelUpsRun = true;
+
+        run(fake);
+
+        assertEquals(List.of("quickEquip", "scan", "levelUps", "enhance", "forge", "home"), fake.calls);
+        assertTrue(store.loadHalt(PROFILE).isEmpty());
+    }
+
+    @Test
+    void aLevelUpPressThatWentUnconfirmedHaltsTheNightBeforeAnythingElseIsSpent() throws IOException {
+        Fake fake = new Fake();
+        fake.levelUpsRun = true;
+        fake.levelUpHalt = "Lv 79 was not confirmed after Upgrade on Mia; nothing more pressed";
+
+        run(fake);
+
+        assertEquals(List.of("quickEquip", "scan", "levelUps", "backOut"), fake.calls, "no enhance, no forge, and only Back is used");
+        GearHalt halt = store.loadHalt(PROFILE).orElseThrow();
+        assertEquals("Level up: Lv 79 was not confirmed after Upgrade on Mia; nothing more pressed", halt.reason());
+        assertEquals(GearHalt.LEVEL_UP, halt.source());
+    }
+
+    @Test
     void aFailedScanSkipsEnhanceAndForge() throws IOException {
         Fake fake = new Fake();
         fake.scanResult = null;
@@ -549,6 +574,8 @@ class GearNightTest {
         GearState scanResult = SCANNED;
         GearNight.Enhanced enhanceResult = new GearNight.Enhanced(ENHANCED, null);
         boolean enhanceThrows;
+        boolean levelUpsRun;
+        String levelUpHalt;
         Hook onEnhance = () -> { };
         Hook onHaltUnsaved = () -> { };
         NightBudget budget;
@@ -595,6 +622,12 @@ class GearNightTest {
         public GearState scanIfDue() {
             calls.add("scan");
             return scanResult;
+        }
+
+        @Override
+        public String levelUps() {
+            if (levelUpsRun) calls.add("levelUps");
+            return levelUpHalt;
         }
 
         @Override

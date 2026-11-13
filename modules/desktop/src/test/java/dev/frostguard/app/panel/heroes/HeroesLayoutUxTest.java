@@ -740,6 +740,42 @@ class HeroesLayoutUxTest {
     }
 
     @Test
+    void levellingHeroesIsOffUntilChosenAndEachChoiceWritesItsTwoSettings() throws Exception {
+        View view = onFx(this::load);
+
+        assertEquals(List.of("Off", "Practice", "For real"), view.segment("segmentLevelUp").getItems());
+        assertEquals("Off", view.segment("segmentLevelUp").getValue(), "hero XP is never spent until it is chosen");
+        assertEquals(List.of(), view.published, "loading writes nothing");
+
+        onFx(() -> {
+            view.segment("segmentLevelUp").setValue("For real");
+            return null;
+        });
+        assertEquals(List.of(Map.entry(ConfigurationKeyEnum.HERO_LEVEL_UP_ENABLED_BOOL, true),
+                Map.entry(ConfigurationKeyEnum.HERO_LEVEL_UP_LIVE_BOOL, true)), view.published);
+
+        view.published.clear();
+        onFx(() -> {
+            view.segment("segmentLevelUp").setValue("Practice");
+            return null;
+        });
+        assertEquals(List.of(Map.entry(ConfigurationKeyEnum.HERO_LEVEL_UP_ENABLED_BOOL, true),
+                Map.entry(ConfigurationKeyEnum.HERO_LEVEL_UP_LIVE_BOOL, false)), view.published);
+    }
+
+    @Test
+    void aSavedLevelUpChoiceLoadsWithoutBeingRewritten() throws Exception {
+        seed(true);
+        View real = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_LEVEL_UP_ENABLED_BOOL, true, ConfigurationKeyEnum.HERO_LEVEL_UP_LIVE_BOOL, true)));
+        View practice = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_LEVEL_UP_ENABLED_BOOL, true)));
+
+        assertEquals("For real", real.segment("segmentLevelUp").getValue());
+        assertEquals("Practice", practice.segment("segmentLevelUp").getValue());
+        assertEquals(List.of(), real.published);
+        assertEquals(List.of(), practice.published);
+    }
+
+    @Test
     void theAmountsAreAllOrOnePerNightAndAnOldCountOfOneLoadsAsOnePerNight() throws Exception {
         seed(true);
         View fresh = onFx(this::load);

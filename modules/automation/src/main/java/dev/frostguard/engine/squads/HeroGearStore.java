@@ -24,6 +24,7 @@ public final class HeroGearStore {
     public record GearHalt(String reason, String at, String source) {
         public static final String QUICK_EQUIP = "quick-equip";
         public static final String ENHANCE = "enhance";
+        public static final String LEVEL_UP = "level-up";
     }
 
     /** An Enhance press on its way, saved before the tap and cleared once the new level shows. */

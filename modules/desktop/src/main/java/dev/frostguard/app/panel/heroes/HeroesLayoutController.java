@@ -163,6 +163,7 @@ public final class HeroesLayoutController extends AbstractProfileController {
     @FXML private ToggleSwitch switchPlan;
     @FXML private ComboBox<String> comboBoxRunAt;
     @FXML private Segmented segmentEnhance;
+    @FXML private Segmented segmentLevelUp;
     @FXML private Segmented segmentForge;
     @FXML private ComboBox<String> comboBoxFocus;
     @FXML private Segmented segmentEnhanceAmount;
@@ -231,6 +232,8 @@ public final class HeroesLayoutController extends AbstractProfileController {
             for (int minute = 0; minute < 60; minute += 15) comboBoxRunAt.getItems().add(String.format(Locale.ROOT, "%02d:%02d", hour, minute));
         }
         segmentEnhance.setItems(List.of(ENHANCE_OFF, ENHANCE_PRACTICE, ENHANCE_REAL), ENHANCE_REAL);
+        segmentLevelUp.setItems(List.of(ENHANCE_OFF, ENHANCE_PRACTICE, ENHANCE_REAL), ENHANCE_OFF);
+        segmentLevelUp.hint(NEVER_PRESSED);
         segmentForge.setItems(List.of(FORGE_PRACTICE, FORGE_REAL), FORGE_REAL);
         segmentEnhance.hint(NEVER_PRESSED);
         segmentForge.hint(NEVER_PRESSED);
@@ -247,6 +250,11 @@ public final class HeroesLayoutController extends AbstractProfileController {
         bridge(switchPlan, ConfigurationKeyEnum.HERO_UPGRADE_PLAN_ENABLED_BOOL);
 
         // Each spending feature is one plain choice that writes its two settings.
+        segmentLevelUp.valueProperty().addListener((obs, was, mode) -> {
+            if (mode == null) return;
+            publishWhenReady(ConfigurationKeyEnum.HERO_LEVEL_UP_ENABLED_BOOL, !ENHANCE_OFF.equals(mode));
+            publishWhenReady(ConfigurationKeyEnum.HERO_LEVEL_UP_LIVE_BOOL, ENHANCE_REAL.equals(mode));
+        });
         segmentEnhance.valueProperty().addListener((obs, was, mode) -> {
             if (mode == null) return;
             showStatusLine();
@@ -273,7 +281,7 @@ public final class HeroesLayoutController extends AbstractProfileController {
         segmentForgeAmount.disableProperty().bind(Bindings.notEqual(segmentForge.valueProperty(), FORGE_REAL).or(paused));
         comboBoxReserve.disableProperty().bind(Bindings.notEqual(segmentForge.valueProperty(), FORGE_REAL).or(paused));
         // While a halt stands nothing below the master can be changed, and each reason says so.
-        for (Node locked : List.of(comboBoxRunAt, comboBoxFocus, switchQuickEquip, segmentEnhance, segmentForge, gridHeroes)) {
+        for (Node locked : List.of(comboBoxRunAt, comboBoxFocus, switchQuickEquip, segmentLevelUp, segmentEnhance, segmentForge, gridHeroes)) {
             locked.disableProperty().bind(paused);
         }
         labelEnhanceReason.textProperty().bind(Bindings.when(paused).then("Locked while paused.")
@@ -396,6 +404,10 @@ public final class HeroesLayoutController extends AbstractProfileController {
             isLoadingProfile = true;
             try {
                 switches.forEach((toggle, key) -> toggle.setSelected(Boolean.TRUE.equals(profile.getConfiguration(key))));
+                segmentLevelUp.setValue(!Boolean.TRUE.equals(profile.getConfiguration(
+                        ConfigurationKeyEnum.HERO_LEVEL_UP_ENABLED_BOOL)) ? ENHANCE_OFF
+                        : Boolean.TRUE.equals(profile.getConfiguration(ConfigurationKeyEnum.HERO_LEVEL_UP_LIVE_BOOL))
+                        ? ENHANCE_REAL : ENHANCE_PRACTICE);
                 segmentEnhance.setValue(!Boolean.TRUE.equals(profile.getConfiguration(
                         ConfigurationKeyEnum.HERO_GEAR_ENHANCE_ENABLED_BOOL)) ? ENHANCE_OFF
                         : Boolean.TRUE.equals(profile.getConfiguration(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_LIVE_BOOL))
@@ -663,7 +675,8 @@ public final class HeroesLayoutController extends AbstractProfileController {
             pausedAt = halt.map(HeroGearStore.GearHalt::at).orElse(null);
             paused.set(pausedAt != null);
             halt.ifPresent(h -> labelHalt.setText("It stopped to be safe while "
-                    + (HeroGearStore.GearHalt.ENHANCE.equals(h.source()) ? "raising gear levels" : "wearing your best spare gear")
+                    + (HeroGearStore.GearHalt.ENHANCE.equals(h.source()) ? "raising gear levels"
+                    : HeroGearStore.GearHalt.LEVEL_UP.equals(h.source()) ? "levelling heroes" : "wearing your best spare gear")
                     + ": " + plainReason(h.reason()) + stillAt(h.reason()) + ". It may stop again if that is still wrong."));
             buttonClearHalt.setDisable(false);
             setBanner(halt.isPresent());

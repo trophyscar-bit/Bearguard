@@ -536,6 +536,8 @@ public enum ConfigurationKeyEnum {
     SQUAD_SCAN_NIGHTLY_ENABLED_BOOL     ("true",    Boolean.class,  ConfigCategory.ANALYTICS),
     SQUAD_SCAN_TIME_UTC_STRING          ("07:15",   String.class,   ConfigCategory.ANALYTICS),
     HERO_UPGRADE_PLAN_ENABLED_BOOL      ("false",   Boolean.class,  ConfigCategory.ANALYTICS),
+    HERO_LEVEL_UP_ENABLED_BOOL          ("false",   Boolean.class,  ConfigCategory.ANALYTICS),
+    HERO_LEVEL_UP_LIVE_BOOL             ("false",   Boolean.class,  ConfigCategory.ANALYTICS),
     HERO_GEAR_FORGE_ENABLED_BOOL        ("false",   Boolean.class,  ConfigCategory.ANALYTICS),
     HERO_GEAR_FORGE_LIVE_BOOL           ("false",   Boolean.class,  ConfigCategory.ANALYTICS),
     HERO_QUICK_EQUIP_ENABLED_BOOL       ("false",   Boolean.class,  ConfigCategory.ANALYTICS),

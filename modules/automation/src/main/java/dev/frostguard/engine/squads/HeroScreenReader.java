@@ -69,14 +69,19 @@ public final class HeroScreenReader {
     // still reads it.
     private static final OcrSettingsData WHITE_NAME = OcrSettingsData.builder()
             .textLayout(TextLayout.SINGLE_LINE).isolateForeground(true).targetColor(Color.WHITE).build();
-    // The Upgrade button prints the balance red when it is short of the cost and white otherwise.
+    // The Upgrade button prints the balance red when it is short of the cost and GREEN when it covers it (seen live on
+    // Mia 2.3M/2.1M); the cost after the slash is always white.
     private static final OcrSettingsData WHITE_XP = OcrSettingsData.builder()
             .textLayout(TextLayout.SINGLE_LINE).allowedGlyphs("0123456789,./KMB")
             .isolateForeground(true).targetColor(Color.WHITE).build();
     private static final OcrSettingsData RED_XP = OcrSettingsData.builder()
-            .textLayout(TextLayout.SINGLE_LINE).allowedGlyphs("0123456789,")
+            .textLayout(TextLayout.SINGLE_LINE).allowedGlyphs("0123456789,.KMB")
             .isolateForeground(true).targetColor(new Color(235, 50, 55)).build();
+    private static final OcrSettingsData GREEN_XP = OcrSettingsData.builder()
+            .textLayout(TextLayout.SINGLE_LINE).allowedGlyphs("0123456789,.KMB")
+            .isolateForeground(true).targetColor(new Color(0, 193, 0)).build();
     private static final Pattern XP_BOTH = Pattern.compile("^([\\d,.]+[KMB]?)/([\\d.]+[KMB]?)$");
+    private static final Pattern XP_BALANCE = Pattern.compile("^([\\d,.]+[KMB]?)$");
     private static final Pattern XP_COST = Pattern.compile("^/([\\d.]+[KMB]?)$");
 
     private HeroScreenReader() {
@@ -125,10 +130,36 @@ public final class HeroScreenReader {
         return null;
     }
 
+    /**
+     * What the Stats tab's Upgrade button shows. {@code affordable} is the game's own verdict: the balance is
+     * printed green. The balance and the cost are rounded ("2.3M", "2.1M") when they are in the millions.
+     */
+    public record Upgrade(HeroXp xp, boolean affordable) {
+    }
+
     /** The XP balance and cost on the Stats tab's Upgrade button, or null when they don't read cleanly. */
     public static HeroXp readHeroXp(RawImageData frame) {
-        return heroXp(SquadOcr.text(frame, 270, 1112, 500, 1148, WHITE_XP),
-                SquadOcr.text(frame, 270, 1112, 500, 1148, RED_XP));
+        Upgrade upgrade = readUpgrade(frame);
+        return upgrade == null ? null : upgrade.xp();
+    }
+
+    /** The Upgrade button as the game shows it, or null at max level ("Level maxed!") or when it does not read cleanly. */
+    public static Upgrade readUpgrade(RawImageData frame) {
+        String white = SquadOcr.text(frame, 270, 1112, 500, 1148, WHITE_XP);
+        String red = SquadOcr.text(frame, 270, 1112, 500, 1148, RED_XP);
+        String green = SquadOcr.text(frame, 270, 1112, 500, 1148, GREEN_XP);
+        return upgrade(white, red, green);
+    }
+
+    static Upgrade upgrade(String white, String red, String green) {
+        HeroXp plain = heroXp(white, red);
+        if (plain != null) return new Upgrade(plain, plain.have() >= plain.toNext());
+        Matcher cost = XP_COST.matcher(white);
+        Matcher balance = XP_BALANCE.matcher(green == null ? "" : green);
+        if (!cost.matches() || !balance.matches()) return null;
+        Long toNext = abbreviated(cost.group(1));
+        Long have = abbreviated(balance.group(1));
+        return have != null && toNext != null && have >= toNext ? new Upgrade(new HeroXp(have, toNext), true) : null;
     }
 
     static HeroXp heroXp(String white, String red) {
@@ -139,7 +170,8 @@ public final class HeroScreenReader {
             return have != null && toNext != null && have >= toNext ? new HeroXp(have, toNext) : null;
         }
         Matcher cost = XP_COST.matcher(white);
-        Long have = SquadOcr.number(red);
+        // Over a million the balance is rounded too ("2.3M"), red or green alike.
+        Long have = red != null && XP_BALANCE.matcher(red).matches() ? abbreviated(red) : null;
         Long toNext = cost.matches() ? abbreviated(cost.group(1)) : null;
         return have != null && toNext != null && have < toNext ? new HeroXp(have, toNext) : null;
     }
