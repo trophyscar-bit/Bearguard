@@ -874,6 +874,36 @@ public class MonumentRoutine extends DelayedTask {
         }
     }
 
+    /**
+     * Saves the list frame the pack finder was looking at when it chose {@code target}, with a red box
+     * round the tapped point. The after-tap frame only shows where the tap landed; on 2026-11-13 six
+     * of twelve backpack passes tapped a candidate that opened an album's task page instead of a pack
+     * detail (always x=360), and with no picture of the list there was no way to say what the finder
+     * had taken for a pack. Best-effort, like {@link #dumpDiagnosticFrame(String)}.
+     */
+    private String dumpPackCandidateFrame(BufferedImage listFrame, PointData target) {
+        try {
+            BufferedImage copy = new BufferedImage(
+                    listFrame.getWidth(), listFrame.getHeight(), BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g = copy.createGraphics();
+            g.drawImage(listFrame, 0, 0, null);
+            g.setColor(java.awt.Color.RED);
+            g.setStroke(new java.awt.BasicStroke(4f));
+            g.drawRect(target.getX() - 70, target.getY() - 70, 140, 140);
+            g.dispose();
+            java.io.File dir = new java.io.File(System.getProperty("user.dir"), "ocr-debug");
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                return "(pack candidate frame not saved: could not create " + dir + ")";
+            }
+            String stamp = LocalDateTime.now().toString().replace(':', '-').replace('.', '-');
+            java.io.File out = new java.io.File(dir, "monument-backpack-pack-candidate-" + stamp + ".png");
+            javax.imageio.ImageIO.write(copy, "png", out);
+            return "Pack candidate frame saved: " + out.getAbsolutePath();
+        } catch (Exception e) {
+            return "(pack candidate frame not saved: " + e.getMessage() + ")";
+        }
+    }
+
     private boolean isRegionPredominantlyGreen(ImageSearchResultData match) {
         RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
         if (frame == null || frame.getBpp() != 32) {
@@ -1661,7 +1691,9 @@ public class MonumentRoutine extends DelayedTask {
             if (enableLabel == null || !enableLabel.contains("enable")) {
                 logWarning(logLine("Tapped the pack icon at " + target + " but the pack detail's Enable button did "
                         + "not read (read: '" + enableLabel + "') -- not tapping on an unidentified screen. Opened "
-                        + opened + " total. " + dumpDiagnosticFrame("backpack-pack-detail-unknown")));
+                        + opened + " total, after " + scrolls + " swipe(s). "
+                        + dumpDiagnosticFrame("backpack-pack-detail-unknown") + " "
+                        + dumpPackCandidateFrame(listFrame, target)));
                 recoverTowardHome();
                 return;
             }
