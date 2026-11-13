@@ -13,6 +13,7 @@ import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 
 /**
  * Bakery, Milk Tea and Vinyl shop daily rewards. The three buildings stand on the city map and
@@ -29,6 +30,10 @@ public class BuildingDailyChestRoutine extends DelayedTask {
     // Measured on saved frames: 93-97 on the other buildings' bubbles, 51-60 on frames without one.
     private static final SearchConfig BUBBLE_SEARCH =
             SearchConfig.builder().withMaxAttempts(2).withThreshold(85).withDelay(250L).build();
+
+    /** Directory under logs/snapshot and the situation type of the frame kept when nothing was found. */
+    static final String SNAPSHOT_ACTIVITY = "buildingchest";
+    static final String SNAPSHOT_NO_BUBBLE = "nobubble";
 
     private static final PointData EXIT_POPUP_TAP = new PointData(360, 1000);
     private static final int TAP_SETTLE_MS = 2500;
@@ -86,8 +91,13 @@ public class BuildingDailyChestRoutine extends DelayedTask {
     protected void execute() {
         ImageSearchResultData bubble = findBubbleWithScan();
         if (!bubble.isFound()) {
+            // The frame at the last stop shows whether the route reached the shops at all, which a
+            // log line cannot: without it an already-claimed day and a missed cluster read the same.
+            String frame = TaskDiagnosticSnapshots.captureAlways(
+                    emuManager, EMULATOR_NUMBER, SNAPSHOT_ACTIVITY, SNAPSHOT_NO_BUBBLE);
             logWarning(logLine("No daily chest bubble found in the current view or after the "
                     + ROUTE.length + "-step route from the north-east corner. Unknown, not claimed: this is either already claimed today or the shops are outside the area searched."
+                    + " Final stop saved as " + (frame == null || frame.isEmpty() ? "nothing (snapshot failed)" : frame) + "."
                     + " Rechecking in " + BuildingDailyChestSchedule.UNKNOWN_RECHECK.toHours() + " hours."));
             reschedule(BuildingDailyChestSchedule.recheck(
                     Instant.now(), BuildingDailyChestSchedule.UNKNOWN_RECHECK, ZoneId.systemDefault()));
