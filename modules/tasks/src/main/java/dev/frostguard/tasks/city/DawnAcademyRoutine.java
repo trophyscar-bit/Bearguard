@@ -1257,7 +1257,16 @@ public class DawnAcademyRoutine extends DelayedTask {
             ImageSearchResultData auto = templateSearchHelper.locatePattern(TemplatesEnum.TUNDRA_TREK_AUTO_BUTTON,
                     SearchConfig.builder().withMaxAttempts(5).withDelay(1000).build());
             if (!auto.isFound()) {
-                // Nine passes in a row ended here from 11 Nov 15:06 with no frame to explain it.
+                // A story dialogue covers Idle and Auto and shows Skip instead (13 Nov: Cyrille on a
+                // legendary Beast stopped Tundra for nine passes).
+                ImageSearchResultData skip = templateSearchHelper.locatePattern(TemplatesEnum.TUNDRA_TREK_SKIP_BUTTON,
+                        SearchConfig.builder().withMaxAttempts(2).withDelay(500).build());
+                if (skip.isFound()) {
+                    logInfo(name + ": a story dialogue covers the route; skipping it.");
+                    tapInside(skip);
+                    sleepTask(2500);
+                    continue;
+                }
                 logWarning(name + ": Auto button not found; "
                         + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "dawnacademy",
                                 "auto-button-missing") + ".");
@@ -1269,14 +1278,15 @@ public class DawnAcademyRoutine extends DelayedTask {
                 return true;
             }
             // A waiting cooking beat greys Auto out, and the tap is what brings up Start Cooking.
-            if (!playCookingBeat(name)) {
-                logWarning(name + ": Auto Trek dialog did not open; "
-                        + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "dawnacademy",
-                                "auto-dialog-missing") + ".");
-                return false;
+            if (playCookingBeat(name)) {
+                continue;
             }
+            // Speech bubbles left after Skip take the tap that closes them, then Auto answers (13 Nov).
+            logInfo(name + ": Auto did not open; a story bubble may have taken the tap.");
         }
-        logWarning(name + ": still blocked after " + MAX_TREK_STORY_BEATS + " cooking beats.");
+        logWarning(name + ": Auto Trek dialog did not open after " + MAX_TREK_STORY_BEATS + " story beats; "
+                + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "dawnacademy",
+                        "auto-dialog-missing") + ".");
         return false;
     }
 
