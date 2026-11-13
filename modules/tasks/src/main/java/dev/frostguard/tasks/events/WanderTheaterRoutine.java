@@ -9,6 +9,7 @@ import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TemplatesEnum;
@@ -24,6 +25,7 @@ import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.schedule.TroopSlotPolicy;
 import dev.frostguard.engine.service.EventCalendarGate;
+import dev.frostguard.engine.service.ScheduleService;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.tasks.combat.PolarTerrorHuntingRoutine;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -98,12 +100,14 @@ public class WanderTheaterRoutine extends DelayedTask {
     static final int BUTTON_COLUMN_LEFT = 528;
     static final int BUTTON_COLUMN_RIGHT = 636;
     static final int LIST_TOP = 640;
+    /** Where the mission list sits and how it scrolls, for the shared sweep. */
+    static final EventMissionSweep.Geometry MISSION_LIST = new EventMissionSweep.Geometry(
+            LIST_TOP, 1245, BUTTON_X, BUTTON_COLUMN_LEFT, BUTTON_COLUMN_RIGHT, 40, 520, 77, 24, 1150, 750, 330, 8, 20);
     static final int LIST_BOTTOM = 1245;
     private static final int BUTTON_MIN_HEIGHT = 20;
     private static final PointData LIST_LOW = new PointData(330, 1150);
     private static final PointData LIST_HIGH = new PointData(330, 750);
 
-    private static final int MAX_CLAIMS = 6;
     private static final int RALLY_SET_MINUTES = 3;
     private static final int RALLY_CHECK_MINUTES = 12;
     private static final int RALLY_RETRY_MINUTES = 6;
@@ -137,12 +141,31 @@ public class WanderTheaterRoutine extends DelayedTask {
         if (!openMissions()) {
             return;
         }
-        claimAll();
+        EventMissionSweep.Result sweep = EventMissionSweep.run(new MissionScreen(), MISSION_LIST);
+        claimed = sweep.claimed();
         Optional<ButtonState> polar = rowState(TemplatesEnum.WANDER_THEATER_POLAR_ROW);
-        Optional<ButtonState> troops = rowState(TemplatesEnum.WANDER_THEATER_TROOP_ROW);
-        Optional<ButtonState> donations = rowState(TemplatesEnum.WANDER_THEATER_DONATE_ROW);
-        logInfo("Wanderer Missions: claimed " + claimed + "; Polar Terror " + describe(polar)
-                + ", troop power " + describe(troops) + ", alliance contributions " + describe(donations) + ".");
+        logInfo("Wanderer Missions: claimed " + claimed + " over " + sweep.pages() + " page(s); Polar Terror "
+                + describe(polar) + "; doable " + titlesOf(sweep.doable()) + "; purchase skipped "
+                + titlesOf(sweep.purchase()) + (sweep.stoppedEarly() ? "; the sweep stopped early." : "."));
+        // The rally below is this task's own; any other doable mission goes to its own task, if that is on.
+        EventMissionTrigger.run(profile.getId() + "|921", sweep, Set.of(TpDailyTaskEnum.EVENT_POLAR_TERROR),
+                new EventMissionTrigger.Environment() {
+                    @Override
+                    public boolean enabled(TpDailyTaskEnum task) {
+                        return task.getConfigKey() != null
+                                && Boolean.TRUE.equals(profile.getConfig(task.getConfigKey(), Boolean.class));
+                    }
+
+                    @Override
+                    public void schedule(TpDailyTaskEnum task, LocalDateTime due) {
+                        ScheduleService.obtain().applySweptTimer(profile, task, due, true);
+                    }
+
+                    @Override
+                    public LocalDateTime now() {
+                        return LocalDateTime.now();
+                    }
+                }, WanderTheaterRoutine.this::logInfo);
         if (!Boolean.FALSE.equals(profile.getConfig(ConfigurationKeyEnum.WANDER_THEATER_EXPLORE_BOOL, Boolean.class))) {
             explore();
         }
@@ -387,19 +410,6 @@ public class WanderTheaterRoutine extends DelayedTask {
         return true;
     }
 
-    /** Claimed rows sink to the bottom, so a finished mission is always among the first rows. */
-    private void claimAll() {
-        for (int i = 0; i < MAX_CLAIMS; i++) {
-            Optional<Integer> button = firstClaimButton(frame());
-            if (button.isEmpty()) {
-                return;
-            }
-            tapNear(new PointData(BUTTON_X, button.get()), 10);
-            sleepTask(2500);
-            claimed++;
-        }
-    }
-
     /** The state of one mission row, scrolling the list once if the row is below the fold. */
     private Optional<ButtonState> rowState(TemplatesEnum row) {
         Optional<ButtonState> state = visibleRowState(row);
@@ -425,6 +435,65 @@ public class WanderTheaterRoutine extends DelayedTask {
             return Optional.empty();
         }
         return Optional.of(buttonState(frame(), title.getPoint().getY() + BUTTON_BELOW_TITLE));
+    }
+
+    private static String titlesOf(List<EventMissionSweep.Mission> missions) {
+        return missions.stream().map(EventMissionSweep.Mission::title).toList().toString();
+    }
+
+    /** The emulator, as the shared mission sweep sees it. */
+    private final class MissionScreen implements EventMissionSweep.Screen {
+        private RawImageData lastRaw;
+        private BufferedImage lastImage;
+
+        @Override
+        public BufferedImage frame() {
+            RawImageData raw = emuManager.captureScreen(EMULATOR_NUMBER);
+            lastRaw = raw;
+            lastImage = raw == null ? new BufferedImage(720, 1280, BufferedImage.TYPE_INT_RGB)
+                    : ImageConverter.toBufferedImage(raw);
+            return lastImage;
+        }
+
+        @Override
+        public String readTitle(BufferedImage frame, int buttonCenterY) {
+            RawImageData raw = frame == lastImage ? lastRaw : emuManager.captureScreen(EMULATOR_NUMBER);
+            return raw == null ? null : EventMissionSweep.ocrTitle(raw, MISSION_LIST, buttonCenterY);
+        }
+
+        @Override
+        public void tap(int x, int y) {
+            tapNear(new PointData(x, y), 10);
+        }
+
+        @Override
+        public void swipe(int fromX, int fromY, int toX, int toY) {
+            WanderTheaterRoutine.this.swipe(new PointData(fromX, fromY), new PointData(toX, toY), 600);
+        }
+
+        @Override
+        public void sleep(long millis) {
+            sleepTask(millis);
+        }
+
+        @Override
+        public boolean onMissionList() {
+            return found(TemplatesEnum.WANDER_THEATER_MISSIONS_TITLE, MISSIONS_TITLE_TOP_LEFT, MISSIONS_TITLE_BOTTOM_RIGHT);
+        }
+
+        @Override
+        public void warn(String message) {
+            logWarning(message);
+        }
+
+        @Override
+        public void saveFrame(String tag, BufferedImage frame) {
+            RawImageData raw = emuManager.captureScreen(EMULATOR_NUMBER);
+            if (raw != null) {
+                DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace().write(raw, "wander", tag, Instant.now())
+                        .ifPresent(path -> logWarning("Wander Theater: frame saved: " + path));
+            }
+        }
     }
 
     private static String describe(Optional<ButtonState> state) {
