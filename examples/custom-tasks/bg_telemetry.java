@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -721,8 +722,18 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     private static final Pattern BATTLE_STAGE = Pattern.compile(
             "UTC\\s*(\\d{4})/(\\d{1,2})/(\\d{1,2})\\s+(\\d{1,2}):(\\d{2})", Pattern.CASE_INSENSITIVE);
 
-    /** Rows for those candidates, one each, replaced whole on every Fortress scan. */
+    /** Rows for those candidates, one each, replaced whole by a Fortress scan that read some. */
     private static final String FACILITY_BATTLE_KEY_PREFIX = "FACILITY_BATTLE_CANDIDATE_";
+
+    /**
+     * Every card in the frames lists three: a sign-up picks three of five offered times. A card that
+     * parses fewer was read badly, not signed up for fewer -- Stronghold No. 2 lost its 13:00 to
+     * the OCR on 12 Nov and nothing said so.
+     */
+    private static final int EXPECTED_CANDIDATES_PER_FACILITY = 3;
+
+    /** This scan's candidate times by row key, held until the whole panel has been read. */
+    private final Map<String, Object[]> pendingBattleTimes = new LinkedHashMap<>();
 
     private static final PointData CALENDAR_PANEL_TOP_LEFT = new PointData(10, 230);
 
@@ -815,20 +826,14 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
             sleepTask(PANEL_SETTLE_MS);
         }
 
-        // Candidates are keyed by their own time, so yesterday's would linger as tomorrow's if they
-        // were not cleared: the panel lists only what is still signed up for, and so should we.
-        int forgottenCandidates = EventScheduleService.obtain().forgetAll(FACILITY_BATTLE_KEY_PREFIX);
-        if (forgottenCandidates > 0) {
-            logInfo("bg_telemetry | Fortress: cleared " + forgottenCandidates
-                    + " candidate battle time(s) from the previous read.");
-        }
-
+        pendingBattleTimes.clear();
         recordFacilitiesFrom(readPanelBlock(FORTRESS_PANEL_TOP_LEFT, FORTRESS_PANEL_BOTTOM_RIGHT));
         // One scroll to pick up facilities beyond the first screenful; a re-seen card just
         // overwrites itself since recordOneFacility writes by facility-name key.
         swipe(FORTRESS_SCROLL_FROM, FORTRESS_SCROLL_TO);
         sleepTask(PANEL_SETTLE_MS);
         recordFacilitiesFrom(readPanelBlock(FORTRESS_PANEL_TOP_LEFT, FORTRESS_PANEL_BOTTOM_RIGHT));
+        commitBattleTimes();
 
         pressBack();
         sleepTask(600);
@@ -879,7 +884,8 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
     }
 
     /**
-     * Stores every candidate time listed under one facility card, for a rally joiner to wait on.
+     * Holds every candidate time listed under one facility card until the whole panel has been read,
+     * for a rally joiner to wait on.
      *
      * <p>The times are printed in UTC and stored as read -- no conversion, no inference. A line
      * whose date or time does not parse is skipped rather than guessed at: the panel prints three
@@ -888,30 +894,73 @@ public class bg_telemetry extends DelayedTask implements CustomTaskConfigurable 
      * votes and is not on this screen, so nothing here records a battle, only a possibility.</p>
      */
     private void recordBattleStages(String facilityName, String followingText) {
-        Matcher stage = BATTLE_STAGE.matcher(followingText);
-        int recorded = 0;
-        while (stage.find()) {
-            LocalDateTime startUtc;
-            try {
-                startUtc = LocalDateTime.of(
-                        Integer.parseInt(stage.group(1)), Integer.parseInt(stage.group(2)),
-                        Integer.parseInt(stage.group(3)), Integer.parseInt(stage.group(4)),
-                        Integer.parseInt(stage.group(5)));
-            } catch (RuntimeException notATime) {
-                logWarning("bg_telemetry | Fortress: " + facilityName + " lists a time \""
-                        + stage.group() + "\" that is not a time; skipping it.");
-                continue;
-            }
+        List<LocalDateTime> times = parseBattleTimes(followingText, facilityName);
+        for (LocalDateTime startUtc : times) {
             String key = FACILITY_BATTLE_KEY_PREFIX
                     + facilityName.toUpperCase().replaceAll("[^A-Z0-9]+", "_") + "_"
                     + startUtc.format(BATTLE_STAGE_KEY_FORMAT);
-            EventScheduleService.obtain().recordWindow(key, facilityName, false, startUtc, null);
-            recorded++;
+            pendingBattleTimes.put(key, new Object[]{facilityName, startUtc});
         }
-        if (recorded > 0) {
-            logInfo("bg_telemetry | Fortress: " + facilityName + " is signed up for " + recorded
+        boolean cardListsTimes = followingText.toLowerCase().contains("signed up for");
+        if (!times.isEmpty()) {
+            logInfo("bg_telemetry | Fortress: " + facilityName + " is signed up for " + times.size()
                     + " candidate battle time(s); one of them becomes the battle.");
         }
+        if ((!times.isEmpty() || cardListsTimes) && times.size() < EXPECTED_CANDIDATES_PER_FACILITY) {
+            logWarning("bg_telemetry | Fortress: " + facilityName + " read " + times.size() + " of the "
+                    + EXPECTED_CANDIDATES_PER_FACILITY + " candidate time(s) a sign-up lists, so this read"
+                    + " of it is incomplete rather than final.");
+        }
+    }
+
+    /**
+     * The candidate times a card's text carries, as UTC instants, in the order printed.
+     *
+     * <p>Pure on purpose: it is the part of the Fortress read that can be checked against saved OCR
+     * text without a database. A line whose date or time does not parse is skipped rather than
+     * guessed at -- one unreadable line costs a candidate, while a wrong one would send a rally at
+     * the wrong hour.</p>
+     */
+    static List<LocalDateTime> parseBattleTimes(String cardText, String facilityName) {
+        List<LocalDateTime> times = new ArrayList<>();
+        Matcher stage = BATTLE_STAGE.matcher(cardText == null ? "" : cardText);
+        while (stage.find()) {
+            try {
+                LocalDateTime startUtc = LocalDateTime.of(
+                        Integer.parseInt(stage.group(1)), Integer.parseInt(stage.group(2)),
+                        Integer.parseInt(stage.group(3)), Integer.parseInt(stage.group(4)),
+                        Integer.parseInt(stage.group(5)));
+                if (!times.contains(startUtc)) {
+                    times.add(startUtc);
+                }
+            } catch (RuntimeException notATime) {
+                // logged by the caller's count: a short card is reported as short
+            }
+        }
+        return times;
+    }
+
+    /**
+     * Replaces the stored candidate times with this scan's, but only when this scan read some.
+     *
+     * <p>An empty read is not evidence that nothing is signed up. The panel may not have been on the
+     * Signed up tab, the read may have failed, or the sign-up may have closed and the vote resolved --
+     * which is what happened at 19:07 on 12 Nov, when the old rows were cleared and nothing replaced
+     * them. Unknown contributes nothing: the previous rows stay, and they expire on their own, by
+     * their own start time and by the six-hour freshness rule.</p>
+     */
+    private void commitBattleTimes() {
+        if (pendingBattleTimes.isEmpty()) {
+            logInfo("bg_telemetry | Fortress: no candidate battle times read; keeping the previous read.");
+            return;
+        }
+        int forgotten = EventScheduleService.obtain().forgetAll(FACILITY_BATTLE_KEY_PREFIX);
+        for (Map.Entry<String, Object[]> row : pendingBattleTimes.entrySet()) {
+            EventScheduleService.obtain().recordWindow(row.getKey(), (String) row.getValue()[0], false,
+                    (LocalDateTime) row.getValue()[1], null);
+        }
+        logInfo("bg_telemetry | Fortress: stored " + pendingBattleTimes.size() + " candidate battle time(s)"
+                + (forgotten > 0 ? ", replacing " + forgotten + " from the previous read." : "."));
     }
 
     /** One slow step down the chart. 250px against an ~800px viewport, so every step overlaps the

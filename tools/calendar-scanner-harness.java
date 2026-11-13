@@ -68,6 +68,25 @@ public final class GateHarness {
         failures += expectNoStage(stage, "Stages already signed up for:");
         failures += expectNoStage(stage, "Reward expires in 02:14:51");
 
+        // The card parser, against the raw text the live engine returned at 18:05 on 12 Nov. The
+        // Stronghold card lost its 13:00 line to the OCR, which is the case the short-card warning is for.
+        Method parseTimes = telemetry.getDeclaredMethod("parseBattleTimes", String.class, String.class);
+        parseTimes.setAccessible(true);
+        failures += expectTimes(parseTimes,
+                " Sis& O-sign-up _) Controlled by Phaethon MercenariesEee Stages already signed up for:Se,"
+                        + " UTC 2026/11/13 3:00X?400.Y:597 UTC 2026/11/13 9:00",
+                "2026-11-13T03:00", "2026-11-13T09:00");
+        failures += expectTimes(parseTimes,
+                " sis,TAuto-sign-u ) Controlled by Phaethon MercenariesEg a Stages already signed up for:ML"
+                        + " UTC 2026/11/13 9:00X:237eY:606 UTC 2026/11/13 13:009 223km away UTC 2026/11/13 14:00",
+                "2026-11-13T09:00", "2026-11-13T13:00", "2026-11-13T14:00");
+        // A repeat of the same line (a re-seen card after the scroll) is one candidate, not two.
+        failures += expectTimes(parseTimes, "UTC 2026/11/13 9:00 UTC 2026/11/13 9:00", "2026-11-13T09:00");
+        // A date that is not a date is dropped; the good one next to it is kept.
+        failures += expectTimes(parseTimes, "UTC 2026/13/45 9:00 UTC 2026/11/13 13:00", "2026-11-13T13:00");
+        failures += expectTimes(parseTimes, "Controlled by Phaethon Mercenaries");
+        failures += expectTimes(parseTimes, "");
+
         System.out.println(failures == 0 ? "HARNESS PASS" : "HARNESS FAIL: " + failures);
         if (failures > 0) {
             System.exit(1);
@@ -109,6 +128,21 @@ public final class GateHarness {
             return 1;
         }
         System.out.println("  ok stage \"" + line + "\" -> " + got);
+        return 0;
+    }
+
+    private static int expectTimes(Method parse, String card, String... expected) throws Exception {
+        @SuppressWarnings("unchecked")
+        java.util.List<LocalDateTime> got = (java.util.List<LocalDateTime>) parse.invoke(null, card, "card");
+        java.util.List<String> gotText = new java.util.ArrayList<>();
+        for (LocalDateTime time : got) {
+            gotText.add(time.toString());
+        }
+        if (!gotText.equals(java.util.List.of(expected))) {
+            System.out.println("  FAIL card times " + gotText + ", wanted " + java.util.List.of(expected));
+            return 1;
+        }
+        System.out.println("  ok card times " + gotText);
         return 0;
     }
 
