@@ -35,6 +35,8 @@ class WinterSiegeFrameTest {
     private static final String NOT_GARRISONED = "page-not-garrisoned.png";
     private static final String GARRISONED = "page-garrisoned.png";
     private static final String MAP = "map.png";
+    private static final String SCOUT_PAGE = "page-scout.png";
+    private static final String SCOUT_MAP = "map-scout.png";
     private static final String CLAIMABLE = "missions-claimable.png";
     private static final String NONE_CLAIMABLE = "missions-none-claimable.png";
 
@@ -118,17 +120,31 @@ class WinterSiegeFrameTest {
     }
 
     @Test
-    void theMainButtonIsFoundByItsBlueFillWhateverItsLabel() throws Exception {
-        PointData garrisoned = WinterSiegeRoutine.blueButtonCenter(image(GARRISONED),
-                WinterSiegeRoutine.GO_PREPARE_AREA).orElseThrow();
-        assertEquals(360, garrisoned.getX(), 10);
-        assertEquals(1120, garrisoned.getY(), 10);
-        assertTrue(WinterSiegeRoutine.blueButtonCenter(image(NOT_GARRISONED), WinterSiegeRoutine.GO_PREPARE_AREA)
-                .isPresent());
-        assertFalse(WinterSiegeRoutine.blueButtonCenter(image(OTHER_TAB), WinterSiegeRoutine.GO_PREPARE_AREA)
-                .isPresent());
-        assertFalse(WinterSiegeRoutine.blueButtonCenter(image(MAP), WinterSiegeRoutine.GO_PREPARE_AREA)
-                .isPresent());
+    void theMainButtonLabelTellsThePhaseApart() throws Exception {
+        assertTrue(find(SCOUT_PAGE, TemplatesEnum.WINTER_SIEGE_GO_SCOUT, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+        assertFalse(find(SCOUT_PAGE, TemplatesEnum.WINTER_SIEGE_GO_PREPARE, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+        assertFalse(find(GARRISONED, TemplatesEnum.WINTER_SIEGE_GO_SCOUT, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+        assertFalse(find(NOT_GARRISONED, TemplatesEnum.WINTER_SIEGE_GO_SCOUT, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+        assertFalse(find(OTHER_TAB, TemplatesEnum.WINTER_SIEGE_GO_SCOUT, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+    }
+
+    @Test
+    void theScoutPageHasTheEventTitleAndNoGarrisonWarning() throws Exception {
+        assertTrue(find(SCOUT_PAGE, TemplatesEnum.WINTER_SIEGE_TITLE, WinterSiegeRoutine.TITLE_AREA).isFound());
+        assertFalse(find(SCOUT_PAGE, TemplatesEnum.WINTER_SIEGE_NOT_GARRISONED,
+                WinterSiegeRoutine.NOT_GARRISONED_AREA).isFound());
+    }
+
+    @Test
+    void theMissionsButtonSitsLowerOnTheScoutMap() throws Exception {
+        ImageSearchResultData prep = find(MAP, TemplatesEnum.WINTER_SIEGE_MISSIONS, WinterSiegeRoutine.MISSIONS_BUTTON_AREA);
+        ImageSearchResultData scout = find(SCOUT_MAP, TemplatesEnum.WINTER_SIEGE_MISSIONS,
+                WinterSiegeRoutine.MISSIONS_BUTTON_AREA);
+        assertTrue(prep.isFound());
+        assertTrue(scout.isFound());
+        assertEquals(576, scout.getX(), 20);
+        assertEquals(1015, scout.getY(), 30);
+        assertFalse(find(SCOUT_PAGE, TemplatesEnum.WINTER_SIEGE_MISSIONS, WinterSiegeRoutine.MISSIONS_BUTTON_AREA).isFound());
     }
 
     @Test
@@ -136,7 +152,7 @@ class WinterSiegeFrameTest {
         LocalDateTime now = LocalDateTime.of(2026, 11, 11, 20, 15);
         LocalDateTime reset = LocalDateTime.of(2026, 11, 12, 19, 0);
         for (Outcome outcome : new Outcome[] {Outcome.CLAIMED, Outcome.NOTHING_TO_CLAIM, Outcome.NOT_GARRISONED,
-                Outcome.NO_MAIN_BUTTON, Outcome.NO_MISSIONS}) {
+                Outcome.UNKNOWN_PHASE}) {
             assertEquals(now.plus(WinterSiegeRoutine.EVENT_PASS_INTERVAL),
                     WinterSiegeRoutine.nextRun(outcome, 0, now, reset));
         }
@@ -158,12 +174,6 @@ class WinterSiegeFrameTest {
         assertEquals(now.plusMinutes(30), WinterSiegeRoutine.nextRun(Outcome.UNKNOWN, 1, now, reset));
         assertEquals(now.plus(WinterSiegeRoutine.EVENT_PASS_INTERVAL), WinterSiegeRoutine.nextRun(Outcome.UNKNOWN,
                 WinterSiegeRoutine.MAX_FAILED_ATTEMPTS, now, reset));
-    }
-
-    private BufferedImage image(String name) throws IOException {
-        try (InputStream in = Objects.requireNonNull(getClass().getResourceAsStream(DIR + name), name)) {
-            return ImageIO.read(in);
-        }
     }
 
     private ImageSearchResultData find(String name, TemplatesEnum template, AreaData area) throws IOException {
