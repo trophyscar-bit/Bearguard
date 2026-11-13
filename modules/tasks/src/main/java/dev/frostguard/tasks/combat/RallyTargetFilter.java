@@ -34,6 +34,10 @@ final class RallyTargetFilter {
     private static final Pattern PLAYER_TARGET = Pattern.compile(
             "\\b(city|furnace|castle|attack(?:ing)?\\s+(?:player|chief))\\b", Pattern.CASE_INSENSITIVE);
 
+    // The kind alone, for a joiner that does not care which facility: "Fortress", "Fort ress", "Stronghold".
+    private static final Pattern FACILITY_KIND = Pattern.compile(
+            "\\b(?:f\\s?o\\s?r\\s?t\\s?r\\s?e\\s?s{1,2}|strong\\s?hol\\w*)\\b", Pattern.CASE_INSENSITIVE);
+
     private RallyTargetFilter() {
     }
 
@@ -52,6 +56,16 @@ final class RallyTargetFilter {
             found.add(new Facility(kind, Integer.parseInt(m.group(3))));
         }
         return found.size() == 1 ? found.iterator().next() : null;
+    }
+
+    /**
+     * True when the lines name a Fortress or a Stronghold, whichever number, and no player target. An
+     * unreadable or empty line is false, so a failed read never joins.
+     */
+    static boolean isFacilityRally(List<TextLine> lines) {
+        if (lines == null || lines.isEmpty()) return false;
+        String text = String.join(" ", lines.stream().map(TextLine::text).toList()).toLowerCase(Locale.ROOT);
+        return !PLAYER_TARGET.matcher(text).find() && FACILITY_KIND.matcher(text).find();
     }
 
     /** True when the lines name exactly one facility and it is on the signed-up list. */

@@ -180,7 +180,7 @@
                         </HBox>
                         <VBox styleClass="task-section-inner">
                             <Label wrapText="true" styleClass="task-card-description"
-                                   text="Joins only, never hosts, registers or spends gems. Troops per join come from the Squads page. It starts at the battle times the alliance signed up for, watches each time for a live Fortress or Stronghold rally, and joins only rallies of the facilities below. A time with no live rally lost the vote and is skipped." />
+                                   text="Joins only, never hosts, registers or spends gems. Troops per join come from the Squads page. It starts at the battle time the game shows in the Task List, watches the whole battle for a live rally of a facility on the schedule, checking every few seconds, and joins it. The facilities are read from the game, not typed." />
                             <Separator style="-fx-opacity: 0.25;" />
                             <CheckBox text="Recall gatherers first" mnemonicParsing="false" fx:id="checkBoxFacilityRecall" />
                             <HBox alignment="CENTER_LEFT" spacing="8">
@@ -189,13 +189,8 @@
                             </HBox>
                             <HBox alignment="CENTER_LEFT" spacing="8">
                                 <Label minWidth="150.0" text="Facilities" />
-                                <TextField prefWidth="240.0" promptText="Fortress 12, Stronghold 2" fx:id="textFieldFacilityTargets" />
+                                <Label wrapText="true" fx:id="labelFacilityDetected" />
                             </HBox>
-                            <HBox alignment="CENTER_LEFT" spacing="8">
-                                <Label minWidth="150.0" text="Watch minutes per time" />
-                                <TextField prefWidth="60.0" fx:id="textFieldFacilityWatch" />
-                            </HBox>
-                            <Label fx:id="labelFacilityError" styleClass="setting-validation-message" wrapText="true" />
                         </VBox>
                     </VBox>
                 </VBox>

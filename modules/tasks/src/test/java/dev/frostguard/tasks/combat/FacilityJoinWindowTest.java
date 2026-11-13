@@ -57,4 +57,21 @@ class FacilityJoinWindowTest {
         assertEquals(FacilityJoinWindow.Kind.UNKNOWN, d.kind());
         assertEquals(now.plus(FacilityJoinWindow.ASK_AGAIN), d.at());
     }
+
+    @Test
+    void theSessionEndsAfterTheHoldOnceARallyIsLiveAndNeverPastTheBattle() {
+        LocalDateTime battleEnd = START.plus(LENGTH);
+        LocalDateTime probeEnd = START.plus(FacilityJoinWindow.PROBE);
+        LocalDateTime liveAt = START.plusMinutes(5);
+        assertEquals(liveAt.plus(FacilityRallyJoinRoutine.HOLD_AFTER_LIVE),
+                FacilityRallyJoinRoutine.sessionEnd(true, liveAt, true, START, battleEnd, probeEnd));
+        // A rally first seen near the end is capped by the battle's end.
+        LocalDateTime late = battleEnd.minusMinutes(10);
+        assertEquals(battleEnd, FacilityRallyJoinRoutine.sessionEnd(true, late, true, START, battleEnd, probeEnd));
+        // Confirmed and no rally yet: wait a bounded time, so gathering resumes.
+        assertEquals(START.plus(FacilityRallyJoinRoutine.WAIT_FOR_FIRST_RALLY),
+                FacilityRallyJoinRoutine.sessionEnd(false, null, true, START, battleEnd, probeEnd));
+        // A candidate-only time keeps the watch probe.
+        assertEquals(probeEnd, FacilityRallyJoinRoutine.sessionEnd(false, null, false, START, battleEnd, probeEnd));
+    }
 }

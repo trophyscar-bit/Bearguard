@@ -29,7 +29,7 @@ final class FacilityJoinWindow {
 
     /**
      * Until a facility rally is seen the time is only a candidate (the alliance's sign-up picks three
-     * times and the game keeps one battle), so it is watched for the configured watch time (default {@link #PROBE}), counted from now when
+     * times and the game keeps one battle), so it is watched for {@link #PROBE}, counted from now when
      * the bot arrives late, and never past the battle's end.
      */
     static LocalDateTime probeEnd(LocalDateTime nowUtc, LocalDateTime startUtc, Duration length, Duration probeLength) {

@@ -81,4 +81,19 @@ class RallyTargetFilterTest {
         assertNull(RallyTargetFilter.facilityOf(lines("Fortress No. 12", "Stronghold No. 2")), "two facilities is not a clean read");
         assertFalse(RallyTargetFilter.isSignedUp(lines("Fortress No. 12"), Set.of()), "an empty list joins nothing");
     }
+
+    @Test
+    void anyFortressOrStrongholdRallyIsJoinedWhateverItsNumber() {
+        assertEquals(true, RallyTargetFilter.isFacilityRally(lines("Fortress No. 12")));
+        assertEquals(true, RallyTargetFilter.isFacilityRally(lines("Stronghold 2")));
+        assertEquals(true, RallyTargetFilter.isFacilityRally(lines("Fort ress")));
+    }
+
+    @Test
+    void anUnreadablePlayerOrUnrelatedRallyIsNeverJoined() {
+        assertEquals(false, RallyTargetFilter.isFacilityRally(lines("")));
+        assertEquals(false, RallyTargetFilter.isFacilityRally(null));
+        assertEquals(false, RallyTargetFilter.isFacilityRally(lines("Bear Trap")));
+        assertEquals(false, RallyTargetFilter.isFacilityRally(lines("Attacking player Fortress City")));
+    }
 }

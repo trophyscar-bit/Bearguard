@@ -31,20 +31,42 @@ import java.util.Set;
 public class FacilityRallyJoinRoutine extends BearTrapRoutine {
 
     /**
-     * The candidate start times (UTC), soonest first, including one that began within the window. They
-     * are only candidates: the sign-up picks three times and the game keeps one battle. The calendar's
-     * FacilityBattleCandidates plugs in here.
+     * One time to work on. A candidate is a vote pick (the sign-up lists three times and the game keeps
+     * one battle); a confirmed time is the Task List's real battle, so it is never a lost vote.
+     */
+    public record Stage(LocalDateTime startUtc, boolean confirmed) {
+    }
+
+    /**
+     * The stages (UTC), soonest first, including one that began within the window. The calendar's
+     * FacilityBattleCandidates.schedule() plugs in here: confirmed times where the Task List has them,
+     * candidates only for a facility it has not named. Empty means no time known.
      */
     public interface StartSource {
-        List<LocalDateTime> candidatesUtc(LocalDateTime nowUtc);
+        List<Stage> stagesUtc(LocalDateTime nowUtc);
     }
 
     /** How long the battle lasts from its real start: the battle phase is two hours (the in-game rules). */
     static final Duration WINDOW_LENGTH = Duration.ofMinutes(120);
 
+    /**
+     * Holding a fort for 30 minutes wins it and ends the battle. From the first live rally that is the
+     * rally's march plus the hold, so the session ends then and gathering gets the profile back instead of
+     * waiting out the battle's two hours.
+     */
+    static final Duration HOLD_AFTER_LIVE = Duration.ofMinutes(40);
+    /** A confirmed battle with no joinable rally this long after its start is given up, so gathering resumes. */
+    static final Duration WAIT_FOR_FIRST_RALLY = Duration.ofMinutes(30);
+
     private StartSource startSource = nowUtc -> FacilityBattleCandidates
-            .upcoming(nowUtc, FacilityBattleCandidates.BATTLE_LENGTH).stream()
-            .map(FacilityBattleCandidates.Candidate::startUtc).distinct().sorted().toList();
+            .schedule(nowUtc, FacilityBattleCandidates.BATTLE_LENGTH).stream()
+            .collect(java.util.stream.Collectors.toMap(
+                    FacilityBattleCandidates.Candidate::startUtc,
+                    FacilityBattleCandidates.Candidate::confirmed,
+                    Boolean::logicalOr))
+            .entrySet().stream()
+            .map(e -> new Stage(e.getKey(), e.getValue()))
+            .sorted(java.util.Comparator.comparing(Stage::startUtc)).toList();
     private boolean warnedUncalibrated;
     /** War-list frames saved while uncalibrated, so the first live rally leaves frames to calibrate from. */
     private int calibrationFrames;
@@ -66,10 +88,12 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
      * (the calendar gives only stages that start after "now").
      */
     private LocalDateTime currentStartUtc;
+    private boolean currentConfirmed;
     /** A candidate that was watched and showed no facility rally: it lost the vote, so it is not offered again. */
     private LocalDateTime lostVoteUtc;
     /** Set by the whitelist the first time a signed-up facility rally is seen: the battle is live. */
     private volatile boolean battleLive;
+    private volatile LocalDateTime liveSinceUtc;
 
     /**
      * The framework navigates here before execute() runs, so an idle pass (no candidate time known, or
@@ -78,16 +102,16 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
     @Override
     protected LaunchPoint getRequiredStartLocation() {
         LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
-        return FacilityJoinWindow.decide(nowUtc, pickStart(nowUtc), WINDOW_LENGTH).kind() == FacilityJoinWindow.Kind.RUN
+        return FacilityJoinWindow.decide(nowUtc, pickStart(nowUtc).map(Stage::startUtc), WINDOW_LENGTH).kind() == FacilityJoinWindow.Kind.RUN
                 ? LaunchPoint.WORLD : LaunchPoint.ANY;
     }
 
     /** The stage to work on: the current one until its window closes, else the next candidate that has not lost the vote. */
-    private Optional<LocalDateTime> pickStart(LocalDateTime nowUtc) {
+    private Optional<Stage> pickStart(LocalDateTime nowUtc) {
         return currentStartUtc != null && nowUtc.isBefore(currentStartUtc.plus(WINDOW_LENGTH))
-                ? Optional.of(currentStartUtc)
-                : startSource.candidatesUtc(nowUtc).stream()
-                        .filter(c -> lostVoteUtc == null || c.isAfter(lostVoteUtc))
+                ? Optional.of(new Stage(currentStartUtc, currentConfirmed))
+                : startSource.stagesUtc(nowUtc).stream()
+                        .filter(c -> lostVoteUtc == null || c.startUtc().isAfter(lostVoteUtc))
                         .findFirst();
     }
 
@@ -95,8 +119,10 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
     protected void execute() {
         LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
         // A stage already being worked on stays the stage until its window has closed.
-        Optional<LocalDateTime> start = pickStart(nowUtc);
+        Optional<Stage> picked = pickStart(nowUtc);
+        Optional<LocalDateTime> start = picked.map(Stage::startUtc);
         currentStartUtc = start.orElse(null);
+        currentConfirmed = picked.map(Stage::confirmed).orElse(false);
         FacilityJoinWindow.Decision decision = FacilityJoinWindow.decide(nowUtc, start, WINDOW_LENGTH);
 
         if (decision.kind() != FacilityJoinWindow.Kind.RUN) {
@@ -114,16 +140,14 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
         marchTally = new BearMarchTally();
         rallyTargets = new BearRallyTargets();
         joinRally = true;
-        signedUp = RallyTargetFilter.parseSignedUp(
-                profile.getConfig(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_TARGETS_STRING, String.class));
-        if (signedUp.isEmpty()) {
-            // An empty list means "the alliance's sign-up": an unknown or stale sign-up stays empty and joins nothing.
-            signedUp = RallyTargetFilter.parseSignedUp(String.join(",", FacilityBattleCandidates.facilities(
-                    nowUtc, FacilityBattleCandidates.BATTLE_LENGTH)));
-        }
+        // The facilities come from the game's own schedule, never from a typed list: an unknown or stale
+        // schedule is empty and joins nothing.
+        signedUp = RallyTargetFilter.parseSignedUp(String.join(",", FacilityBattleCandidates
+                .schedule(nowUtc, FacilityBattleCandidates.BATTLE_LENGTH).stream()
+                .map(FacilityBattleCandidates.Candidate::facility).distinct().toList()));
         if (signedUp.isEmpty()) {
             logWarning(routineLogBearTrapLine(
-                    "Facility rally joiner: no signed-up facilities are set, so no rally will be joined."));
+                    "Facility rally joiner: no facility battle is on the schedule, so no rally will be joined."));
         } else {
             logInfo(routineLogBearTrapLine("Facility rally joiner: only these facilities: " + signedUp));
         }
@@ -135,24 +159,25 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
         // calendar only returns stages that have not started.
         // Watch the candidate for a live rally first; once one is seen the battle is live and the
         // window runs to the battle's end. No rally in the probe means this time lost the vote.
-        Integer watchMinutes = profile.getConfig(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_WATCH_MINUTES_INT, Integer.class);
-        Duration watch = watchMinutes == null || watchMinutes < 5 || watchMinutes > 60
-                ? FacilityJoinWindow.PROBE : Duration.ofMinutes(watchMinutes);
+        Duration watch = FacilityJoinWindow.PROBE;
         LocalDateTime stage = currentStartUtc;
+        boolean confirmed = currentConfirmed;
         LocalDateTime battleEnd = decision.at();
         LocalDateTime probeEnd = FacilityJoinWindow.probeEnd(LocalDateTime.now(ZoneOffset.UTC), stage, WINDOW_LENGTH, watch);
         battleLive = false;
-        if (targetCalibrated() && !signedUp.isEmpty()
+        liveSinceUtc = null;
+        if (!signedUp.isEmpty()
                 && Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_RECALL_BOOL, Boolean.class))) {
-            // Only when a rally can actually be joined: pulling marches home for nothing costs gathering.
-            // Free every march before joining. Autojoin is left as it is: only the Bear Trap switches it off
+            // Every gatherer comes home when the battle starts, whether or not the target text is calibrated,
+            // so every march is free the moment a rally can be joined. Free every march before joining. Autojoin is left as it is: only the Bear Trap switches it off
             // and back on. The gather task waits for the recalled troops to return before it deploys again.
             logInfo(routineLogBearTrapLine("Facility rally joiner: recalling gatherers so every march is free to join."));
             recallGatherTroopsFlow(false);
         }
         while (true) {
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            LocalDateTime end = battleLive ? battleEnd : probeEnd;
+            // A confirmed time is a real battle: keep watching it to the end rather than give it up as a lost vote.
+            LocalDateTime end = sessionEnd(battleLive, liveSinceUtc, confirmed, stage, battleEnd, probeEnd);
             if (!now.isBefore(end)) break;
             checkPreemption();
             handleJoinRallies2(end);
@@ -162,13 +187,29 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
             lostVoteUtc = stage;
             currentStartUtc = null;
             saveJoinDiagnostic("facility-no-rally-" + stage.toString().replaceAll("[^0-9]", ""));
-            logInfo(routineLogBearTrapLine("Facility rally joiner: no facility rally at " + stage
+            logInfo(routineLogBearTrapLine(confirmed
+                    ? "Facility rally joiner: the confirmed battle at " + stage + " UTC showed no joinable facility rally."
+                    : "Facility rally joiner: no facility rally at " + stage
                     + " UTC, so that time did not run; moving to the next candidate."));
         } else {
             lostVoteUtc = stage;
             currentStartUtc = null;
         }
         reschedule(LocalDateTime.now().plus(watch.dividedBy(3)));
+    }
+
+    /** When this session stops: after the hold once a rally is live, else at the end of the wait for one. */
+    static LocalDateTime sessionEnd(boolean live, LocalDateTime liveSinceUtc, boolean confirmed,
+                                    LocalDateTime stageUtc, LocalDateTime battleEnd, LocalDateTime probeEnd) {
+        LocalDateTime end;
+        if (live && liveSinceUtc != null) {
+            end = liveSinceUtc.plus(HOLD_AFTER_LIVE);
+        } else if (confirmed) {
+            end = stageUtc.plus(WAIT_FOR_FIRST_RALLY);
+        } else {
+            end = probeEnd;
+        }
+        return end.isBefore(battleEnd) ? end : battleEnd;
     }
 
     @Override
@@ -185,15 +226,16 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
             }
             return false;
         }
-        RallyTargetFilter.Facility facility = RallyTargetFilter.facilityOf(readScreenText(area.get()));
-        boolean join = facility != null && signedUp.contains(facility);
+        // Any Fortress or Stronghold rally is worth joining while the schedule has a battle: the alliance
+        // fights all of them, so the number does not matter. An empty schedule joins nothing.
+        boolean join = !signedUp.isEmpty() && RallyTargetFilter.isFacilityRally(readScreenText(area.get()));
         if (join && !battleLive) {
             battleLive = true;
-            logInfo(routineLogBearTrapLine("Facility rally joiner: " + facility + " is live; joining until its battle ends."));
+            liveSinceUtc = LocalDateTime.now(ZoneOffset.UTC);
+            logInfo(routineLogBearTrapLine("Facility rally joiner: a facility rally is live; joining it, then handing the profile back after the hold."));
         }
         logDebug(routineLogBearTrapLine("Facility rally joiner: "
-                + (facility == null ? "skipping a rally that is not a numbered facility."
-                : join ? "joining " + facility + "." : "skipping " + facility + ", not signed up.")));
+                + (join ? "joining a facility rally." : "skipping a rally that is not a facility rally.")));
         return join;
     }
 

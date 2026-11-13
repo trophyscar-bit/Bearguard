@@ -36,13 +36,13 @@ public class EventsLayoutController extends AbstractProfileController {
     private CheckComboBox<Integer> checkComboBoxFacilityFlag;
 
     @FXML
-    private TextField textFieldFacilityTargets, textFieldFacilityWatch;
+    private Label labelFacilityDetected;
 
     @FXML
     private TabPane tabPaneEvents;
 
     @FXML
-    private Label labelDateTimeError, labelFacilityError;
+    private Label labelDateTimeError;
 
     @FXML
     private void initialize() {
@@ -99,9 +99,7 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxFacilityJoin, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxFacilityRecall, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_RECALL_BOOL);
         checkComboBoxMappings.put(checkComboBoxFacilityFlag, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_FLAG_STRING);
-        registerTextField(textFieldFacilityTargets, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_TARGETS_STRING);
-        registerRangedIntegerField(textFieldFacilityWatch, labelFacilityError,
-            ConfigurationKeyEnum.FACILITY_RALLY_JOIN_WATCH_MINUTES_INT, "Watch minutes", 5, 60);
+        showDetectedFacilities();
 
         comboBoxMappings.put(comboBoxMercenaryFlag, ConfigurationKeyEnum.MERCENARY_FLAG_INT);
         comboBoxMappings.put(comboBoxHeroMissionFlag, ConfigurationKeyEnum.HERO_MISSION_FLAG_INT);
@@ -128,8 +126,6 @@ public class EventsLayoutController extends AbstractProfileController {
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
         checkBoxFacilityRecall.disableProperty().bind(checkBoxFacilityJoin.selectedProperty().not());
         checkComboBoxFacilityFlag.disableProperty().bind(checkBoxFacilityJoin.selectedProperty().not());
-        textFieldFacilityTargets.disableProperty().bind(checkBoxFacilityJoin.selectedProperty().not());
-        textFieldFacilityWatch.disableProperty().bind(checkBoxFacilityJoin.selectedProperty().not());
         textfieldMergeventureSpendHours.disableProperty().bind(
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
         checkBoxFortuneHutPlay.disableProperty().bind(checkBoxFortuneHut.selectedProperty().not());
@@ -144,6 +140,18 @@ public class EventsLayoutController extends AbstractProfileController {
             checkBoxWanderTheater.selectedProperty().not().or(checkBoxWanderTheaterRally.selectedProperty().not()));
         textfieldWanderTheaterReserve.disableProperty().bind(
             checkBoxWanderTheater.selectedProperty().not().or(checkBoxWanderTheaterExplore.selectedProperty().not()));
+    }
+
+    /** The facilities the game's schedule names, so nothing is typed: empty reads as no battle known. */
+    private void showDetectedFacilities() {
+        java.util.List<String> facilities = dev.frostguard.engine.service.FacilityBattleCandidates
+            .schedule(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC),
+                dev.frostguard.engine.service.FacilityBattleCandidates.BATTLE_LENGTH).stream()
+            .map(dev.frostguard.engine.service.FacilityBattleCandidates.Candidate::facility)
+            .distinct().sorted(NavOrder.BY_NAME).toList();
+        labelFacilityDetected.setText(facilities.isEmpty()
+            ? "No Fortress or Stronghold battle is on the schedule yet."
+            : String.join(", ", facilities));
     }
 
     private void prepareActivationTimeField() {
