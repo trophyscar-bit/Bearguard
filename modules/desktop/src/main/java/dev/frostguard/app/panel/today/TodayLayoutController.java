@@ -470,10 +470,20 @@ public final class TodayLayoutController implements IProfileLoadListener {
         time.setMinWidth(TIME_COLUMN_WIDTH);
         time.setPrefWidth(TIME_COLUMN_WIDTH);
 
+        String dotClass = dotClass(item.kind(), task);
         Region dot = new Region();
-        dot.getStyleClass().addAll("today-dot", dotClass(item.kind(), task));
+        dot.getStyleClass().addAll("today-dot", dotClass);
         dot.setMinSize(9, 9);
         dot.setMaxSize(9, 9);
+        // A running task gets the spinning globe instead of the flat yellow dot (watchers keep their eye).
+        Node marker = dot;
+        if ("today-dot-run".equals(dotClass) && !watchingByKey.containsKey(task.key())) {
+            RunningIndicator globe = new RunningIndicator();
+            marker = globe;
+            if (globe.isGlobe()) {
+                HBox.setMargin(globe, new Insets(0, -1.5, 0, -1.5));
+            }
+        }
 
         Label name = new Label(task.name());
         name.getStyleClass().add("today-name");
@@ -484,7 +494,7 @@ public final class TodayLayoutController implements IProfileLoadListener {
         status.getStyleClass().add("today-note");
         status.setMinWidth(Region.USE_PREF_SIZE);
 
-        HBox box = new HBox(8, time, dot, name, status);
+        HBox box = new HBox(8, time, marker, name, status);
         String watching = watchingByKey.get(task.key());
         if (watching != null) {
             showAsWatching(box, dot, name, watching);
