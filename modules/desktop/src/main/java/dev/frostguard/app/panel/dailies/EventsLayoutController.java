@@ -27,7 +27,7 @@ public class EventsLayoutController extends AbstractProfileController {
 
     @FXML
     private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours,
-        textfieldWanderTheaterReserve, textfieldWanderTheaterRunHour, textfieldFortuneHutSpendHours, textfieldFortuneHutWish;
+        textfieldWanderTheaterReserve, textfieldWanderTheaterRunHour, textfieldFortuneHutBankThreshold, textfieldFortuneHutWish;
 
     @FXML
     private ComboBox<Integer> comboBoxMercenaryFlag, comboBoxHeroMissionFlag, comboBoxWanderTheaterRallyFlag;
@@ -92,7 +92,7 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxWinterSiege, ConfigurationKeyEnum.WINTER_SIEGE_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxFortuneHut, ConfigurationKeyEnum.FORTUNE_HUT_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxFortuneHutPlay, ConfigurationKeyEnum.FORTUNE_HUT_PLAY_BOOL);
-        textFieldMappings.put(textfieldFortuneHutSpendHours, ConfigurationKeyEnum.FORTUNE_HUT_SPEND_HOURS_BEFORE_END_INT);
+        textFieldMappings.put(textfieldFortuneHutBankThreshold, ConfigurationKeyEnum.FORTUNE_HUT_BANK_THRESHOLD_INT);
         textFieldMappings.put(textfieldFortuneHutWish, ConfigurationKeyEnum.FORTUNE_HUT_WISH_INT);
         // Fortress / Stronghold joiner: no schedule of its own, the event calendar says when it runs.
         checkBoxMappings.put(checkBoxFacilityJoin, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_ENABLED_BOOL);
@@ -132,7 +132,7 @@ public class EventsLayoutController extends AbstractProfileController {
         textfieldMergeventureSpendHours.disableProperty().bind(
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
         checkBoxFortuneHutPlay.disableProperty().bind(checkBoxFortuneHut.selectedProperty().not());
-        textfieldFortuneHutSpendHours.disableProperty().bind(
+        textfieldFortuneHutBankThreshold.disableProperty().bind(
             checkBoxFortuneHut.selectedProperty().not().or(checkBoxFortuneHutPlay.selectedProperty().not()));
         textfieldFortuneHutWish.disableProperty().bind(
             checkBoxFortuneHut.selectedProperty().not().or(checkBoxFortuneHutPlay.selectedProperty().not()));

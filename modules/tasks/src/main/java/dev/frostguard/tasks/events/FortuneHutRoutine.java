@@ -1,9 +1,9 @@
 package dev.frostguard.tasks.events;
 
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +16,7 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.AreaData;
 import dev.frostguard.api.domain.ImageSearchResultData;
+import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
@@ -23,7 +24,6 @@ import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.EventCalendarGate;
-import dev.frostguard.engine.service.EventScheduleService;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -36,10 +36,20 @@ import dev.frostguard.vision.convert.ImageConverter;
  *
  * <p>Each round the game asks for a Wish Reward (one of four items, Fire Crystals by default here) and
  * hides it in one of ten crystal balls beside nine side prizes. An orb costs more with every one opened
- * (1, 2, 3, 4, 6, 8, 12, 15, 20, 25 tokens as read live), and the wish is always in the tenth at the latest.
- * Tokens are free, carry over until the event ends, and are worth nothing afterwards, so the strategy is:
- * claim the free pack every day, bank the tokens, and spend all of them in one go near the end, so the
- * deepest, cheapest-per-orb run uses the biggest pool.
+ * (1, 2, 3, 4, 6, 8, 12, 15, 20, 25 tokens, read live on 2026-11-12: the fifth orb costs 6 although some
+ * fan sites say 5), and the wish is always in the tenth at the latest, so a whole board costs at most 96.
+ *
+ * <p>The token is a backpack item ("Fortune Token", Owned: n) whose description carries no expiry, and the
+ * fan sources (whiteoutdata, heaven-guardian, WSCO, WoSTools) say tokens carry over to the next event and
+ * that spending just because the event is ending is a common mistake. So this task claims the free pack
+ * every day and banks the tokens, and only starts a board once the count covers the worst case (the
+ * "bank threshold", 96 by default). A board that is already part-open continues only when the count
+ * covers the worst case for the orbs still sealed. A Reset never abandons a board. Carry-over itself is
+ * still to be confirmed from the backpack once a count is held; until then the task banks.
+ *
+ * <p>Not covered yet: the 20 and 100 spent milestones pay 5 and 12 tokens back, which would let a board
+ * start a little under the threshold (that needs the "n/20" counter read, so the default stays at 96), and
+ * the free Reset after the wish is found (the wish-found screen has not been captured).
  *
  * <p>Never tapped: any pack with a price, a gem or top-up button, and Reset while it still costs tokens.
  * Only the green Free button of the free pack is ever pressed on the pack page, and the pack page is
@@ -49,9 +59,8 @@ import dev.frostguard.vision.convert.ImageConverter;
  */
 public class FortuneHutRoutine extends DelayedTask {
 
-    /** The name and key prefix the State calendar stores this event under. */
+    /** The name the State calendar stores this event under. */
     static final String CALENDAR_EVENT_NAME = "Mia's Fortune Hut";
-    private static final String CALENDAR_KEY_PREFIX = "STATE_GANTT_MIA_S_FORTUNE_HUT_";
 
     private static final PointData BACK_ARROW = CommonGameAreas.DEALS_BACK_ARROW;
     private static final PointData PACK_PLUS = new PointData(645, 283);
@@ -88,6 +97,21 @@ public class FortuneHutRoutine extends DelayedTask {
     static final int[] COST_Y = {742, 772};
     static final int COST_RED_MIN_PIXELS = 3;
 
+    /** Orb costs in opening order, as read live; a whole board is their sum, 96. */
+    static final int[] ORB_COSTS = {1, 2, 3, 4, 6, 8, 12, 15, 20, 25};
+    /** The token count beside the "+": a wide and a tight box that must agree. */
+    static final PointData TOKENS_TOP_LEFT = new PointData(550, 262);
+    static final PointData TOKENS_BOTTOM_RIGHT = new PointData(645, 305);
+    static final PointData TOKENS_TIGHT_TOP_LEFT = new PointData(575, 268);
+    static final PointData TOKENS_TIGHT_BOTTOM_RIGHT = new PointData(632, 300);
+    static final OcrSettingsData TOKEN_DIGITS = OcrSettingsData.configurator()
+            .textLayout(OcrSettingsData.TextLayout.SINGLE_WORD)
+            .isolateForeground(true)
+            .targetColor(Color.WHITE)
+            .allowedGlyphs("0123456789")
+            .build();
+    static final int DEFAULT_BANK_THRESHOLD = 96;
+
     private static final int TEMPLATE_THRESHOLD = 85;
     private static final int PANEL_SETTLE_MS = 1500;
     private static final int ORB_SETTLE_MS = 4000;
@@ -112,17 +136,14 @@ public class FortuneHutRoutine extends DelayedTask {
         if (parkedUntilTheEventOpens()) {
             return;
         }
-        LocalDateTime end = eventEnd();
-        boolean spendNow = playEnabled() && spendWindowOpen(end);
-
         if (!openHut()) {
-            finish(failureRetry(end));
+            finish(failureRetry());
             return;
         }
         boolean packClaimed = claimFreePack();
         boolean unsure = false;
         int opened = 0;
-        if (spendNow) {
+        if (playEnabled()) {
             int result = playBoard();
             if (result < 0) {
                 unsure = true;
@@ -130,9 +151,7 @@ public class FortuneHutRoutine extends DelayedTask {
                 opened = result;
             }
         } else {
-            logInfo("Fortune Hut: banking tokens"
-                    + (playEnabled() ? " until " + (end == null ? "the end" : spendFrom(end).format(DATETIME_FORMATTER)) : "")
-                    + ".");
+            logInfo("Fortune Hut: banking tokens (spending is switched off).");
         }
         leave();
         if (packClaimed) {
@@ -141,15 +160,8 @@ public class FortuneHutRoutine extends DelayedTask {
         if (opened > 0) {
             StatisticsService.obtain().addToCounter(profile, "Fortune Hut Orbs Opened", opened);
         }
-
-        if (unsure) {
-            finish(failureRetry(end));
-        } else if (spendNow) {
-            // Spent what the tokens would pay for. The next pass is the following day's free pack, if the event is still on.
-            finish(afterNextReset());
-        } else {
-            finish(nextPass(end));
-        }
+        // An unknown screen or count retries within the hour; otherwise the next pass is the next day's free pack.
+        finish(unsure ? failureRetry() : afterNextReset());
     }
 
     /** Waits for the event's State calendar window; with no clear verdict the pass goes ahead. */
@@ -166,53 +178,20 @@ public class FortuneHutRoutine extends DelayedTask {
         return true;
     }
 
-    // ---- when to spend -----------------------------------------------------------------------------
-
-    /** The window's end in local time, or null when the calendar has no bar for the running event. */
-    private LocalDateTime eventEnd() {
-        try {
-            return EventScheduleService.obtain().windowFor(CALENDAR_KEY_PREFIX, LocalDateTime.now(ZoneOffset.UTC))
-                    .filter(entry -> entry.getInactiveSince() != null)
-                    .map(entry -> entry.getInactiveSince().atZone(ZoneOffset.UTC)
-                            .withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime())
-                    .orElse(null);
-        } catch (RuntimeException e) {
-            logWarning("Fortune Hut: could not read the event's end from the calendar: " + e.getMessage());
-            return null;
-        }
-    }
+    // ---- settings ----------------------------------------------------------------------------------
 
     private boolean playEnabled() {
         return !Boolean.FALSE.equals(profile.getConfig(ConfigurationKeyEnum.FORTUNE_HUT_PLAY_BOOL, Boolean.class));
     }
 
-    private int spendLeadHours() {
-        Integer hours = profile.getConfig(ConfigurationKeyEnum.FORTUNE_HUT_SPEND_HOURS_BEFORE_END_INT, Integer.class);
-        return hours == null ? 6 : Math.max(1, Math.min(36, hours));
+    /** Tokens that must be banked before a fresh board is started. */
+    private int bankThreshold() {
+        Integer setting = profile.getConfig(ConfigurationKeyEnum.FORTUNE_HUT_BANK_THRESHOLD_INT, Integer.class);
+        return setting == null ? DEFAULT_BANK_THRESHOLD : Math.max(1, Math.min(400, setting));
     }
 
-    private LocalDateTime spendFrom(LocalDateTime end) {
-        return end.minusHours(spendLeadHours());
-    }
-
-    /** With no known end the tokens would otherwise go unspent, so the pass plays. */
-    private boolean spendWindowOpen(LocalDateTime end) {
-        return end == null || !LocalDateTime.now().isBefore(spendFrom(end));
-    }
-
-    /** The next free pack, or the start of the spend window if that comes first. */
-    private LocalDateTime nextPass(LocalDateTime end) {
-        LocalDateTime pack = afterNextReset();
-        if (end == null || !playEnabled()) {
-            return pack;
-        }
-        LocalDateTime spend = spendFrom(end);
-        return spend.isAfter(LocalDateTime.now()) && spend.isBefore(pack) ? spend : pack;
-    }
-
-    private LocalDateTime failureRetry(LocalDateTime end) {
-        LocalDateTime soon = LocalDateTime.now().plus(FAILURE_RETRY);
-        return end != null && soon.isAfter(end) ? afterNextReset() : soon;
+    private LocalDateTime failureRetry() {
+        return LocalDateTime.now().plus(FAILURE_RETRY);
     }
 
     private LocalDateTime afterNextReset() {
@@ -346,14 +325,36 @@ public class FortuneHutRoutine extends DelayedTask {
     // ---- the board ---------------------------------------------------------------------------------
 
     /**
-     * Opens crystal balls while the count can pay the next one (its cost reads red when it cannot).
-     * Returns the number opened, or -1 when a screen was not recognised and the pass stopped.
+     * Opens crystal balls once the banked tokens cover the board's worst case, then keeps going while the
+     * next orb is affordable (its cost reads red when it is not). Returns the number opened, or -1 when a
+     * screen or a count was not recognised and the pass stopped.
      *
      * <p>Reset is never tapped here: before the wish is found it costs tokens and throws the board away.
      * The wish-found screen has not been captured yet, so anything that is neither the board nor the
      * wish picker is saved and left as it is.
      */
     private int playBoard() {
+        Integer tokens = readTokens();
+        if (tokens == null) {
+            logWarning("Fortune Hut: could not read the token count; no orb opened; " + snapshot("tokens-unreadable"));
+            return -1;
+        }
+        int sealed = 10;
+        if (!wishPickerShown()) {
+            Optional<BufferedImage> board = frame();
+            if (board.isEmpty() || !boardShown()) {
+                logWarning("Fortune Hut: neither the board nor the wish picker is showing; " + snapshot("unknown-screen"));
+                return -1;
+            }
+            sealed = unopenedOrbs(board.get()).size();
+        }
+        int needed = tokensNeeded(sealed, bankThreshold());
+        if (tokens < needed) {
+            logInfo("Fortune Hut: " + tokens + " tokens banked, " + needed + " needed to "
+                    + (sealed == 10 ? "start a board" : "finish the board in progress") + "; banking.");
+            return 0;
+        }
+        logInfo("Fortune Hut: " + tokens + " tokens banked, " + needed + " needed; playing.");
         int opened = 0;
         for (int step = 0; step < MAX_ORB_STEPS; step++) {
             if (wishPickerShown()) {
@@ -388,6 +389,15 @@ public class FortuneHutRoutine extends DelayedTask {
         return opened;
     }
 
+    /** Two boxes that must agree, so a misread never starts a board the tokens cannot finish. */
+    private Integer readTokens() {
+        Integer wide = integerHelper.attemptRecognition(TOKENS_TOP_LEFT, TOKENS_BOTTOM_RIGHT, 3, 200L,
+                TOKEN_DIGITS, text -> tokenCount(text) != null, FortuneHutRoutine::tokenCount);
+        Integer tight = integerHelper.attemptRecognition(TOKENS_TIGHT_TOP_LEFT, TOKENS_TIGHT_BOTTOM_RIGHT, 3, 200L,
+                TOKEN_DIGITS, text -> tokenCount(text) != null, FortuneHutRoutine::tokenCount);
+        return wide != null && wide.equals(tight) ? wide : null;
+    }
+
     /** Selects the configured Wish Reward and presses the green button under the four options. */
     private boolean pickWish() {
         Integer setting = profile.getConfig(ConfigurationKeyEnum.FORTUNE_HUT_WISH_INT, Integer.class);
@@ -406,7 +416,32 @@ public class FortuneHutRoutine extends DelayedTask {
         return true;
     }
 
-    // ---- pixel reads (package-private for the frame tests) -----------------------------------------
+    // ---- pure rules and pixel reads (package-private for the tests) ---------------------------------
+
+    /** Digits only, at most four of them; anything else is no reading. */
+    static Integer tokenCount(String text) {
+        if (text == null) {
+            return null;
+        }
+        String digits = text.trim();
+        return digits.matches("\\d{1,4}") ? Integer.valueOf(digits) : null;
+    }
+
+    /**
+     * Tokens that must be banked to play: a fresh board needs the bank threshold; a board with orbs
+     * already opened needs the worst-case cost of the orbs still sealed, or the threshold if that is lower.
+     */
+    static int tokensNeeded(int sealedOrbs, int threshold) {
+        int opened = Math.max(0, Math.min(10, 10 - sealedOrbs));
+        if (opened == 0) {
+            return threshold;
+        }
+        int worst = 0;
+        for (int i = opened; i < ORB_COSTS.length; i++) {
+            worst += ORB_COSTS[i];
+        }
+        return Math.min(threshold, worst);
+    }
 
     /** Indices of the balls still sealed: only they carry the lilac highlight above their centre. */
     static List<Integer> unopenedOrbs(BufferedImage img) {

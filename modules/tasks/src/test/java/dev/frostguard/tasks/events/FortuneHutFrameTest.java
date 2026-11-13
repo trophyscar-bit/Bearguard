@@ -119,6 +119,69 @@ class FortuneHutFrameTest {
         assertFalse(find("board-fresh.png", TemplatesEnum.FORTUNE_HUT_PACK_TITLE).isFound());
     }
 
+    /**
+     * Measured on these frames (2026-11-12): "10" reads exactly; the lone "9" reads as "7" in every
+     * variant tried (layout, foreground, colour, box), so a single digit is not trusted yet. A reading
+     * must never overstate the real count, since an overstated count could start a board the tokens cannot
+     * finish; the game's own red cost still stops any orb that cannot be paid. More digits come from the
+     * next run's frames.
+     */
+    @Test
+    void theTokenCountIsNeverOverstatedOnTheBoardFrames() throws Exception {
+        assertEquals(10, readTokens("board-fresh.png"));
+        Integer nine = readTokens("board-two-opened.png");
+        assertTrue(nine == null || nine <= 9, "read " + nine + " for a count of 9");
+        Integer zero = readTokens("board-four-opened-cost-red.png");
+        assertTrue(zero == null || zero == 0, "read " + zero + " for a count of 0");
+    }
+
+    @Test
+    void onlyPlainDigitsCountAsATokenReading() {
+        assertEquals(96, FortuneHutRoutine.tokenCount(" 96\n"));
+        assertEquals(null, FortuneHutRoutine.tokenCount("9)"));
+        assertEquals(null, FortuneHutRoutine.tokenCount(""));
+        assertEquals(null, FortuneHutRoutine.tokenCount(null));
+    }
+
+    @Test
+    void aFreshBoardNeedsTheThresholdAndABoardInProgressNeedsItsWorstCaseRemainder() {
+        assertEquals(96, FortuneHutRoutine.tokensNeeded(10, 96));
+        assertEquals(60, FortuneHutRoutine.tokensNeeded(10, 60));
+        // Four orbs opened (1+2+3+4 spent): 6+8+12+15+20+25 = 86 still to cover.
+        assertEquals(86, FortuneHutRoutine.tokensNeeded(6, 96));
+        assertEquals(50, FortuneHutRoutine.tokensNeeded(6, 50));
+        // Nine opened: only the last orb (25).
+        assertEquals(25, FortuneHutRoutine.tokensNeeded(1, 96));
+        assertEquals(96, java.util.Arrays.stream(FortuneHutRoutine.ORB_COSTS).sum());
+    }
+
+    private Integer readTokens(String name) throws Exception {
+        dev.frostguard.api.domain.RawImageData raw = raw(name);
+        Integer wide = FortuneHutRoutine.tokenCount(dev.frostguard.vision.ocr.OcrEngine.recognizeText(raw,
+                FortuneHutRoutine.TOKENS_TOP_LEFT, FortuneHutRoutine.TOKENS_BOTTOM_RIGHT,
+                FortuneHutRoutine.TOKEN_DIGITS));
+        Integer tight = FortuneHutRoutine.tokenCount(dev.frostguard.vision.ocr.OcrEngine.recognizeText(raw,
+                FortuneHutRoutine.TOKENS_TIGHT_TOP_LEFT, FortuneHutRoutine.TOKENS_TIGHT_BOTTOM_RIGHT,
+                FortuneHutRoutine.TOKEN_DIGITS));
+        return wide != null && wide.equals(tight) ? wide : null;
+    }
+
+    private dev.frostguard.api.domain.RawImageData raw(String name) throws IOException {
+        BufferedImage image = image(name);
+        byte[] rgba = new byte[image.getWidth() * image.getHeight() * 4];
+        int offset = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int rgb = image.getRGB(x, y);
+                rgba[offset++] = (byte) ((rgb >> 16) & 0xFF);
+                rgba[offset++] = (byte) ((rgb >> 8) & 0xFF);
+                rgba[offset++] = (byte) (rgb & 0xFF);
+                rgba[offset++] = (byte) 0xFF;
+            }
+        }
+        return dev.frostguard.api.domain.RawImageData.capture(rgba, image.getWidth(), image.getHeight(), 32);
+    }
+
     private ImageSearchResultData find(String name, TemplatesEnum template) throws IOException {
         return findIn(name, template, new PointData(0, 0), new PointData(719, 1279));
     }

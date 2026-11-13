@@ -109,13 +109,13 @@
                         </HBox>
                         <VBox styleClass="task-section-inner">
                             <Label wrapText="true" styleClass="task-card-description"
-                                   text="Claims the free Fortune Token pack once a day, banks the tokens, and spends them all on crystal balls near the end of the event, when the biggest pool buys the deepest run. Runs only while the State calendar has the event open. Never taps a priced pack, a gem or top-up button, or a Reset that costs tokens." />
+                                   text="Claims the free Fortune Token pack once a day and banks the tokens, which sit in the backpack. A board is started only once the banked count covers the worst case (96 tokens). Runs only while the State calendar has the event open. Never taps a priced pack, a gem or top-up button, or a Reset that costs tokens." />
                             <CheckBox text="Spend the tokens (otherwise only claim the free pack)"
                                       mnemonicParsing="false" fx:id="checkBoxFortuneHutPlay" />
                             <HBox spacing="10" alignment="CENTER_LEFT">
-                                <Label text="Start spending" styleClass="task-field-label" />
-                                <TextField prefWidth="50.0" fx:id="textfieldFortuneHutSpendHours" />
-                                <Label text="hours before the event ends" styleClass="task-field-label" />
+                                <Label text="Start a board at" styleClass="task-field-label" />
+                                <TextField prefWidth="50.0" fx:id="textfieldFortuneHutBankThreshold" />
+                                <Label text="banked tokens or more (a full board costs up to 96)" styleClass="task-field-label" />
                             </HBox>
                             <HBox spacing="10" alignment="CENTER_LEFT">
                                 <Label text="Wish Reward (1-4, left to right)" styleClass="task-field-label" />
