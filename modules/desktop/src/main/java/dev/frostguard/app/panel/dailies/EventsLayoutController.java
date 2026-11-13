@@ -27,7 +27,7 @@ public class EventsLayoutController extends AbstractProfileController {
 
     @FXML
     private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours,
-        textfieldWanderTheaterReserve, textfieldWanderTheaterRunHour, textfieldFortuneHutBankThreshold, textfieldFortuneHutWish;
+        textfieldWanderTheaterReserve, textfieldFortuneHutBankThreshold, textfieldFortuneHutWish;
 
     @FXML
     private ComboBox<Integer> comboBoxMercenaryFlag, comboBoxHeroMissionFlag, comboBoxWanderTheaterRallyFlag;
@@ -86,7 +86,6 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxWanderTheaterRally, ConfigurationKeyEnum.WANDER_THEATER_RALLY_BOOL);
         checkBoxMappings.put(checkBoxWanderTheaterExplore, ConfigurationKeyEnum.WANDER_THEATER_EXPLORE_BOOL);
         textFieldMappings.put(textfieldWanderTheaterReserve, ConfigurationKeyEnum.WANDER_THEATER_TALISMAN_RESERVE_INT);
-        textFieldMappings.put(textfieldWanderTheaterRunHour, ConfigurationKeyEnum.WANDER_THEATER_RUN_HOUR_INT);
         comboBoxMappings.put(comboBoxWanderTheaterRallyFlag, ConfigurationKeyEnum.WANDER_THEATER_RALLY_FLAG_INT);
         checkBoxMappings.put(checkBoxDeadShotSignIn, ConfigurationKeyEnum.DEAD_SHOT_SIGN_IN_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxWinterSiege, ConfigurationKeyEnum.WINTER_SIEGE_ENABLED_BOOL);
@@ -135,7 +134,6 @@ public class EventsLayoutController extends AbstractProfileController {
             checkBoxFortuneHut.selectedProperty().not().or(checkBoxFortuneHutPlay.selectedProperty().not()));
         checkBoxWanderTheaterRally.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());
         checkBoxWanderTheaterExplore.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());
-        textfieldWanderTheaterRunHour.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());
         comboBoxWanderTheaterRallyFlag.disableProperty().bind(
             checkBoxWanderTheater.selectedProperty().not().or(checkBoxWanderTheaterRally.selectedProperty().not()));
         textfieldWanderTheaterReserve.disableProperty().bind(

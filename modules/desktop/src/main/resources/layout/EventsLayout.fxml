@@ -72,12 +72,7 @@
                         </HBox>
                         <VBox styleClass="task-section-inner">
                             <Label wrapText="true" styleClass="task-card-description"
-                                   text="Once a day it claims every finished Wanderer Mission for Talismans of Ice; alliance donations and troop training fill their missions on their own. Runs only while the State calendar has the event open. Never taps the paid mission, Regular Exploration, or an item reward." />
-                            <HBox spacing="10" alignment="CENTER_LEFT">
-                                <Label text="Run at hour (local, 0-23)" styleClass="task-field-label" />
-                                <TextField prefWidth="50.0" fx:id="textfieldWanderTheaterRunHour" />
-                                <Label text="reset is 00:00 UTC" styleClass="task-field-label" />
-                            </HBox>
+                                   text="Every three hours from the 00:00 UTC reset, plus 17:00 and 18:30 EST, it claims every finished Wanderer Mission for Talismans of Ice; alliance donations and troop training fill their missions on their own. Runs only while the State calendar has the event open. Never taps the paid mission, Regular Exploration, or an item reward." />
                             <Separator style="-fx-opacity: 0.25;" />
                             <CheckBox text="Rally one Polar Terror for its mission (3-minute rally)"
                                       mnemonicParsing="false" fx:id="checkBoxWanderTheaterRally" />

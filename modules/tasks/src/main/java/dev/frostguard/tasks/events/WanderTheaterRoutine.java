@@ -4,7 +4,6 @@ import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Comparator;
@@ -31,9 +30,9 @@ import dev.frostguard.vision.convert.GameTimeUtils;
 import dev.frostguard.vision.convert.ImageConverter;
 
 /**
- * Wander Theater's daily Wanderer Missions. Once a day (4 PM local by default, three hours before the
- * 00:00 UTC reset) it opens the event from the City rail, claims every finished mission for Talismans
- * of Ice, and launches the one Polar Terror rally its mission asks for. Alliance donations and troop
+ * Wander Theater's daily Wanderer Missions. It passes by every three hours from the 00:00 UTC reset and at
+ * 22:00 and 23:30 UTC ({@link EventMissionSchedule}); each pass opens the event from the City rail,
+ * claims every finished mission for Talismans of Ice, and launches the one Polar Terror rally its mission asks for. Alliance donations and troop
  * training fill their missions on their own through the day.
  *
  * <p>Then it plays the theater the way the owner settled on: every round is the one guaranteed Floor-1
@@ -166,7 +165,7 @@ public class WanderTheaterRoutine extends DelayedTask {
                 rallyAttempts = 0;
                 TroopSlotPolicy.release(profile, TpDailyTaskEnum.EVENT_WANDER_THEATER);
                 StatisticsService.obtain().addToCounter(profile, "Wander Theater Polar Rallies", 1);
-                finish(beforeCutoff(LocalDateTime.now().plusMinutes(RALLY_CHECK_MINUTES)));
+                finish(retryOrNextPass(LocalDateTime.now().plusMinutes(RALLY_CHECK_MINUTES)));
                 return;
             }
             LocalDateTime resetAt = GameTimeUtils.dailyResetTime();
@@ -182,21 +181,18 @@ public class WanderTheaterRoutine extends DelayedTask {
                 // Stop pressing Gather and try again hourly until the cutoff: gather marches come home on
                 // their own within a few hours.
                 TroopSlotPolicy.release(profile, TpDailyTaskEnum.EVENT_WANDER_THEATER);
-                finish(beforeCutoff(LocalDateTime.now().plusMinutes(RALLY_LATE_RETRY_MINUTES)));
+                finish(retryOrNextPass(LocalDateTime.now().plusMinutes(RALLY_LATE_RETRY_MINUTES)));
                 return;
             }
             // Gather holds five lanes and Alliance auto-join the sixth, so every lane is often busy.
             // Claiming one makes Gather recall a single gathering march; the retry then has a free lane.
             TroopSlotPolicy.claimAndMakeRoom(profile, TpDailyTaskEnum.EVENT_WANDER_THEATER, 1,
                     LocalDateTime.now().plusMinutes(LANE_CLAIM_MINUTES));
-            finish(beforeCutoff(LocalDateTime.now().plusMinutes(RALLY_RETRY_MINUTES)));
+            finish(retryOrNextPass(LocalDateTime.now().plusMinutes(RALLY_RETRY_MINUTES)));
             return;
         }
-        if (troops.orElse(ButtonState.DONE) == ButtonState.GO || donations.orElse(ButtonState.DONE) == ButtonState.GO) {
-            finish(withinWindow(LocalDateTime.now().plusMinutes(MISSION_RETRY_MINUTES)));
-            return;
-        }
-        finish(nextRunHour());
+        // Troop power and donations fill on their own through the day; the next scheduled pass claims them.
+        finish(nextPass());
     }
 
     private boolean openMissions() {
@@ -208,14 +204,14 @@ public class WanderTheaterRoutine extends DelayedTask {
                         .build());
         if (!icon.isFound()) {
             logInfo("Wander Theater icon not on the City rail: the event is not running.");
-            finish(nextRunHour());
+            finish(nextPass());
             return false;
         }
         tapNear(icon.getPoint(), 6);
         sleepTask(3000);
         if (!found(TemplatesEnum.WANDER_THEATER_TITLE, TITLE_TOP_LEFT, TITLE_BOTTOM_RIGHT)) {
             logWarning("The Wander Theater icon did not open the event.");
-            finish(withinWindow(LocalDateTime.now().plusMinutes(MISSION_RETRY_MINUTES)));
+            finish(retryOrNextPass(LocalDateTime.now().plusMinutes(MISSION_RETRY_MINUTES)));
             return false;
         }
         tapNear(MISSIONS_TAB, 6);
@@ -224,7 +220,7 @@ public class WanderTheaterRoutine extends DelayedTask {
             logWarning("Wanderer Missions tab did not open.");
             tapNear(BACK_ARROW, 4);
             sleepTask(2000);
-            finish(withinWindow(LocalDateTime.now().plusMinutes(MISSION_RETRY_MINUTES)));
+            finish(retryOrNextPass(LocalDateTime.now().plusMinutes(MISSION_RETRY_MINUTES)));
             return false;
         }
         return true;
@@ -241,14 +237,9 @@ public class WanderTheaterRoutine extends DelayedTask {
             verdict.note().ifPresent(this::logInfo);
             return false;
         }
-        // Parked to this task's own run hour on the opening day rather than to midnight UTC: the
-        // event's first rounds are no more use at 19:00 the evening before than they are at any
-        // other hour, and the rest of this routine assumes it runs on its hour.
+        // Parked to the first scheduled pass at or after the opening rather than to midnight UTC.
         LocalDateTime start = verdict.nextStartLocal().orElseThrow();
-        LocalDateTime firstRun = start.with(LocalTime.of(runHour(), 0));
-        if (firstRun.isBefore(start)) {
-            firstRun = firstRun.plusDays(1);
-        }
+        LocalDateTime firstRun = EventMissionSchedule.nextPassAtOrAfter(start.atZone(ZoneId.systemDefault()));
         logInfo(verdict.reason() + " First pass at " + firstRun.format(DATETIME_FORMATTER) + ".");
         finish(firstRun);
         return true;
@@ -491,35 +482,19 @@ public class WanderTheaterRoutine extends DelayedTask {
                         .build()).isFound();
     }
 
-    private int runHour() {
-        Integer hour = profile.getConfig(ConfigurationKeyEnum.WANDER_THEATER_RUN_HOUR_INT, Integer.class);
-        return hour == null ? 16 : Math.max(0, Math.min(23, hour));
-    }
-
-    private LocalDateTime nextRunHour() {
-        LocalDateTime today = LocalDateTime.now().with(LocalTime.of(runHour(), 0));
-        return LocalDateTime.now().isBefore(today) ? today : today.plusDays(1);
-    }
-
-    /** A rally retry may come any time before the reset guard, since the mission's day runs to the reset. */
-    private LocalDateTime beforeCutoff(LocalDateTime retry) {
-        LocalDateTime cutoff = GameTimeUtils.dailyResetTime().minusMinutes(RESET_GUARD_MINUTES);
-        return retry.isBefore(cutoff) ? retry : nextRunHour();
+    private LocalDateTime nextPass() {
+        return EventMissionSchedule.nextPass(ZoneId.systemDefault());
     }
 
     /**
-     * Retries stay inside the day's window, from the run hour to 20 minutes before the reset. A pass
-     * outside it (a first run right after enabling, say) waits for the next run hour instead.
+     * A retry comes before the next scheduled pass or not at all, and never inside the reset guard: a
+     * rally launched in the last minutes of the day may return after the missions have reset.
      */
-    private LocalDateTime withinWindow(LocalDateTime retry) {
+    private LocalDateTime retryOrNextPass(LocalDateTime retry) {
+        LocalDateTime next = nextPass();
         LocalDateTime reset = GameTimeUtils.dailyResetTime();
-        LocalDateTime cutoff = reset.minusMinutes(RESET_GUARD_MINUTES);
-        LocalDateTime windowStart = reset.toLocalDate().atTime(runHour(), 0);
-        if (windowStart.isAfter(reset)) {
-            windowStart = windowStart.minusDays(1);
-        }
-        boolean inWindow = !LocalDateTime.now().isBefore(windowStart) && retry.isBefore(cutoff);
-        return inWindow ? retry : nextRunHour();
+        boolean inResetGuard = !retry.isBefore(reset.minusMinutes(RESET_GUARD_MINUTES)) && retry.isBefore(reset);
+        return retry.isBefore(next) && !inResetGuard ? retry : next;
     }
 
     private void finish(LocalDateTime when) {
