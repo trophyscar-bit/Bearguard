@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -77,5 +78,25 @@ class FacilityJoinWindowTest {
                 FacilityRallyJoinRoutine.sessionEnd(false, null, true, START, relaunch, START.plusMinutes(120), probeEnd));
         // A candidate-only time keeps the watch probe.
         assertEquals(probeEnd, FacilityRallyJoinRoutine.sessionEnd(false, null, false, START, START, battleEnd, probeEnd));
+    }
+
+    @Test
+    void aConfirmedBattleSeenOnceSurvivesTheGameDroppingItFromTheTaskList() {
+        FacilityRallyJoinRoutine.Stage none = null;
+        // The rows are gone and the app relaunches 40 minutes in: the remembered battle is still the stage.
+        assertEquals(java.util.Optional.of(new FacilityRallyJoinRoutine.Stage(START, true)),
+                FacilityRallyJoinRoutine.pickStage(List.of(), START, null, START.plusMinutes(40)));
+        // Its two hours are over: nothing is offered.
+        assertEquals(java.util.Optional.empty(),
+                FacilityRallyJoinRoutine.pickStage(List.of(), START, null, START.plusMinutes(120)));
+        // A battle that finished watching is not offered again.
+        assertEquals(java.util.Optional.empty(),
+                FacilityRallyJoinRoutine.pickStage(List.of(), START, START, START.plusMinutes(40)));
+        // Nothing remembered and nothing scheduled: no time known, never "now".
+        assertEquals(java.util.Optional.empty(),
+                FacilityRallyJoinRoutine.pickStage(List.of(), null, null, START.plusMinutes(40)));
+        // The same start from the schedule is not duplicated.
+        assertEquals(java.util.Optional.of(new FacilityRallyJoinRoutine.Stage(START, true)),
+                FacilityRallyJoinRoutine.pickStage(List.of(new FacilityRallyJoinRoutine.Stage(START, true)), START, null, START));
     }
 }

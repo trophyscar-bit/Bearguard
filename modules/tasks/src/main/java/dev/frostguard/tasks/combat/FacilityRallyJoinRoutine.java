@@ -111,9 +111,40 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
     private Optional<Stage> pickStart(LocalDateTime nowUtc) {
         return currentStartUtc != null && nowUtc.isBefore(currentStartUtc.plus(WINDOW_LENGTH))
                 ? Optional.of(new Stage(currentStartUtc, currentConfirmed))
-                : startSource.stagesUtc(nowUtc).stream()
-                        .filter(c -> lostVoteUtc == null || c.startUtc().isAfter(lostVoteUtc))
-                        .findFirst();
+                : pickStage(startSource.stagesUtc(nowUtc), storedConfirmedStart(), lostVoteUtc, nowUtc);
+    }
+
+    /**
+     * The next stage to work on. The game drops a battle from the Task List the moment it starts, so a
+     * confirmed battle that was seen once is remembered and kept until its window closes: a relaunch
+     * in the middle of the battle must still find it. A stage that lost its vote is never offered again.
+     */
+    static Optional<Stage> pickStage(List<Stage> scheduled, LocalDateTime storedConfirmedStartUtc,
+                                     LocalDateTime lostVoteUtc, LocalDateTime nowUtc) {
+        List<Stage> stages = new ArrayList<>(scheduled);
+        if (storedConfirmedStartUtc != null && nowUtc.isBefore(storedConfirmedStartUtc.plus(WINDOW_LENGTH))
+                && stages.stream().noneMatch(s -> s.startUtc().equals(storedConfirmedStartUtc))) {
+            stages.add(new Stage(storedConfirmedStartUtc, true));
+        }
+        return stages.stream()
+                .sorted(java.util.Comparator.comparing(Stage::startUtc))
+                .filter(s -> lostVoteUtc == null || s.startUtc().isAfter(lostVoteUtc))
+                .findFirst();
+    }
+
+    private LocalDateTime storedConfirmedStart() {
+        String text = profile.getConfig(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_CONFIRMED_START_STRING, String.class);
+        if (text == null || text.isBlank()) return null;
+        try {
+            return LocalDateTime.parse(text.trim());
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    private void rememberConfirmedStart(LocalDateTime startUtc) {
+        if (startUtc.equals(storedConfirmedStart())) return;
+        writeProfileSetting(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_CONFIRMED_START_STRING, startUtc.toString());
     }
 
     @Override
@@ -124,6 +155,9 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
         Optional<LocalDateTime> start = picked.map(Stage::startUtc);
         currentStartUtc = start.orElse(null);
         currentConfirmed = picked.map(Stage::confirmed).orElse(false);
+        if (currentConfirmed && currentStartUtc != null) {
+            rememberConfirmedStart(currentStartUtc);
+        }
         FacilityJoinWindow.Decision decision = FacilityJoinWindow.decide(nowUtc, start, WINDOW_LENGTH);
 
         if (decision.kind() != FacilityJoinWindow.Kind.RUN) {
