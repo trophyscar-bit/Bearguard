@@ -1107,7 +1107,11 @@ public class MonumentRoutine extends DelayedTask {
             return;
         }
 
-        ImageSearchResultData building = templateSearchHelper.locatePattern(
+        // Greyscale, not colour: the template is a daytime crop and the city turns blue at night. On
+        // 2026-11-13 14:33 the tower was dead centre and colour scored 88.9 (< 90) while greyscale
+        // scored 93.4 at the same spot the day frames hit. Nine passes in 24 h skipped the chest,
+        // albums and backpack for this reason.
+        ImageSearchResultData building = templateSearchHelper.locatePatternMono(
                 TemplatesEnum.MONUMENT_BUILDING_ANCHOR, SearchConfigConstants.SINGLE_WITH_RETRIES);
         if (!building.isFound()) {
             logWarning(logLine(MONUMENT_NOT_REACHED_MSG + " " + dumpDiagnosticFrame("no-badge-no-building-anchor")));
@@ -1177,7 +1181,7 @@ public class MonumentRoutine extends DelayedTask {
     private boolean isScreenClear() {
         return templateSearchHelper.locatePattern(
                 TemplatesEnum.MONUMENT_REWARD_BADGE, SearchConfigConstants.QUICK_SEARCH).isFound()
-                || templateSearchHelper.locatePattern(
+                || templateSearchHelper.locatePatternMono(
                 TemplatesEnum.MONUMENT_BUILDING_ANCHOR, SearchConfigConstants.QUICK_SEARCH).isFound();
     }
 
