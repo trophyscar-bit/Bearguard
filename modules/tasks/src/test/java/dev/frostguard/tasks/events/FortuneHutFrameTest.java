@@ -22,8 +22,9 @@ import dev.frostguard.vision.match.OpenCvPatternLocator;
 
 /**
  * Live 720x1280 captures of Mia's Fortune Hut from 2026-11-12: the Deals tab strip with the Hut tab
- * unselected, the fresh board, the board after two and after four orbs (the count too low for the next),
- * the wish picker, and the token pack page with the free pack waiting and after it was claimed. The
+ * unselected, the fresh board, the board after one, two and four orbs (the count too low for the next),
+ * the wish picker, and the token pack page with the free pack waiting, after it was claimed (box icon
+ * route) and after it was claimed (the "+" route, where the free row is gone). The
  * scrolling broadcast banner, which carries other players' names, is blacked out in every board frame.
  *
  * <p>Not captured yet: the screen right after the wish orb opens, and a free Reset. The routine stops
@@ -107,7 +108,14 @@ class FortuneHutFrameTest {
     }
 
     @Test
-    void onceClaimedThePaidPackSitsWhereTheFreeButtonWasAndIsNeverGreen() throws Exception {
+    void afterTheClaimTheFreeRowStaysOnTheBoxRouteWithAGreyButton() throws Exception {
+        assertTrue(find("pack-free-claimed-via-box.png", TemplatesEnum.FORTUNE_HUT_PACK_TITLE).isFound());
+        assertTrue(find("pack-free-claimed-via-box.png", TemplatesEnum.FORTUNE_HUT_FREE_PACK_LABEL).isFound());
+        assertFalse(FortuneHutRoutine.freePackButtonIsGreen(image("pack-free-claimed-via-box.png")));
+    }
+
+    @Test
+    void onTheOtherRouteOnceClaimedThePaidPackSitsWhereTheFreeButtonWasAndIsNeverGreen() throws Exception {
         assertFalse(find("pack-free-claimed.png", TemplatesEnum.FORTUNE_HUT_FREE_PACK_LABEL).isFound());
         assertFalse(FortuneHutRoutine.freePackButtonIsGreen(image("pack-free-claimed.png")));
     }
@@ -119,20 +127,13 @@ class FortuneHutFrameTest {
         assertFalse(find("board-fresh.png", TemplatesEnum.FORTUNE_HUT_PACK_TITLE).isFound());
     }
 
-    /**
-     * Measured on these frames (2026-11-12): "10" reads exactly; the lone "9" reads as "7" in every
-     * variant tried (layout, foreground, colour, box), so a single digit is not trusted yet. A reading
-     * must never overstate the real count, since an overstated count could start a board the tokens cannot
-     * finish; the game's own red cost still stops any orb that cannot be paid. More digits come from the
-     * next run's frames.
-     */
+    /** Counts read live on 2026-11-12: 10 tokens fresh, 9 after the 1-token orb, 7 after the 2-token orb, 0 after 4. */
     @Test
-    void theTokenCountIsNeverOverstatedOnTheBoardFrames() throws Exception {
+    void theTokenCountIsReadExactlyFromBothBoxesOfEachBoardFrame() throws Exception {
         assertEquals(10, readTokens("board-fresh.png"));
-        Integer nine = readTokens("board-two-opened.png");
-        assertTrue(nine == null || nine <= 9, "read " + nine + " for a count of 9");
-        Integer zero = readTokens("board-four-opened-cost-red.png");
-        assertTrue(zero == null || zero == 0, "read " + zero + " for a count of 0");
+        assertEquals(9, readTokens("board-one-opened-nine-tokens.png"));
+        assertEquals(7, readTokens("board-two-opened.png"));
+        assertEquals(0, readTokens("board-four-opened-cost-red.png"));
     }
 
     @Test

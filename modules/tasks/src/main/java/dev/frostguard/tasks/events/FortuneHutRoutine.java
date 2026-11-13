@@ -53,7 +53,7 @@ import dev.frostguard.vision.convert.ImageConverter;
  *
  * <p>Never tapped: any pack with a price, a gem or top-up button, and Reset while it still costs tokens.
  * Only the green Free button of the free pack is ever pressed on the pack page, and the pack page is
- * left by its back arrow.
+ * left by its back arrow. When the calendar gives no clear verdict the pass only claims and banks.
  *
  * <p>Gated on the State calendar's window for the event; see {@link EventCalendarGate}.
  */
@@ -63,7 +63,8 @@ public class FortuneHutRoutine extends DelayedTask {
     static final String CALENDAR_EVENT_NAME = "Mia's Fortune Hut";
 
     private static final PointData BACK_ARROW = CommonGameAreas.DEALS_BACK_ARROW;
-    private static final PointData PACK_PLUS = new PointData(645, 283);
+    /** The card-box icon under the milestone chest (red dot while a free pack waits): opens the token pack page. */
+    private static final PointData PACK_BOX = new PointData(80, 575);
     private static final PointData FREE_PACK_BUTTON = new PointData(511, 356);
     static final PointData FREE_PACK_GREEN_SAMPLE = new PointData(450, 356);
 
@@ -122,6 +123,9 @@ public class FortuneHutRoutine extends DelayedTask {
     private static final int RESET_PAD_MAX_MINUTES = 10;
     private static final Duration FAILURE_RETRY = Duration.ofHours(1);
 
+    /** True for a pass the calendar gate let through without a clear verdict. */
+    private boolean calendarUnsure;
+
     public FortuneHutRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
     }
@@ -143,7 +147,9 @@ public class FortuneHutRoutine extends DelayedTask {
         boolean packClaimed = claimFreePack();
         boolean unsure = false;
         int opened = 0;
-        if (playEnabled()) {
+        if (calendarUnsure) {
+            logInfo("Fortune Hut: banking tokens (the calendar gave no clear verdict).");
+        } else if (playEnabled()) {
             int result = playBoard();
             if (result < 0) {
                 unsure = true;
@@ -164,12 +170,20 @@ public class FortuneHutRoutine extends DelayedTask {
         finish(unsure ? failureRetry() : afterNextReset());
     }
 
-    /** Waits for the event's State calendar window; with no clear verdict the pass goes ahead. */
+    /**
+     * Waits for the event's State calendar window. With no clear verdict (the calendar was not read today
+     * or a bar is unidentified) the gate lets the pass run with a note; this task then claims and banks
+     * but opens no orb, because an unsure calendar could mean the event is not on.
+     */
     private boolean parkedUntilTheEventOpens() {
         EventCalendarGate.Verdict verdict =
                 EventCalendarGate.check(profile, CALENDAR_EVENT_NAME, LocalDateTime.now(ZoneOffset.UTC));
+        calendarUnsure = false;
         if (verdict.shouldRun()) {
-            verdict.note().ifPresent(this::logInfo);
+            verdict.note().ifPresent(note -> {
+                calendarUnsure = true;
+                logWarning("Fortune Hut: no calendar verdict (" + note + "); claiming and banking only, no orb will be opened.");
+            });
             return false;
         }
         LocalDateTime nextStart = verdict.nextStartLocal().orElseThrow();
@@ -292,15 +306,17 @@ public class FortuneHutRoutine extends DelayedTask {
     // ---- the free pack -----------------------------------------------------------------------------
 
     /**
-     * The "+" beside the token count opens the pack page. The free pack sits on top of it while it is
-     * unclaimed and vanishes once taken, which slides the $4.99 pack into the Free button's place: so the
-     * tap needs both the "Free Fortune Token Pack" label and a green button, never one alone.
+     * The card-box icon under the milestone chest opens the pack page, with the Free Fortune Token Pack
+     * on top. Seen live on 2026-11-12: while unclaimed its button is green; after the claim the row stays
+     * and the button is grey. A different route (the "+" by the token count) was seen once after the claim
+     * and showed the paid packs from the top, the $4.99 pack's button at the Free button's coordinates
+     * (that route is not used). So the tap needs both the "Free" label and a green button, never one alone.
      */
     private boolean claimFreePack() {
-        tapNear(PACK_PLUS, 6);
+        tapNear(PACK_BOX, 6);
         sleepTask(PANEL_SETTLE_MS);
         if (!found(TemplatesEnum.FORTUNE_HUT_PACK_TITLE, PACK_TITLE_TOP_LEFT, PACK_TITLE_BOTTOM_RIGHT)) {
-            logWarning("Fortune Hut: the \"+\" did not open the token pack page; " + snapshot("pack-page-not-open"));
+            logWarning("Fortune Hut: the pack icon did not open the token pack page; " + snapshot("pack-page-not-open"));
             return false;
         }
         boolean claimed = false;
