@@ -729,13 +729,13 @@ public class LauncherLayoutController implements IProfileLoadListener, StaminaCh
 
     private static final String NAV_TITLE_KEY = "navTitle";
 
-    /** Sorts the buttons inside each sidebar group alphabetically; the group labels stay where they are. */
+    /** Sorts the buttons inside each sidebar group alphabetically (Tasks pinned first); the group labels stay where they are. */
     private void sortNavGroups() {
         java.util.List<Node> sorted = new java.util.ArrayList<>();
         java.util.List<Button> run = new java.util.ArrayList<>();
         Runnable flush = () -> {
             run.sort(java.util.Comparator.comparing(
-                    (Button b) -> String.valueOf(b.getProperties().get(NAV_TITLE_KEY)), NavOrder.BY_NAME));
+                    (Button b) -> String.valueOf(b.getProperties().get(NAV_TITLE_KEY)), NavOrder.SIDEBAR));
             sorted.addAll(run);
             run.clear();
         };

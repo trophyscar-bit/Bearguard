@@ -15,6 +15,11 @@ public final class NavOrder {
             .comparing(NavOrder::sortKey)
             .thenComparing(Comparator.naturalOrder());
 
+    /** Sidebar buttons: "Tasks" pinned first (the home page), everything else alphabetical. */
+    public static final Comparator<String> SIDEBAR = Comparator
+            .comparing((String name) -> !"tasks".equals(sortKey(name)))
+            .thenComparing(BY_NAME);
+
     private NavOrder() {
     }
 

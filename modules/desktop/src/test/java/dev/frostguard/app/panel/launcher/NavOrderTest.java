@@ -35,4 +35,14 @@ class NavOrderTest {
         assertEquals(List.of("Account", "Alliance", "City", "Economy", "Events", "Troops"),
                 NavOrder.sorted(List.of("Events", "City", "Alliance", "Economy", "Troops", "Account")));
     }
+
+    @org.junit.jupiter.api.Test
+    void sidebarPinsTasksFirstThenAlphabetical() {
+        java.util.List<String> names = new java.util.ArrayList<>(List.of("Statistics", "Calendar", "Tasks", "Deal Tracker"));
+        names.sort(NavOrder.SIDEBAR);
+        assertEquals(List.of("Tasks", "Calendar", "Deal Tracker", "Statistics"), names);
+        java.util.List<String> setUp = new java.util.ArrayList<>(List.of("Troops", "Account", "Events", "City"));
+        setUp.sort(NavOrder.SIDEBAR);
+        assertEquals(List.of("Account", "City", "Events", "Troops"), setUp);
+    }
 }
