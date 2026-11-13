@@ -106,10 +106,23 @@ happened on the first attempt here.
 
 ## Counting
 
-Claim counts are real counts. Each pass rescans, and a badge found again within
-`SAME_BADGE_RADIUS` of one already tapped is logged as a warning rather than
-counted a second time, so a screen where claiming silently fails reports zero
-instead of a full total.
+Claim counts are real counts. Each pass rescans, and `IslandClaimLedger` decides
+what to do with a badge found again within `SAME_BADGE_RADIUS` of one already
+tapped.
+
+Such a leftover is a real bubble whose tap did not take, not a decoy. On
+2026-11-13 it happened to either bubble: at 12:25 the station bubble at the top
+of the screen (358,58) vanished after its tap and was back a second later as the
+tree paid out (+581, the only credit that run); at 14:00 the station cleared and
+the tree bubble stayed. The next hourly run always claimed the leftover with one
+tap. 24 of the 77 runs from 11-09 19:23 to 11-13 14:00 left one.
+
+A leftover gets one more tap once `RETAP_MIN_AGE_MILLIS` has passed since its
+first, so the earlier rewards have landed. If it is still there after that it is
+given up for the run: one warning with one diagnostic frame, no further taps, and
+it is not counted. No bubble is ever tapped more than `MAX_TAPS_PER_BADGE` (2)
+times in a run, and every tap, retries included, passes the same checks above.
+Whether the retry actually lands is not yet confirmed by a live run.
 
 ## Evidence
 

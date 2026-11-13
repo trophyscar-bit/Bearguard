@@ -8,7 +8,6 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,10 +37,8 @@ public class LifeEssenceRoutine extends DelayedTask {
 	private static final PointData SHOP_TAB_BUTTON = new PointData(670, 195);
 	private static final PointData EXIT_BUTTON = new PointData(40, 30);
 
-	// Claim badge identification lives in IslandClaimBadges.
-	//
-	// A claimed badge disappears, so one found again in the same place was not claimed.
-	private static final int SAME_BADGE_RADIUS = 40;
+	// Claim badge identification lives in IslandClaimBadges; what to do with a badge that is still
+	// showing after its tap lives in IslandClaimLedger.
 
 	// Retry limits
 	private static final int MAX_CLAIM_SCANS = 5;
@@ -163,12 +160,14 @@ public class LifeEssenceRoutine extends DelayedTask {
 	 * Taps every claim badge currently on the island and reports how many were claimed.
 	 *
 	 * <p>Rescans after each pass because claiming one badge can uncover another behind its reward
-	 * animation, and stops once a pass adds nothing new. A badge still in place after being tapped is
-	 * reported rather than counted again, so the total stays a real count of what was collected.
+	 * animation, and stops once a pass taps nothing. A badge still in place after its tap is a real
+	 * bubble whose tap did not take, so it gets one more tap once the earlier rewards have landed;
+	 * if it is still there after that it is reported once, left for the next run and not counted.
+	 * {@link IslandClaimLedger} holds those rules.
 	 */
 	private int claimVisibleBadges() {
 		logInfo("Scanning the island for claim badges");
-		List<PointData> claimed = new ArrayList<>();
+		IslandClaimLedger ledger = new IslandClaimLedger();
 		int emptyScans = 0;
 		int readableScans = 0;
 		int unreadableScans = 0;
@@ -184,32 +183,31 @@ public class LifeEssenceRoutine extends DelayedTask {
 			}
 
 			readableScans++;
-			List<PointData> badges = reading.get();
-			int newlyClaimed = 0;
-			int unchanged = 0;
-			List<PointData> stillShowing = new ArrayList<>();
+			IslandClaimLedger.Plan plan = ledger.plan(reading.get(), System.currentTimeMillis());
 
-			for (PointData badge : badges) {
-				if (seenBefore(claimed, badge)) {
-					unchanged++;
-					stillShowing.add(badge);
-					continue;
-				}
+			for (PointData badge : plan.firstTaps()) {
 				logDebug("Claiming badge at " + badge);
 				tapNear(badge);
+				ledger.recordTap(badge, System.currentTimeMillis());
 				sleepTask(CLAIM_SETTLE_MILLIS);
-				claimed.add(badge);
-				newlyClaimed++;
 			}
 
-			if (unchanged > 0) {
-				logWarning(unchanged + " badge(s) still showing after being tapped, at " + stillShowing
-						+ " (tapped earlier: " + claimed + ")."
-						+ " The claim may not be registering; they are not counted again. "
+			for (PointData badge : plan.retaps()) {
+				logInfo("Badge at " + badge + " is still showing after its tap; tapping it once more");
+				tapNear(badge);
+				ledger.recordTap(badge, System.currentTimeMillis());
+				sleepTask(CLAIM_SETTLE_MILLIS);
+			}
+
+			if (!plan.newlyGivenUp().isEmpty()) {
+				logWarning(plan.newlyGivenUp().size() + " badge(s) still showing after "
+						+ IslandClaimLedger.MAX_TAPS_PER_BADGE + " taps, at " + plan.newlyGivenUp()
+						+ " (tapped this run: " + ledger.tapped() + ")."
+						+ " Left for the next run and not counted. "
 						+ saveStillShowingFrame());
 			}
 
-			if (newlyClaimed == 0) {
+			if (!plan.tapsAnything()) {
 				emptyScans++;
 				if (emptyScans >= EMPTY_SCANS_BEFORE_DONE) {
 					break;
@@ -222,12 +220,12 @@ public class LifeEssenceRoutine extends DelayedTask {
 			sleepTask(CLAIM_SETTLE_MILLIS);
 		}
 
-		if (claimed.isEmpty() && unreadableScans > 0) {
+		if (ledger.tapped().isEmpty() && unreadableScans > 0) {
 			logWarning("Claimed nothing, but " + unreadableScans + " scan(s) could not be read."
 					+ " Badges may have been missed rather than absent.");
 		}
 
-		return claimed.size();
+		return ledger.claimedCount();
 	}
 
 	/**
@@ -261,10 +259,6 @@ public class LifeEssenceRoutine extends DelayedTask {
 			}
 		}
 		return Optional.of(badges.stream().map(ColorBlobFinder.Blob::centre).toList());
-	}
-
-	private static boolean seenBefore(List<PointData> claimed, PointData badge) {
-		return claimed.stream().anyMatch(point -> point.manhattanDistanceTo(badge) <= SAME_BADGE_RADIUS);
 	}
 
 	/**
