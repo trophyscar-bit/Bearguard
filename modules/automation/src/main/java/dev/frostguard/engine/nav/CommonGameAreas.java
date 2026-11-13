@@ -360,6 +360,15 @@ public final class CommonGameAreas {
     /** "The Labyrinth" title on the zone map: the positive anchor that the map is showing. */
     public static final AreaData LABYRINTH_MAP_TITLE = region(85, 18, 365, 64);
 
+    /**
+     * Body of the "Changes made to the formation won't take effect if you exit now. Save the formation
+     * first?" dialog. Its title row is not read: the chat ticker banner can cover it.
+     */
+    public static final AreaData FORMATION_EXIT_BODY = region(95, 520, 625, 700);
+
+    /** Orange "Exit" button (left) of the formation-exit dialog; discards the unsaved formation. */
+    public static final PointData FORMATION_EXIT_BUTTON = new PointData(207, 789);
+
     // ── character name above furnace template (relative offsets) ─────
 
     public static final int CHARACTER_NAME_ABOVE_FURNACE_TOP_OFFSET_Y    = 60;

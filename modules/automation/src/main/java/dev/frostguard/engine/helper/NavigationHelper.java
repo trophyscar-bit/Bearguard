@@ -14,6 +14,7 @@ import dev.frostguard.engine.error.ProfileInReconnectStateException;
 import dev.frostguard.engine.input.TapInteractionService;
 import dev.frostguard.engine.nav.ButtonConstants;
 import dev.frostguard.engine.nav.CommonGameAreas;
+import dev.frostguard.engine.nav.CommonOCRSettings;
 import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.nav.SidebarDestination;
 import dev.frostguard.engine.nav.SidebarRouteResult;
@@ -693,6 +694,7 @@ public class NavigationHelper {
                 emu.pressBack(device);
                 interruptibleWait(300);
                 dismissQuitGameDialogIfPresent();
+                dismissFormationExitDialogIfPresent();
             }
             pass++;
         }
@@ -723,6 +725,31 @@ public class NavigationHelper {
         broadcastWarn("Quit-game confirmation dialog detected -- tapping Cancel to back out safely "
                 + "instead of risking an accidental exit.");
         emu.tapInteractions(device).tapNear(new PointData(207, 789));
+        interruptibleWait(500);
+    }
+
+    /**
+     * A formation screen answers Back with "Changes made to the formation won't take effect... Save the
+     * formation first?", and that modal swallows every further Back. Gear Forge 2026-11-13: ten Backs
+     * left the bot on it and startup recovery stalled the profile for 16 minutes. Tapping Exit leaves the
+     * screen; nothing in a recovery path wants the unsaved formation. Needs the dialog's own text, so an
+     * unreadable frame taps nothing.
+     */
+    public void dismissFormationExitDialogIfPresent() {
+        String body;
+        try {
+            body = emu.readText(device, CommonGameAreas.FORMATION_EXIT_BODY.topLeft(),
+                    CommonGameAreas.FORMATION_EXIT_BODY.bottomRight(), CommonOCRSettings.FORMATION_EXIT_BODY_SETTINGS);
+        } catch (Exception e) {
+            broadcastDebug("Formation-exit dialog check skipped: " + e.getMessage());
+            return;
+        }
+        if (!CommonOCRSettings.isFormationExitPrompt(body)) {
+            return;
+        }
+        broadcastWarn("'Save the formation first?' dialog detected after Back -- tapping Exit to leave "
+                + "the formation screen without saving.");
+        emu.tapInteractions(device).tapNear(CommonGameAreas.FORMATION_EXIT_BUTTON);
         interruptibleWait(500);
     }
 

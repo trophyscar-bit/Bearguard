@@ -53,6 +53,7 @@ public class DailyLabyrinthRoutine extends DelayedTask {
     static final PointData CAPACITY_CONFIRM_BODY_BR = new PointData(625, 660);
     static final OcrSettingsData CAPACITY_CONFIRM_BODY_SETTINGS = OcrSettingsData.forTextBlock();
     private static final PointData CAPACITY_CONFIRM_CONTINUE_BTN = new PointData(360, 789);
+    private static final int CAPACITY_PROMPT_POLLS = 5;
 
     // ============ Win/loss by stage advancement  ============
     // Reported: "you wanna keep going if you're winning. When you lose once, you're toast. Just exit
@@ -998,15 +999,13 @@ public class DailyLabyrinthRoutine extends DelayedTask {
             logInfo("'Deploy' button found. Deploying troops for dungeon " + dungeonNumber + ".");
             tapInside(deployResult);
             sleepTask(MENU_NAVIGATION_DELAY);
-            // The battle only starts once Continue is tapped, so a confirm restarts the full wait
-            // for the Skip button rather than spending what is left of it.
-            if (confirmUnderCapacityDeploy(dungeonNumber)) {
+            // The modal can be late or partly covered, so look for it for several seconds instead of
+            // twice. The battle only starts once Continue is tapped, so a confirm restarts the full
+            // wait for the Skip button rather than spending what is left of it.
+            if (waitForAndConfirmCapacityPrompt(dungeonNumber)) {
                 sleepTask(BATTLE_COMPLETION_DELAY);
             } else {
                 sleepTask(BATTLE_COMPLETION_DELAY - MENU_NAVIGATION_DELAY);
-                if (confirmUnderCapacityDeploy(dungeonNumber)) {
-                    sleepTask(BATTLE_COMPLETION_DELAY);
-                }
             }
 
             // OBSERVE: the result screen shows win/loss + rewards. This is the data we need to build
@@ -1048,17 +1047,36 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         return false;
     }
 
+    /**
+     * Looks for the under-capacity confirmation for {@link #CAPACITY_PROMPT_POLLS} reads, one
+     * {@code MENU_NAVIGATION_DELAY} apart, and taps Continue the moment it shows.
+     *
+     * <p>Gear Forge 2026-11-13: the game's chat ticker banner slid over the popup's title ("Confirmation")
+     * and the two earlier reads, which required that title, saw nothing. Deploy then never started, the
+     * routine tapped outside the modal, and the bot stranded on the formation screen.</p>
+     */
+    private boolean waitForAndConfirmCapacityPrompt(int dungeonNumber) {
+        for (int poll = 1; poll <= CAPACITY_PROMPT_POLLS; poll++) {
+            if (confirmUnderCapacityDeploy(dungeonNumber)) {
+                return true;
+            }
+            if (poll < CAPACITY_PROMPT_POLLS) {
+                sleepTask(MENU_NAVIGATION_DELAY);
+            }
+        }
+        return false;
+    }
+
     /** Taps Continue on the under-capacity Deploy confirmation if it is showing; see CAPACITY_CONFIRM_TITLE_TL. */
     private boolean confirmUnderCapacityDeploy(int dungeonNumber) {
         String title = readStringValue(CAPACITY_CONFIRM_TITLE_TL, CAPACITY_CONFIRM_TITLE_BR, WHITE_TITLE_SETTINGS);
-        if (title == null || !title.toLowerCase().contains("confirmation")) {
-            return false;
-        }
         String body = readStringValue(CAPACITY_CONFIRM_BODY_TL, CAPACITY_CONFIRM_BODY_BR, CAPACITY_CONFIRM_BODY_SETTINGS);
         if (!isSquadCapacityConfirmation(title, body)) {
-            saveLabyrinthFrame("unknown_confirmation", dungeonNumber);
-            logWarning("Dungeon " + dungeonNumber + ": a 'Confirmation' popup appeared after Deploy but its "
-                    + "text is not the squad-capacity prompt (read '" + body + "'); not tapping it. Frame saved.");
+            if (title != null && title.toLowerCase(java.util.Locale.ROOT).contains("confirmation")) {
+                saveLabyrinthFrame("unknown_confirmation", dungeonNumber);
+                logWarning("Dungeon " + dungeonNumber + ": a 'Confirmation' popup appeared after Deploy but its "
+                        + "text is not the squad-capacity prompt (read '" + body + "'); not tapping it. Frame saved.");
+            }
             return false;
         }
         saveLabyrinthFrame("capacity_confirm", dungeonNumber);
@@ -1068,10 +1086,16 @@ public class DailyLabyrinthRoutine extends DelayedTask {
         return true;
     }
 
+    /**
+     * The body must say "capacity"; the title is only needed when the body cannot also show the prompt's
+     * own "Continue anyway?" -- a ticker banner can hide the title, never the body.
+     */
     static boolean isSquadCapacityConfirmation(String title, String body) {
-        return title != null && body != null
-                && title.toLowerCase().contains("confirmation")
-                && body.toLowerCase().contains("capacity");
+        if (body == null || !body.toLowerCase(java.util.Locale.ROOT).contains("capacity")) {
+            return false;
+        }
+        return (title != null && title.toLowerCase(java.util.Locale.ROOT).contains("confirmation"))
+                || body.toLowerCase(java.util.Locale.ROOT).contains("continue");
     }
 
     // =================== ZONE FORMATION SETUP ===================

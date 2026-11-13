@@ -36,6 +36,27 @@ class LabyrinthCapacityConfirmFrameTest {
     }
 
     @Test
+    void recognisesTheCapacityConfirmationWhenTheChatTickerCoversItsTitle() throws Exception {
+        // Gear Forge 2026-11-13: the ticker banner sat over "Confirmation", so the old title-gated
+        // check saw nothing and Continue was never tapped. Only the dialog rows are kept, at their
+        // original y on a black frame.
+        BufferedImage frame = new BufferedImage(720, 1280, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = frame.createGraphics();
+        g.drawImage(load("/exploration/capacity-confirm-gear-forge-ticker-dialog.png"), 0, 340, null);
+        g.dispose();
+
+        assertTrue(isCapacityConfirmation(frame));
+    }
+
+    @Test
+    void aBodyThatShowsContinueAnywayIsEnoughWhenTheTitleIsUnreadable() {
+        assertTrue(DailyLabyrinthRoutine.isSquadCapacityConfirmation(null,
+                "Your squads still have available capacity. Continue anyway?"));
+        assertFalse(DailyLabyrinthRoutine.isSquadCapacityConfirmation("Confirmation", "Changes made to the formation"));
+        assertFalse(DailyLabyrinthRoutine.isSquadCapacityConfirmation(null, "capacity"));
+    }
+
+    @Test
     void rejectsABattleInProgress() throws Exception {
         assertFalse(isCapacityConfirmation("/exploration/battle-in-progress.png"));
     }
@@ -72,7 +93,11 @@ class LabyrinthCapacityConfirmFrameTest {
     }
 
     private static boolean isCapacityConfirmation(String path) throws Exception {
-        RawImageData frame = rgbaFrame(load(path));
+        return isCapacityConfirmation(load(path));
+    }
+
+    private static boolean isCapacityConfirmation(BufferedImage image) throws Exception {
+        RawImageData frame = rgbaFrame(image);
         String title = OcrEngine.recognizeText(frame,
                 DailyLabyrinthRoutine.CAPACITY_CONFIRM_TITLE_TL,
                 DailyLabyrinthRoutine.CAPACITY_CONFIRM_TITLE_BR,

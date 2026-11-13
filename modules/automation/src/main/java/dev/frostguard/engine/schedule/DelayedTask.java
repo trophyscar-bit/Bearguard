@@ -407,6 +407,7 @@ public abstract class DelayedTask implements Runnable, Delayed, StaminaWaitSched
         // covers every call site at once instead of chasing individual back-press chains.
         if (navigationHelper != null) {
             navigationHelper.dismissQuitGameDialogIfPresent();
+            navigationHelper.dismissFormationExitDialogIfPresent();
         }
     }
 

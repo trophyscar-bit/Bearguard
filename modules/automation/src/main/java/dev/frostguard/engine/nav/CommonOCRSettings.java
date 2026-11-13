@@ -35,6 +35,17 @@ public final class CommonOCRSettings {
         return title != null && title.toLowerCase(java.util.Locale.ROOT).contains("labyrinth");
     }
 
+    public static final OcrSettingsData FORMATION_EXIT_BODY_SETTINGS = OcrSettingsData.forTextBlock();
+
+    /** True when a read of {@link CommonGameAreas#FORMATION_EXIT_BODY} is the "Save the formation first?" prompt. */
+    public static boolean isFormationExitPrompt(String body) {
+        if (body == null) {
+            return false;
+        }
+        String text = body.toLowerCase(java.util.Locale.ROOT);
+        return text.contains("formation") && text.contains("save");
+    }
+
     // Shop labels can wrap to multiple lines and selected/unselected tabs use different colours.
     public static final OcrSettingsData SHOP_TAB_TEXT_SETTINGS =
             OcrSettingsData.builder()
