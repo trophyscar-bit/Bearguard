@@ -494,6 +494,29 @@ class GearNightTest {
         assertEquals(GearNight.MAX_BACKS, backs[0]);
     }
 
+    @Test
+    void backOutNeverPressesMoreThanAFewBacks() {
+        assertTrue(GearNight.MAX_BACKS <= 5, "the deepest dialog is four Backs from Home");
+    }
+
+    @Test
+    void backOutPressesNothingOnceTheGameIsGone() {
+        int[] backs = { 0 };
+
+        assertFalse(GearNight.backOut(() -> false, () -> false, () -> backs[0]++));
+
+        assertEquals(0, backs[0], "the launcher or another app is showing: Back would open the exit prompt");
+    }
+
+    @Test
+    void backOutStopsTheMomentTheGameLeavesTheScreen() {
+        int[] backs = { 0 };
+
+        assertFalse(GearNight.backOut(() -> false, () -> backs[0] < 2, () -> backs[0]++));
+
+        assertEquals(2, backs[0], "two Backs went through, then the game was gone and the rest were not pressed");
+    }
+
     private void run(Fake fake) throws IOException {
         GearNight.run(fake, store, PROFILE, SLOT, () -> NOW);
     }

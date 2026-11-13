@@ -19,9 +19,14 @@ public final class GearDetailsNavigator implements GearEnhanceStep.Navigator {
 
     private final GearScan.Screens screens;
     private final Device device;
+    // Where the walk is: the hero page that is open (null when on the grid) and each hero's place in the list.
+    private String heroNow;
+    private int indexNow = -1;
+    private int cards;
+    private final java.util.Map<String, Integer> seenAt = new java.util.HashMap<>();
 
     public GearDetailsNavigator(Device device) {
-        this(new GearScanScreens(device), device);
+        this(new GearScanScreens(device).withoutStats(), device);
     }
 
     GearDetailsNavigator(GearScan.Screens screens, Device device) {
@@ -33,12 +38,34 @@ public final class GearDetailsNavigator implements GearEnhanceStep.Navigator {
     public GearDetails open(String hero, String slot) {
         String set = GearForgeGuard.GEAR_SET.get(hero);
         if (set == null || !GearScan.SLOTS.contains(slot)) throw new Abort("no such gear piece: " + hero + " " + slot);
-        int cards = Math.min(screens.openGrid(), GearScan.CARD_LIMIT);
-        for (int index = 0; index < cards; index++) {
-            if (hero.equals(screens.openHero(index))) return openPiece(hero, slot, set);
-            screens.closeHero();
+        if (heroNow != null) {
+            if (hero.equals(heroNow)) return openPiece(hero, slot, set);
+            Integer known = seenAt.get(hero);
+            if (known == null || known > indexNow) {
+                while (indexNow + 1 < cards) {
+                    indexNow++;
+                    heroNow = screens.nextHero(indexNow);
+                    seenAt.put(String.valueOf(heroNow), indexNow);
+                    if (hero.equals(heroNow)) return openPiece(hero, slot, set);
+                }
+            }
+            closeToGrid();
         }
+        cards = Math.min(screens.openGrid(), GearScan.CARD_LIMIT);
+        for (int index = 0; index < cards; index++) {
+            heroNow = index == 0 ? screens.openHero(0) : screens.nextHero(index);
+            indexNow = index;
+            seenAt.put(String.valueOf(heroNow), index);
+            if (hero.equals(heroNow)) return openPiece(hero, slot, set);
+        }
+        heroNow = null;
         throw new Abort(hero + " is not in the first " + cards + " grid cards");
+    }
+
+    /** Back from Gear Details to the hero's Gear tab, where the next piece or the next hero's arrow is. */
+    @Override
+    public void finishPiece() {
+        screens.closeDetails();
     }
 
     private GearDetails openPiece(String hero, String slot, String set) {
@@ -57,6 +84,7 @@ public final class GearDetailsNavigator implements GearEnhanceStep.Navigator {
     /** Backs out from wherever the walk stopped; each Back follows a read that this isn't the grid yet. */
     @Override
     public void closeToGrid() {
+        heroNow = null;
         for (int back = 0; back <= MAX_BACKS; back++) {
             if (HeroCards.isHeroesGrid(device.capture())) return;
             if (back == MAX_BACKS) break;

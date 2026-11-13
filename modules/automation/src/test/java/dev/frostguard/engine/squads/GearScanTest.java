@@ -107,6 +107,99 @@ class GearScanTest {
     }
 
     @Test
+    void anArrowWalkOpensTheFirstHeroFromTheGridThenStepsAndNeverReturnsToTheList() throws IOException {
+        FakeScreens screens = new FakeScreens();
+        screens.arrows = true;
+
+        GearScan.Outcome outcome = GearScan.run(screens, store(), PROFILE, null, NOW);
+
+        assertNull(outcome.problem());
+        assertEquals(1, screens.gridOpens, "one card tapped on the list");
+        assertEquals(GearScan.HERO_COUNT - 1, screens.arrowSteps, "the other four by the right arrow");
+        assertEquals(1, screens.closes, "and one Back to the list at the very end");
+        assertEquals(20, outcome.state().pieces().size());
+    }
+
+    @Test
+    void anArrowWalkStepsPastOtherHeroesWithoutOpeningThem() throws IOException {
+        FakeScreens screens = new FakeScreens(Arrays.asList("Natalia", "Mia", null, "Flint", "Jeronimo",
+                "Molly", "Bahiti", "Sergey", "Zinman"));
+        screens.arrows = true;
+
+        GearScan.Outcome outcome = GearScan.run(screens, store(), PROFILE, null, NOW);
+
+        assertNull(outcome.problem());
+        assertEquals(List.of(0, 1, 2, 3, 4, 5, 6, 7), screens.opened);
+        assertEquals(1, screens.closes);
+        assertEquals(7, screens.arrowSteps);
+        assertEquals(20, outcome.state().pieces().size());
+    }
+
+    @Test
+    void eachHeroIsReportedWithItsTimeAndHowManyPiecesWereOpened() throws IOException {
+        GearState first = GearScan.run(new FakeScreens(), store(), PROFILE, new GearState(List.of(), Map.of()), NOW).state();
+        List<String> report = new ArrayList<>();
+
+        GearScan.run(new FakeScreens(), store(), PROFILE, first, NOW.plusSeconds(60),
+                (hero, opened, carried, millis) -> report.add(hero + " " + opened + "/" + carried));
+
+        assertEquals(List.of("Mia 2/2", "Flint 0/4", "Molly 0/4", "Bahiti 0/4", "Sergey 0/4"), report,
+                "the first two pieces are always opened; every other tile matched what was saved");
+    }
+
+    @Test
+    void aCheckWhereEveryTileStillMatchesTheSavedStateOpensOnlyTheFirstTwoPieces() throws IOException {
+        GearState first = GearScan.run(new FakeScreens(), store(), PROFILE, new GearState(List.of(), Map.of()), NOW).state();
+        FakeScreens screens = new FakeScreens();
+        Instant later = NOW.plusSeconds(86_400);
+
+        GearScan.Outcome outcome = GearScan.run(screens, store(), PROFILE, first, later);
+
+        assertNull(outcome.problem());
+        assertEquals(GearScan.FULL_READS, screens.detailsOpened, "20 pieces were accounted for, 2 were opened");
+        assertEquals(first.pieces(), outcome.state().pieces());
+        assertEquals(later.toString(), outcome.state().scannedAt());
+        assertEquals(GearScan.HERO_COUNT, screens.closes, "every hero page was still visited and closed");
+        assertNull(outcome.inventoryNote(), "the two opened pieces agree on the stone balance");
+    }
+
+    @Test
+    void aTileThatNoLongerMatchesIsOpenedAndReadInFull() throws IOException {
+        GearState first = GearScan.run(new FakeScreens(), store(), PROFILE, new GearState(List.of(), Map.of()), NOW).state();
+        List<GearPiece> drifted = new ArrayList<>(first.pieces());
+        GearPiece boots = drifted.get(2);
+        drifted.set(2, new GearPiece(boots.hero(), boots.slot(), boots.enhancement() - 1, boots.masteryPercent(), boots.onRole()));
+        FakeScreens screens = new FakeScreens();
+
+        GearScan.Outcome outcome = GearScan.run(screens, store(), PROFILE, new GearState(drifted, first.heroWeights(), first.scannedAt()), NOW);
+
+        assertNull(outcome.problem());
+        assertEquals(GearScan.FULL_READS + 1, screens.detailsOpened);
+        assertEquals(first.pieces(), outcome.state().pieces(), "the opened piece reads back the real level");
+    }
+
+    @Test
+    void aMasteryLevelThatChangedIsOpenedToo() {
+        HeroGear tile = new HeroGear(1, 80, 5);
+        GearPiece saved = new GearPiece("Mia", "Goggles", 80, 40, true);
+        GearState state = new GearState(List.of(saved), Map.of());
+
+        assertNull(GearScan.unchanged(state, page("Mia"), "Goggles", tile));
+        assertEquals(saved, GearScan.unchanged(state, page("Mia"), "Goggles", new HeroGear(1, 80, 4)));
+    }
+
+    @Test
+    void anUnreadTileIsNeverTrustedAndNeitherIsAPieceNeverSaved() {
+        GearPiece saved = new GearPiece("Mia", "Goggles", 80, 40, true);
+        GearState state = new GearState(List.of(saved), Map.of());
+
+        assertNull(GearScan.unchanged(state, page("Mia"), "Goggles", new HeroGear(1, null, 4)));
+        assertNull(GearScan.unchanged(state, page("Mia"), "Goggles", new HeroGear(1, 80, null)));
+        assertNull(GearScan.unchanged(state, page("Mia"), "Belt", new HeroGear(3, 80, 4)));
+        assertNull(GearScan.unchanged(null, page("Mia"), "Goggles", new HeroGear(1, 80, 4)));
+    }
+
+    @Test
     void aFullScanSavesEveryPieceWithRolesAndTheScanTime() throws IOException {
         GearState previous = new GearState(List.of(), Map.of("Bahiti", 1.14));
 
@@ -388,6 +481,10 @@ class GearScanTest {
         boolean noXp;
         boolean varyXp;
         int closes;
+        int detailsOpened;
+        int arrowSteps;
+        int gridOpens;
+        boolean arrows;
         final List<Integer> opened = new ArrayList<>();
         private final List<String> cards;
         private boolean onGrid;
@@ -445,6 +542,21 @@ class GearScanTest {
             step();
             assertTrue(onGrid, "card " + index + " opened off the grid");
             onGrid = false;
+            gridOpens++;
+            opened.add(index);
+            hero = duplicateNames ? "Mia" : cards.get(index);
+            return hero;
+        }
+
+        @Override
+        public String nextHero(int index) {
+            if (!arrows) {
+                closeHero();
+                return openHero(index);
+            }
+            step();
+            assertFalse(onGrid, "the right arrow was used off a hero page");
+            arrowSteps++;
             opened.add(index);
             hero = duplicateNames ? "Mia" : cards.get(index);
             return hero;
@@ -472,6 +584,7 @@ class GearScanTest {
         @Override
         public GearDetails openDetails(String tapped) {
             step();
+            detailsOpened++;
             slot = tapped;
             return detailsFault != null ? detailsFault : new GearDetails(set() + " " + tapped, 80, "Enhance");
         }

@@ -94,7 +94,7 @@ class HeroesLayoutUxTest {
         assertEquals(5, view.rows("tableGear").size());
         assertEquals(3, view.rows("tableUpgrades").size());
         assertEquals(5, view.rows("tableLevels").size());
-        assertEquals(List.of("Molly", "Boots", "30%", "40%", "40 stones", "40 stones", "Short by 37 stones"), view.rows("tableUpgrades").getFirst());
+        assertEquals(List.of("Bahiti", "Boots", "42%", "44%", "10 stones", "10 stones", "Short by 7 stones"), view.rows("tableUpgrades").getFirst());
 
         List<List<String>> joiners = view.rows("tableJoiners");
         assertFalse(joiners.isEmpty(), "joiners ranked");
@@ -188,7 +188,7 @@ class HeroesLayoutUxTest {
         onFx(() -> ran.tick(true, HeroesLayoutController.ENHANCE_REAL, HeroesLayoutController.FORGE_REAL));
         assertEquals("On \u00b7 Spending", ran.label("labelStatusLine").getText());
         assertTrue(ran.label("labelLastLine").getText().endsWith(": raised 0 levels, forged 0"), ran.label("labelLastLine").getText());
-        assertTrue(ran.label("labelTonightLine").getText().endsWith("every XP item you have \u00b7 no forge: needs 40 stones, you have 3"),
+        assertTrue(ran.label("labelTonightLine").getText().endsWith("every XP item you have \u00b7 no forge: needs 10 stones, you have 3"),
                 ran.label("labelTonightLine").getText());
         for (String id : List.of("labelStatusLine", "labelLastLine", "labelTonightLine")) {
             assertTrue(ran.label(id).getText().length() <= 90, ran.label(id).getText());
@@ -703,14 +703,14 @@ class HeroesLayoutUxTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void gearOrderOffersWeakestFirstAndRallyLeadersThenWeakestInAlphabeticalOrder() throws Exception {
+    void gearOrderOffersBestReturnFirstAndTheOthersInAlphabeticalOrder() throws Exception {
         View view = onFx(this::load);
         ComboBox<String> order = (ComboBox<String>) view.namespace().get("comboBoxFocus");
 
-        assertEquals(List.of("Rally leaders first, then weakest", "Weakest first"), order.getItems());
-        assertEquals("Weakest first", order.getValue(), "weakest first is the default");
-        assertEquals("Molly", view.rows("tableUpgrades").getFirst().getFirst(), "Molly has the lowest mastery, so she goes first");
-        assertEquals("Boots", view.rows("tableUpgrades").getFirst().get(1), "and her lower gear level breaks the tie");
+        assertEquals(List.of("Best return per stone", "Rally leaders first, then weakest", "Weakest first"), order.getItems());
+        assertEquals("Best return per stone", order.getValue(), "best return per stone is the default, not the lowest piece");
+        assertEquals("Bahiti", view.rows("tableUpgrades").getFirst().getFirst(), "the hero who fights most goes first");
+        assertTrue(view.rows("tableUpgrades").stream().noneMatch(r -> r.getFirst().equals("Molly")), "Molly is weighted 0 and is skipped");
     }
 
     @Test
@@ -719,9 +719,9 @@ class HeroesLayoutUxTest {
         View rally = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, "Rally squads")));
         View balanced = onFx(() -> open(Map.of(ConfigurationKeyEnum.HERO_GEAR_FORGE_FOCUS_STRING, "Balanced")));
 
-        assertEquals("Rally leaders first, then weakest", rally.<String>combo("comboBoxFocus").getValue());
-        assertEquals("Bahiti", rally.rows("tableUpgrades").getFirst().getFirst(), "the weakest rally leader goes first");
-        assertEquals("Weakest first", balanced.<String>combo("comboBoxFocus").getValue());
+        assertEquals("Best return per stone", rally.<String>combo("comboBoxFocus").getValue());
+        assertEquals("Bahiti", rally.rows("tableUpgrades").getFirst().getFirst(), "the old default ranked by squad weight");
+        assertEquals("Best return per stone", balanced.<String>combo("comboBoxFocus").getValue());
         assertEquals(List.of(), rally.published, "loading writes nothing back");
         assertEquals(List.of(), balanced.published);
     }
@@ -783,8 +783,8 @@ class HeroesLayoutUxTest {
         View view = onFx(this::load);
 
         assertEquals("Everything below works only on these heroes: Mia, Flint, Bahiti, Sergey, Molly.", view.label("labelScope").getText());
-        assertEquals("Uses XP items on the lowest gear of Mia, Flint, Bahiti, Sergey, Molly.", view.label("labelEnhanceScope").getText());
-        assertEquals("Spends Essence Stones on the weakest gear of Mia, Flint, Bahiti, Sergey, Molly.", view.label("labelForgeScope").getText());
+        assertEquals("Uses Enhancement Parts on the on-role gear of Mia, Flint, Bahiti, Sergey, Molly, the most-used hero first.", view.label("labelEnhanceScope").getText());
+        assertEquals("Spends Essence Stones on the on-role gear of Mia, Flint, Bahiti, Sergey, Molly, in the order chosen below.", view.label("labelForgeScope").getText());
 
         onFx(() -> {
             view.choice("Molly").setSelected(false);
@@ -793,7 +793,7 @@ class HeroesLayoutUxTest {
         });
 
         assertEquals("Everything below works only on these heroes: Mia, Flint, Bahiti.", view.label("labelScope").getText());
-        assertEquals("Uses XP items on the lowest gear of Mia, Flint, Bahiti.", view.label("labelEnhanceScope").getText());
+        assertEquals("Uses Enhancement Parts on the on-role gear of Mia, Flint, Bahiti, the most-used hero first.", view.label("labelEnhanceScope").getText());
         assertTrue(view.rows("tableUpgrades").stream().noneMatch(r -> r.getFirst().equals("Molly") || r.getFirst().equals("Sergey")),
                 "the plan only touches the ticked heroes: " + view.rows("tableUpgrades"));
 

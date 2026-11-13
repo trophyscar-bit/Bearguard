@@ -29,7 +29,7 @@ import dev.frostguard.engine.squads.GearScan.Abort;
 import dev.frostguard.engine.squads.QuickEquipPass.GearTab;
 import dev.frostguard.engine.squads.QuickEquipPass.Outcome;
 
-/** Drives the walk over saved frames. No lit button has been captured, so lit frames are painted. */
+/** Drives the walk over saved frames. Lit frames for the walk are painted green; two real green frames are tested directly. */
 class QuickEquipScreensFrameTest {
 
     private static final List<String> ROSTER = List.of("Mia", "Flint", "Molly", "Bahiti", "Sergey", "Jessie", "Patrick",
@@ -38,6 +38,7 @@ class QuickEquipScreensFrameTest {
     private static final PointData FIRST_CARD = new PointData(110, 246);
     private static final PointData GEAR = GearScanScreens.GEAR_TAB;
     private static final int RIGHT_BUTTON_OFFSET = 315;
+    private static final int[] GREEN = { 37, 183, 86 };
     private static final int[] BLUE = { 79, 165, 252 };
 
     @TempDir
@@ -58,6 +59,14 @@ class QuickEquipScreensFrameTest {
     }
 
     @Test
+    void aRecruitPageSavedOffTheLiveRunEndsTheListToo() throws Exception {
+        RawImageData frame = frame("quickequip-recruit-q8");
+
+        assertFalse(HeroScreenReader.isGearTab(frame), "an unowned hero has no Gear tab: the walk stops here");
+        assertFalse(QuickEquipScreens.isLit(frame));
+    }
+
+    @Test
     void theUnrecruitedHeroHasNoGearTabAndNoLitButton() throws Exception {
         RawImageData frame = frame("quickequip-stop-21");
 
@@ -65,8 +74,37 @@ class QuickEquipScreensFrameTest {
         assertFalse(QuickEquipScreens.isLit(frame));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = { "quickequip-green-jessie", "quickequip-green-q7" })
+    void aRealGreenQuickEquipIsLitAndStillAGearTab(String file) throws Exception {
+        RawImageData frame = frame(file);
+
+        assertTrue(HeroScreenReader.isGearTab(frame));
+        assertTrue(QuickEquipScreens.isLit(frame), "the live button averages 37,183,86");
+    }
+
     @Test
-    void aBlueButtonLabelledQuickEquipIsLit() throws Exception {
+    void theRealGreenFrameIsNotAnOddLookTheWayItWasLastNight() throws Exception {
+        assertEquals("Jessie", HeroScreenReader.readName(frame("quickequip-green-jessie")));
+        assertTrue(QuickEquipScreens.isLit(frame("quickequip-green-jessie")));
+    }
+
+    @Test
+    void aBlueButtonLabelledQuickEquipIsNotLitAnymore() throws Exception {
+        BufferedImage image = image(hero(0));
+        int blue = (BLUE[0] << 16) | (BLUE[1] << 8) | BLUE[2];
+        for (int x = 376; x < 660; x++) {
+            for (int y = 1070; y < 1155; y++) {
+                int rgb = image.getRGB(x, y);
+                if (Math.max((rgb >> 16) & 0xFF, Math.max((rgb >> 8) & 0xFF, rgb & 0xFF)) < 150) image.setRGB(x, y, blue);
+            }
+        }
+
+        assertFalse(QuickEquipScreens.isLit(raw(image)), "blue is Unequip All's colour, never a Quick Equip to press");
+    }
+
+    @Test
+    void aPaintedGreenButtonLabelledQuickEquipIsLit() throws Exception {
         assertTrue(QuickEquipScreens.isLit(raw(painted(hero(0)))));
     }
 
@@ -86,9 +124,9 @@ class QuickEquipScreensFrameTest {
     }
 
     @Test
-    void aBlueButtonWithNoLabelIsNotLit() throws Exception {
+    void aGreenButtonWithNoLabelIsNotLit() throws Exception {
         BufferedImage image = image(hero(0));
-        int blue = (BLUE[0] << 16) | (BLUE[1] << 8) | BLUE[2];
+        int blue = (GREEN[0] << 16) | (GREEN[1] << 8) | GREEN[2];
         for (int x = 376; x < 660; x++) {
             for (int y = 1070; y < 1155; y++) image.setRGB(x, y, blue);
         }
@@ -238,14 +276,14 @@ class QuickEquipScreensFrameTest {
     void anOddButtonIsReportedAndNotLit() throws Exception {
         BufferedImage image = image(hero(5));
         for (int x = 376; x < 660; x++) {
-            for (int y = 1070; y < 1095; y++) image.setRGB(x, y, 0x20C040);
+            for (int y = 1070; y < 1095; y++) image.setRGB(x, y, 0xD08020);
         }
         Rig rig = new Rig("scan-grid").on("scan-grid", FIRST_CARD, hero(5)).replace(hero(5), raw(image));
 
         GearTab tab = new QuickEquipScreens(rig).openFirstHero();
 
         assertFalse(tab.lit());
-        assertTrue(tab.oddLook() != null && tab.oddLook().contains("32,192,64"), String.valueOf(tab.oddLook()));
+        assertTrue(tab.oddLook() != null && tab.oddLook().contains("208,128,32"), String.valueOf(tab.oddLook()));
     }
 
     @Test
@@ -386,7 +424,7 @@ class QuickEquipScreensFrameTest {
 
     private static BufferedImage painted(String name) throws Exception {
         BufferedImage image = image(name);
-        int blue = (BLUE[0] << 16) | (BLUE[1] << 8) | BLUE[2];
+        int blue = (GREEN[0] << 16) | (GREEN[1] << 8) | GREEN[2];
         for (int x = 376; x < 660; x++) {
             for (int y = 1070; y < 1155; y++) {
                 int rgb = image.getRGB(x, y);

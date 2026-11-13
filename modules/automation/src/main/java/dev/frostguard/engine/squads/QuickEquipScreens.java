@@ -30,12 +30,13 @@ public final class QuickEquipScreens implements QuickEquipPass.Screens {
     private static final int[] BUTTON_SAMPLE = { 400, 1085, 640, 1095 };
     private static final int[] BUTTON_LABEL = { 385, 1085, 650, 1140 };
 
-    // Greyed Quick Equip measured exactly this on all 21 heroes. The lit look has not been seen;
-    // it is assumed to be the blue Unequip All measured, so anything else is left unpressed.
+    // Greyed Quick Equip measured exactly this on all 21 heroes. The lit button is GREEN, measured live on
+    // 2026-11-12 on Jessie and Greg: it averages 37,183,86 over the sample. The code first assumed it would be
+    // the blue of Unequip All, so a lit button read as an odd look and was never pressed.
     private static final int[] GREY = { 96, 104, 114 };
-    private static final int[] BLUE = { 79, 165, 252 };
+    private static final int[] GREEN = { 37, 183, 86 };
     private static final int GREY_TOLERANCE = 12;
-    private static final int BLUE_TOLERANCE = 30;
+    private static final int GREEN_TOLERANCE = 30;
     private static final double MIN_SHARE = 0.90;
 
     private static final int READ_ATTEMPTS = 4;
@@ -64,7 +65,7 @@ public final class QuickEquipScreens implements QuickEquipPass.Screens {
 
     /** True only on a clear blue reading with the label "Quick Equip" in the same box. */
     static boolean isLit(RawImageData frame) {
-        return share(frame, BLUE, BLUE_TOLERANCE) >= MIN_SHARE && label(frame).contains("Quick Equip");
+        return share(frame, GREEN, GREEN_TOLERANCE) >= MIN_SHARE && label(frame).contains("Quick Equip");
     }
 
     static boolean reachesUnequipAll(PointData point, int radius) {

@@ -13,10 +13,11 @@ import dev.frostguard.engine.squads.ForgeDialogReader.GearDetails;
 import dev.frostguard.engine.squads.GearEnhancePlanner.Raise;
 
 /**
- * Raises one piece a level at a time, starting and ending on its Gear Details. Quick Select picks the
- * fodder, so the whole list is scrolled and any selected tile that isn't an XP item or grey or green
- * gear abandons the level. Only the Enhance button of a confirmed dialog spends anything, and only when
- * live. Any screen that doesn't read as expected stops the run.
+ * Raises one piece from its open Gear Details to its target in a single visit to the Gear Enhancement
+ * dialog: Quick Select fills the first level, Select more adds each next one while the dialog stays
+ * open, then the fodder list is scrolled once and Enhance is pressed once. Any selected tile that isn't
+ * an Enhancement Part abandons the whole selection: spare gear is never fed in. Only the Enhance button of a confirmed
+ * dialog spends anything, and only when live. Any screen that doesn't read as expected stops the run.
  */
 public final class GearEnhancePass {
 
@@ -28,11 +29,19 @@ public final class GearEnhancePass {
     private static final int MAX_SWIPES = 40;
     private static final int SWIPE_MS = 900;
     private static final int BUTTON_RADIUS = 8;
+    private static final int PARTS_READ_ATTEMPTS = 2;
 
     public enum Stop {
         TARGET_REACHED, DRY_RUN, DEADLINE, WRONG_BUTTON, WRONG_PIECE, WRONG_LEVEL, DIALOG_UNREADABLE,
         QUICK_SELECT_SHORT, PREVIEW_MISMATCH, UNSAFE_FODDER, LIST_SCAN_FAILED, SELECTION_CHANGED, PRESS_UNCONFIRMED,
         MARKER_UNSAVED
+    }
+
+    /**
+     * What the enhance screen itself shows for the selection, saved to the log before the press so each raise
+     * has its reason on one line: the stat it adds and the parts it eats. Null fields did not read.
+     */
+    public record Preview(String hero, String slot, int fromLevel, int toLevel, String stat, Double from, Double to, Integer parts) {
     }
 
     /** {@code level} is the last level confirmed on screen and {@code raised} how many this run added. */
@@ -59,6 +68,10 @@ public final class GearEnhancePass {
         /** The press last saved by {@link #pressing} is confirmed on screen. */
         void pressConfirmed() throws IOException;
 
+        /** The preview the selection shows, just before the list scan and the press. Must not touch the screen. */
+        default void previewed(Preview preview) {
+        }
+
         /** The frame a read gave up on, just before the halt it causes. Must not touch the screen. */
         default void readFailed(RawImageData frame, String failure) {
         }
@@ -74,6 +87,12 @@ public final class GearEnhancePass {
         List<Badge> badges(RawImageData frame);
 
         boolean listTop(RawImageData frame);
+
+        /** {selected, owned} of the Enhancement Parts tile, or null when it does not read. */
+        int[] partsTile(RawImageData frame);
+
+        /** The last stat row of the preview, or null when it does not read. */
+        EnhanceDialogReader.Gain previewGain(RawImageData frame);
 
         boolean listBottom(RawImageData frame);
 
@@ -104,6 +123,16 @@ public final class GearEnhancePass {
         @Override
         public boolean listTop(RawImageData frame) {
             return EnhanceDialogReader.isListTop(frame);
+        }
+
+        @Override
+        public int[] partsTile(RawImageData frame) {
+            return EnhanceDialogReader.partsTile(frame);
+        }
+
+        @Override
+        public EnhanceDialogReader.Gain previewGain(RawImageData frame) {
+            return EnhanceDialogReader.previewGain(frame);
         }
 
         @Override
@@ -142,36 +171,40 @@ public final class GearEnhancePass {
     /** Runs from {@code raise.from()} up to {@code raise.to()}; with {@code live} off it presses nothing that spends. */
     public Outcome run(Raise raise, boolean live) {
         int level = raise.from();
-        int raised = 0;
         try {
-            while (level < raise.to()) {
-                if (device.pastDeadline()) throw new Halt(Stop.DEADLINE, "time cap reached before Lv." + level);
-                raiseOnce(raise, level, live);
-                level++;
-                raised++;
-            }
-            return new Outcome(level, raised, Stop.TARGET_REACHED, "reached Lv." + level);
+            if (level >= raise.to()) return new Outcome(level, 0, Stop.TARGET_REACHED, "reached Lv." + level);
+            if (device.pastDeadline()) throw new Halt(Stop.DEADLINE, "time cap reached before Lv." + level);
+            int reached = raiseTo(raise, level, live);
+            if (reached >= raise.to()) return new Outcome(reached, reached - level, Stop.TARGET_REACHED, "reached Lv." + reached);
+            return new Outcome(reached, reached - level, Stop.QUICK_SELECT_SHORT,
+                    "stopped at Lv." + reached + ", short of Lv." + raise.to() + ": the XP items ran out or time did");
         } catch (Halt halt) {
-            return new Outcome(level, raised, halt.stop, halt.getMessage());
+            return new Outcome(level, 0, halt.stop, halt.getMessage());
         }
     }
 
-    private void raiseOnce(Raise raise, int level, boolean live) {
+    /** One visit to the dialog; returns the level confirmed on screen, which is short of the target when the fodder ran out. */
+    private int raiseTo(Raise raise, int level, boolean live) {
         openDialog(raise, level);
+        int reached;
         try {
             Dialog selected = quickSelect(level);
+            selected = selectMore(selected, level, raise.to());
+            reached = selected.preview();
+            report(raise, level, reached);
             scanFodder();
             Dialog now = await(reads::dialog, "the dialog did not read after the list scan");
             if (!selected.equals(now)) {
                 throw new Halt(Stop.SELECTION_CHANGED, "selection moved during the list scan: " + selected + " then " + now);
             }
-            if (!live) throw new Halt(Stop.DRY_RUN, "would raise " + raise.hero() + " " + raise.slot() + " to Lv." + (level + 1));
+            if (!live) throw new Halt(Stop.DRY_RUN, "would raise " + raise.hero() + " " + raise.slot() + " to Lv." + reached);
             if (device.pastDeadline()) throw new Halt(Stop.DEADLINE, "time cap reached before pressing Enhance");
         } catch (Halt halt) {
             close();
             throw halt;
         }
-        press(raise, level);
+        press(raise, level, reached);
+        return reached;
     }
 
     private void openDialog(Raise raise, int level) {
@@ -224,9 +257,67 @@ public final class GearEnhancePass {
         return selected;
     }
 
+    /**
+     * Presses Select more, staying in the dialog, until the preview reaches the target or stops rising
+     * because the XP items ran out. A preview that falls, clears or goes past the target abandons the
+     * selection: the target is the most the night may raise.
+     */
+    private Dialog selectMore(Dialog selected, int level, int target) {
+        Dialog current = selected;
+        while (current.preview() < target) {
+            if (device.pastDeadline()) return current;
+            if (!partsLeft()) return current;
+            device.tap(EnhanceDialogReader.SELECT_MORE, BUTTON_RADIUS);
+            device.pause(1200);
+            Dialog next = await(reads::dialog, "the dialog did not read after Select more");
+            for (int attempt = 0; attempt < READ_ATTEMPTS && next.preview() != null && next.preview().equals(current.preview()); attempt++) {
+                device.pause(READ_PAUSE_MS);
+                next = await(reads::dialog, "the dialog did not read after Select more");
+            }
+            if (next.level() != level || next.preview() == null) {
+                throw new Halt(Stop.PREVIEW_MISMATCH, "Select more changed the piece or cleared the selection: " + next);
+            }
+            if (next.preview().equals(current.preview())) return current;
+            if (next.preview() < current.preview() || next.preview() > target) {
+                throw new Halt(Stop.PREVIEW_MISMATCH, "expected Select more to go from Lv." + current.preview() + " toward Lv." + target
+                        + " and no further, read " + next);
+            }
+            if (!next.enhanceLit() || !EnhanceDialogReader.SELECT_MORE_LABEL.equals(next.leftButton())) {
+                throw new Halt(Stop.PREVIEW_MISMATCH, "the buttons changed after Select more: " + next);
+            }
+            current = next;
+        }
+        return current;
+    }
+
+    private void report(Raise raise, int level, int reached) {
+        RawImageData frame = device.capture();
+        EnhanceDialogReader.Gain gain = reads.previewGain(frame);
+        int[] parts = reads.partsTile(frame);
+        device.previewed(new Preview(raise.hero(), raise.slot(), level, reached, gain == null ? null : gain.stat(),
+                gain == null ? null : gain.from(), gain == null ? null : gain.to(), parts == null ? null : parts[0]));
+    }
+
+    /**
+     * True only when the parts tile reads and shows parts still unselected. Once they are all in, the next
+     * Select more would pick spare gear, so it is not pressed; a tile that will not read stops the choosing
+     * too, since a press that cannot be checked is one that might take gear.
+     */
+    private boolean partsLeft() {
+        for (int attempt = 0; attempt < PARTS_READ_ATTEMPTS; attempt++) {
+            int[] parts = reads.partsTile(device.capture());
+            if (parts != null) return parts[0] < parts[1];
+            device.pause(READ_PAUSE_MS);
+        }
+        return false;
+    }
+
     private void scanFodder() {
         RawImageData frame = device.capture();
-        if (!reads.listTop(frame)) throw new Halt(Stop.LIST_SCAN_FAILED, "the fodder list did not open at its top");
+        if (!reads.listTop(frame)) {
+            device.readFailed(frame, "the fodder list did not open at its top");
+            throw new Halt(Stop.LIST_SCAN_FAILED, "the fodder list did not open at its top");
+        }
         int seen = 0;
         for (int swipe = 0; swipe < MAX_SWIPES; swipe++) {
             seen += checkTiles(frame);
@@ -256,7 +347,7 @@ public final class GearEnhancePass {
         return badges.size();
     }
 
-    private void press(Raise raise, int level) {
+    private void press(Raise raise, int level, int reached) {
         try {
             device.pressing(raise.hero(), raise.slot(), level);
         } catch (IOException e) {
@@ -268,29 +359,29 @@ public final class GearEnhancePass {
         for (int attempt = 0; attempt < PRESS_READ_ATTEMPTS; attempt++) {
             RawImageData frame = device.capture();
             Dialog after = reads.dialog(frame);
-            if (after != null && after.preview() == null && after.level() == level + 1) {
-                confirm(level);
+            if (after != null && after.preview() == null && after.level() == reached) {
+                confirm(reached);
                 close();
                 return;
             }
-            if (after != null && after.level() > level + 1) {
-                throw new Halt(Stop.PRESS_UNCONFIRMED, "expected Lv." + (level + 1) + " after the press, read " + after);
+            if (after != null && after.level() > reached) {
+                throw new Halt(Stop.PRESS_UNCONFIRMED, "expected Lv." + reached + " after the press, read " + after);
             }
             GearDetails details = after == null ? reads.details(frame) : null;
-            if (details != null && details.enhancement() == level + 1) {
-                confirm(level);
+            if (details != null && details.enhancement() == reached) {
+                confirm(reached);
                 return;
             }
             device.pause(READ_PAUSE_MS);
         }
-        throw new Halt(Stop.PRESS_UNCONFIRMED, "Lv." + (level + 1) + " was not confirmed after the press");
+        throw new Halt(Stop.PRESS_UNCONFIRMED, "Lv." + reached + " was not confirmed after the press");
     }
 
-    private void confirm(int level) {
+    private void confirm(int reached) {
         try {
             device.pressConfirmed();
         } catch (IOException e) {
-            throw new Halt(Stop.PRESS_UNCONFIRMED, "Lv." + (level + 1) + " showed but its record could not be cleared: " + e.getMessage());
+            throw new Halt(Stop.PRESS_UNCONFIRMED, "Lv." + reached + " showed but its record could not be cleared: " + e.getMessage());
         }
     }
 

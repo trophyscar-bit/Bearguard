@@ -21,9 +21,14 @@ import dev.frostguard.engine.squads.HeroUpgradePlanner.Instructor;
 import dev.frostguard.engine.squads.HeroUpgradePlanner.Inventory;
 
 /**
- * The read-only full gear scan: when one is due, the walk over the {@value #HERO_COUNT} main heroes,
- * and what gets saved. {@link Screens} has no way to press Forge. A scan reads every piece or saves
- * nothing, because the ranker and the guard would otherwise trust a state with holes in it.
+ * The read-only gear scan: when one is due, the walk over the {@value #HERO_COUNT} main heroes,
+ * and what gets saved. {@link Screens} has no way to press Forge. A scan accounts for every piece or
+ * saves nothing, because the ranker and the guard would otherwise trust a state with holes in it.
+ *
+ * <p>A piece is opened in full only when it has to be: its Gear tab tile shows the enhancement level and
+ * the mastery level, so a piece whose tile still matches what was saved is carried over unopened. That is
+ * what makes a nightly check take about a minute instead of four. The first {@value #FULL_READS} pieces are
+ * always opened, for the stone balance, which is only trusted when every opened piece agrees on it.
  */
 public final class GearScan {
 
@@ -36,6 +41,8 @@ public final class GearScan {
     private static final Map<String, String> SET_CLASS =
             Map.of("Sniper", "Marksman", "Saboteur", "Lancer", "Guardian", "Infantry");
     private static final double NEW_HERO_WEIGHT = 0.5;
+    /** Pieces always opened in full, so the stone balance is cross-checked by more than one read. */
+    static final int FULL_READS = 2;
 
     /** A screen check or read failed, so the scan stops where it is. */
     public static final class Abort extends RuntimeException {
@@ -58,6 +65,16 @@ public final class GearScan {
         /** Opens the card and returns the hero's name, or null when it isn't a known hero. */
         String openHero(int index);
 
+        /**
+         * From the hero page that is open, on to the hero after it, and that hero's name, or null when it isn't
+         * a known hero. The default goes back to the grid and opens the next card; a screen that can step with
+         * the page's right arrow overrides it so the walk never returns to the list between heroes.
+         */
+        default String nextHero(int index) {
+            closeHero();
+            return openHero(index);
+        }
+
         /** Reads the hero page {@link #openHero} left open. */
         HeroPage readHero(String name);
 
@@ -72,6 +89,11 @@ public final class GearScan {
         void closeDetails();
 
         void closeHero();
+    }
+
+    /** Told about each hero as the walk finishes with it: how long it took and how many of its pieces had to be opened. */
+    public interface Progress {
+        void hero(String name, int opened, int carriedOver, long millis);
     }
 
     /** {@code problem} is why the scan stopped, and null with {@code state} saved when it finished. */
@@ -103,25 +125,35 @@ public final class GearScan {
 
     /** Runs the scan and saves it; on any failure nothing is written and {@code previous} stands. */
     public static Outcome run(Screens screens, HeroGearStore store, long profileId, GearState previous, Instant now) {
+        return run(screens, store, profileId, previous, now, (name, opened, carried, millis) -> {
+        });
+    }
+
+    /** As above, reporting each hero's time and pieces opened as the walk leaves it. */
+    public static Outcome run(Screens screens, HeroGearStore store, long profileId, GearState previous, Instant now, Progress progress) {
         List<HeroPage> pages = new ArrayList<>();
         List<GearPiece> pieces = new ArrayList<>();
         Set<Integer> stones = new LinkedHashSet<>();
+        int[] opened = { 0 };
         try {
             int cards = Math.min(screens.openGrid(), CARD_LIMIT);
+            boolean onAHero = false;
             for (int index = 0; index < cards && pages.size() < HERO_COUNT; index++) {
-                String name = screens.openHero(index);
-                if (name == null || !GearForgeGuard.GEAR_SET.containsKey(name)) {
-                    screens.closeHero();
-                    continue;
-                }
+                long started = System.currentTimeMillis();
+                String name = onAHero ? screens.nextHero(index) : screens.openHero(index);
+                onAHero = true;
+                if (name == null || !GearForgeGuard.GEAR_SET.containsKey(name)) continue;
                 HeroPage page = page(screens.readHero(name), pages);
                 pages.add(page);
+                int openedBefore = opened[0];
                 List<HeroGear> tiles = screens.openGearTab(page.name());
                 for (int slot = 0; slot < SLOTS.size(); slot++) {
-                    pieces.add(piece(screens, page, SLOTS.get(slot), tiles.get(slot), stones));
+                    pieces.add(piece(screens, page, SLOTS.get(slot), tiles.get(slot), stones, previous, opened));
                 }
-                screens.closeHero();
+                int openedHere = opened[0] - openedBefore;
+                progress.hero(page.name(), openedHere, SLOTS.size() - openedHere, System.currentTimeMillis() - started);
             }
+            if (onAHero) screens.closeHero();
             if (pages.size() < HERO_COUNT) {
                 throw new Abort("found only " + pages.stream().map(HeroPage::name).toList()
                         + " of the main heroes in the first " + cards + " grid cards");
@@ -148,7 +180,26 @@ public final class GearScan {
         return page;
     }
 
-    private static GearPiece piece(Screens screens, HeroPage page, String slot, HeroGear tile, Set<Integer> stones) {
+    /** The saved piece when this tile reads exactly as it was saved, else null: it is then opened and read in full. */
+    static GearPiece unchanged(GearState previous, HeroPage page, String slot, HeroGear tile) {
+        if (previous == null || tile.enhancement() == null || tile.mastery() == null) return null;
+        for (GearPiece saved : previous.pieces()) {
+            if (saved.hero().equals(page.name()) && saved.slot().equals(slot)) {
+                boolean same = saved.enhancement() == tile.enhancement() && saved.masteryPercent() / 10 == tile.mastery()
+                        && saved.onRole() == onRole(page.troopClass(), slot);
+                return same ? saved : null;
+            }
+        }
+        return null;
+    }
+
+    private static GearPiece piece(Screens screens, HeroPage page, String slot, HeroGear tile, Set<Integer> stones,
+                                   GearState previous, int[] opened) {
+        if (opened[0] >= FULL_READS) {
+            GearPiece kept = unchanged(previous, page, slot, tile);
+            if (kept != null) return kept;
+        }
+        opened[0]++;
         String where = page.name() + " " + slot;
         GearDetails details = screens.openDetails(slot);
         if (!details.piece().endsWith(" " + slot)) {

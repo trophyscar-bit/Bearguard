@@ -30,6 +30,7 @@ class GearEnhancePassTest {
     private static final PointData ENHANCE = EnhanceDialogReader.ENHANCE;
     private static final Raise ONE = new Raise("Sergey", "Gauntlets", 76, 77);
     private static final Raise TWO = new Raise("Sergey", "Gauntlets", 76, 78);
+    private static final Raise FOUR = new Raise("Sergey", "Gauntlets", 76, 80);
 
     private final Game game = new Game();
 
@@ -44,13 +45,35 @@ class GearEnhancePassTest {
     }
 
     @Test
-    void raisesOneLevelAtATimeUpToTheTarget() {
+    void raisesEveryLevelInOneVisitWithSelectMoreAndOnePress() {
         Outcome outcome = run(TWO, true);
 
         assertEquals(new Outcome(78, 2, Stop.TARGET_REACHED, "reached Lv.78"), outcome);
-        assertEquals(List.of(DETAILS, QUICK, ENHANCE, DETAILS, QUICK, ENHANCE), game.taps);
+        assertEquals(List.of(DETAILS, QUICK, QUICK, ENHANCE), game.taps, "one visit: Quick Select, Select more, Enhance");
         assertEquals(78, game.level);
+        assertEquals(2, game.swipes, "the list is scrolled once for the whole raise, not once a level");
         assertEquals(Screen.DETAILS, game.screen);
+    }
+
+    @Test
+    void theReasonForARaiseIsReportedBeforeThePressFromWhatTheScreenShows() {
+        run(TWO, false);
+        run(TWO, true);
+
+        assertEquals(2, game.previews.size(), "once per visit, before the list scan, so a practice night reports it too");
+        GearEnhancePass.Preview preview = game.previews.getLast();
+        assertEquals(new GearEnhancePass.Preview("Sergey", "Gauntlets", 76, 78, "Marksman Lethality", 60.99, 64.50, 2), preview);
+    }
+
+    @Test
+    void aLongRaiseStaysInTheDialogForEveryLevel() {
+        Outcome outcome = run(new Raise("Sergey", "Gauntlets", 76, 86), true);
+
+        assertEquals(new Outcome(86, 10, Stop.TARGET_REACHED, "reached Lv.86"), outcome);
+        assertEquals(1, game.taps.stream().filter(DETAILS::equals).count(), "the hero is opened once");
+        assertEquals(10, game.taps.stream().filter(QUICK::equals).count(), "Quick Select once, Select more nine times");
+        assertEquals(1, game.taps.stream().filter(ENHANCE::equals).count());
+        assertEquals(1, game.backs, "and closed once");
     }
 
     @Test
@@ -66,7 +89,8 @@ class GearEnhancePassTest {
         Outcome outcome = run(TWO, false);
 
         assertStoppedUnspent(outcome, Stop.DRY_RUN);
-        assertEquals(List.of(DETAILS, QUICK), game.taps);
+        assertTrue(outcome.detail().contains("Lv.78"), outcome.detail());
+        assertEquals(List.of(DETAILS, QUICK, QUICK), game.taps);
         assertEquals(Screen.DETAILS, game.screen);
     }
 
@@ -79,10 +103,72 @@ class GearEnhancePassTest {
     }
 
     @Test
-    void eachPressOfARaiseIsRecordedOnItsOwn() {
+    void aRaiseOfSeveralLevelsIsOnePressRecordedFromItsStartingLevel() {
         run(TWO, true);
 
-        assertEquals(List.of("record Sergey Gauntlets 76", "press", "confirm", "record Sergey Gauntlets 77", "press", "confirm"), game.events);
+        assertEquals(List.of("record Sergey Gauntlets 76", "press", "confirm"), game.events);
+    }
+
+    @Test
+    void whenTheXpItemsRunOutItPressesWhatIsSelectedAndStopsShortOfTheTarget() {
+        game.fodderLevels = 2;
+
+        Outcome outcome = run(FOUR, true);
+
+        assertEquals(Stop.QUICK_SELECT_SHORT, outcome.stop(), outcome.detail());
+        assertEquals(78, outcome.level());
+        assertEquals(2, outcome.raised());
+        assertEquals(List.of(DETAILS, QUICK, QUICK, ENHANCE), game.taps, "the parts tile was full after two, so Select more was not pressed again");
+        assertEquals(78, game.level);
+        assertEquals(List.of("record Sergey Gauntlets 76", "press", "confirm"), game.events);
+        assertEquals(Screen.DETAILS, game.screen);
+    }
+
+    @Test
+    void aPartsTileThatWillNotReadStopsTheChoosingAndPressesWhatIsSelected() {
+        game.partsUnreadable = true;
+
+        Outcome outcome = run(TWO, true);
+
+        assertEquals(Stop.QUICK_SELECT_SHORT, outcome.stop(), outcome.detail());
+        assertEquals(77, outcome.level());
+        assertEquals(List.of(DETAILS, QUICK, ENHANCE), game.taps, "a press that cannot be checked might take spare gear");
+    }
+
+    @Test
+    void selectMoreNeverGoesPastTheTarget() {
+        game.selectMoreStep = 2;
+
+        assertStoppedUnspent(run(TWO, true), Stop.PREVIEW_MISMATCH);
+        assertEquals(List.of(DETAILS, QUICK, QUICK), game.taps);
+        assertEquals(Screen.DETAILS, game.screen);
+    }
+
+    @Test
+    void aSelectMoreThatClearsTheSelectionStops() {
+        game.selectMoreClears = true;
+
+        assertStoppedUnspent(run(TWO, true), Stop.PREVIEW_MISMATCH);
+        assertEquals(Screen.DETAILS, game.screen);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TileKind.class, names = { "GREY", "GREEN", "BLUE", "PURPLE", "UNKNOWN" })
+    void unsafeFodderPickedBySelectMoreAbandonsEveryLevelSelected(TileKind kind) {
+        game.pages = List.of(List.of(new Badge(0, 860, TileKind.XP)), List.of(new Badge(3, 900, kind)), List.of());
+
+        assertStoppedUnspent(run(FOUR, true), Stop.UNSAFE_FODDER);
+        assertEquals(List.of(DETAILS, QUICK, QUICK, QUICK, QUICK), game.taps);
+        assertEquals(Screen.DETAILS, game.screen);
+    }
+
+    @Test
+    void timeRunningOutDuringSelectMoreStopsChoosingMore() {
+        game.deadlineAtCheck = 3;
+
+        run(FOUR, true);
+
+        assertEquals(List.of(DETAILS, QUICK, QUICK, ENHANCE), game.taps, "one Select more, then the cap ended the choosing");
     }
 
     @Test
@@ -231,8 +317,8 @@ class GearEnhancePassTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = TileKind.class, names = { "BLUE", "PURPLE", "UNKNOWN" })
-    void aSelectedTileThatIsNotSafeFodderAbandonsTheLevel(TileKind kind) {
+    @EnumSource(value = TileKind.class, names = { "GREY", "GREEN", "BLUE", "PURPLE", "UNKNOWN" })
+    void aSelectedGearTileOfAnyColourAbandonsTheLevel(TileKind kind) {
         game.pages = List.of(List.of(new Badge(0, 860, TileKind.XP)), List.of(new Badge(3, 900, kind)), List.of());
 
         assertStoppedUnspent(run(ONE, true), Stop.UNSAFE_FODDER);
@@ -241,8 +327,8 @@ class GearEnhancePassTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = TileKind.class, names = { "XP", "GREY", "GREEN" })
-    void safeFodderGoesThrough(TileKind kind) {
+    @EnumSource(value = TileKind.class, names = { "XP" })
+    void enhancementPartsGoThrough(TileKind kind) {
         game.pages = List.of(List.of(new Badge(0, 860, kind)), List.of());
 
         assertEquals(Stop.TARGET_REACHED, run(ONE, true).stop());
@@ -351,7 +437,7 @@ class GearEnhancePassTest {
         Outcome outcome = run(TWO, true);
 
         assertEquals(Stop.PRESS_UNCONFIRMED, outcome.stop());
-        assertEquals(List.of(DETAILS, QUICK, ENHANCE), game.taps);
+        assertEquals(List.of(DETAILS, QUICK, QUICK, ENHANCE), game.taps);
     }
 
     @Test
@@ -361,22 +447,13 @@ class GearEnhancePassTest {
         assertEquals(new Outcome(78, 2, Stop.TARGET_REACHED, "reached Lv.78"), run(TWO, true));
     }
 
-    @Test
-    void theButtonChangingAfterALevelStopsTheNextOne() {
-        game.ascendAtLevel = 77;
-
-        Outcome outcome = run(TWO, true);
-
-        assertEquals(new Outcome(77, 1, Stop.WRONG_BUTTON, outcome.detail()), outcome);
-        assertEquals(1, game.taps.stream().filter(ENHANCE::equals).count());
-    }
-
     private enum Screen { DETAILS, DIALOG, PROMPT }
 
     /** Frames are null: the scripted reads answer from this object's state. */
     private static final class Game implements GearEnhancePass.Device, GearEnhancePass.Reads {
         final List<PointData> taps = new ArrayList<>();
         final List<String> events = new ArrayList<>();
+        final List<GearEnhancePass.Preview> previews = new ArrayList<>();
         boolean recordFails;
         boolean confirmFails;
         Screen screen = Screen.DETAILS;
@@ -394,6 +471,11 @@ class GearEnhancePassTest {
         boolean promptAfterPress;
         boolean closesAfterPress;
         int pressBump = 1;
+        int fodderLevels = 100;
+        boolean partsUnreadable;
+        int selectMoreStep = 1;
+        boolean selectMoreClears;
+        private int selectedLevels = 1;
         List<List<Badge>> pages = List.of(List.of(new Badge(0, 860, TileKind.XP)), List.of());
         boolean listTop = true;
         boolean listBottom = true;
@@ -403,6 +485,7 @@ class GearEnhancePassTest {
         int deadlineAtCheck = -1;
         int ascendAtLevel = -1;
         int swipes;
+        int backs;
         private int page;
         private int deadlineChecks;
         private boolean selected;
@@ -422,16 +505,24 @@ class GearEnhancePassTest {
                 page = 0;
                 xp = 0;
             } else if (point.equals(QUICK)) {
-                if (promptAfterSelect) screen = Screen.PROMPT;
-                else selected = quickSelectFills;
+                if (selected) {
+                    if (selectMoreClears) selected = false;
+                    else if (selectedLevels < fodderLevels) selectedLevels += selectMoreStep;
+                } else if (promptAfterSelect) {
+                    screen = Screen.PROMPT;
+                } else {
+                    selected = quickSelectFills;
+                    selectedLevels = 1;
+                }
             } else if (point.equals(ENHANCE)) {
                 events.add("press");
                 if (promptAfterPress) {
                     screen = Screen.PROMPT;
                     return;
                 }
-                level += pressBump;
+                level += pressBump * selectedLevels;
                 selected = false;
+                selectedLevels = 1;
                 if (closesAfterPress) screen = Screen.DETAILS;
             }
         }
@@ -445,6 +536,7 @@ class GearEnhancePassTest {
 
         @Override
         public void back() {
+            backs++;
             screen = Screen.DETAILS;
             selected = false;
         }
@@ -461,6 +553,16 @@ class GearEnhancePassTest {
         @Override
         public void readFailed(RawImageData frame, String failure) {
             events.add("readFailed: " + failure);
+        }
+
+        @Override
+        public void previewed(GearEnhancePass.Preview preview) {
+            previews.add(preview);
+        }
+
+        @Override
+        public EnhanceDialogReader.Gain previewGain(RawImageData frame) {
+            return new EnhanceDialogReader.Gain("Marksman Lethality", 60.99, 64.50);
         }
 
         @Override
@@ -491,7 +593,7 @@ class GearEnhancePassTest {
             if (screen != Screen.DIALOG) return null;
             int shown = level + dialogLevelDrift;
             if (selected) {
-                return new Dialog(shown, shown + previewBump, xp, 1310, EnhanceDialogReader.SELECT_MORE_LABEL, litAfterSelect);
+                return new Dialog(shown, shown + previewBump + selectedLevels - 1, xp, 1310, EnhanceDialogReader.SELECT_MORE_LABEL, litAfterSelect);
             }
             return new Dialog(shown, null, 1050, 1270, leftBefore, false);
         }
@@ -504,6 +606,11 @@ class GearEnhancePassTest {
         @Override
         public boolean listTop(RawImageData frame) {
             return listTop;
+        }
+
+        @Override
+        public int[] partsTile(RawImageData frame) {
+            return partsUnreadable || !selected ? null : new int[] { selectedLevels, fodderLevels };
         }
 
         @Override

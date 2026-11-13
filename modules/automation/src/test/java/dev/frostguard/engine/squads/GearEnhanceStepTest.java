@@ -40,7 +40,7 @@ class GearEnhanceStepTest {
     private static final GearState GEAR = new GearState(List.of(
             new GearPiece("Mia", "Boots", 81, 50, true),
             new GearPiece("Flint", "Belt", 40, 30, true),
-            new GearPiece("Molly", "Boots", 10, 0, true)), Map.of("Mia", 1.0), NOW.toString());
+            new GearPiece("Molly", "Boots", 10, 0, true)), Map.of("Mia", 1.0, "Flint", 1.0, "Molly", 1.0), NOW.toString());
     private static final Set<String> TICKED = Set.of("Mia", "Flint");
     private static final Raiser REACHES = (raise, live) -> reached(raise);
 
@@ -74,7 +74,18 @@ class GearEnhanceStepTest {
         assertEquals(List.of(40, 45), flintLevelsSeen, "the first raise was on disk before the second began");
         assertEquals(50, saved("Flint", "Belt").enhancement());
         assertEquals(10, saved("Molly", "Boots").enhancement(), "unticked hero untouched");
-        assertEquals(2, navigator.closes);
+        assertEquals(3, navigator.closes, "a default navigator closes to the grid after each piece and once more at the end");
+    }
+
+    @Test
+    void theVisitsFollowTheHeroesInListOrderWhateverOrderThePlanChoseThem() {
+        List<GearEnhancePlanner.Raise> plan = List.of(new GearEnhancePlanner.Raise("Flint", "Belt", 40, 45),
+                new GearEnhancePlanner.Raise("Mia", "Boots", 81, 85), new GearEnhancePlanner.Raise("Flint", "Belt", 45, 50));
+
+        List<GearEnhancePlanner.Raise> walk = GearEnhanceStep.inWalkOrder(plan, GEAR);
+
+        assertEquals(List.of("Mia", "Flint", "Flint"), walk.stream().map(GearEnhancePlanner.Raise::hero).toList(), "Mia comes first in the list");
+        assertEquals(45, walk.get(2).from(), "a piece's own raises keep their order");
     }
 
     @Test

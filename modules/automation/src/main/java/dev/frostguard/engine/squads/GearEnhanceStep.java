@@ -28,6 +28,15 @@ public final class GearEnhanceStep {
         GearDetails open(String hero, String slot);
 
         void closeToGrid();
+
+        /**
+         * Done with one piece: the default goes all the way back to the grid; a walking navigator only closes
+         * Gear Details and stays on the hero's page, so the next piece of the same hero needs no navigation
+         * and the next hero is one arrow away.
+         */
+        default void finishPiece() {
+            closeToGrid();
+        }
     }
 
     /** {@link GearEnhancePass#run}, starting on the piece's open Gear Details. */
@@ -65,7 +74,7 @@ public final class GearEnhanceStep {
 
     private static Outcome raise(GearState saved, Settings settings, Navigator navigator, Raiser raiser,
                                  HeroGearStore store, long profileId, Supplier<Instant> clock) {
-        List<Raise> plan = GearEnhancePlanner.plan(saved.pieces(), settings.heroes(), settings.maxLevels());
+        List<Raise> plan = inWalkOrder(GearEnhancePlanner.plan(saved.pieces(), settings.heroes(), settings.maxLevels(), saved.heroWeights()), saved);
         GearState state = saved;
         int raises = 0;
         try {
@@ -93,7 +102,7 @@ public final class GearEnhanceStep {
                     raises++;
                 }
                 switch (result.stop()) {
-                    case TARGET_REACHED -> navigator.closeToGrid();
+                    case TARGET_REACHED -> navigator.finishPiece();
                     case DRY_RUN, DEADLINE, QUICK_SELECT_SHORT -> {
                         navigator.closeToGrid();
                         return new Outcome(state, raises, null, result.detail(), false);
@@ -103,12 +112,29 @@ public final class GearEnhanceStep {
                     }
                 }
             }
+            if (raises > 0) navigator.closeToGrid();
         } catch (Abort abort) {
             return new Outcome(state, raises, abort.getMessage(), null, false);
         } catch (IOException e) {
             return new Outcome(state, raises, "could not save the gear state: " + e.getMessage(), null, false, true);
         }
         return new Outcome(state, raises, null, null, false);
+    }
+
+    /**
+     * The plan decides which pieces get the parts and how many levels each; this puts the visits in the order the
+     * heroes come in the list, so the walk goes forward by the right arrow and never back. A piece's own raises keep
+     * their order, since each assumes the one before it.
+     */
+    static List<Raise> inWalkOrder(List<Raise> plan, GearState state) {
+        List<String> order = new java.util.ArrayList<>();
+        state.pieces().forEach(piece -> {
+            if (!order.contains(piece.hero())) order.add(piece.hero());
+        });
+        return plan.stream().sorted(java.util.Comparator.comparingInt(raise -> {
+            int at = order.indexOf(raise.hero());
+            return at < 0 ? Integer.MAX_VALUE : at;
+        })).toList();
     }
 
     private static Outcome restoreScanDate(Outcome outcome, String scannedAt, HeroGearStore store, long profileId) {

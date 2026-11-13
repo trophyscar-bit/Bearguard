@@ -682,8 +682,12 @@ public class NavigationHelper {
                 }
             }
 
-            // unknown screen - go back
+            // unknown screen - go back, unless the game is not even on screen (launcher, another app)
             if (!atHome && !atWorld) {
+                if (GameFrame.isNotTheGame(emu.captureScreen(device))) {
+                    broadcastWarn("The game is not on screen (a landscape screen is showing); Back not pressed");
+                    throw new HomeNotFoundException("The game is not on screen, Back not pressed");
+                }
                 broadcastDebug("Unknown screen - back (" + pass + "/" + budget + ")");
                 checkpoint.run();
                 emu.pressBack(device);

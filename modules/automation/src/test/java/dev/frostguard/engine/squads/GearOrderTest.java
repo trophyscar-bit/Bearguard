@@ -73,18 +73,30 @@ class GearOrderTest {
 
     @Test
     void theOldOrderWordsStillLoadAndNothingUnreadableBreaksIt() {
-        assertEquals(GearOrder.LEADS_THEN_WEAKEST, GearOrder.normalize("Rally squads"));
-        assertEquals(GearOrder.WEAKEST, GearOrder.normalize("Balanced"));
-        assertEquals(GearOrder.WEAKEST, GearOrder.normalize(null));
-        assertEquals(GearOrder.WEAKEST, GearOrder.normalize("nonsense"));
+        assertEquals(GearOrder.BEST_RETURN, GearOrder.normalize("Rally squads"), "the old default ranked by squad weight and return per stone");
+        assertEquals(GearOrder.BEST_RETURN, GearOrder.normalize("Balanced"));
+        assertEquals(GearOrder.BEST_RETURN, GearOrder.normalize(null));
+        assertEquals(GearOrder.BEST_RETURN, GearOrder.normalize("nonsense"));
+        assertEquals(GearOrder.WEAKEST, GearOrder.normalize(GearOrder.WEAKEST));
         assertEquals(GearOrder.LEADS_THEN_WEAKEST, GearOrder.normalize(GearOrder.LEADS_THEN_WEAKEST));
-        assertEquals(List.of("Rally leaders first, then weakest", "Weakest first"), GearOrder.CHOICES, "alphabetical");
+        assertEquals(List.of("Best return per stone", "Rally leaders first, then weakest", "Weakest first"), GearOrder.CHOICES, "alphabetical");
     }
 
     @Test
-    void anOldRallySquadsSettingPlansLikeRallyLeadersFirst() {
+    void bestReturnPlansByWeightedStatPerStoneAndNeverPicksTheLowestPieceBecauseItIsLowest() {
         GearState state = new GearState(PIECES, WEIGHTS, null);
 
-        assertEquals(names(GearOrder.plan(state, GearOrder.LEADS_THEN_WEAKEST, 5)), names(GearOrder.plan(state, "Rally squads", 5)));
+        List<Upgrade> plan = GearOrder.plan(state, GearOrder.BEST_RETURN, 8);
+
+        assertEquals(names(GearRanker.rolling(state, 8)), names(plan));
+        assertTrue(names(plan).stream().noneMatch(n -> n.startsWith("Molly")), "Molly is weighted 0 and is skipped: " + names(plan));
+        assertEquals("Bahiti", plan.getFirst().hero(), "the hero who fights most goes first");
+    }
+
+    @Test
+    void anOldRallySquadsSettingPlansLikeBestReturn() {
+        GearState state = new GearState(PIECES, WEIGHTS, null);
+
+        assertEquals(names(GearOrder.plan(state, GearOrder.BEST_RETURN, 5)), names(GearOrder.plan(state, "Rally squads", 5)));
     }
 }

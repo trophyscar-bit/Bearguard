@@ -552,7 +552,7 @@ public enum ConfigurationKeyEnum {
     HERO_GEAR_FORGE_AMOUNT_STRING       ("",        String.class,   ConfigCategory.ANALYTICS),
     HERO_GEAR_FORGE_RESERVE_INT         ("0",       Integer.class,  ConfigCategory.ANALYTICS),
     HERO_GEAR_FORGE_SCAN_DAYS_INT       ("1",       Integer.class,  ConfigCategory.ANALYTICS),
-    HERO_GEAR_FORGE_FOCUS_STRING        ("Weakest first", String.class, ConfigCategory.ANALYTICS),
+    HERO_GEAR_FORGE_FOCUS_STRING        ("Best return per stone", String.class, ConfigCategory.ANALYTICS),
     HERO_GEAR_FORGE_MIA_BOOL            ("true",    Boolean.class,  ConfigCategory.ANALYTICS, true),
     HERO_GEAR_FORGE_FLINT_BOOL          ("true",    Boolean.class,  ConfigCategory.ANALYTICS, true),
     HERO_GEAR_FORGE_BAHITI_BOOL         ("true",    Boolean.class,  ConfigCategory.ANALYTICS, true),

@@ -40,6 +40,9 @@ public final class GearScanScreens implements GearScan.Screens {
     // About 6 s, so a game toast passing over the piece name costs time rather than the scan.
     private static final int DETAILS_READ_ATTEMPTS = 8;
     private static final int READ_PAUSE_MS = 700;
+    // After a tap or a Back the screen is read, and re-read every READ_PAUSE_MS, until it is the one expected,
+    // so the first look comes after the animation rather than after a fixed wait sized for a slow one.
+    private static final int SETTLE_MS = 600;
 
     /** The emulator, as far as the scan is allowed to touch it. */
     public interface Device {
@@ -56,11 +59,21 @@ public final class GearScanScreens implements GearScan.Screens {
         }
     }
 
+    private static final PointData NEXT_HERO = new PointData(666, 704);
+
     private final Device device;
     private final List<HeroCards.Portrait> portraits = new ArrayList<>();
+    private String currentHero;
+    private boolean wantStats = true;
 
     public GearScanScreens(Device device) {
         this.device = device;
+    }
+
+    /** For a walk that only needs the Gear tab: landing on a hero then leaves the tab as it is instead of tapping Stats. */
+    public GearScanScreens withoutStats() {
+        wantStats = false;
+        return this;
     }
 
     @Override
@@ -92,16 +105,40 @@ public final class GearScanScreens implements GearScan.Screens {
                 .filter(c -> HeroCards.similarity(HeroCards.portrait(grid, c), portraits.get(index)) >= SAME_HERO)
                 .findFirst().orElseThrow(() -> new Abort(label + " is no longer on the Heroes grid"));
         device.tap(new PointData(card.centreX(), card.centreY()), 20);
-        device.pause(2000);
+        device.pause(SETTLE_MS);
+        return landOnHero(label);
+    }
 
+    /** The right arrow of the hero page: the next hero in the list's order, without going back to the list. */
+    @Override
+    public String nextHero(int index) {
+        String label = "the hero after " + currentHero;
+        await(f -> HeroScreenReader.isHeroPage(f) || HeroScreenReader.isGearTab(f), "a hero page is not on screen before " + label);
+        device.tap(NEXT_HERO, 15);
+        device.pause(SETTLE_MS);
+        String arrived = null;
+        for (int attempt = 0; attempt < READ_ATTEMPTS && (arrived == null || arrived.equals(currentHero)); attempt++) {
+            if (attempt > 0) device.pause(READ_PAUSE_MS);
+            RawImageData frame = device.capture();
+            arrived = HeroScreenReader.isHeroPage(frame) || HeroScreenReader.isGearTab(frame) ? HeroScreenReader.readName(frame) : null;
+        }
+        if (arrived == null || arrived.equals(currentHero)) {
+            device.readFailed(device.capture(), "the right arrow did not reach a new hero after " + currentHero);
+            throw new Abort("the right arrow did not reach a new hero after " + currentHero);
+        }
+        return landOnHero(label);
+    }
+
+    private String landOnHero(String label) {
         RawImageData page = await(f -> HeroScreenReader.isHeroPage(f) || HeroScreenReader.isGearTab(f),
                 label + " did not open a hero page");
-        if (!HeroScreenReader.isStatsTab(page)) {
+        if (wantStats && !HeroScreenReader.isStatsTab(page)) {
             device.tap(STATS_TAB, 15);
             device.pause(900);
             await(HeroScreenReader::isStatsTab, "the Stats tab did not open for " + label);
         }
-        return tryRead(HeroScreenReader::readName);
+        currentHero = tryRead(HeroScreenReader::readName);
+        return currentHero;
     }
 
     @Override
@@ -122,9 +159,12 @@ public final class GearScanScreens implements GearScan.Screens {
 
     @Override
     public List<HeroGear> openGearTab(String hero) {
-        await(HeroScreenReader::isStatsTab, "the Stats tab was lost for " + hero);
-        device.tap(GEAR_TAB, 15);
-        device.pause(1200);
+        // Already on the Gear tab after a Back from Gear Details or an arrow step: nothing to tap.
+        if (!HeroScreenReader.isGearTab(device.capture())) {
+            await(HeroScreenReader::isStatsTab, "the Stats tab was lost for " + hero);
+            device.tap(GEAR_TAB, 15);
+            device.pause(SETTLE_MS);
+        }
         RawImageData tab = await(HeroScreenReader::isGearTab, "the Gear tab did not open for " + hero);
         String shown = awaitRead(HeroScreenReader::readName, "the Gear tab name did not read for " + hero);
         if (!hero.equals(shown)) throw new Abort("the Gear tab shows " + shown + ", expected " + hero);
@@ -135,7 +175,7 @@ public final class GearScanScreens implements GearScan.Screens {
     public GearDetails openDetails(String slot) {
         await(HeroScreenReader::isGearTab, "the Gear tab is not on screen before " + slot);
         device.tap(GEAR_TILES.get(slot), 12);
-        device.pause(1600);
+        device.pause(SETTLE_MS);
         return awaitFrame(ForgeDialogReader::readGearDetails, "Gear Details did not read for " + slot, DETAILS_READ_ATTEMPTS);
     }
 
@@ -143,28 +183,30 @@ public final class GearScanScreens implements GearScan.Screens {
     public ForgeDialog openForge() {
         await(ForgeDialogReader::isGearDetails, "Gear Details is not on screen before Mastery Forging");
         device.tap(MASTERY_FORGING_BUTTON, 10);
-        device.pause(1600);
+        device.pause(SETTLE_MS);
         return awaitRead(ForgeDialogReader::read, "the Mastery Forging dialog did not read");
     }
 
     @Override
     public void closeForge() {
         device.back();
-        device.pause(1500);
+        device.pause(SETTLE_MS);
         await(ForgeDialogReader::isGearDetails, "Back from Mastery Forging did not return to Gear Details");
     }
 
     @Override
     public void closeDetails() {
         device.back();
-        device.pause(1500);
-        await(HeroScreenReader::isGearTab, "Back from Gear Details did not return to the Gear tab");
+        device.pause(SETTLE_MS);
+        // The Gear tab shows round the edge of the open Gear Details, so its buttons must be gone too.
+        await(frame -> HeroScreenReader.isGearTab(frame) && !ForgeDialogReader.isGearDetails(frame),
+                "Back from Gear Details did not return to the Gear tab");
     }
 
     @Override
     public void closeHero() {
         device.back();
-        device.pause(1500);
+        device.pause(SETTLE_MS);
         await(HeroCards::isHeroesGrid, "Back from the hero page did not return to the Heroes grid");
     }
 

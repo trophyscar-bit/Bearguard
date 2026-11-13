@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.image.BufferedImage;
+import java.util.List;
 import java.util.Objects;
 
 import javax.imageio.ImageIO;
@@ -50,6 +51,12 @@ class ForgeDialogReaderFrameTest {
                 ForgeDialogReader.read(frame("forge-" + file + ".png")));
     }
 
+    // Saved off the live run of 2026-11-12 (Molly's Saboteur Boots, +70): the balance is 51, white because it covers the 40.
+    @Test
+    void readsTheStoneLabelOfAnAffordableForgeExactly() throws Exception {
+        assertEquals(new ForgeDialog("Saboteur Boots", 30, 40, 51, 40), ForgeDialogReader.read(frame("forge-Molly-boots-51of40.png")));
+    }
+
     @Test
     void aFrameWithoutTheDialogReadsAsNull() throws Exception {
         assertNull(ForgeDialogReader.read(frame("forge-not-open.png")));
@@ -67,9 +74,40 @@ class ForgeDialogReaderFrameTest {
         assertFalse(ForgeDialogReader.isGearDetails(frame("forge-Bahiti-boots.png")));
     }
 
+    // The count is right-aligned, so a longer balance grows leftward. Extra leading "1"s are copied off the
+    // real "13" and pasted one digit width apart, so each is real ink on a real background.
+    @Test
+    void aFourDigitBalanceGrowsPastTheOldCropAndStillReads() throws Exception {
+        BufferedImage image = image("forge-Bahiti-boots.png");
+        for (int copy = 1; copy <= 2; copy++) {
+            for (int y = 884; y <= 908; y++) {
+                for (int x = 346; x <= 357; x++) image.setRGB(x - 11 * copy, y, image.getRGB(x, y));
+            }
+        }
+
+        assertEquals(new ForgeDialog("Sniper Boots", 40, 42, 1113, 10), ForgeDialogReader.read(raw(image)));
+    }
+
+    @Test
+    void theInkBoxIsTheDigitsAndTheSlashNotTheHammerAboveThem() throws Exception {
+        int[] ink = ForgeDialogReader.countInk(frame("forge-Molly-boots.png"), 859, 889);
+
+        assertEquals(List.of(865, 881, 342, 405), java.util.Arrays.stream(ink).boxed().toList(), "rows 865-881 sit below the hammer, which ends at row 855");
+        assertEquals(List.of(865, 881, 343, 405),
+                java.util.Arrays.stream(ForgeDialogReader.countInk(frame("forge-Molly-boots-51of40.png"), 859, 889)).boxed().toList());
+        assertNull(ForgeDialogReader.countInk(frame("forge-not-open.png"), 100, 130));
+    }
+
     private static RawImageData frame(String name) throws Exception {
-        BufferedImage image = ImageIO.read(Objects.requireNonNull(
+        return raw(image(name));
+    }
+
+    private static BufferedImage image(String name) throws Exception {
+        return ImageIO.read(Objects.requireNonNull(
                 ForgeDialogReaderFrameTest.class.getResourceAsStream("/squads/" + name), name));
+    }
+
+    private static RawImageData raw(BufferedImage image) {
         byte[] rgba = new byte[image.getWidth() * image.getHeight() * 4];
         int offset = 0;
         for (int y = 0; y < image.getHeight(); y++) {

@@ -22,7 +22,7 @@ import dev.frostguard.engine.squads.QuickEquipPass;
  */
 final class GearNight {
 
-    static final int MAX_BACKS = 10;
+    static final int MAX_BACKS = 5;
     private static final int HALT_SAVE_ATTEMPTS = 2;
 
     /** A null {@code state} ends the night. A {@code halt} means a press went unconfirmed, so only Back may be used. */
@@ -184,10 +184,19 @@ final class GearNight {
 
     /** Backs out one step at a time, reading first so Back is never pressed once {@code settled}; true when it got there. */
     static boolean backOut(BooleanSupplier settled, Runnable back) {
+        return backOut(settled, () -> true, back);
+    }
+
+    /**
+     * As above, and Back is never pressed while {@code gameShown} says the game is not on screen: on the
+     * launcher or a bare game screen it opens the exit prompt instead of going anywhere.
+     */
+    static boolean backOut(BooleanSupplier settled, BooleanSupplier gameShown, Runnable back) {
         for (int step = 0; step < MAX_BACKS; step++) {
+            if (!gameShown.getAsBoolean()) return false;
             if (settled.getAsBoolean()) return true;
             back.run();
         }
-        return settled.getAsBoolean();
+        return gameShown.getAsBoolean() && settled.getAsBoolean();
     }
 }

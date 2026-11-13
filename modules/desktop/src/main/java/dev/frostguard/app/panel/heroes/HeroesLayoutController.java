@@ -520,10 +520,10 @@ public final class HeroesLayoutController extends AbstractProfileController {
         labelScope.setText(scannedHeroes().isEmpty() ? "The gear actions below start after the first gear check."
                 : heroes.isEmpty() ? "Nothing is ticked, so the actions below do nothing."
                 : "Everything below works only on these heroes: " + names + ".");
-        labelEnhanceScope.setText(heroes.isEmpty() ? "Uses XP items on the lowest gear of the ticked heroes."
-                : "Uses XP items on the lowest gear of " + names + ".");
-        labelForgeScope.setText(heroes.isEmpty() ? "Spends Essence Stones on the weakest gear of the ticked heroes."
-                : "Spends Essence Stones on the weakest gear of " + names + ".");
+        labelEnhanceScope.setText(heroes.isEmpty() ? "Uses Enhancement Parts on the on-role gear of the ticked heroes, the most-used hero first."
+                : "Uses Enhancement Parts on the on-role gear of " + names + ", the most-used hero first.");
+        labelForgeScope.setText(heroes.isEmpty() ? "Spends Essence Stones on the on-role gear of the ticked heroes, in the order chosen below."
+                : "Spends Essence Stones on the on-role gear of " + names + ", in the order chosen below.");
     }
 
     void runHook(RunHook hook) {

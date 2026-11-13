@@ -28,6 +28,8 @@ public final class EnhanceDialogReader {
     public static final String SELECT_MORE_LABEL = "Select more";
     public static final PointData DETAILS_ENHANCE = new PointData(511, 815);
     public static final PointData QUICK_SELECT = new PointData(208, 1210);
+    /** The same button: Quick Select with nothing selected, Select more once something is. */
+    public static final PointData SELECT_MORE = QUICK_SELECT;
     public static final PointData ENHANCE = new PointData(513, 1210);
     // Dragged down the gap between the first two tile columns, so a drag the game reads as a tap selects nothing.
     // The list carries on past the finger: a 120px drag moved it 175px on the live run, so the drag is 80px.
@@ -50,6 +52,15 @@ public final class EnhanceDialogReader {
     private static final double SAME_LIST_ERROR = 6.0;
 
     private static final Pattern BAR = Pattern.compile("^(\\d+)/(\\d+)$");
+    private static final Pattern PARTS_COUNT = Pattern.compile("(\\d+)/(\\d+)");
+    // "9/126" under the Enhancement Parts tile, the first tile of the list: selected of owned.
+    private static final int PARTS_LEFT = 70;
+    private static final int PARTS_TOP = 936;
+    private static final int PARTS_RIGHT = 142;
+    private static final int PARTS_BOTTOM = 964;
+    private static final OcrSettingsData WHITE_PARTS = OcrSettingsData.builder()
+            .textLayout(TextLayout.SINGLE_LINE).allowedGlyphs("0123456789/")
+            .isolateForeground(true).targetColor(Color.WHITE).build();
     private static final OcrSettingsData WHITE_TITLE = OcrSettingsData.builder()
             .textLayout(TextLayout.SINGLE_LINE).isolateForeground(true).targetColor(Color.WHITE).build();
     private static final OcrSettingsData WHITE_BAR = OcrSettingsData.builder()
@@ -63,9 +74,12 @@ public final class EnhanceDialogReader {
     public enum TileKind {
         XP, GREY, GREEN, BLUE, PURPLE, UNKNOWN;
 
-        /** Only XP items and grey or green gear may be fed to a piece. */
+        /**
+         * Only Enhancement Parts may be fed to a piece. Select more takes the parts first and then starts on
+         * spare gear from the backpack, so any gear tile with a minus badge, whatever its colour, is refused.
+         */
         public boolean safeFodder() {
-            return this == XP || this == GREY || this == GREEN;
+            return this == XP;
         }
     }
 
@@ -78,6 +92,38 @@ public final class EnhanceDialogReader {
     /** The text on the Gear Details button that is Enhance below +100 and Ascend at it. */
     public static String detailsButtonLabel(RawImageData frame) {
         return SquadOcr.text(frame, 400, 790, 625, 840, SquadOcr.LINE);
+    }
+
+    /**
+     * {selected, owned} off the Enhancement Parts tile, the first tile of the list, or null when the list is
+     * scrolled or the tile does not read. Selected equal to owned means the parts are all in: the next
+     * Select more would start on spare gear.
+     */
+    public static int[] partsTile(RawImageData frame) {
+        if (!isListTop(frame)) return null;
+        java.util.regex.Matcher m = PARTS_COUNT.matcher(SquadOcr.text(frame, PARTS_LEFT, PARTS_TOP, PARTS_RIGHT, PARTS_BOTTOM, WHITE_PARTS));
+        if (!m.find()) return null;
+        int selected = Integer.parseInt(m.group(1));
+        int owned = Integer.parseInt(m.group(2));
+        return owned > 0 && selected <= owned ? new int[] { selected, owned } : null;
+    }
+
+    /** The last stat row of the preview, e.g. Marksman Lethality +60.99% to +64.50%: what this raise would add. */
+    public record Gain(String stat, double from, double to) {
+        public double delta() {
+            return to - from;
+        }
+    }
+
+    private static final Pattern GAIN_ROW = Pattern.compile("([A-Za-z][A-Za-z ]*[A-Za-z])\\s+\\+?(\\d+(?:\\.\\d+)?)%\\D{1,4}\\+?(\\d+(?:\\.\\d+)?)%");
+
+    /** The preview's last stat row, or null when it does not read as a name and two percentages. */
+    public static Gain previewGain(RawImageData frame) {
+        Matcher m = GAIN_ROW.matcher(SquadOcr.text(frame, 128, 684, 640, 726, SquadOcr.LINE));
+        if (!m.find()) return null;
+        double from = Double.parseDouble(m.group(2));
+        double to = Double.parseDouble(m.group(3));
+        return to >= from ? new Gain(m.group(1).trim(), from, to) : null;
     }
 
     /** Null unless the dialog is open and every field read cleanly. */

@@ -10,6 +10,8 @@ import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.vision.color.GameColors;
+import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.ocr.TextLine;
 
 /**
@@ -38,8 +40,12 @@ public final class ForgeDialogReader {
     // From the top of the "Gear Stats Up" line to the stone count under the stone icon.
     private static final int COUNT_TOP_OFFSET = 164;
     private static final int COUNT_BOTTOM_OFFSET = 194;
-    private static final int COUNT_LEFT = 335;
-    private static final int COUNT_RIGHT = 415;
+    // The count is right-aligned under the stone icon, so a bigger balance grows to the left: 591 starts
+    // near x=339 and 1,591 further still. The search is wide and the strip is cut to the ink inside it.
+    private static final int COUNT_LEFT = 300;
+    private static final int COUNT_RIGHT = 420;
+    private static final int MIN_INK_PER_LINE = 2;
+    private static final int MAX_INK_WIDTH = 100;
     private static final int FORGE_BUTTON_X = 360;
     private static final int FORGE_BUTTON_OFFSET = 267;
     // The "+N" badge on the Gear Details icon; wide enough for "+100", clear of the class shield.
@@ -75,10 +81,71 @@ public final class ForgeDialogReader {
         int[] percents = percents(stats.text());
         int top = stats.top() + COUNT_TOP_OFFSET;
         int bottom = stats.top() + COUNT_BOTTOM_OFFSET;
-        int[] count = count(SquadOcr.text(frame, COUNT_LEFT, top, COUNT_RIGHT, bottom, WHITE_STONE_COUNT),
-                SquadOcr.text(frame, COUNT_LEFT, top, COUNT_RIGHT, bottom, RED_STONE_BALANCE));
-        if (percents == null || count == null) return null;
+        int[] ink = countInk(frame, top, bottom);
+        if (percents == null || ink == null) return null;
+        int[] count = agreedCount(frame, ink);
+        if (count == null) return null;
         return new ForgeDialog(piece, percents[0], percents[1], count[0], count[1]);
+    }
+
+    /**
+     * The count is read from two crops cut tight to its ink at different margins, and a balance is only
+     * trusted when both read the same. Rows above the digits (the stone's hammer and rim) make Tesseract
+     * invent a digit: a real 51 read as 531, 91 and 591 from one fixed crop. Disagreement reads as unknown.
+     */
+    private static int[] agreedCount(RawImageData frame, int[] ink) {
+        int[] tight = count(frame, ink[2] - 5, ink[0], ink[3] + 6, ink[1] + 2);
+        if (tight == null) return null;
+        int[] loose = count(frame, ink[2] - 10, ink[0] - 2, ink[3] + 10, ink[1] + 2);
+        return loose != null && loose[0] == tight[0] && loose[1] == tight[1] ? tight : null;
+    }
+
+    private static int[] count(RawImageData frame, int left, int top, int right, int bottom) {
+        return count(SquadOcr.text(frame, left, top, right, bottom, WHITE_STONE_COUNT),
+                SquadOcr.text(frame, left, top, right, bottom, RED_STONE_BALANCE));
+    }
+
+    /**
+     * {firstRow, lastRow, firstColumn, lastColumn} of the stone count's ink, or null when none is found. The
+     * rows come from the white ink, because the "/40" is always white while the balance is red when short, and
+     * the red hammer on the stone sits above them. The columns are then every white or red column in those
+     * rows, so a three or four digit balance is never cut off at a fixed edge: the count is right-aligned.
+     */
+    static int[] countInk(RawImageData frame, int top, int bottom) {
+        if (frame == null || !frame.isValid()) return null;
+        java.awt.image.BufferedImage image = ImageConverter.toBufferedImage(frame);
+        int left = Math.max(0, COUNT_LEFT);
+        int right = Math.min(image.getWidth(), COUNT_RIGHT);
+        int from = Math.max(0, top);
+        int to = Math.min(image.getHeight(), bottom);
+        int firstRow = -1, lastRow = -1;
+        for (int y = from; y < to; y++) {
+            int white = 0;
+            for (int x = left; x < right; x++) if (GameColors.isLabelWhite(image.getRGB(x, y))) white++;
+            if (white >= MIN_INK_PER_LINE) {
+                if (firstRow < 0) firstRow = y;
+                lastRow = y;
+            }
+        }
+        if (firstRow < 0) return null;
+        int firstCol = -1, lastCol = -1;
+        for (int x = left; x < right; x++) {
+            int ink = 0;
+            for (int y = firstRow; y <= lastRow; y++) {
+                int rgb = image.getRGB(x, y);
+                if (GameColors.isLabelWhite(rgb) || isBalanceRed(rgb)) ink++;
+            }
+            if (ink >= MIN_INK_PER_LINE) {
+                if (firstCol < 0) firstCol = x;
+                lastCol = x;
+            }
+        }
+        if (firstCol < 0 || lastCol - firstCol > MAX_INK_WIDTH) return null;
+        return new int[] { firstRow, lastRow, firstCol, lastCol };
+    }
+
+    private static boolean isBalanceRed(int rgb) {
+        return ((rgb >> 16) & 0xFF) > 190 && ((rgb >> 8) & 0xFF) < 110 && (rgb & 0xFF) < 110;
     }
 
     /** The centre of the Forge button, or null unless the dialog is open. */

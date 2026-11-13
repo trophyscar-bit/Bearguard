@@ -52,6 +52,26 @@ class EnhanceDialogReaderFrameTest {
         assertEquals(new Dialog(76, 77, 10, 1310, "Select more", true), EnhanceDialogReader.read(frame("enhance-tile")));
     }
 
+    // Saved off the live run on 2026-11-12: Molly's Saboteur Goggles, +72 to +73, mid-scan with a selection made.
+    @Test
+    void readsThePreviewOnTheLiveDialogWhereSelectMoreSits() throws Exception {
+        assertEquals(new Dialog(72, 73, 20, 1150, "Select more", true), EnhanceDialogReader.read(frame("enhance-selectmore-72")));
+        assertEquals(EnhanceDialogReader.QUICK_SELECT, EnhanceDialogReader.SELECT_MORE, "one button, two labels");
+    }
+
+    @Test
+    void aRealDryRunThatRunsOutOfFodderStopsChoosingAtWhatIsSelected() throws Exception {
+        Rig rig = new Rig(frame("enhance-details"), frame("enhance-before"), raw(bottomOf(image("enhance-quickselect"))));
+
+        Outcome outcome = new GearEnhancePass(rig).run(new Raise("Sergey", "Gauntlets", 76, 79), false);
+
+        assertEquals(Stop.DRY_RUN, outcome.stop(), outcome.detail());
+        assertTrue(outcome.detail().contains("Lv.77"), "the preview never rose past the first level: " + outcome.detail());
+        assertEquals(List.of(EnhanceDialogReader.DETAILS_ENHANCE, EnhanceDialogReader.QUICK_SELECT, EnhanceDialogReader.SELECT_MORE),
+                rig.taps, "Select more was pressed once, then the unchanged preview ended the choosing");
+        assertEquals(1, rig.swipes, "and the list is scrolled once");
+    }
+
     @Test
     void aLostLeftNumberWithASelectionShowingIsNotARead() throws Exception {
         BufferedImage blanked = image("enhance-quickselect");
@@ -100,13 +120,55 @@ class EnhanceDialogReaderFrameTest {
     }
 
     @Test
-    void aPaintedBadgeOnGreenGearIsAllowed() throws Exception {
+    void aPaintedBadgeOnGreenGearIsRefusedToo() throws Exception {
         BufferedImage list = image("enhance-list1");
         int top = firstGreenGearTop(list);
 
         List<Badge> badges = EnhanceDialogReader.badges(withBadge(list, 0, top));
 
         assertEquals(List.of(new Badge(0, top, TileKind.GREEN)), badges);
+        assertFalse(badges.getFirst().kind().safeFodder(), "Select more takes spare gear once the parts are gone; none is ever fed in");
+    }
+
+    // Saved off the live run of 2026-11-12: Select more, one Enhancement Part tile that counts up as levels are added.
+    @Test
+    void readsHowManyPartsAreSelectedOffTheFirstTile() throws Exception {
+        assertEquals(List.of(6, 126), java.util.Arrays.stream(EnhanceDialogReader.partsTile(frame("enhance-parts-6of126"))).boxed().toList());
+        assertEquals(List.of(9, 126), java.util.Arrays.stream(EnhanceDialogReader.partsTile(frame("enhance-parts-9of126"))).boxed().toList());
+    }
+
+    // Saved off the live run of 2026-11-12 (Bahiti's Sniper Boots, +80). Gear power only; no player name or account power.
+    @Test
+    void thePartsTileWhenFullMeansSelectMoreHasStartedOnSpareGear() throws Exception {
+        assertEquals(List.of(88, 88), java.util.Arrays.stream(EnhanceDialogReader.partsTile(frame("enhance-parts-full-88of88"))).boxed().toList());
+        assertEquals(List.of(78, 88), java.util.Arrays.stream(EnhanceDialogReader.partsTile(frame("enhance-parts-78of88"))).boxed().toList());
+    }
+
+    @Test
+    void everyGearTileCarryingAMinusBadgeOnTheFullFrameIsRefusedAndThePartsOnlyFrameIsNot() throws Exception {
+        List<Badge> eaten = EnhanceDialogReader.badges(frame("enhance-parts-full-88of88"));
+        List<Badge> partsOnly = EnhanceDialogReader.badges(frame("enhance-parts-78of88"));
+
+        assertEquals(10, eaten.size(), "the parts tile and nine gear tiles in view: " + eaten);
+        assertEquals(9, eaten.stream().filter(b -> !b.kind().safeFodder()).count(), "Enhance is refused on this frame");
+        assertEquals(List.of(new Badge(0, 860, TileKind.XP)), partsOnly);
+        assertTrue(partsOnly.stream().allMatch(b -> b.kind().safeFodder()), "Enhance is fine on this frame");
+    }
+
+    @Test
+    void readsWhatThePreviewAddsOffTheLastStatRow() throws Exception {
+        assertEquals(new EnhanceDialogReader.Gain("Marksman Lethality", 60.99, 64.50), EnhanceDialogReader.previewGain(frame("enhance-parts-78of88")));
+        assertEquals(new EnhanceDialogReader.Gain("Marksman Lethality", 60.99, 65.90), EnhanceDialogReader.previewGain(frame("enhance-parts-full-88of88")));
+        assertEquals(new EnhanceDialogReader.Gain("Lancer Health", 22.00, 23.40), EnhanceDialogReader.previewGain(frame("enhance-parts-9of126")));
+        assertEquals(new EnhanceDialogReader.Gain("Lancer Lethality", 48.01, 48.62), EnhanceDialogReader.previewGain(frame("enhance-selectmore-72")));
+        assertEquals(3.51, EnhanceDialogReader.previewGain(frame("enhance-parts-78of88")).delta(), 0.001);
+        assertNull(EnhanceDialogReader.previewGain(frame("enhance-details")));
+    }
+
+    @Test
+    void aScrolledListOrAFrameWithoutTheTileGivesNoPartsRead() throws Exception {
+        assertNull(EnhanceDialogReader.partsTile(frame("enhance-list2")));
+        assertNull(EnhanceDialogReader.partsTile(frame("enhance-details")));
     }
 
     @Test

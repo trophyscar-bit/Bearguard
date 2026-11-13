@@ -11,6 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TemplatesEnum;
@@ -19,6 +20,7 @@ import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.runtime.WorkspacePaths;
+import dev.frostguard.engine.helper.GameFrame;
 import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
@@ -212,7 +214,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                 Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.HERO_GEAR_ENHANCE_LIVE_BOOL, Boolean.class)),
                 stopBy);
         GearEnhanceStep.Outcome outcome = GearEnhanceStep.run(state, settings,
-                new GearDetailsNavigator(gearDevice(ENHANCE, reserveAt)), budget.counted(new GearEnhancePass(enhanceDevice(store, stopBy))::run),
+                new GearDetailsNavigator(gearDevice(ENHANCE, reserveAt)), timed(budget.counted(new GearEnhancePass(enhanceDevice(store, stopBy, state.heroWeights()))::run)),
                 store, profile.getId(), Instant::now);
         logInfo("Gear enhance: " + outcome.raises() + " raises confirmed");
         if (outcome.note() != null) logInfo("Gear enhance: " + outcome.note());
@@ -225,6 +227,17 @@ public final class HeroGearForgeRoutine extends DelayedTask {
             return next;
         }
         return new GearNight.Enhanced(outcome.state(), null);
+    }
+
+    /** Logs how long each piece took, so the per-hero cost of a night is in the log. */
+    private GearEnhanceStep.Raiser timed(GearEnhanceStep.Raiser raiser) {
+        return (raise, live) -> {
+            long started = System.currentTimeMillis();
+            GearEnhancePass.Outcome outcome = raiser.run(raise, live);
+            logInfo(String.format(java.util.Locale.ROOT, "Gear enhance: %s %s +%d to +%d took %.1f s, %s",
+                    raise.hero(), raise.slot(), raise.from(), outcome.level(), (System.currentTimeMillis() - started) / 1000.0, outcome.stop()));
+            return outcome;
+        };
     }
 
     private static final String WOULD_RAISE = "would raise ";
@@ -241,17 +254,33 @@ public final class HeroGearForgeRoutine extends DelayedTask {
 
     // No tap on this path: the screen may be a dialog or prompt left by an unconfirmed press.
     private void backOutHome() {
-        boolean settled = GearNight.backOut(this::onHomeOrWorld, () -> {
-            pressBack();
+        boolean settled = GearNight.backOut(this::onHomeOrWorld, this::gameOnScreen, () -> {
+            backIfInGame();
             sleepTask(1500);
         });
-        if (!settled) logWarning("Gear enhance: Back did not reach Home after an unconfirmed press; no tap made");
+        if (!settled) logWarning("Gear night: Back did not reach Home (" + (gameOnScreen() ? "still inside the game" : "the game is not on screen")
+                + "); no more Backs pressed, the queue recovers from here");
+    }
+
+    /** False only on a frame that cannot be the game (the launcher, another app); Back does harm there. */
+    private boolean gameOnScreen() {
+        gameSeenLast = !GameFrame.isNotTheGame(emuManager.captureScreen(EMULATOR_NUMBER));
+        return gameSeenLast;
+    }
+
+    // Judged from the last frame this routine read, so a Back costs no extra capture.
+    private void backIfInGame() {
+        if (gameSeenLast) pressBack();
+        else logWarning("Gear night: the last frame was not the game, Back not pressed");
     }
 
     private boolean onHomeOrWorld() {
+        if (!gameOnScreen()) return false;
         return templateSearchHelper.locatePattern(TemplatesEnum.GAME_HOME_FURNACE, SearchConfigConstants.DEFAULT_SINGLE).isFound()
                 || templateSearchHelper.locatePattern(TemplatesEnum.GAME_HOME_WORLD, SearchConfigConstants.DEFAULT_SINGLE).isFound();
     }
+
+    private static final int MAX_FORGE_BATCH = 50;
 
     private void forgeNight(HeroGearStore store, GearState saved) throws IOException {
         GearState state = saved;
@@ -265,16 +294,37 @@ public final class HeroGearForgeRoutine extends DelayedTask {
             forgeStopped("Heroes grid did not open");
             return;
         }
-        while (budget.buysLeft(maxBuys) > 0) {
+        // One walk by the right arrow: each hero is visited once, and its forges are done there, one after another.
+        List<Upgrade> batch = forgeBatch(store, state, budget.buysLeft(maxBuys), reserve);
+        GearDetailsNavigator walk = new GearDetailsNavigator(gearDevice(FORGE, deadline));
+        Upgrade inDialog = null;
+        String heroStarted = null;
+        long heroClock = 0;
+        for (Upgrade next : batch) {
             checkPreemption();
+            if (budget.buysLeft(maxBuys) < 1) return;
             if (pastCap()) {
                 logWarning("Gear forge: time cap reached, stopping");
                 return;
             }
-            List<Upgrade> rolling = GearOrder.plan(ranked(state), forgeOrder(), 1);
-            if (rolling.isEmpty()) return;
-            Upgrade next = rolling.getFirst();
-            if (!openForgeDialog(next)) return;
+            if (inDialog == null || !inDialog.hero().equals(next.hero()) || !inDialog.slot().equals(next.slot())) {
+                if (inDialog != null && !leaveForgeDialog(walk)) return;
+                if (heroStarted != null && !heroStarted.equals(next.hero())) {
+                    logHeroTime(heroStarted, heroClock);
+                }
+                if (!next.hero().equals(heroStarted)) {
+                    heroStarted = next.hero();
+                    heroClock = System.currentTimeMillis();
+                }
+                try {
+                    walk.open(next.hero(), next.slot());
+                } catch (GearScan.Abort abort) {
+                    forgeStopped("could not open " + next.hero() + " " + next.slot() + ": " + abort.getMessage());
+                    return;
+                }
+                tapNear(GearScanScreens.MASTERY_FORGING_BUTTON, 10);
+                sleepTask(700);
+            }
             ForgeDialog before = readDialog();
             GearForgeGuard.Check check = GearForgeGuard.before(next, before, reserve);
             logInfo("Gear forge: " + check.verdict() + ": " + check.reason());
@@ -306,13 +356,66 @@ public final class HeroGearForgeRoutine extends DelayedTask {
                     if (!forge(before)) return;
                     state = state.withMastery(next.hero(), next.slot(), next.toMastery());
                     store.saveGear(profile.getId(), state);
-                    if (!closeToGrid()) {
-                        forgeStopped("could not get back to the Heroes grid");
-                        return;
-                    }
+                    inDialog = next;
                 }
             }
         }
+        if (heroStarted != null) logHeroTime(heroStarted, heroClock);
+        if (inDialog != null) leaveForgeDialog(walk);
+    }
+
+    private void logHeroTime(String hero, long startedAt) {
+        logInfo(String.format(java.util.Locale.ROOT, "Gear forge: %s done in %.1f s", hero, (System.currentTimeMillis() - startedAt) / 1000.0));
+    }
+
+    /**
+     * The next forges in the chosen order, cut to what the stones on hand cover above the reserve, then put in the
+     * order the heroes come in the list so one walk by the right arrow does them all. The first forge is always kept,
+     * so a night that cannot afford anything still reads the dialog and says so. Each forge is still checked against
+     * the dialog before it is pressed.
+     */
+    private List<Upgrade> forgeBatch(HeroGearStore store, GearState state, int buysLeft, int reserve) {
+        List<Upgrade> plan = GearOrder.plan(ranked(state), forgeOrder(), Math.min(Math.max(buysLeft, 0), MAX_FORGE_BATCH));
+        if (plan.isEmpty()) return plan;
+        int stones = -1;
+        try {
+            stones = store.loadInventory(profile.getId()).map(inventory -> inventory.essenceStones()).orElse(-1);
+        } catch (IOException unreadable) {
+            logWarning("Gear forge: stone count unreadable, the dialog will say: " + unreadable.getMessage());
+        }
+        List<Upgrade> covered = new ArrayList<>();
+        int spent = 0;
+        for (Upgrade upgrade : plan) {
+            if (stones >= 0 && spent + upgrade.stones() > stones - reserve) break;
+            spent += upgrade.stones();
+            covered.add(upgrade);
+        }
+        if (covered.isEmpty()) covered.add(plan.getFirst());
+        List<String> heroes = new ArrayList<>();
+        state.pieces().forEach(piece -> {
+            if (!heroes.contains(piece.hero())) heroes.add(piece.hero());
+        });
+        covered.sort(java.util.Comparator.comparingInt(upgrade -> {
+            int at = heroes.indexOf(upgrade.hero());
+            return at < 0 ? Integer.MAX_VALUE : at;
+        }));
+        return covered;
+    }
+
+    /** Back from the Mastery Forging dialog to the hero's Gear tab, each Back confirmed by the screen it lands on. */
+    private boolean leaveForgeDialog(GearDetailsNavigator walk) {
+        backIfInGame();
+        if (!ForgeDialogReader.isGearDetails(waitFor(ForgeDialogReader::isGearDetails, 1500))) {
+            forgeStopped("Back from Mastery Forging did not return to Gear Details");
+            return false;
+        }
+        try {
+            walk.finishPiece();
+        } catch (GearScan.Abort abort) {
+            forgeStopped("Back from Gear Details did not return to the Gear tab: " + abort.getMessage());
+            return false;
+        }
+        return true;
     }
 
     /** Why the night must halt, when a press left a march lead worse off or unverified; otherwise null. */
@@ -352,26 +455,30 @@ public final class HeroGearForgeRoutine extends DelayedTask {
 
     /** The freshly saved state, or null when the scan stopped and the night's buying is off. */
     private GearState scan(HeroGearStore store, GearState saved) {
-        logInfo("Gear forge: full gear scan due, last scan " + (saved == null ? "none" : saved.scannedAt()));
+        logInfo("Gear forge: gear check due, last check " + (saved == null ? "none" : saved.scannedAt()));
+        long checkStarted = System.currentTimeMillis();
         frames.startStep();
         if (!openHeroesGrid()) {
             logWarning("Gear forge: scan stopped, Heroes grid did not open; saved state kept, nothing bought tonight; "
                     + frames.stopped(SCAN, "Heroes grid did not open"));
             return null;
         }
-        GearScan.Outcome outcome = GearScan.run(new GearScanScreens(gearDevice(SCAN, budget.reserveAt())), store, profile.getId(), saved, Instant.now());
+        GearScan.Outcome outcome = GearScan.run(new GearScanScreens(gearDevice(SCAN, budget.reserveAt())), store, profile.getId(), saved,
+                Instant.now(), (hero, opened, carried, millis) -> logInfo(String.format(java.util.Locale.ROOT,
+                        "Gear check: %s done in %.1f s (%d pieces opened, %d carried over)", hero, millis / 1000.0, opened, carried)));
         if (outcome.problem() != null) {
             logWarning("Gear forge: scan stopped: " + outcome.problem() + "; saved state kept, nothing bought tonight; "
                     + frames.stopped(SCAN, outcome.problem()));
             return null;
         }
         if (outcome.inventoryNote() != null) logWarning("Gear forge: " + outcome.inventoryNote());
-        logInfo("Gear forge: scan saved " + outcome.state().pieces().size() + " pieces");
+        logInfo(String.format(java.util.Locale.ROOT, "Gear forge: gear check saved %d pieces in %.1f s",
+                outcome.state().pieces().size(), (System.currentTimeMillis() - checkStarted) / 1000.0));
         return outcome.state();
     }
 
     // The pass checks pastDeadline itself and must never lose a read to the cap after a press.
-    private GearEnhancePass.Device enhanceDevice(HeroGearStore store, Instant stopAt) {
+    private GearEnhancePass.Device enhanceDevice(HeroGearStore store, Instant stopAt, Map<String, Double> weights) {
         return new GearEnhancePass.Device() {
             @Override
             public RawImageData capture() {
@@ -390,7 +497,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
 
             @Override
             public void back() {
-                pressBack();
+                backIfInGame();
             }
 
             @Override
@@ -414,10 +521,27 @@ public final class HeroGearForgeRoutine extends DelayedTask {
             }
 
             @Override
+            public void previewed(GearEnhancePass.Preview preview) {
+                logInfo(enhanceReason(preview, weights));
+            }
+
+            @Override
             public void readFailed(RawImageData frame, String failure) {
                 HeroGearForgeRoutine.this.readFailed(ENHANCE, frame, failure);
             }
         };
+    }
+
+    /** One line saying why this piece and what the enhance screen itself shows it would add, per part and per hero weight. */
+    static String enhanceReason(GearEnhancePass.Preview p, Map<String, Double> weights) {
+        double weight = weights == null || weights.get(p.hero()) == null ? 0.5 : weights.get(p.hero());
+        String line = "Gear enhance: " + p.hero() + " " + p.slot() + " +" + p.fromLevel() + " to +" + p.toLevel() + " (on role, hero weight " + weight + ")";
+        if (p.stat() == null || p.from() == null || p.to() == null) return line + ": the preview's stat row did not read";
+        double gain = p.to() - p.from();
+        line += ": " + p.stat() + " " + String.format(java.util.Locale.ROOT, "%.2f%% to %.2f%% (+%.2f)", p.from(), p.to(), gain);
+        if (p.parts() == null || p.parts() <= 0) return line + ", parts selected did not read";
+        double perPart = gain / p.parts();
+        return line + String.format(java.util.Locale.ROOT, " for %d parts = %.4f per part, x weight = %.4f", p.parts(), perPart, perPart * weight);
     }
 
     private void readFailed(String step, RawImageData frame, String failure) {
@@ -444,7 +568,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
 
             @Override
             public void back() {
-                pressBack();
+                backIfInGame();
             }
 
             @Override
@@ -462,8 +586,19 @@ public final class HeroGearForgeRoutine extends DelayedTask {
     private boolean openHeroesGrid() {
         navigationHelper.ensureCorrectScreenLocation(LaunchPoint.HOME);
         tapNear(HEROES_BUTTON);
-        sleepTask(2500);
-        return HeroCards.isHeroesGrid(capture());
+        return HeroCards.isHeroesGrid(waitFor(HeroCards::isHeroesGrid, 2500));
+    }
+
+    /** Reads the screen until it is the expected one or {@code maxMs} has passed, and returns the last frame read. */
+    private RawImageData waitFor(Predicate<RawImageData> ready, int maxMs) {
+        long until = System.currentTimeMillis() + maxMs;
+        sleepTask(WAIT_FIRST_LOOK_MS);
+        RawImageData frame = capture();
+        while (!ready.test(frame) && System.currentTimeMillis() < until) {
+            sleepTask(WAIT_RECHECK_MS);
+            frame = capture();
+        }
+        return frame;
     }
 
     /** The heroes the scan read, less any left out on the Heroes page. */
@@ -498,54 +633,6 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         return value != null ? value : Integer.parseInt(key.getDefaultValue());
     }
 
-    /** From the Heroes grid to the open dialog; false, with the reason logged, on any wrong screen. */
-    private boolean openForgeDialog(Upgrade upgrade) {
-        if (!openHero(upgrade.hero())) {
-            forgeStopped("could not open " + upgrade.hero());
-            return false;
-        }
-        tapNear(GearScanScreens.GEAR_TAB, 15);
-        sleepTask(1200);
-        if (!HeroScreenReader.isGearTab(capture())) {
-            forgeStopped("Gear tab did not open for " + upgrade.hero());
-            return false;
-        }
-        tapNear(GearScanScreens.GEAR_TILES.get(upgrade.slot()), 12);
-        sleepTask(1600);
-        if (!ForgeDialogReader.isGearDetails(capture())) {
-            forgeStopped("Gear Details did not open for " + upgrade.hero() + " " + upgrade.slot());
-            return false;
-        }
-        tapNear(GearScanScreens.MASTERY_FORGING_BUTTON, 10);
-        sleepTask(1600);
-        return true;
-    }
-
-    private boolean openHero(String hero) {
-        // Gear Details and other pages can pass for cards, so the grid is confirmed first.
-        RawImageData grid = capture();
-        if (!HeroCards.isHeroesGrid(grid)) {
-            logWarning("Gear forge: the Heroes grid is not on screen");
-            return false;
-        }
-        List<HeroCards.Card> cards = new ArrayList<>(HeroCards.gridCards(grid));
-        for (HeroCards.Card card : cards) {
-            checkPreemption();
-            tapNear(new PointData(card.centreX(), card.centreY()), 20);
-            sleepTask(2000);
-            RawImageData page = capture();
-            if (!HeroScreenReader.isHeroPage(page) && !HeroScreenReader.isGearTab(page)) {
-                logWarning("Gear forge: a hero card did not open a hero page");
-                return false;
-            }
-            if (hero.equals(HeroScreenReader.readName(page))) return true;
-            pressBack();
-            sleepTask(1500);
-            if (!HeroCards.isHeroesGrid(capture())) return false;
-        }
-        return false;
-    }
-
     private boolean forge(ForgeDialog before) {
         PointData button = ForgeDialogReader.forgeButton(capture());
         if (button == null) {
@@ -561,7 +648,7 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         }
         if (after == null) {
             // A one-time paid offer can open over the dialog after a forge; Back dismisses it unbought.
-            pressBack();
+            backIfInGame();
             sleepTask(1500);
             after = readDialog();
         }
@@ -583,19 +670,17 @@ public final class HeroGearForgeRoutine extends DelayedTask {
         return dialog;
     }
 
-    private boolean closeToGrid() {
-        for (int i = 0; i < 3 && !HeroCards.isHeroesGrid(capture()); i++) {
-            pressBack();
-            sleepTask(1500);
-        }
-        return HeroCards.isHeroesGrid(capture());
-    }
-
     private boolean pastCap() {
         return Instant.now().isAfter(deadline);
     }
 
+    private static final int WAIT_FIRST_LOOK_MS = 400;
+    private static final int WAIT_RECHECK_MS = 300;
+    private boolean gameSeenLast = true;
+
     private RawImageData capture() {
-        return frames.seen(emuManager.captureScreen(EMULATOR_NUMBER));
+        RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+        gameSeenLast = !GameFrame.isNotTheGame(frame);
+        return frames.seen(frame);
     }
 }

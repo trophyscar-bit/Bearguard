@@ -86,7 +86,7 @@
                                     </HBox>
                                     <HBox fx:id="rowEnhanceAmount" styleClass="hero-row-sub" alignment="CENTER_LEFT" spacing="16">
                                         <VBox spacing="4" HBox.hgrow="ALWAYS">
-                                            <Label styleClass="hero-label" text="XP items to use" />
+                                            <Label styleClass="hero-label" text="Enhancement Parts to use" />
                                             <Label fx:id="labelEnhanceReason" styleClass="hero-caption" text="Used when Raise gear levels is For real." />
                                         </VBox>
                                         <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
@@ -125,7 +125,7 @@
                                         <HBox styleClass="hero-row" alignment="CENTER_LEFT" spacing="16">
                                             <VBox spacing="4" HBox.hgrow="ALWAYS">
                                                 <Label styleClass="hero-label" text="Which gear first" />
-                                                <Label styleClass="hero-caption" text="Weakest first brings every ticked hero up evenly." />
+                                                <Label styleClass="hero-caption" text="Best return buys the most stat per stone for the heroes who fight most." />
                                             </VBox>
                                             <HBox styleClass="hero-control" alignment="CENTER_RIGHT">
                                                 <ComboBox fx:id="comboBoxFocus" prefWidth="240" minWidth="240" />

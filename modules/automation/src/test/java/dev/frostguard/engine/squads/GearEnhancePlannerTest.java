@@ -36,6 +36,47 @@ class GearEnhancePlannerTest {
 
     private static final Set<String> WITHOUT_MOLLY = Set.of("Mia", "Bahiti", "Flint", "Sergey");
 
+    private static final java.util.Map<String, Double> SQUAD_WEIGHTS = java.util.Map.of(
+            "Bahiti", 1.14, "Flint", 0.30, "Mia", 0.30, "Sergey", 0.105, "Molly", 0.0);
+
+    @Test
+    void theHeroWhoFightsMostGoesFirstNotTheLowestPiece() {
+        List<Raise> raises = GearEnhancePlanner.plan(GEAR, Set.of("Mia", "Bahiti", "Flint", "Sergey", "Molly"), 10, SQUAD_WEIGHTS);
+
+        assertEquals(new Raise("Bahiti", "Boots", 80, 85), raises.get(0), "Bahiti's lowest bonus piece, ahead of Sergey at +76");
+        assertEquals(new Raise("Bahiti", "Goggles", 80, 85), raises.get(1));
+        assertEquals(2, raises.size());
+    }
+
+    @Test
+    void aHeroAtWeightZeroIsNeverRaisedEvenWhenTicked() {
+        List<Raise> raises = GearEnhancePlanner.plan(GEAR, Set.of("Molly"), 50, SQUAD_WEIGHTS);
+
+        assertTrue(raises.isEmpty(), raises.toString());
+    }
+
+    @Test
+    void offRolePiecesAreNeverRaisedWhateverTheWeights() {
+        List<Raise> raises = GearEnhancePlanner.plan(GEAR, Set.of("Mia", "Bahiti", "Flint", "Sergey"), 200, SQUAD_WEIGHTS);
+
+        assertTrue(raises.stream().noneMatch(r -> r.hero().equals("Mia") && r.slot().equals("Belt")), raises.toString());
+        assertTrue(raises.stream().noneMatch(r -> r.hero().equals("Bahiti") && (r.slot().equals("Belt") || r.slot().equals("Gauntlets"))));
+    }
+
+    @Test
+    void heroesOfTheSameWeightStillRiseLowestFirst() {
+        List<GearPiece> gear = List.of(new GearPiece("Mia", "Boots", 81, 50, true), new GearPiece("Flint", "Belt", 85, 50, true));
+
+        assertEquals(new Raise("Mia", "Boots", 81, 85),
+                GearEnhancePlanner.plan(gear, Set.of("Mia", "Flint"), 4, java.util.Map.of("Mia", 0.3, "Flint", 0.3)).getFirst());
+    }
+
+    @Test
+    void aHeroTheWeightsDoNotMentionStillGetsRaised() {
+        assertEquals(1, GearEnhancePlanner.plan(List.of(new GearPiece("Mia", "Boots", 81, 50, true)), Set.of("Mia"), 4,
+                java.util.Map.of("Bahiti", 1.14)).size());
+    }
+
     @Test
     void liftsTheWeakestPieceToItsNextStep() {
         assertEquals(new Raise("Molly", "Boots", 69, 70),

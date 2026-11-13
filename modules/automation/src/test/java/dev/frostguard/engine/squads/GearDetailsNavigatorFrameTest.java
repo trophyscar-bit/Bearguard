@@ -37,37 +37,55 @@ class GearDetailsNavigatorFrameTest {
     private static final PointData CARD_1 = new PointData(277, 246);
     private static final PointData CARD_2 = new PointData(443, 246);
     private static final PointData CARD_3 = new PointData(609, 246);
+    private static final PointData ARROW = new PointData(666, 704);
     private static final PointData GEAR = GearScanScreens.GEAR_TAB;
     private static final PointData BOOTS = GearScanScreens.GEAR_TILES.get("Boots");
     private static final PointData GAUNTLETS = GearScanScreens.GEAR_TILES.get("Gauntlets");
     private static final PointData BELT = GearScanScreens.GEAR_TILES.get("Belt");
 
     @Test
-    void walksPastOtherHeroesToTheExactPieceAndBackToTheGrid() throws Exception {
+    void walksByTheRightArrowToTheExactPieceAndBackToTheGrid() throws Exception {
         Rig rig = bahiti();
         GearDetailsNavigator navigator = new GearDetailsNavigator(rig);
 
         assertEquals(new GearDetails("Sniper Boots", 80, "Enhance"), navigator.open("Bahiti", "Boots"));
         assertEquals("scan-details", rig.screen);
-        assertEquals(List.of(CARD_0, CARD_1, CARD_2, CARD_3, GEAR, BOOTS), rig.taps);
+        assertEquals(List.of(CARD_0, ARROW, ARROW, ARROW, BOOTS), rig.taps, "one card on the list, then the arrow; no return to the list between heroes");
+
+        navigator.finishPiece();
+
+        assertEquals("scan-back-details", rig.screen, "Gear Details closed, still on Bahiti's page");
+        assertEquals(1, rig.backs);
 
         navigator.closeToGrid();
 
         assertEquals("scan-back-hero", rig.screen);
-        assertEquals(5, rig.backs, "three skipped cards, then details and hero page");
+        assertEquals(2, rig.backs, "one more Back to the list at the very end");
+    }
+
+    @Test
+    void aSecondPieceOfTheSameHeroNeedsNoNavigationAtAll() throws Exception {
+        Rig rig = bahiti().on("scan-back-details", GAUNTLETS, "scan-details");
+        GearDetailsNavigator navigator = new GearDetailsNavigator(rig);
+        navigator.open("Bahiti", "Boots");
+        navigator.finishPiece();
+        rig.taps.clear();
+
+        // No Bahiti Gauntlets frame exists, so the scripted tap shows the Boots details and the piece check refuses it.
+        Abort abort = assertThrows(Abort.class, () -> navigator.open("Bahiti", "Gauntlets"));
+
+        assertTrue(abort.getMessage().contains("opened Sniper Boots"), abort.getMessage());
+        assertEquals(List.of(GAUNTLETS), rig.taps, "already on Bahiti's Gear tab: just the tile, no card, no arrow, no Gear tab tap");
     }
 
     @Test
     void opensSergeysGauntletsOnRealFrames() throws Exception {
-        PointData card4 = card(4);
-        Rig rig = new Rig(GRID);
-        for (PointData card : List.of(CARD_0, CARD_1, CARD_2, CARD_3)) rig.on(GRID, card, "scan-mia");
-        rig.onBack("scan-mia", GRID).on(GRID, card4, "navigate-sergey-stats")
-                .on("navigate-sergey-stats", GEAR, "quickequip-h04")
-                .on("quickequip-h04", GAUNTLETS, "navigate-sergey-gauntlets");
+        Rig rig = new Rig(GRID).on(GRID, CARD_0, "quickequip-h00");
+        for (int hero = 0; hero < 4; hero++) rig.on("quickequip-h0" + hero, ARROW, "quickequip-h0" + (hero + 1));
+        rig.on("quickequip-h04", GAUNTLETS, "navigate-sergey-gauntlets");
 
         assertEquals(new GearDetails("Guardian Gauntlets", 76, "Enhance"), new GearDetailsNavigator(rig).open("Sergey", "Gauntlets"));
-        assertEquals(List.of(CARD_0, CARD_1, CARD_2, CARD_3, card4, GEAR, GAUNTLETS), rig.taps);
+        assertEquals(List.of(CARD_0, ARROW, ARROW, ARROW, ARROW, GAUNTLETS), rig.taps);
     }
 
     @Test
@@ -122,26 +140,20 @@ class GearDetailsNavigatorFrameTest {
     }
 
     @Test
-    void anArrowWalkToAnotherHeroBeforeTheGearTabStopsBeforeAnyTile() throws Exception {
-        PointData card4 = card(4);
-        Rig rig = new Rig(GRID);
-        for (PointData card : List.of(CARD_0, CARD_1, CARD_2, CARD_3)) rig.on(GRID, card, "scan-mia");
-        rig.onBack("scan-mia", GRID).on(GRID, card4, "navigate-sergey-stats")
-                .on("navigate-sergey-stats", GEAR, "quickequip-h01");
+    void anArrowThatDoesNotReachANewHeroStopsBeforeAnyTile() throws Exception {
+        Rig rig = new Rig(GRID).on(GRID, CARD_0, "quickequip-h00").on("quickequip-h00", ARROW, "quickequip-h01");
 
-        assertThrows(Abort.class, () -> new GearDetailsNavigator(rig).open("Sergey", "Gauntlets"));
+        Abort abort = assertThrows(Abort.class, () -> new GearDetailsNavigator(rig).open("Sergey", "Gauntlets"));
 
-        assertEquals(List.of(CARD_0, CARD_1, CARD_2, CARD_3, card4, GEAR), rig.taps);
+        assertTrue(abort.getMessage().contains("did not reach a new hero"), abort.getMessage());
+        assertEquals(List.of(CARD_0, ARROW, ARROW), rig.taps, "the second arrow changed nothing, so the walk stopped without touching a tile");
     }
 
     @Test
     void aTileThatOpensTheWrongPieceStops() throws Exception {
-        PointData card4 = card(4);
-        Rig rig = new Rig(GRID);
-        for (PointData card : List.of(CARD_0, CARD_1, CARD_2, CARD_3)) rig.on(GRID, card, "scan-mia");
-        rig.onBack("scan-mia", GRID).on(GRID, card4, "navigate-sergey-stats")
-                .on("navigate-sergey-stats", GEAR, "quickequip-h04")
-                .on("quickequip-h04", BELT, "navigate-sergey-gauntlets");
+        Rig rig = new Rig(GRID).on(GRID, CARD_0, "quickequip-h00");
+        for (int hero = 0; hero < 4; hero++) rig.on("quickequip-h0" + hero, ARROW, "quickequip-h0" + (hero + 1));
+        rig.on("quickequip-h04", BELT, "navigate-sergey-gauntlets");
 
         Abort abort = assertThrows(Abort.class, () -> new GearDetailsNavigator(rig).open("Sergey", "Belt"));
 
@@ -170,12 +182,12 @@ class GearDetailsNavigatorFrameTest {
     }
 
     @Test
-    void aHeroNotOnTheGridStopsAfterClosingEachCard() {
+    void aHeroNotOnTheGridStopsAfterClosingEachCardButTheLast() {
         FakeScreens screens = new FakeScreens("Natalia", null, "Jessie");
 
         assertThrows(Abort.class, () -> new GearDetailsNavigator(screens, null).open("Flint", "Gauntlets"));
 
-        assertEquals(3, screens.closes);
+        assertEquals(2, screens.closes, "the last card is left for closeToGrid");
     }
 
     @Test
@@ -208,11 +220,11 @@ class GearDetailsNavigatorFrameTest {
 
     private static Rig bahiti() {
         return new Rig(GRID)
-                .on(GRID, CARD_0, "scan-mia").on(GRID, CARD_1, "scan-mia").on(GRID, CARD_2, "scan-mia")
-                .onBack("scan-mia", GRID)
-                .on(GRID, CARD_3, "scan-bahiti")
-                .on("scan-bahiti", GEAR, "scan-gear")
-                .on("scan-gear", BOOTS, "scan-details")
+                .on(GRID, CARD_0, "quickequip-h00")
+                .on("quickequip-h00", ARROW, "quickequip-h01")
+                .on("quickequip-h01", ARROW, "quickequip-h02")
+                .on("quickequip-h02", ARROW, "quickequip-h03")
+                .on("quickequip-h03", BOOTS, "scan-details")
                 .onBack("scan-details", "scan-back-details")
                 .onBack("scan-back-details", "scan-back-hero");
     }
