@@ -31,9 +31,10 @@ import dev.frostguard.vision.convert.ImageConverter;
  * list, the popup's X while its title is on screen, and the back arrow.
  *
  * <p>Go Prepare is left alone while the page reads Garrisoned 0/2: the first Go Prepare on an account starts
- * a tutorial that locks the screen on Go Garrison, and it can only be finished by garrisoning a squad. Outside
- * the Preparation Phase the button has another label; the routine finds it by its blue fill, saves the page,
- * and goes ahead only when the map's Missions button appears behind it.
+ * a tutorial that locks the screen on Go Garrison, and it can only be finished by garrisoning a squad. Every
+ * later phase starts a tutorial of its own on the first open of its main button, so that button is tapped only
+ * when its label is one the routine knows (Go Prepare, Go Scout). Any other label is saved as a snapshot and
+ * left alone.
  */
 public class WinterSiegeRoutine extends DelayedTask {
 
@@ -42,7 +43,7 @@ public class WinterSiegeRoutine extends DelayedTask {
     static final AreaData TITLE_AREA = AreaData.of(20, 195, 320, 270);
     static final AreaData GO_PREPARE_AREA = AreaData.of(180, 1060, 540, 1180);
     static final AreaData NOT_GARRISONED_AREA = AreaData.of(350, 1165, 480, 1215);
-    static final AreaData MISSIONS_BUTTON_AREA = AreaData.of(330, 780, 719, 1000);
+    static final AreaData MISSIONS_BUTTON_AREA = AreaData.of(330, 780, 719, 1100);
     static final AreaData MISSIONS_TITLE_AREA = AreaData.of(150, 125, 570, 195);
     static final AreaData CLAIM_AREA = AreaData.of(470, 205, 665, 1140);
 
@@ -57,7 +58,6 @@ public class WinterSiegeRoutine extends DelayedTask {
     private static final int CLAIM_HALF_WIDTH = 60;
     private static final int CLAIM_HALF_HEIGHT = 22;
     private static final int CLAIM_MIN_GREEN_PIXELS = 1500;
-    private static final int MAIN_BUTTON_MIN_BLUE_PIXELS = 10000;
     private static final int MAX_STRIP_SWIPES = 20;
     private static final int STRIP_SWIPE_MS = 600;
     private static final int STILL_SWIPES_FOR_END = 2;
@@ -71,7 +71,7 @@ public class WinterSiegeRoutine extends DelayedTask {
     static final Duration FAILURE_RETRY = Duration.ofMinutes(30);
     static final int MAX_FAILED_ATTEMPTS = 4;
 
-    enum Outcome { CLAIMED, NOTHING_TO_CLAIM, NOT_GARRISONED, NO_MAIN_BUTTON, NO_MISSIONS, EVENT_ABSENT, UNKNOWN }
+    enum Outcome { CLAIMED, NOTHING_TO_CLAIM, NOT_GARRISONED, UNKNOWN_PHASE, EVENT_ABSENT, UNKNOWN }
 
     private int failedAttempts;
     private int claimed;
@@ -159,43 +159,25 @@ public class WinterSiegeRoutine extends DelayedTask {
     }
 
     private Outcome openMissions() {
-        ImageSearchResultData goPrepare = locate(TemplatesEnum.WINTER_SIEGE_GO_PREPARE, GO_PREPARE_AREA, 3);
-        boolean preparation = goPrepare.isFound();
-        PointData mainButton = preparation ? goPrepare.getPoint() : null;
-        if (!preparation) {
-            Optional<BufferedImage> page = frame();
-            if (page.isEmpty()) {
-                logWarning("No screen capture of the Winter Siege page.");
-                return Outcome.UNKNOWN;
-            }
-            mainButton = blueButtonCenter(page.get(), GO_PREPARE_AREA).orElse(null);
-            if (mainButton == null) {
-                logInfo("Winter Siege page has no main button; " + snapshot("no-main-button"));
-                return Outcome.NO_MAIN_BUTTON;
-            }
+        ImageSearchResultData mainButton = locate(TemplatesEnum.WINTER_SIEGE_GO_PREPARE, GO_PREPARE_AREA, 2);
+        if (!mainButton.isFound()) {
+            mainButton = locate(TemplatesEnum.WINTER_SIEGE_GO_SCOUT, GO_PREPARE_AREA, 2);
+        }
+        if (!mainButton.isFound()) {
+            logInfo("Winter Siege page shows a main button this routine does not know, so it is left alone; "
+                    + snapshot("unknown-phase"));
+            return Outcome.UNKNOWN_PHASE;
         }
         if (locate(TemplatesEnum.WINTER_SIEGE_NOT_GARRISONED, NOT_GARRISONED_AREA, 2).isFound()) {
             logWarning("Winter Siege reads Garrisoned 0/2: no squads placed yet, so the main button is left alone.");
             return Outcome.NOT_GARRISONED;
         }
-        if (!preparation) {
-            logInfo("Winter Siege main button is not Go Prepare; trying it. " + snapshot("other-phase-page"));
-        }
-        tapNear(mainButton, 6);
+        tapInside(mainButton);
         sleepTask(MAP_SETTLE_MS);
         ImageSearchResultData missions = locate(TemplatesEnum.WINTER_SIEGE_MISSIONS, MISSIONS_BUTTON_AREA, 3);
         if (!missions.isFound()) {
-            if (preparation) {
-                logWarning("Winter Siege map opened without a Missions button; "
-                        + snapshot("missions-button-missing"));
-                return Outcome.UNKNOWN;
-            }
-            logInfo("No Missions button behind this phase's main button; " + snapshot("other-phase-no-missions"));
-            if (!eventsOpen()) {
-                tapNear(CommonGameAreas.DEALS_BACK_ARROW, 4);
-                sleepTask(PANEL_SETTLE_MS);
-            }
-            return Outcome.NO_MISSIONS;
+            logWarning("Winter Siege map opened without a Missions button; " + snapshot("missions-button-missing"));
+            return Outcome.UNKNOWN;
         }
         tapInside(missions);
         sleepTask(PANEL_SETTLE_MS);
@@ -260,30 +242,6 @@ public class WinterSiegeRoutine extends DelayedTask {
             }
         }
         return green >= CLAIM_MIN_GREEN_PIXELS;
-    }
-
-    /** Centre of the page's big blue button, found by its fill whatever its label says. */
-    static Optional<PointData> blueButtonCenter(BufferedImage img, AreaData area) {
-        long sumX = 0;
-        long sumY = 0;
-        int blue = 0;
-        for (int y = area.topLeft().getY(); y <= area.bottomRight().getY(); y++) {
-            for (int x = area.topLeft().getX(); x <= area.bottomRight().getX(); x++) {
-                int rgb = img.getRGB(x, y);
-                int r = (rgb >> 16) & 0xFF;
-                int g = (rgb >> 8) & 0xFF;
-                int b = rgb & 0xFF;
-                if (b >= 200 && b - r >= 100 && g >= 120) {
-                    sumX += x;
-                    sumY += y;
-                    blue++;
-                }
-            }
-        }
-        if (blue < MAIN_BUTTON_MIN_BLUE_PIXELS) {
-            return Optional.empty();
-        }
-        return Optional.of(new PointData((int) (sumX / blue), (int) (sumY / blue)));
     }
 
     /** Closes Missions with its X, then steps back through the map and Events, each only when it is on screen. */
