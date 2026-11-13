@@ -15,6 +15,7 @@ import dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.vision.convert.GameTimeUtils;
+import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 
 import java.awt.Color;
 import java.time.Duration;
@@ -1256,7 +1257,10 @@ public class DawnAcademyRoutine extends DelayedTask {
             ImageSearchResultData auto = templateSearchHelper.locatePattern(TemplatesEnum.TUNDRA_TREK_AUTO_BUTTON,
                     SearchConfig.builder().withMaxAttempts(5).withDelay(1000).build());
             if (!auto.isFound()) {
-                logWarning(name + ": Auto button not found.");
+                // Nine passes in a row ended here from 11 Nov 15:06 with no frame to explain it.
+                logWarning(name + ": Auto button not found; "
+                        + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "dawnacademy",
+                                "auto-button-missing") + ".");
                 return false;
             }
             tapInside(auto);
@@ -1266,7 +1270,9 @@ public class DawnAcademyRoutine extends DelayedTask {
             }
             // A waiting cooking beat greys Auto out, and the tap is what brings up Start Cooking.
             if (!playCookingBeat(name)) {
-                logWarning(name + ": Auto Trek dialog did not open.");
+                logWarning(name + ": Auto Trek dialog did not open; "
+                        + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "dawnacademy",
+                                "auto-dialog-missing") + ".");
                 return false;
             }
         }
