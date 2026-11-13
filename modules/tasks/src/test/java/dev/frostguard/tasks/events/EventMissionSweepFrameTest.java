@@ -145,6 +145,7 @@ class EventMissionSweepFrameTest {
         FakeScreen screen = new FakeScreen(false, EventMissionSweepFrameTest::wanderTitle);
         Result result = EventMissionSweep.run(screen, WANDER);
         assertEquals(1, result.claimed());
+        assertEquals(1, result.currencyClaimed());
         assertEquals(1, screen.taps.size(), screen.taps.toString());
         assertTrue(screen.taps.get(0).startsWith("582,74"), screen.taps.get(0));
         assertEquals(List.of(TpDailyTaskEnum.EVENT_POLAR_TERROR, TpDailyTaskEnum.ALLIANCE_TECH),

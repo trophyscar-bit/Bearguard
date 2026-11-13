@@ -166,7 +166,11 @@ public class WanderTheaterRoutine extends DelayedTask {
                         return LocalDateTime.now();
                     }
                 }, WanderTheaterRoutine.this::logInfo);
+        // Claim, then play: whatever the claims paid is spent in this same run, on the theater's own rules.
         if (!Boolean.FALSE.equals(profile.getConfig(ConfigurationKeyEnum.WANDER_THEATER_EXPLORE_BOOL, Boolean.class))) {
+            if (sweep.currencyClaimed() > 0) {
+                logInfo("Wander Theater: " + sweep.currencyClaimed() + " mission reward(s) claimed; spending the Talismans now.");
+            }
             explore();
         }
         tapNear(BACK_ARROW, 4);

@@ -60,9 +60,21 @@ final class EventMissionSweep {
     record Mission(String title, Verdict verdict) {
     }
 
-    /** What one pass found. {@code doable} lists unfinished missions an existing task does, one per title. */
+    /**
+     * What one pass found. {@code doable} lists unfinished missions an existing task does, one per title.
+     * {@code claimed} counts the rewards taken.
+     */
     record Result(int claimed, List<Mission> doable, List<Mission> purchase, List<Mission> skipped,
             boolean stoppedEarly, int pages) {
+
+        /**
+         * How many claims paid the event's currency, for events whose missions all pay it (Wander
+         * Theater's Talismans). When this is above zero the caller goes straight back into its play loop
+         * and spends it, in the same run, rather than leaving it for the next pass.
+         */
+        int currencyClaimed() {
+            return claimed;
+        }
     }
 
     static final long CLAIM_SETTLE_MS = 2500;
