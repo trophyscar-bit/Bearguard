@@ -16,8 +16,11 @@ import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.vision.convert.GameTimeUtils;
 import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
+import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.vision.convert.ImageConverter;
 
 import java.awt.Color;
+import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -172,6 +175,19 @@ public class DawnAcademyRoutine extends DelayedTask {
     private static final PointData FRONTIER_COUNTER_BOTTOM_RIGHT = new PointData(420, 60);
     private static final PointData TREK_SUPPLY_COUNTER = new PointData(560, 41);
     private static final PointData WAYFARER_ICON = new PointData(650, 140);
+    // Endless Wayfarer: three columns, bronze (left) free, silver and gold behind lock badges. A free
+    // tile that can be claimed has a glowing yellow frame; tapping it claims at once, with no popup,
+    // and the list scrolls the next claimable tile to the same spot (13 Nov).
+    private static final int WAYFARER_COLUMN_LEFT = 130;
+    private static final int WAYFARER_COLUMN_RIGHT = 275;
+    private static final int WAYFARER_GRID_TOP = 700;
+    private static final int WAYFARER_GRID_BOTTOM = 1262;
+    private static final int WAYFARER_TILE_X = 200;
+    private static final int WAYFARER_TILE_HEIGHT_HALF = 48;
+    private static final int WAYFARER_MAX_TAPS = 40;
+    private static final int WAYFARER_MAX_SCROLLS = 12;
+    private static final PointData WAYFARER_SCROLL_FROM = new PointData(200, 1150);
+    private static final PointData WAYFARER_SCROLL_TO = new PointData(200, 750);
     private static final PointData CLAIM_TOP_LEFT = new PointData(495, 560);
     private static final PointData CLAIM_BOTTOM_RIGHT = new PointData(660, 650);
     private static final PointData NEXT_SUPPLY_TOP_LEFT = new PointData(505, 585);
@@ -1378,19 +1394,101 @@ public class DawnAcademyRoutine extends DelayedTask {
         }
     }
 
+    /**
+     * Claims every free Endless Wayfarer tile that is ready. There is no Claim All button in the
+     * current season: a claimable bronze tile glows, and the tab's red dot stays until none is left.
+     * Silver, gold and the "+" next to the level bar are never tapped.
+     */
     private void claimWayfarer() {
         tapNear(WAYFARER_ICON, 6);
         sleepTask(2500);
-        ImageSearchResultData claimAll = templateSearchHelper.locatePattern(TemplatesEnum.DAWN_ACADEMY_WAYFARER_CLAIM_ALL,
-                SearchConfig.builder().withMaxAttempts(2).build());
-        if (claimAll.isFound()) {
-            logInfo("Claiming the free Endless Wayfarer rewards.");
-            tapInside(claimAll);
-            sleepTask(2500);
-            tapNear(BLANK_LOWER_SCREEN, 6);
-            sleepTask(1200);
+        if (!found(TemplatesEnum.DAWN_ACADEMY_WAYFARER_TITLE, 3)) {
+            logWarning("Endless Wayfarer did not open; "
+                    + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "dawnacademy",
+                            "wayfarer-not-open") + ".");
+            leaveTrekRoute();
+            return;
+        }
+        int claimed = 0;
+        int scrolls = 0;
+        while (claimed < WAYFARER_MAX_TAPS) {
+            List<Integer> ready = glowingTileCenters(screenNow());
+            if (!ready.isEmpty()) {
+                tapNear(new PointData(WAYFARER_TILE_X, ready.get(0)), 6);
+                sleepTask(1500);
+                claimed++;
+                continue;
+            }
+            if (!found(TemplatesEnum.DAWN_ACADEMY_WAYFARER_RED_DOT, 1) || scrolls >= WAYFARER_MAX_SCROLLS) {
+                break;
+            }
+            // Something is still claimable but out of view: look further down, then back up.
+            if (scrolls < WAYFARER_MAX_SCROLLS / 3) {
+                swipe(WAYFARER_SCROLL_FROM, WAYFARER_SCROLL_TO, 500);
+            } else {
+                swipe(WAYFARER_SCROLL_TO, WAYFARER_SCROLL_FROM, 500);
+            }
+            scrolls++;
+            sleepTask(900);
+        }
+        if (found(TemplatesEnum.DAWN_ACADEMY_WAYFARER_RED_DOT, 1)) {
+            logWarning("Endless Wayfarer still shows a red dot after " + claimed + " claims and " + scrolls
+                    + " scrolls; " + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER,
+                            "dawnacademy", "wayfarer-still-claimable") + ".");
+        } else {
+            logInfo("Endless Wayfarer: claimed " + claimed + " free reward" + (claimed == 1 ? "" : "s") + ".");
         }
         leaveTrekRoute();
+    }
+
+    private BufferedImage screenNow() {
+        RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+        return frame == null || !frame.isValid() ? null : ImageConverter.toBufferedImage(frame);
+    }
+
+    /**
+     * Y of the middle of every glowing tile in the bronze column, top first. A glowing tile has a
+     * bright yellow frame, so its top and bottom edges show as thin bands of bright yellow rows; a
+     * band with another band about one tile height above it is a bottom edge and is skipped.
+     * Tiles cut off at the bottom of the grid are ignored.
+     */
+    static List<Integer> glowingTileCenters(BufferedImage frame) {
+        List<Integer> centers = new ArrayList<>();
+        if (frame == null || frame.getWidth() < WAYFARER_COLUMN_RIGHT || frame.getHeight() < WAYFARER_GRID_BOTTOM) {
+            return centers;
+        }
+        List<int[]> bands = new ArrayList<>();
+        float[] hsb = new float[3];
+        for (int y = WAYFARER_GRID_TOP; y < WAYFARER_GRID_BOTTOM; y++) {
+            int glow = 0;
+            for (int x = WAYFARER_COLUMN_LEFT; x < WAYFARER_COLUMN_RIGHT; x++) {
+                int rgb = frame.getRGB(x, y);
+                Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, hsb);
+                if (hsb[0] >= 0.083f && hsb[0] <= 0.195f && hsb[1] >= 0.235f && hsb[2] >= 0.92f) {
+                    glow++;
+                }
+            }
+            if (glow >= 40) {
+                int[] last = bands.isEmpty() ? null : bands.get(bands.size() - 1);
+                if (last != null && y <= last[1] + 3) {
+                    last[1] = y;
+                } else {
+                    bands.add(new int[] {y, y});
+                }
+            }
+        }
+        for (int[] band : bands) {
+            boolean bottomEdge = false;
+            for (int[] other : bands) {
+                int gap = band[0] - other[0];
+                bottomEdge |= gap >= 85 && gap <= 115;
+            }
+            int center = band[0] + WAYFARER_TILE_HEIGHT_HALF;
+            if (!bottomEdge && center <= WAYFARER_GRID_BOTTOM - 7) {
+                centers.add(center);
+            }
+        }
+        return centers;
     }
 
     private Integer readCount(PointData topLeft, PointData bottomRight, OcrSettingsData settings) {

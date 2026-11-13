@@ -57,6 +57,25 @@ next tier with Go (29 Oct 2026: 150 Trek Encounters became 200). The task taps
 Claim until none is left, closes the dialog with the X at `(665,158)`, and
 returns to the Academy before Trek.
 
+Endless Wayfarer (`DAWN_ACADEMY_WAYFARER_BOOL`) opens from the bike icon at `(650,140)` on the
+Trek landing, after the Treks. The current season has no Claim All button. A claimable tile in the
+free bronze column (left, x 130-275) has a glowing yellow frame; tapping its middle claims it at
+once with no popup, and the list scrolls the next claimable tile to about `(200,1150)`. The task
+finds the glow by colour in the bronze column only (`glowingTileCenters`), taps it, and repeats up
+to 40 times. When no glow is in view but the tab's red dot still shows, it scrolls the grid (12
+swipes at most) and looks again. Silver and gold tiles carry lock badges and the "+" beside the
+level bar buys levels; none of them is ever tapped. If the red dot is still up at the end, the task
+saves `logs/snapshot/dawnacademy/*-wayfarer-still-claimable.png` and logs it. Evidence: frames
+captured by Whiteout - General on 13 Nov 2026 (Lv. 17, rows 14-17 claimed one tap each, red dot
+gone after row 17); the detector reproduces those taps on the saved frames, and a painted-frame
+test covers the column limits.
+
+A Tundra story dialogue can cover Idle and Auto, and shows a Skip button instead (13 Nov: Cyrille
+tracking a legendary Beast). The task taps Skip, then Auto again; speech bubbles left over take
+one tap, so it retries within `MAX_TREK_STORY_BEATS`. That dialogue had stopped Tundra for nine
+passes from 11 Nov 15:06 with supplies at 120/100. A failure saves a frame under
+`logs/snapshot/dawnacademy/`.
+
 Finish (gems), the Frontier Supply shop and the paid Wayfarer column are never
 tapped.
 

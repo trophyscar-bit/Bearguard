@@ -247,6 +247,32 @@ class DawnAcademyFrameTest {
     }
 
     @Test
+    void glowingWayfarerTilesAreFoundInTheFreeColumnOnly() {
+        // Painted frame: two glowing bronze tiles (top edges at 877 and 1031, bottoms a tile below),
+        // one glowing silver tile that must be left alone, and one tile cut off by the grid bottom.
+        BufferedImage frame = new BufferedImage(720, 1280, BufferedImage.TYPE_INT_RGB);
+        paintGlowTile(frame, 150, 877, 979);
+        paintGlowTile(frame, 150, 1031, 1133);
+        paintGlowTile(frame, 310, 877, 979);
+        paintGlowTile(frame, 150, 1250, 1352 - 100);
+        assertEquals(List.of(925, 1079), DawnAcademyRoutine.glowingTileCenters(frame));
+        assertTrue(DawnAcademyRoutine.glowingTileCenters(new BufferedImage(720, 1280, BufferedImage.TYPE_INT_RGB)).isEmpty());
+        assertTrue(DawnAcademyRoutine.glowingTileCenters(null).isEmpty());
+    }
+
+    private static void paintGlowTile(BufferedImage frame, int left, int top, int bottom) {
+        int glow = new java.awt.Color(255, 230, 120).getRGB();
+        for (int x = left; x < left + 100 && x < frame.getWidth(); x++) {
+            for (int y = top; y < top + 5; y++) {
+                frame.setRGB(x, y, glow);
+            }
+            for (int y = bottom - 4; y <= bottom && y < frame.getHeight(); y++) {
+                frame.setRGB(x, y, glow);
+            }
+        }
+    }
+
+    @Test
     void theExpertArrowShowsOnlyWhenNoSkillCardCoversIt() throws Exception {
         // The skill-card dismiss tap at (360,200) is only sent while this arrow is hidden. With no
         // card it shows on Stats and Skills; an open card or the gift screen covers it.
