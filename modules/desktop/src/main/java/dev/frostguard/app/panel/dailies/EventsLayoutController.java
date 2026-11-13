@@ -23,7 +23,7 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxJourneyofLightAssemblePremium, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour, checkBoxMergeventure, checkBoxMergeventureBoard,
         checkBoxMergeventureUseMax, checkBoxMergeventureMissions, checkBoxMergeventureAtlasPath,
         checkBoxMergeventureHarvest, checkBoxMergeventureCaravan, checkBoxMergeventureSaveSojourner, checkBoxSignInEarn, checkBoxWanderTheater, checkBoxWanderTheaterRally,
-        checkBoxWanderTheaterExplore, checkBoxDeadShotSignIn, checkBoxWinterSiege, checkBoxFortuneHut, checkBoxFortuneHutPlay, checkBoxFacilityJoin, checkBoxFacilityRecall, checkBoxRedDotSweep;
+        checkBoxWanderTheaterExplore, checkBoxDeadShotSignIn, checkBoxWinterSiege, checkBoxFortuneHut, checkBoxFortuneHutPlay, checkBoxFortuneHutSpendAll, checkBoxFacilityJoin, checkBoxFacilityRecall, checkBoxRedDotSweep;
 
     @FXML
     private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours,
@@ -92,6 +92,7 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxRedDotSweep, ConfigurationKeyEnum.RED_DOT_SWEEP_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxFortuneHut, ConfigurationKeyEnum.FORTUNE_HUT_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxFortuneHutPlay, ConfigurationKeyEnum.FORTUNE_HUT_PLAY_BOOL);
+        checkBoxMappings.put(checkBoxFortuneHutSpendAll, ConfigurationKeyEnum.FORTUNE_HUT_SPEND_ALL_AT_END_BOOL);
         textFieldMappings.put(textfieldFortuneHutBankThreshold, ConfigurationKeyEnum.FORTUNE_HUT_BANK_THRESHOLD_INT);
         textFieldMappings.put(textfieldFortuneHutWish, ConfigurationKeyEnum.FORTUNE_HUT_WISH_INT);
         // Fortress / Stronghold joiner: no schedule of its own, the event calendar says when it runs.
@@ -128,6 +129,8 @@ public class EventsLayoutController extends AbstractProfileController {
         textfieldMergeventureSpendHours.disableProperty().bind(
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
         checkBoxFortuneHutPlay.disableProperty().bind(checkBoxFortuneHut.selectedProperty().not());
+        checkBoxFortuneHutSpendAll.disableProperty().bind(
+            checkBoxFortuneHut.selectedProperty().not().or(checkBoxFortuneHutPlay.selectedProperty().not()));
         textfieldFortuneHutBankThreshold.disableProperty().bind(
             checkBoxFortuneHut.selectedProperty().not().or(checkBoxFortuneHutPlay.selectedProperty().not()));
         textfieldFortuneHutWish.disableProperty().bind(

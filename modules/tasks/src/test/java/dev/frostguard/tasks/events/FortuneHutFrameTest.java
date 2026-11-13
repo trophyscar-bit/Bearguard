@@ -179,6 +179,40 @@ class FortuneHutFrameTest {
         assertEquals(0, readTokens("board-four-opened-cost-red.png"));
     }
 
+    private static final java.time.LocalDateTime END = java.time.LocalDateTime.of(2026, 11, 14, 18, 59);
+
+    @Test
+    void theFinalPassRunsNinetyMinutesBeforeTheEventEndsWhenTheResetPassWouldBeLate() {
+        // Evening before: the reset pass of 11-14 19:10 is after the end, so the final pass wins.
+        assertEquals(java.time.LocalDateTime.of(2026, 11, 14, 17, 29), FortuneHutRoutine.nextPass(
+                java.time.LocalDateTime.of(2026, 11, 13, 19, 12), java.time.LocalDateTime.of(2026, 11, 14, 19, 10), END));
+        // The reset pass still comes first while it is before the final pass.
+        assertEquals(java.time.LocalDateTime.of(2026, 11, 13, 19, 10), FortuneHutRoutine.nextPass(
+                java.time.LocalDateTime.of(2026, 11, 13, 15, 0), java.time.LocalDateTime.of(2026, 11, 13, 19, 10), END));
+        // At or after the final pass nothing is earlier than the reset pass, which the calendar gate parks.
+        assertEquals(java.time.LocalDateTime.of(2026, 11, 14, 19, 10), FortuneHutRoutine.nextPass(
+                java.time.LocalDateTime.of(2026, 11, 14, 17, 40), java.time.LocalDateTime.of(2026, 11, 14, 19, 10), END));
+        // No calendar end: unchanged behaviour.
+        assertEquals(java.time.LocalDateTime.of(2026, 11, 14, 19, 10), FortuneHutRoutine.nextPass(
+                java.time.LocalDateTime.of(2026, 11, 13, 19, 12), java.time.LocalDateTime.of(2026, 11, 14, 19, 10), null));
+    }
+
+    @Test
+    void onlyTheLastTwoHoursBeforeTheEndCountAsTheFinalWindow() {
+        assertFalse(FortuneHutRoutine.inFinalWindow(java.time.LocalDateTime.of(2026, 11, 14, 16, 58), END));
+        assertTrue(FortuneHutRoutine.inFinalWindow(java.time.LocalDateTime.of(2026, 11, 14, 17, 0), END));
+        assertTrue(FortuneHutRoutine.inFinalWindow(java.time.LocalDateTime.of(2026, 11, 14, 17, 29), END));
+        assertFalse(FortuneHutRoutine.inFinalWindow(java.time.LocalDateTime.of(2026, 11, 14, 19, 5), END));
+        assertFalse(FortuneHutRoutine.inFinalWindow(java.time.LocalDateTime.of(2026, 11, 13, 19, 12), null));
+    }
+
+    @Test
+    void onTheLastPassAnyTokenCountPaysForTheNextOrbAndABoardInProgressNeedsOnlyOne() {
+        // Spend-everything uses a threshold of 1: needed is 1 for a fresh board and for a part-open one.
+        assertEquals(1, FortuneHutRoutine.tokensNeeded(10, 1));
+        assertEquals(1, FortuneHutRoutine.tokensNeeded(3, 1));
+    }
+
     @Test
     void onlyPlainDigitsCountAsATokenReading() {
         assertEquals(96, FortuneHutRoutine.tokenCount(" 96\n"));

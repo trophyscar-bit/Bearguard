@@ -112,6 +112,8 @@
                                 <TextField prefWidth="50.0" fx:id="textfieldFortuneHutBankThreshold" />
                                 <Label text="banked tokens or more (a full board costs up to 96)" styleClass="task-field-label" />
                             </HBox>
+                            <CheckBox text="On the event's last pass (about 90 minutes before it ends), spend every token the orbs can be paid with"
+                                      mnemonicParsing="false" fx:id="checkBoxFortuneHutSpendAll" />
                             <HBox spacing="10" alignment="CENTER_LEFT">
                                 <Label text="Wish Reward (1-4, left to right)" styleClass="task-field-label" />
                                 <TextField prefWidth="50.0" fx:id="textfieldFortuneHutWish" />

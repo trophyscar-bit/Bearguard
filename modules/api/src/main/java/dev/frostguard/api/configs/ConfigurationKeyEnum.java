@@ -630,6 +630,7 @@ public enum ConfigurationKeyEnum {
     FORTUNE_HUT_PLAY_BOOL                ("true",    Boolean.class,  ConfigCategory.EVENTS),
     FORTUNE_HUT_WISH_INT                 ("1",       Integer.class,  ConfigCategory.EVENTS),
     FORTUNE_HUT_BANK_THRESHOLD_INT       ("96",      Integer.class,  ConfigCategory.EVENTS),
+    FORTUNE_HUT_SPEND_ALL_AT_END_BOOL    ("true",    Boolean.class,  ConfigCategory.EVENTS),
 
     RED_DOT_SWEEP_ENABLED_BOOL           ("false",   Boolean.class,  ConfigCategory.EVENTS),
 

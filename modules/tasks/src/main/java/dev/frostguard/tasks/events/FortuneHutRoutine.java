@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +25,7 @@ import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.EventCalendarGate;
+import dev.frostguard.engine.service.EventScheduleService;
 import dev.frostguard.engine.service.StatisticsService;
 import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.vision.convert.GameTimeUtils;
@@ -61,6 +63,11 @@ public class FortuneHutRoutine extends DelayedTask {
 
     /** The name the State calendar stores this event under. */
     static final String CALENDAR_EVENT_NAME = "Mia's Fortune Hut";
+    /** The key prefix the State calendar stores this event's window under. */
+    private static final String CALENDAR_KEY_PREFIX = "STATE_GANTT_MIA_S_FORTUNE_HUT_";
+    /** The last pass runs this long before the window's end, so it can still spend; the window's final two hours count as the last day. */
+    static final Duration FINAL_PASS_BEFORE_END = Duration.ofMinutes(90);
+    static final Duration FINAL_WINDOW = Duration.ofHours(2);
 
     private static final PointData BACK_ARROW = CommonGameAreas.DEALS_BACK_ARROW;
     /** The card-box icon under the milestone chest (red dot while a free pack waits): opens the token pack page. */
@@ -150,6 +157,9 @@ public class FortuneHutRoutine extends DelayedTask {
     /** True for a pass the calendar gate let through without a clear verdict. */
     private boolean calendarUnsure;
 
+    /** True on the last pass before the event ends: spend everything the tokens can pay for. */
+    private boolean spendEverything;
+
     public FortuneHutRoutine(AccountDescriptor profile, TpDailyTaskEnum tpTask) {
         super(profile, tpTask);
     }
@@ -164,8 +174,14 @@ public class FortuneHutRoutine extends DelayedTask {
         if (parkedUntilTheEventOpens()) {
             return;
         }
+        LocalDateTime end = eventEnd();
+        spendEverything = spendAllAtEnd() && inFinalWindow(LocalDateTime.now(), end);
+        if (spendEverything) {
+            logInfo("Fortune Hut: last pass before the event ends (" + end.format(DATETIME_FORMATTER)
+                    + "); spending every token the orbs can be paid with.");
+        }
         if (!openHut()) {
-            finish(failureRetry());
+            finish(failureRetry(end));
             return;
         }
         boolean packClaimed = claimFreePack();
@@ -190,8 +206,9 @@ public class FortuneHutRoutine extends DelayedTask {
         if (opened > 0) {
             StatisticsService.obtain().addToCounter(profile, "Fortune Hut Orbs Opened", opened);
         }
-        // An unknown screen or count retries within the hour; otherwise the next pass is the next day's free pack.
-        finish(unsure ? failureRetry() : afterNextReset());
+        // An unknown screen or count retries within the hour; otherwise the next pass is the next day's free
+        // pack, or the final pass before the event ends if that comes first.
+        finish(unsure ? failureRetry(end) : nextPass(LocalDateTime.now(), afterNextReset(), end));
     }
 
     /**
@@ -222,14 +239,59 @@ public class FortuneHutRoutine extends DelayedTask {
         return !Boolean.FALSE.equals(profile.getConfig(ConfigurationKeyEnum.FORTUNE_HUT_PLAY_BOOL, Boolean.class));
     }
 
-    /** Tokens that must be banked before a fresh board is started. */
+    private boolean spendAllAtEnd() {
+        return !Boolean.FALSE.equals(profile.getConfig(ConfigurationKeyEnum.FORTUNE_HUT_SPEND_ALL_AT_END_BOOL, Boolean.class));
+    }
+
+    /**
+     * The window's end in local time, or null when the calendar has no bar for the running event. The
+     * calendar stores whole UTC days, so this is the end of the last day (23:59 UTC), a little after the
+     * game's own countdown reaches zero.
+     */
+    private LocalDateTime eventEnd() {
+        try {
+            return EventScheduleService.obtain().windowFor(CALENDAR_KEY_PREFIX, LocalDateTime.now(ZoneOffset.UTC))
+                    .filter(entry -> entry.getInactiveSince() != null)
+                    .map(entry -> entry.getInactiveSince().atZone(ZoneOffset.UTC)
+                            .withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime())
+                    .orElse(null);
+        } catch (RuntimeException e) {
+            logWarning("Fortune Hut: could not read the event's end from the calendar: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** Within the last two hours of the window, the pass is the last one: nothing is worth banking. */
+    static boolean inFinalWindow(LocalDateTime now, LocalDateTime end) {
+        return end != null && !now.isBefore(end.minus(FINAL_WINDOW)) && now.isBefore(end);
+    }
+
+    /**
+     * The next pass: the daily-reset pass, unless the event ends first, in which case a final pass runs
+     * {@link #FINAL_PASS_BEFORE_END} before the end. A reset pass at or after the end is never useful, so
+     * the final pass is used (or, with the end already near or past, the reset pass for the gate to park).
+     */
+    static LocalDateTime nextPass(LocalDateTime now, LocalDateTime resetPass, LocalDateTime end) {
+        if (end == null) {
+            return resetPass;
+        }
+        LocalDateTime finalPass = end.minus(FINAL_PASS_BEFORE_END);
+        return finalPass.isAfter(now) && finalPass.isBefore(resetPass) ? finalPass : resetPass;
+    }
+
+    /** Tokens that must be banked before a fresh board is started (1 on the last pass: spend them all). */
     private int bankThreshold() {
+        if (spendEverything) {
+            return 1;
+        }
         Integer setting = profile.getConfig(ConfigurationKeyEnum.FORTUNE_HUT_BANK_THRESHOLD_INT, Integer.class);
         return setting == null ? DEFAULT_BANK_THRESHOLD : Math.max(1, Math.min(400, setting));
     }
 
-    private LocalDateTime failureRetry() {
-        return LocalDateTime.now().plus(FAILURE_RETRY);
+    /** An hour on, but never past the final pass's time: a retry after the end would find the event over. */
+    private LocalDateTime failureRetry(LocalDateTime end) {
+        LocalDateTime retry = LocalDateTime.now().plus(FAILURE_RETRY);
+        return end != null && !retry.isBefore(end) ? afterNextReset() : retry;
     }
 
     private LocalDateTime afterNextReset() {
