@@ -73,7 +73,10 @@ class FacilityBattleCandidatesTest {
     @Test
     void aRowWithNoReadTimeIsNotTrusted() {
         EventScheduleEntry unread = row("FACILITY_BATTLE_CANDIDATE_FORTRESS_NO_9_202611131700",
-                "Fortress No. 9", LocalDateTime.of(2026, 11, 13, 17, 0), null);
+                "Fortress No. 9", LocalDateTime.of(2026, 11, 13, 17, 0), JUST_READ);
+        // The entry's constructor stamps a missing read time with the wall clock, which made this test
+        // pass or fail by the time of day; clearing it afterwards keeps the row truly unread.
+        unread.setLastScannedAt(null);
 
         assertTrue(FacilityBattleCandidates.next(List.of(unread), NOW).isEmpty());
     }
