@@ -45,7 +45,8 @@ public class RedDotSweepRoutine extends DelayedTask {
     static final AreaData STRIP_DOT_AREA = AreaData.of(0, 96, 719, 135);
     static final AreaData BANNER_AREA = AreaData.of(20, 195, 700, 335);
     static final AreaData STRIP_LABEL_AREA = AreaData.of(0, 140, 719, 185);
-    static final AreaData CART_AREA = AreaData.of(380, 60, 719, 700);
+    // The cart glyph sits at x 663-704, y 48-90; an area that starts below y 48 cuts it and scores 48.
+    static final AreaData CART_AREA = AreaData.of(540, 20, 719, 140);
     static final AreaData HEADER_AREA = CommonGameAreas.DEALS_HEADER;
     private static final PointData LIST_LOW = new PointData(360, 1120);
     private static final PointData LIST_HIGH = new PointData(360, 620);

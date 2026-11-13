@@ -166,6 +166,17 @@ class RedDotSweepFrameTest {
         }
     }
 
+    @Test
+    void theGemShopCartIsFoundInTheSearchAreaAndTheOldAreaCutItOff() throws Exception {
+        // 13 Nov 16:23: "Gem Shop button not found". The cart glyph is at y 48-90; the old search area began at
+        // y 60, so only its lower part was inside. Each crop is exactly the area the sweep searched, cut from one
+        // city-view frame, so no HUD, name or chat text is in either.
+        AreaData whole = AreaData.of(0, 0, 179, 119);
+        assertTrue(find("cart-in-new-area.png", TemplatesEnum.HOME_SHOP_CART_BUTTON, whole).isFound());
+        assertFalse(find("cart-in-old-area.png", TemplatesEnum.HOME_SHOP_CART_BUTTON,
+                AreaData.of(0, 0, 339, 139)).isFound());
+    }
+
     private ImageSearchResultData find(String name, TemplatesEnum template, AreaData area) throws IOException {
         return OpenCvPatternLocator.locatePattern(bytes(name), template.getTemplate(),
                 area.topLeft(), area.bottomRight(), 85);
