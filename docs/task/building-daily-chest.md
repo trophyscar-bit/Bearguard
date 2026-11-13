@@ -6,8 +6,9 @@ day's reward is unclaimed (reset UTC 00:00, collected manually). Tapping any one
 and the bubbles disappear. Checked live on 2026-11-13: bakery 5 of a bottle item, milk tea a 1K gem
 bag, vinyl a mystery chest.
 
-Vinyl Shop's own panel offers Daily Rewards (an info table of the reward pool by furnace level,
-not a claim) and Play Vinyl (not yet explored). Bakery and Milk Tea panels are unexplored.
+Panels (checked live 2026-11-13): Vinyl Shop offers Daily Rewards (an info table of the reward pool by furnace level, not a claim)
+and Play Vinyl, a music player with no rewards. The Bakery (Aubree) and Milk Tea Shop (Rodney) each offer only a
+Daily Rewards info button. Nothing beyond the daily chest needs automating.
 
 Navigation: the shops are not in the Shop footer or in any sidebar tab (City, Wilderness, Daily
 checked live 2026-11-13), and `World` then `Return to City` does not recenter. The city map has hard
