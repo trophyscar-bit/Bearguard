@@ -102,6 +102,20 @@ class FortuneHutFrameTest {
     }
 
     @Test
+    void theWishFoundScreenIsRecognisedAndOnlyItsRightButtonIsGreen() throws Exception {
+        assertTrue(find("wish-found-next-round.png", TemplatesEnum.FORTUNE_HUT_WISH_FOUND).isFound());
+        assertTrue(FortuneHutRoutine.nextRoundIsGreen(image("wish-found-next-round.png")));
+        // The blue "Continue the current round" sits on the left and is never the tap target.
+        int rgb = image("wish-found-next-round.png").getRGB(150, 990);
+        assertFalse(dev.frostguard.tasks.events.WanderTheaterRoutine.isClaimGreen(rgb));
+        for (String other : new String[] {"board-fresh.png", "board-four-opened-cost-red.png", "wish-picker.png",
+                "pack-free-available.png", "deals-hut-tab-unselected.png"}) {
+            assertFalse(find(other, TemplatesEnum.FORTUNE_HUT_WISH_FOUND).isFound(), other);
+            assertFalse(FortuneHutRoutine.nextRoundIsGreen(image(other)), other);
+        }
+    }
+
+    @Test
     void theFreePackButtonIsOnlyGreenWhileTheFreePackIsWaiting() throws Exception {
         assertTrue(find("pack-free-available.png", TemplatesEnum.FORTUNE_HUT_FREE_PACK_LABEL).isFound());
         assertTrue(FortuneHutRoutine.freePackButtonIsGreen(image("pack-free-available.png")));

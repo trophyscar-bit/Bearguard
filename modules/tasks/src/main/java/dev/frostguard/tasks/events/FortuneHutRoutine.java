@@ -77,6 +77,15 @@ public class FortuneHutRoutine extends DelayedTask {
     private static final PointData PACK_TITLE_BOTTOM_RIGHT = new PointData(460, 70);
     private static final PointData FREE_LABEL_TOP_LEFT = new PointData(120, 135);
     private static final PointData FREE_LABEL_BOTTOM_RIGHT = new PointData(600, 195);
+    /**
+     * The screen after the wish orb opens (seen live 2026-11-12): "Wish Reward obtained! You can reset the
+     * other rewards at no cost." over a blue "Continue the current round" (left, never tapped) and a green
+     * "Next Round" (right), which starts the next round free and leads to the wish picker.
+     */
+    private static final PointData WISH_FOUND_TOP_LEFT = new PointData(60, 815);
+    private static final PointData WISH_FOUND_BOTTOM_RIGHT = new PointData(660, 895);
+    private static final PointData NEXT_ROUND = new PointData(512, 957);
+    static final PointData NEXT_ROUND_GREEN_SAMPLE = new PointData(400, 990);
     private static final PointData WISH_HINT_TOP_LEFT = new PointData(30, 885);
     private static final PointData WISH_HINT_BOTTOM_RIGHT = new PointData(690, 950);
 
@@ -100,11 +109,11 @@ public class FortuneHutRoutine extends DelayedTask {
 
     /** Orb costs in opening order, as read live; a whole board is their sum, 96. */
     static final int[] ORB_COSTS = {1, 2, 3, 4, 6, 8, 12, 15, 20, 25};
-    /** The token count beside the "+": a wide and a tight box that must agree. */
-    static final PointData TOKENS_TOP_LEFT = new PointData(550, 262);
+    /** The token count beside the "+": a wide and a tight box that must agree. Both read 10, 9, 7 and 0 exactly on the live frames (chosen from a sweep of 640 box pairs). */
+    static final PointData TOKENS_TOP_LEFT = new PointData(540, 260);
     static final PointData TOKENS_BOTTOM_RIGHT = new PointData(645, 305);
-    static final PointData TOKENS_TIGHT_TOP_LEFT = new PointData(575, 268);
-    static final PointData TOKENS_TIGHT_BOTTOM_RIGHT = new PointData(632, 300);
+    static final PointData TOKENS_TIGHT_TOP_LEFT = new PointData(540, 265);
+    static final PointData TOKENS_TIGHT_BOTTOM_RIGHT = new PointData(625, 302);
     static final OcrSettingsData TOKEN_DIGITS = OcrSettingsData.configurator()
             .textLayout(OcrSettingsData.TextLayout.SINGLE_WORD)
             .isolateForeground(true)
@@ -228,6 +237,12 @@ public class FortuneHutRoutine extends DelayedTask {
             logWarning("Fortune Hut: tapped Deals but its header did not show; " + snapshot("deals-not-open"));
             return false;
         }
+        if (wishFoundShown() && !startNextRound()) {
+            return false;
+        }
+        if (wishPickerShown() && !pickWish()) {
+            return false;
+        }
         if (onHutPage()) {
             return true;
         }
@@ -289,6 +304,10 @@ public class FortuneHutRoutine extends DelayedTask {
 
     private boolean boardShown() {
         return found(TemplatesEnum.FORTUNE_HUT_COST_LABEL, COST_LABEL_TOP_LEFT, COST_LABEL_BOTTOM_RIGHT);
+    }
+
+    private boolean wishFoundShown() {
+        return found(TemplatesEnum.FORTUNE_HUT_WISH_FOUND, WISH_FOUND_TOP_LEFT, WISH_FOUND_BOTTOM_RIGHT);
     }
 
     private boolean wishPickerShown() {
@@ -379,6 +398,13 @@ public class FortuneHutRoutine extends DelayedTask {
                 }
                 continue;
             }
+            if (wishFoundShown()) {
+                if (!startNextRound()) {
+                    return -1;
+                }
+                // A fresh board follows: the bank threshold decides whether to open its first orb.
+                return opened;
+            }
             if (!boardShown()) {
                 logWarning("Fortune Hut: neither the board nor the wish picker is showing; " + snapshot("unknown-screen"));
                 return opened > 0 ? opened : -1;
@@ -412,6 +438,29 @@ public class FortuneHutRoutine extends DelayedTask {
         Integer tight = integerHelper.attemptRecognition(TOKENS_TIGHT_TOP_LEFT, TOKENS_TIGHT_BOTTOM_RIGHT, 3, 200L,
                 TOKEN_DIGITS, text -> tokenCount(text) != null, FortuneHutRoutine::tokenCount);
         return wide != null && wide.equals(tight) ? wide : null;
+    }
+
+    /**
+     * On the wish-found screen, presses the green "Next Round" (the free reset of the other rewards) once
+     * its green fill is confirmed, and never "Continue the current round". Counts the wish.
+     */
+    private boolean startNextRound() {
+        Optional<BufferedImage> screen = frame();
+        if (screen.isEmpty() || !nextRoundIsGreen(screen.get())) {
+            logWarning("Fortune Hut: the wish-found screen shows no green Next Round button; "
+                    + snapshot("next-round-not-green"));
+            return false;
+        }
+        tapNear(NEXT_ROUND, 6);
+        sleepTask(3000);
+        StatisticsService.obtain().addToCounter(profile, "Fortune Hut Wishes", 1);
+        logInfo("Fortune Hut: wish found; started the next round (free).");
+        if (wishFoundShown()) {
+            logWarning("Fortune Hut: the wish-found screen is still showing after Next Round; "
+                    + snapshot("next-round-no-effect"));
+            return false;
+        }
+        return true;
     }
 
     /** Selects the configured Wish Reward and presses the green button under the four options. */
@@ -493,6 +542,10 @@ public class FortuneHutRoutine extends DelayedTask {
 
     static boolean freePackButtonIsGreen(BufferedImage img) {
         return WanderTheaterRoutine.isClaimGreen(img.getRGB(FREE_PACK_GREEN_SAMPLE.getX(), FREE_PACK_GREEN_SAMPLE.getY()));
+    }
+
+    static boolean nextRoundIsGreen(BufferedImage img) {
+        return WanderTheaterRoutine.isClaimGreen(img.getRGB(NEXT_ROUND_GREEN_SAMPLE.getX(), NEXT_ROUND_GREEN_SAMPLE.getY()));
     }
 
     static boolean wishConfirmIsGreen(BufferedImage img) {
