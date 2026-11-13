@@ -2,14 +2,18 @@ package dev.frostguard.app.panel.dailies;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.domain.FormationSlots;
+import dev.frostguard.app.panel.launcher.NavOrder;
 import dev.frostguard.app.shared.AbstractProfileController;
 import dev.frostguard.app.shared.SettingValidators;
 import javafx.fxml.FXML;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import org.controlsfx.control.CheckComboBox;
 
 public class EventsLayoutController extends AbstractProfileController {
 
@@ -19,7 +23,7 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxJourneyofLightAssemblePremium, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour, checkBoxMergeventure, checkBoxMergeventureBoard,
         checkBoxMergeventureUseMax, checkBoxMergeventureMissions, checkBoxMergeventureAtlasPath,
         checkBoxMergeventureHarvest, checkBoxMergeventureCaravan, checkBoxMergeventureSaveSojourner, checkBoxSignInEarn, checkBoxWanderTheater, checkBoxWanderTheaterRally,
-        checkBoxWanderTheaterExplore, checkBoxDeadShotSignIn, checkBoxWinterSiege;
+        checkBoxWanderTheaterExplore, checkBoxDeadShotSignIn, checkBoxWinterSiege, checkBoxFacilityJoin, checkBoxFacilityRecall;
 
     @FXML
     private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours,
@@ -29,10 +33,20 @@ public class EventsLayoutController extends AbstractProfileController {
     private ComboBox<Integer> comboBoxMercenaryFlag, comboBoxHeroMissionFlag, comboBoxWanderTheaterRallyFlag;
 
     @FXML
-    private Label labelDateTimeError;
+    private CheckComboBox<Integer> checkComboBoxFacilityFlag;
+
+    @FXML
+    private TextField textFieldFacilityTargets, textFieldFacilityWatch;
+
+    @FXML
+    private TabPane tabPaneEvents;
+
+    @FXML
+    private Label labelDateTimeError, labelFacilityError;
 
     @FXML
     private void initialize() {
+        tabPaneEvents.getTabs().sort(java.util.Comparator.comparing(Tab::getText, NavOrder.BY_NAME));
         fillFlagOptions();
         registerConfigurationFields();
         wireEnablementRules();
@@ -44,6 +58,7 @@ public class EventsLayoutController extends AbstractProfileController {
         comboBoxMercenaryFlag.getItems().setAll(FormationSlots.numbersWithNone(0));
         comboBoxHeroMissionFlag.getItems().setAll(FormationSlots.numbersWithNone(0));
         comboBoxWanderTheaterRallyFlag.getItems().setAll(FormationSlots.numbers());
+        checkComboBoxFacilityFlag.getItems().setAll(FormationSlots.numbers());
     }
 
     private void registerConfigurationFields() {
@@ -75,6 +90,13 @@ public class EventsLayoutController extends AbstractProfileController {
         comboBoxMappings.put(comboBoxWanderTheaterRallyFlag, ConfigurationKeyEnum.WANDER_THEATER_RALLY_FLAG_INT);
         checkBoxMappings.put(checkBoxDeadShotSignIn, ConfigurationKeyEnum.DEAD_SHOT_SIGN_IN_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxWinterSiege, ConfigurationKeyEnum.WINTER_SIEGE_ENABLED_BOOL);
+        // Fortress / Stronghold joiner: no schedule of its own, the event calendar says when it runs.
+        checkBoxMappings.put(checkBoxFacilityJoin, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_ENABLED_BOOL);
+        checkBoxMappings.put(checkBoxFacilityRecall, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_RECALL_BOOL);
+        checkComboBoxMappings.put(checkComboBoxFacilityFlag, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_FLAG_STRING);
+        registerTextField(textFieldFacilityTargets, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_TARGETS_STRING);
+        registerRangedIntegerField(textFieldFacilityWatch, labelFacilityError,
+            ConfigurationKeyEnum.FACILITY_RALLY_JOIN_WATCH_MINUTES_INT, "Watch minutes", 5, 60);
 
         comboBoxMappings.put(comboBoxMercenaryFlag, ConfigurationKeyEnum.MERCENARY_FLAG_INT);
         comboBoxMappings.put(comboBoxHeroMissionFlag, ConfigurationKeyEnum.HERO_MISSION_FLAG_INT);
@@ -99,6 +121,10 @@ public class EventsLayoutController extends AbstractProfileController {
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureBoard.selectedProperty().not()));
         checkBoxMergeventureSaveSojourner.disableProperty().bind(
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
+        checkBoxFacilityRecall.disableProperty().bind(checkBoxFacilityJoin.selectedProperty().not());
+        checkComboBoxFacilityFlag.disableProperty().bind(checkBoxFacilityJoin.selectedProperty().not());
+        textFieldFacilityTargets.disableProperty().bind(checkBoxFacilityJoin.selectedProperty().not());
+        textFieldFacilityWatch.disableProperty().bind(checkBoxFacilityJoin.selectedProperty().not());
         textfieldMergeventureSpendHours.disableProperty().bind(
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
         checkBoxWanderTheaterRally.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());

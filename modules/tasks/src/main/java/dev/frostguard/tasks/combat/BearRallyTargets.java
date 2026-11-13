@@ -16,6 +16,8 @@ final class BearRallyTargets {
 
     static final Duration FAILED_REST = Duration.ofSeconds(5);
     static final Duration JOINED_REST = Duration.ofSeconds(20);
+    /** A rally the bot decided not to join (not its target) is looked at again only after a while. */
+    static final Duration REJECTED_REST = Duration.ofSeconds(30);
     static final int ROW_TOLERANCE_PX = 40;
 
     private record RestingRow(int y, Instant until) {
@@ -34,6 +36,10 @@ final class BearRallyTargets {
 
     void markFailed(PointData icon, Instant now) {
         resting.add(new RestingRow(icon.getY(), now.plus(FAILED_REST)));
+    }
+
+    void markRejected(PointData icon, Instant now) {
+        resting.add(new RestingRow(icon.getY(), now.plus(REJECTED_REST)));
     }
 
     void markJoined(PointData icon, Instant now) {

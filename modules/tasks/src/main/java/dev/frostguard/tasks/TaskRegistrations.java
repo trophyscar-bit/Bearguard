@@ -133,6 +133,7 @@ public class TaskRegistrations {
             case EVENT_POLAR_TERROR -> new PolarTerrorHuntingRoutine(profile, type);
             case EVENT_BERSERK_CRYPTID -> new ManualRallyJoinRoutine(profile, type);
             case BEAR_TRAP -> new BearTrapRoutine(profile, type);
+            case FACILITY_RALLY_JOIN -> new FacilityRallyJoinRoutine(profile, type);
 
             // Alliance
             case ALLIANCE_AUTOJOIN -> new AllianceAutojoinRoutine(profile, type);

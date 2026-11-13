@@ -47,15 +47,15 @@ private ScheduledExecutorService rallyScheduler;
 
 private ScheduledFuture<?> rallyResetTask;
 
-private List<Integer> joinFlags = new ArrayList<>();
+List<Integer> joinFlags = new ArrayList<>();
 
-private List<Integer> troopFlags = new ArrayList<>();
+List<Integer> troopFlags = new ArrayList<>();
 
 private ResilientOcrExecutor<Duration> durationHelper;
 
-private BearMarchTally marchTally = new BearMarchTally();
+BearMarchTally marchTally = new BearMarchTally();
 
-private BearRallyTargets rallyTargets = new BearRallyTargets();
+BearRallyTargets rallyTargets = new BearRallyTargets();
 
 private final Set<String> savedJoinDiagnostics = new HashSet<>();
 
@@ -192,14 +192,14 @@ private Optional<PointData> cameraAfterGo = Optional.empty();
 /** Which of the alliance's two traps this account fights: its Go button decides where the camera lands. */
 private int trapNumber = 1;
 
-private boolean joinRally;
+boolean joinRally;
 
 private boolean usePets;
 
 private boolean recallTroops;
 
 // Changed by pernerch | Date: 2026-07-02 | Why: detect shared-emulator profiles to avoid rally contention across accounts.
-private boolean sharedEmulator;
+boolean sharedEmulator;
 
 
 private int ownRallyFlag;
@@ -412,13 +412,13 @@ private void performPreparationPhase(LocalDateTime activationTime) {
         logInfo(routineLogBearTrapLine("Trap has been ACTIVATED automatically!"));
     }
 
-private String routineLogBearTrapLine(String note) {
+String routineLogBearTrapLine(String note) {
         return "BearTrapRoutine | " + note;
     }
 
 // Recalls every gather march. With turnOffAutojoin, alliance auto-join is switched off as soon as
 // the last recall is pressed, while the troops are still walking home, so neither waits on the other.
-private void recallGatherTroopsFlow(boolean turnOffAutojoin) {
+void recallGatherTroopsFlow(boolean turnOffAutojoin) {
         boolean autojoinOff = !turnOffAutojoin;
         // pernerch/2026-07-02: record recall timestamp in profile config BEFORE recalling.
         // GatherRoutine reads GATHER_LAST_RECALL_TIME_STRING on startup and uses it to wait
@@ -789,7 +789,7 @@ private OptionalInt readFreeMarches() {
         return OptionalInt.of(total - used);
     }
 
-private void handleJoinRallies2(LocalDateTime trapEndTime) {
+void handleJoinRallies2(LocalDateTime trapEndTime) {
 		// Changed by pernerch | Date: 2026-07-02 | Why: skip rally joining on shared emulators while keeping other Bear Trap actions active.
         if (!joinRally || sharedEmulator) {
             if (sharedEmulator) {
@@ -873,6 +873,10 @@ private void runJoinSession(LocalDateTime trapEndTime) {
             Optional<PointData> target = rallyTargets.next(plusIcons, Instant.now());
             if (target.isPresent()) {
                 lastRallySeen = Instant.now();
+                if (!rallyAccepted(target.get())) {
+                    rallyTargets.markRejected(target.get(), Instant.now());
+                    continue;
+                }
                 attemptRallyJoin(target.get(), freeMarches);
                 continue;
             }
@@ -902,6 +906,11 @@ private void scrollJoinList(BearJoinListScroller.Move move) {
             }
         }
         sleepTask(500);
+    }
+
+/** Whether to join the rally at this row. The Bear Trap joins every one; the Facility joiner overrides this. */
+boolean rallyAccepted(PointData plusIcon) {
+        return true;
     }
 
 private List<PointData> locateOpenRallies() {
@@ -1020,7 +1029,7 @@ private void recordFailedJoin(PointData plusIcon, String label, String reason) {
     }
 
 // One screenshot per kind of problem per event, so the first real bear can be reviewed afterward.
-private void saveJoinDiagnostic(String label) {
+void saveJoinDiagnostic(String label) {
         if (!savedJoinDiagnostics.add(label)) {
             return;
         }
@@ -1120,7 +1129,7 @@ private int resolveConfigInt(ConfigurationKeyEnum key, int defaultValue) {
         return (value != null) ? value : defaultValue;
     }
 
-private boolean isSharedEmulatorProfile() {
+boolean isSharedEmulatorProfile() {
         if (profile == null || profile.getEmulatorNumber() == null || profile.getEmulatorNumber().isBlank()) {
             return false;
         }
@@ -1322,7 +1331,7 @@ private int countReadyCombatSkills(List<PointData> combatTiles) {
         return ready;
     }
 
-private List<dev.frostguard.vision.ocr.TextLine> readScreenText(AreaData area) {
+List<dev.frostguard.vision.ocr.TextLine> readScreenText(AreaData area) {
         return readScreenText(area, SPARSE_TEXT_OCR);
     }
 

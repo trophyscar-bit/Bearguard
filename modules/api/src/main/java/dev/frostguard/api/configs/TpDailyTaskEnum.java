@@ -180,6 +180,7 @@ public enum TpDailyTaskEnum {
     EVENT_ENDLESS_TRIAL    (917, "Event: Endless Trial",          ConfigurationKeyEnum.EVENT_ENDLESS_TRIAL_BOOL,               RoutineCategory.MILITARY),
     EVENT_MERGEVENTURE     (919, "Event: Mergeventure",           ConfigurationKeyEnum.MERGEVENTURE_ENABLED_BOOL,              RoutineCategory.EVENT),
     EVENT_SIGN_IN_EARN     (920, "Event: Sign-in & Earn",         ConfigurationKeyEnum.SIGN_IN_EARN_ENABLED_BOOL,              RoutineCategory.EVENT),
+    FACILITY_RALLY_JOIN    (924, "Facility Rally Joiner",         ConfigurationKeyEnum.FACILITY_RALLY_JOIN_ENABLED_BOOL,       RoutineCategory.EVENT),
     EVENT_WANDER_THEATER   (921, "Event: Wander Theater",         ConfigurationKeyEnum.WANDER_THEATER_ENABLED_BOOL,            RoutineCategory.EVENT),
     EVENT_DEAD_SHOT_SIGN_IN (922, "Event: Dead Shot Sign-in",     ConfigurationKeyEnum.DEAD_SHOT_SIGN_IN_ENABLED_BOOL,         RoutineCategory.EVENT),
     EVENT_WINTER_SIEGE     (923, "Event: Winter Siege",           ConfigurationKeyEnum.WINTER_SIEGE_ENABLED_BOOL,              RoutineCategory.EVENT),

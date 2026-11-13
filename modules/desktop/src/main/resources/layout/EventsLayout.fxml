@@ -13,11 +13,12 @@
 <?import javafx.scene.control.Tab?>
 <?import javafx.scene.layout.ColumnConstraints?>
 <?import javafx.scene.layout.RowConstraints?>
+<?import org.controlsfx.control.CheckComboBox?>
 
 <!-- matt/2026-08-13: split into one tab per event, same pattern as the outer hub tabs. -->
 <VBox xmlns:fx="http://javafx.com/fxml/1" xmlns="http://javafx.com/javafx/17.0.12"
       VBox.vgrow="ALWAYS" HBox.hgrow="ALWAYS" maxWidth="Infinity" maxHeight="Infinity">
-    <TabPane VBox.vgrow="ALWAYS" maxWidth="Infinity" maxHeight="Infinity" tabClosingPolicy="UNAVAILABLE">
+    <TabPane fx:id="tabPaneEvents" VBox.vgrow="ALWAYS" maxWidth="Infinity" maxHeight="Infinity" tabClosingPolicy="UNAVAILABLE">
 
         <Tab text="Myriad Bazaar" closable="false">
             <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
@@ -113,6 +114,38 @@
                             <Label wrapText="true" style="-fx-font-style: italic;"
                                    styleClass="task-card-description"
                                    text="No additional configuration required" />
+                        </VBox>
+                    </VBox>
+                </VBox>
+            </ScrollPane>
+        </Tab>
+
+        <Tab text="Fortress / Stronghold" closable="false">
+            <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
+                <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">
+                    <VBox styleClass="content-card">
+                        <HBox styleClass="header-yellow" maxWidth="Infinity" alignment="CENTER_LEFT">
+                            <CheckBox text="Fortress / Stronghold: join rallies" style="-fx-font-weight: bold;"
+                                      mnemonicParsing="false" fx:id="checkBoxFacilityJoin" />
+                        </HBox>
+                        <VBox styleClass="task-section-inner">
+                            <Label wrapText="true" styleClass="task-card-description"
+                                   text="Joins only, never hosts, registers or spends gems. Troops per join come from the Squads page. It starts at the battle times the alliance signed up for, watches each time for a live Fortress or Stronghold rally, and joins only rallies of the facilities below. A time with no live rally lost the vote and is skipped." />
+                            <Separator style="-fx-opacity: 0.25;" />
+                            <CheckBox text="Recall gatherers first" mnemonicParsing="false" fx:id="checkBoxFacilityRecall" />
+                            <HBox alignment="CENTER_LEFT" spacing="8">
+                                <Label minWidth="150.0" text="Squads" />
+                                <CheckComboBox fx:id="checkComboBoxFacilityFlag" prefWidth="140.0" />
+                            </HBox>
+                            <HBox alignment="CENTER_LEFT" spacing="8">
+                                <Label minWidth="150.0" text="Facilities" />
+                                <TextField prefWidth="240.0" promptText="Fortress 12, Stronghold 2" fx:id="textFieldFacilityTargets" />
+                            </HBox>
+                            <HBox alignment="CENTER_LEFT" spacing="8">
+                                <Label minWidth="150.0" text="Watch minutes per time" />
+                                <TextField prefWidth="60.0" fx:id="textFieldFacilityWatch" />
+                            </HBox>
+                            <Label fx:id="labelFacilityError" styleClass="setting-validation-message" wrapText="true" />
                         </VBox>
                     </VBox>
                 </VBox>
