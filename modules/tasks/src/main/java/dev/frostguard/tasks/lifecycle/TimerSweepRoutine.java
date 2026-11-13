@@ -2,8 +2,11 @@ package dev.frostguard.tasks.lifecycle;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TemplatesEnum;
@@ -11,14 +14,18 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.RawImageData;
 import dev.frostguard.api.domain.OcrSettingsData;
 import dev.frostguard.api.domain.OcrSettingsData.TextLayout;
 import dev.frostguard.engine.nav.SearchConfigConstants;
+import dev.frostguard.engine.nav.SidebarSection;
+import dev.frostguard.engine.nav.SidebarViewportChangeDetector;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.ScheduleService;
 import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.vision.convert.GameTimeUtils;
+import dev.frostguard.vision.convert.ImageConverter;
 
 /**
  * Reads every on-screen countdown and records it, without performing any activity.
@@ -64,38 +71,19 @@ public class TimerSweepRoutine extends DelayedTask {
     }
 
     /**
-     * The rest of the city panel, reachable only by scrolling.
+     * Daily-tab scan bounds. The tab keeps whatever scroll offset it was left at, so the scan first
+     * rolls it back to the top and then pages down, reading each viewport.
      *
-     * <p><em>"the left menu, you're not scrolling down on it... that'll have all
-     * your tree timing and rewards and whatever else."</em> He was right — everything below the
-     * fold had never been looked at. One swipe reveals Alliance Contribution, both Hero Recruit
-     * timers, Pet Adventure, Tree of Life and the Labyrinth, which between them cover most of the
-     * automations that were still running on fixed offsets.</p>
+     * <p>The page step is under half the ~570 px viewport, so even with some drag momentum
+     * consecutive viewports overlap by more than a whole card and no row can fall between them.</p>
      */
-
-
-    /** Counters rather than countdowns — read for gating decisions, not scheduling. */
-    private static final Map<String, PointData[]> SCROLLED_PANEL_ROWS = new LinkedHashMap<>();
-
-    static {
-        SCROLLED_PANEL_ROWS.put("Hero Recruit (Advanced)", row(424));
-        SCROLLED_PANEL_ROWS.put("Hero Recruit (Epic)",     row(497));
-        SCROLLED_PANEL_ROWS.put("Pet Adventure",           row(611));
-    }
-
-    private static final PointData[] ALLIANCE_CONTRIBUTION_AREA =
-            { new PointData(130, 312), new PointData(325, 342) };
-    private static final PointData[] TREE_OF_LIFE_AREA =
-            { new PointData(130, 724), new PointData(330, 754) };
-
-    private static final java.util.regex.Pattern CONTRIBUTION =
-            java.util.regex.Pattern.compile("contribute\\s*(\\d+)\\s*/\\s*(\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE);
-    private static final java.util.regex.Pattern ESSENCE =
-            java.util.regex.Pattern.compile("available:\\s*([\\d,]+)\\s*/", java.util.regex.Pattern.CASE_INSENSITIVE);
-
-    /** Swipe that pulls the panel's lower half into view. */
-    private static final PointData SCROLL_FROM = new PointData(220, 780);
-    private static final PointData SCROLL_TO = new PointData(220, 400);
+    private static final PointData DAILY_PAGE_DOWN_FROM = new PointData(360, 780);
+    private static final PointData DAILY_PAGE_DOWN_TO = new PointData(360, 520);
+    private static final PointData DAILY_PAGE_UP_FROM = new PointData(360, 420);
+    private static final PointData DAILY_PAGE_UP_TO = new PointData(360, 820);
+    private static final int DAILY_SWIPE_MS = 500;
+    private static final int DAILY_MAX_TOP_SWIPES = 6;
+    private static final int DAILY_MAX_PAGES = 8;
 
     /**
      * Cover regions of the three tracked Chief Orders on the 2x3 shelf, calibrated from a live
@@ -133,7 +121,7 @@ public class TimerSweepRoutine extends DelayedTask {
      * the value is extracted rather than parsed whole, and the day separator is normalised back
      * from whatever the glyph was misread as.</p>
      */
-    private static Duration extractTimer(String raw) {
+    static Duration extractTimer(String raw) {
         if (raw == null) {
             return null;
         }
@@ -291,7 +279,7 @@ public class TimerSweepRoutine extends DelayedTask {
                 }
             }
 
-            recorded += sweepScrolledPanel();
+            recorded += sweepDailyPanel();
 
             marchHelper.closeLeftMenu();
 
@@ -345,104 +333,161 @@ public class TimerSweepRoutine extends DelayedTask {
     }
 
     /**
-     * Scrolls the panel and reads everything below the fold.
+     * Reads Alliance Contribution, Hero Recruit, Pet Adventure and the Tree of Life off the
+     * sidebar's Daily tab.
      *
-     * @return how many schedules were written from this half
+     * <p>These rows used to sit below the fold of the City tab, which is where this sweep still
+     * looked for them by swiping and reading fixed boxes. The redesigned sidebar moved them to
+     * Daily, so every pass landed on the City tab's Training rows, found neither anchor, and threw
+     * the timers away (or, worse, read a camp countdown out of the old Pet Adventure box). Each row
+     * is now found by its own title on a frame that measures as the Daily tab, so a value is only
+     * ever written under the label printed above it.</p>
+     *
+     * @return how many schedules were written from the Daily tab
      */
-    private int sweepScrolledPanel() {
-        swipe(SCROLL_FROM, SCROLL_TO);
+    private int sweepDailyPanel() {
+        if (!navigationHelper.openSidebarSection(SidebarSection.DAILY)) {
+            logWarning("Daily sidebar tab did not open — Hero Recruit, Pet Adventure and Alliance "
+                    + "Contribution are left unscheduled this pass.");
+            return 0;
+        }
         sleepTask(PANEL_SETTLE_MS);
 
-        // The scrolled rows are only trusted when the panel proves it is
-        // aligned. The Alliance Contribution row sits at a known position and has a distinctive
-        // "n/25" shape, so parsing it successfully is evidence every other row is where it
-        // should be. Without that check a drifted swipe once put the Hero Recruit countdown in
-        // the contribution slot — a wrong value that looks entirely valid. If the marker does
-        // not parse, the timers are logged and discarded rather than written.
-        // Two independent anchors, either of which proves the panel landed where expected. The
-        // 23:16 run read "Tree of Life available: 261" perfectly while the contribution row came
-        // back unreadable, and because alignment hung on the contribution alone the entire
-        // scrolled half was thrown away — which is why Pet Adventure sat finished and unclaimed
-        // through that whole run. Requiring both anchors was needlessly strict.
-        boolean aligned = false;
-
-        String contributionText = readPanelText(ALLIANCE_CONTRIBUTION_AREA);
-        if (contributionText != null) {
-            java.util.regex.Matcher marker = CONTRIBUTION.matcher(contributionText);
-            if (marker.find()) {
-                aligned = true;
-                logInfo("Alliance contribution: " + marker.group(1) + "/" + marker.group(2));
-                gateAllianceTech(Integer.parseInt(marker.group(1)), Integer.parseInt(marker.group(2)));
-            }
+        Map<DailyPanelReader.Card, DailyPanelReader.Reading> cards = scanDailyPanel();
+        if (cards == null) {
+            return 0;
         }
-
-        String tree = readPanelText(TREE_OF_LIFE_AREA);
-        if (tree != null && !tree.isBlank()) {
-            java.util.regex.Matcher m = ESSENCE.matcher(tree);
-            if (m.find()) {
-                aligned = true;
-                logInfo("Tree of Life available: " + m.group(1));
-            }
-        }
-
-        if (!aligned) {
-            logWarning("Neither scrolled-panel anchor was readable — its timers will be logged "
-                    + "but not scheduled this pass; "
-                    + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "timersweep", "anchors-unreadable"));
+        if (cards.isEmpty()) {
+            logWarning("Daily tab was open but none of its tracked rows could be read — nothing "
+                    + "scheduled from it this pass; "
+                    + TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "timersweep", "daily-unreadable"));
+            return 0;
         }
 
         int recorded = 0;
-        Duration earliestRecruit = null;
 
-        for (Map.Entry<String, PointData[]> row : SCROLLED_PANEL_ROWS.entrySet()) {
-            String label = row.getKey();
-            Duration remaining = readRowTimer(row.getValue());
-            if (remaining == null || remaining.compareTo(SANITY_CEILING) > 0) {
-                continue;
-            }
-
-            logInfo(String.format("%s: %s remaining%s.", label,
-                    GameTimeUtils.formatCountdown(LocalDateTime.now().plus(remaining)),
-                    aligned ? "" : " (observed only - panel unaligned)"));
-
-            if (!aligned) {
-                continue;
-            }
-
-            if (label.startsWith("Hero Recruit")) {
-                if (earliestRecruit == null || remaining.compareTo(earliestRecruit) < 0) {
-                    earliestRecruit = remaining;
-                }
-            } else if (label.equals("Pet Adventure")) {
-                // Caught live -- this countdown is the chest-completion timer on
-                // the left-menu panel, not a daily-attempts timer, so it has nothing to do with when
-                // fresh attempts become available. A read taken before daily reset (e.g. "14h36m
-                // remaining" at 19:34) got projected straight through reset into the next day
-                // (~10 AM), even though reset itself refreshes attempts hours sooner. Same class of
-                // bug already fixed for Intel's own refresh countdown (see IntelligenceRoutine's
-                // MAX_INTEL_REFRESH_MINUTES) -- clamp at the next daily reset (+ a couple minutes'
-                // buffer for the reset to actually land) so a stale pre-reset read can never push
-                // this past a reset that would have made it moot.
-                LocalDateTime naiveNext = LocalDateTime.now().plus(remaining);
-                LocalDateTime resetCeiling = GameTimeUtils.dailyResetTime().plusMinutes(2);
-                LocalDateTime next = naiveNext.isAfter(resetCeiling) ? resetCeiling : naiveNext;
-                if (next.isBefore(naiveNext)) {
-                    logInfo(String.format(
-                            "Pet Adventure countdown (%s) read before daily reset would run past reset "
-                                    + "(%s) -- capping there instead, since reset refreshes attempts anyway.",
-                            GameTimeUtils.formatCountdown(naiveNext), GameTimeUtils.formatCountdown(resetCeiling)));
-                }
-                applyScheduleAllowingEarlier(TpDailyTaskEnum.PET_ADVENTURE, next);
-                recorded++;
+        DailyPanelReader.Reading contribution = cards.get(DailyPanelReader.Card.ALLIANCE_CONTRIBUTION);
+        if (contribution != null) {
+            Optional<int[]> counts = DailyPanelReader.contribution(contribution.status());
+            if (counts.isPresent()) {
+                logInfo("Alliance contribution: " + counts.get()[0] + "/" + counts.get()[1]);
+                gateAllianceTech(counts.get()[0], counts.get()[1]);
+            } else {
+                logDebug("Alliance Contribution row found but its counter read '" + contribution.status() + "'.");
             }
         }
 
-        if (earliestRecruit != null) {
-            applySchedule(TpDailyTaskEnum.HERO_RECRUITMENT, LocalDateTime.now().plus(earliestRecruit));
+        DailyPanelReader.Reading tree = cards.get(DailyPanelReader.Card.TREE_OF_LIFE);
+        if (tree != null && tree.status() != null) {
+            logInfo("Tree of Life: " + tree.status());
+        }
+
+        Duration advanced = plausibleTimer(cards.get(DailyPanelReader.Card.HERO_RECRUIT_ADVANCED));
+        Duration epic = plausibleTimer(cards.get(DailyPanelReader.Card.HERO_RECRUIT_EPIC));
+        if (advanced != null) {
+            logInfo("Hero Recruit (Advanced): "
+                    + GameTimeUtils.formatCountdown(LocalDateTime.now().plus(advanced)) + " remaining.");
+        }
+        if (epic != null) {
+            logInfo("Hero Recruit (Epic): "
+                    + GameTimeUtils.formatCountdown(LocalDateTime.now().plus(epic)) + " remaining.");
+        }
+        // Recruitment is due as soon as either free pull is. A row with no countdown is "Free" or
+        // unread, and in both cases pushing the task out to the other row's timer would skip a pull
+        // that is available now, so a schedule is only written when both countdowns were read.
+        if (advanced != null && epic != null) {
+            Duration earliest = advanced.compareTo(epic) <= 0 ? advanced : epic;
+            applySchedule(TpDailyTaskEnum.HERO_RECRUITMENT, LocalDateTime.now().plus(earliest));
+            recorded++;
+        }
+
+        Duration pet = plausibleTimer(cards.get(DailyPanelReader.Card.PET_ADVENTURE));
+        if (pet != null) {
+            logInfo("Pet Adventure: " + GameTimeUtils.formatCountdown(LocalDateTime.now().plus(pet)) + " remaining.");
+            // Caught live -- this countdown is the chest-completion timer, not a daily-attempts
+            // timer, so it has nothing to do with when fresh attempts become available. A read
+            // taken before daily reset (e.g. "14h36m remaining" at 19:34) got projected straight
+            // through reset into the next day (~10 AM), even though reset itself refreshes attempts
+            // hours sooner. Same class of bug already fixed for Intel's own refresh countdown (see
+            // IntelligenceRoutine's MAX_INTEL_REFRESH_MINUTES) -- clamp at the next daily reset
+            // (+ a couple minutes' buffer for the reset to actually land) so a stale pre-reset read
+            // can never push this past a reset that would have made it moot.
+            LocalDateTime naiveNext = LocalDateTime.now().plus(pet);
+            LocalDateTime resetCeiling = GameTimeUtils.dailyResetTime().plusMinutes(2);
+            LocalDateTime next = naiveNext.isAfter(resetCeiling) ? resetCeiling : naiveNext;
+            if (next.isBefore(naiveNext)) {
+                logInfo(String.format(
+                        "Pet Adventure countdown (%s) read before daily reset would run past reset "
+                                + "(%s) -- capping there instead, since reset refreshes attempts anyway.",
+                        GameTimeUtils.formatCountdown(naiveNext), GameTimeUtils.formatCountdown(resetCeiling)));
+            }
+            applyScheduleAllowingEarlier(TpDailyTaskEnum.PET_ADVENTURE, next);
             recorded++;
         }
 
         return recorded;
+    }
+
+    /**
+     * Rolls the Daily list to its top, then pages down to its foot, reading every viewport.
+     *
+     * @return the tracked rows by card, or {@code null} when a frame stopped measuring as the
+     *         Daily tab partway through (nothing read from that scan is trusted)
+     */
+    private Map<DailyPanelReader.Card, DailyPanelReader.Reading> scanDailyPanel() {
+        RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+        for (int i = 0; i < DAILY_MAX_TOP_SWIPES && frame != null; i++) {
+            swipe(DAILY_PAGE_UP_FROM, DAILY_PAGE_UP_TO, DAILY_SWIPE_MS);
+            sleepTask(PANEL_SETTLE_MS);
+            RawImageData after = emuManager.captureScreen(EMULATOR_NUMBER);
+            boolean moved = after != null && viewportMoved(frame, after);
+            frame = after;
+            if (!moved) {
+                break;
+            }
+        }
+
+        List<List<DailyPanelReader.Reading>> viewports = new ArrayList<>();
+        for (int page = 0; page < DAILY_MAX_PAGES; page++) {
+            Optional<List<DailyPanelReader.Reading>> viewport = DailyPanelReader.read(frame);
+            if (viewport.isEmpty()) {
+                logWarning("Sidebar did not show the Daily tab while scanning it — nothing scheduled "
+                        + "from it this pass; " + (frame == null ? "no frame"
+                                : TaskDiagnosticSnapshots.saveAlways(frame, "timersweep", "daily-not-proven")));
+                return null;
+            }
+            viewports.add(viewport.get());
+            logDebug("Daily viewport " + (page + 1) + ": " + viewport.get());
+
+            swipe(DAILY_PAGE_DOWN_FROM, DAILY_PAGE_DOWN_TO, DAILY_SWIPE_MS);
+            sleepTask(PANEL_SETTLE_MS);
+            RawImageData after = emuManager.captureScreen(EMULATOR_NUMBER);
+            if (after == null || !viewportMoved(frame, after)) {
+                break;
+            }
+            frame = after;
+        }
+        return DailyPanelReader.merge(viewports);
+    }
+
+    private static boolean viewportMoved(RawImageData before, RawImageData after) {
+        try {
+            return SidebarViewportChangeDetector.materiallyChanged(
+                    ImageConverter.toBufferedImage(before), ImageConverter.toBufferedImage(after));
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private Duration plausibleTimer(DailyPanelReader.Reading reading) {
+        if (reading == null || reading.timer() == null) {
+            return null;
+        }
+        if (reading.timer().compareTo(SANITY_CEILING) > 0) {
+            logWarning("Discarding implausible " + reading.card() + " read of " + reading.timer() + ".");
+            return null;
+        }
+        return reading.timer();
     }
 
     /**
