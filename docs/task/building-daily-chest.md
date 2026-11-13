@@ -9,15 +9,18 @@ bag, vinyl a mystery chest.
 Vinyl Shop's own panel offers Daily Rewards (an info table of the reward pool by furnace level,
 not a claim) and Play Vinyl (not yet explored). Bakery and Milk Tea panels are unexplored.
 
-Navigation is the fragile part. The shops are not in the Shop footer or the sidebar rows, and the city
-camera stays wherever the last routine left it. `World` then `Return to City` does not recenter.
-The routine therefore looks at the current view, then makes a bounded 12-pan spiral. It stops at the
-first bubble. A bubble that is not found is unknown, not claimed: the recheck is 3 hours, never the
-next reset. A claim counts only if the bubble is gone after the popup is dismissed; otherwise it
-retries in 1 hour. A successful claim reschedules to the next UTC midnight plus a 2-12 minute pad.
+Navigation: the shops are not in the Shop footer or in any sidebar tab (City, Wilderness, Daily
+checked live 2026-11-13), and `World` then `Return to City` does not recenter. The city map has hard
+edges: dragging finger-down 26 times pins the north (static fog, frame change 0.5 against noise) and
+finger-left 30 times pins the east, and the south also clamps. From that north-east corner, drags of 400
+px at 1000 ms repeat to about 100 px. Two steps south and three west shows the Bakery and Milk Tea at the
+top-left; one step north centres the Milk Tea; two more west and one north bring in the Vinyl Shop. The
+routine searches for the bubble after each of those stops. A bubble that is not found is unknown, not
+claimed: recheck in 3 hours, never the next reset. A claim counts only if the bubble is gone after the
+popup is dismissed; otherwise it retries in 1 hour. A success reschedules to the next UTC midnight plus
+2-12 minutes.
 
 The template is the chest only, cut from the vinyl bubble. Across frames not used for the cut it scores
 93-97 against 51-60 without a bubble; the threshold is 85.
 
-Not yet verified: that the 12-pan spiral reaches the shops from an arbitrary starting camera, and the
-routine on a live run. Saved-frame coverage is the bubble template only.
+Not yet verified: the routine end to end on a live run. The route was walked by hand, not by the routine. Saved-frame coverage is the bubble template only.

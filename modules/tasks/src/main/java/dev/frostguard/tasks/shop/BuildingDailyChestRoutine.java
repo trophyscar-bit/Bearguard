@@ -35,32 +35,37 @@ public class BuildingDailyChestRoutine extends DelayedTask {
     private static final int PAN_SETTLE_MS = 1500;
     private static final int CLAIM_ATTEMPTS = 2;
 
-    // Panning stays clear of the HUD and the bottom bar, and each pan moves about two thirds of a screen
-    // so consecutive views overlap.
-    private static final int PAN_DISTANCE = 420;
-    private static final int PAN_Y = 640;
-    private static final int PAN_X_NEAR = 150;
-    private static final int PAN_X_FAR = PAN_X_NEAR + PAN_DISTANCE;
+    // The city map has hard edges (north shows static fog, south a clamp), so enough drags toward the
+    // north-east corner always land on the same view. The three shops stand together a few steps west of it.
+    // Drags repeat to about 100 px, so each stop is searched rather than assumed.
+    private static final int ANCHOR_DRAGS_NORTH = 26;
+    private static final int ANCHOR_DRAGS_EAST = 30;
+    private static final int ANCHOR_DRAG_MS = 250;
+    private static final int STEP_DRAG_MS = 1000;
 
-    private enum Pan {
-        LEFT(PAN_X_FAR, PAN_Y, PAN_X_NEAR, PAN_Y),
-        RIGHT(PAN_X_NEAR, PAN_Y, PAN_X_FAR, PAN_Y),
-        UP(360, 800, 360, 800 - PAN_DISTANCE),
-        DOWN(360, 380, 360, 380 + PAN_DISTANCE);
+    private static final PointData NORTH_FROM = new PointData(360, 250);
+    private static final PointData NORTH_TO = new PointData(360, 1000);
+    private static final PointData EAST_FROM = new PointData(650, 640);
+    private static final PointData EAST_TO = new PointData(70, 640);
 
-        final PointData from;
-        final PointData to;
+    // One step is a 400 px drag: view south, view west, view north.
+    private static final PointData SOUTH_FROM = new PointData(360, 900);
+    private static final PointData SOUTH_TO = new PointData(360, 500);
+    private static final PointData WEST_FROM = new PointData(200, 640);
+    private static final PointData WEST_TO = new PointData(600, 640);
 
-        Pan(int fx, int fy, int tx, int ty) {
-            this.from = new PointData(fx, fy);
-            this.to = new PointData(tx, ty);
-        }
-    }
+    private record Step(PointData from, PointData to, boolean search) {}
 
-    // Expanding square spiral around the starting view, then back toward it: 12 pans, each view overlapping.
-    private static final Pan[] SCAN = {
-            Pan.LEFT, Pan.DOWN, Pan.RIGHT, Pan.RIGHT, Pan.UP, Pan.UP,
-            Pan.LEFT, Pan.LEFT, Pan.LEFT, Pan.DOWN, Pan.DOWN, Pan.DOWN
+    // From the corner: two south, three west puts the Bakery and Milk Tea at the top-left; then north,
+    // west, west, north walks past the Bakery to the Vinyl Shop (frames saved 2026-11-13).
+    private static final Step[] ROUTE = {
+            new Step(SOUTH_FROM, SOUTH_TO, false), new Step(SOUTH_FROM, SOUTH_TO, false),
+            new Step(WEST_FROM, WEST_TO, false), new Step(WEST_FROM, WEST_TO, false),
+            new Step(WEST_FROM, WEST_TO, true),
+            new Step(SOUTH_TO, SOUTH_FROM, true),
+            new Step(WEST_FROM, WEST_TO, true),
+            new Step(WEST_FROM, WEST_TO, true),
+            new Step(SOUTH_TO, SOUTH_FROM, true)
     };
 
     public BuildingDailyChestRoutine(AccountDescriptor profile, TpDailyTaskEnum tpDailyTask) {
@@ -81,8 +86,8 @@ public class BuildingDailyChestRoutine extends DelayedTask {
     protected void execute() {
         ImageSearchResultData bubble = findBubbleWithScan();
         if (!bubble.isFound()) {
-            logWarning(logLine("No daily chest bubble found in the current view or after " + SCAN.length
-                    + " pans. Unknown, not claimed: this is either already claimed today or the shops are outside the area searched."
+            logWarning(logLine("No daily chest bubble found in the current view or after the "
+                    + ROUTE.length + "-step route from the north-east corner. Unknown, not claimed: this is either already claimed today or the shops are outside the area searched."
                     + " Rechecking in " + BuildingDailyChestSchedule.UNKNOWN_RECHECK.toHours() + " hours."));
             reschedule(BuildingDailyChestSchedule.recheck(
                     Instant.now(), BuildingDailyChestSchedule.UNKNOWN_RECHECK, ZoneId.systemDefault()));
@@ -111,14 +116,27 @@ public class BuildingDailyChestRoutine extends DelayedTask {
             logInfo(logLine("Chest bubble in the starting view (" + hit.getMatchScore() + "%)."));
             return hit;
         }
-        for (int step = 0; step < SCAN.length; step++) {
-            Pan pan = SCAN[step];
-            swipe(pan.from, pan.to, 500);
+        logInfo(logLine("No bubble in the starting view; dragging to the north-east corner of the city map."));
+        for (int i = 0; i < ANCHOR_DRAGS_NORTH; i++) {
+            swipe(NORTH_FROM, NORTH_TO, ANCHOR_DRAG_MS);
+            sleepTask(400);
+        }
+        for (int i = 0; i < ANCHOR_DRAGS_EAST; i++) {
+            swipe(EAST_FROM, EAST_TO, ANCHOR_DRAG_MS);
+            sleepTask(400);
+        }
+        sleepTask(PAN_SETTLE_MS);
+        for (int step = 0; step < ROUTE.length; step++) {
+            Step s = ROUTE[step];
+            swipe(s.from(), s.to(), STEP_DRAG_MS);
             sleepTask(PAN_SETTLE_MS);
+            if (!s.search()) {
+                continue;
+            }
             hit = templateSearchHelper.locatePattern(TemplatesEnum.BUILDING_DAILY_CHEST, BUBBLE_SEARCH);
             if (hit.isFound()) {
-                logInfo(logLine("Chest bubble found after pan " + (step + 1) + "/" + SCAN.length + " "
-                        + pan + " (" + hit.getMatchScore() + "%)."));
+                logInfo(logLine("Chest bubble found at route step " + (step + 1) + "/" + ROUTE.length
+                        + " (" + hit.getMatchScore() + "%)."));
                 return hit;
             }
         }
