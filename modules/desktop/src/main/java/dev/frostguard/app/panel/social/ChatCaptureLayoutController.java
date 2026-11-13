@@ -56,7 +56,7 @@ public class ChatCaptureLayoutController extends AbstractProfileController {
         checkBoxMappings.put(checkBoxChatIncludeAlliance, ConfigurationKeyEnum.CHAT_CAPTURE_INCLUDE_ALLIANCE_BOOL);
         checkBoxMappings.put(checkBoxChatFilterNoise, ConfigurationKeyEnum.CHAT_CAPTURE_FILTER_NOISE_BOOL);
 
-        comboBoxChatFrequency.getItems().addAll(15, 30, 45, 60, 90, 120);
+        comboBoxChatFrequency.getItems().addAll(15, 30, 45, 60, 75, 90, 120);
         comboBoxChatFrequency.setCellFactory(lv -> minutesCell());
         comboBoxChatFrequency.setButtonCell(minutesCell());
         comboBoxMappings.put(comboBoxChatFrequency, ConfigurationKeyEnum.CHAT_CAPTURE_FREQUENCY_MINUTES_INT);
