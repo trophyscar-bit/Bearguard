@@ -84,7 +84,7 @@ public class RedDotSweepRoutine extends DelayedTask {
             new CoveredTab(TemplatesEnum.EVENTS_TAB_HALL_OF_CHIEFS, TpDailyTaskEnum.EVENT_HALL_OF_CHIEFS),
             new CoveredTab(TemplatesEnum.EVENTS_TAB_DEFEAT_BEASTS, TpDailyTaskEnum.EVENT_DEFEAT_BEASTS),
             new CoveredTab(TemplatesEnum.EVENTS_TAB_BROTHERS_IN_ARMS, TpDailyTaskEnum.EVENT_BROTHERS_IN_ARMS),
-            new CoveredTab(TemplatesEnum.EVENTS_TAB_HERO_RALLY, TpDailyTaskEnum.EVENT_HERO_RALLY_CLAIM),
+            new CoveredTab(TemplatesEnum.HERO_RALLY_DEALS_TAB, TpDailyTaskEnum.EVENT_HERO_RALLY_CLAIM),
             new CoveredTab(TemplatesEnum.EVENTS_TAB_LUCKY_WHEEL, TpDailyTaskEnum.EVENT_LUCKY_CHIP_SUPPLY),
             new CoveredTab(TemplatesEnum.DEAD_SHOT_TAB, TpDailyTaskEnum.EVENT_DEAD_SHOT_SIGN_IN),
             new CoveredTab(TemplatesEnum.FORTUNE_HUT_TAB, TpDailyTaskEnum.EVENT_FORTUNE_HUT),

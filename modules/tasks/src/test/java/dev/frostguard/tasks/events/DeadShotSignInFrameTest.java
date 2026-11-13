@@ -119,8 +119,8 @@ class DeadShotSignInFrameTest {
     void aStripThatDidNotMoveReadsStill() throws Exception {
         BufferedImage frozen = image("deals-other-tab.png");
         BufferedImage selected = image("dead-shot-page.png");
-        assertFalse(DeadShotSignInRoutine.stripMoved(frozen, frozen));
-        assertTrue(DeadShotSignInRoutine.stripMoved(frozen, selected));
+        assertFalse(DealsTabStrip.stripMoved(frozen, frozen));
+        assertTrue(DealsTabStrip.stripMoved(frozen, selected));
     }
 
     @Test

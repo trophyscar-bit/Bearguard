@@ -232,11 +232,12 @@ final class RedDotVision {
         return Math.max(lo, Math.min(hi, v));
     }
 
-    private interface PixelTest {
+    interface PixelTest {
         boolean matches(int rgb);
     }
 
-    private static List<Blob> components(BufferedImage img, AreaData area, PixelTest test) {
+    /** Every 4-connected run of pixels passing {@code test} inside {@code area}, in reading order. */
+    static List<Blob> components(BufferedImage img, AreaData area, PixelTest test) {
         int x0 = Math.max(0, area.topLeft().getX());
         int y0 = Math.max(0, area.topLeft().getY());
         int x1 = Math.min(img.getWidth() - 1, area.bottomRight().getX());

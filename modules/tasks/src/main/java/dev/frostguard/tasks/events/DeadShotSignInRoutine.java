@@ -72,12 +72,6 @@ public class DeadShotSignInRoutine extends DelayedTask {
     private static final int GLOW_LOOK_DELAY_MS = 500;
     private static final int MAX_CLAIMS = 12;
 
-    private static final int MAX_STRIP_SWIPES = 20;
-    private static final int STRIP_SWIPE_MS = 600;
-    private static final int STRIP_SETTLE_MS = 1200;
-    private static final int STILL_SWIPES_FOR_END = 2;
-    private static final double STILL_MEAN_DIFF = 3.0;
-
     private static final int PANEL_SETTLE_MS = 2000;
     private static final int PAGE_SETTLE_MS = 1500;
     private static final int CLAIM_SETTLE_MS = 2500;
@@ -248,39 +242,10 @@ public class DeadShotSignInRoutine extends DelayedTask {
         }
     }
 
-    /**
-     * Looks where the strip opened, then walks it toward its right end and back toward its start. A
-     * direction ends when two swipes in a row leave the strip still.
-     */
+    /** Walks the Deals strip both ways for the Dead Shot tab; see {@link DealsTabStrip}. */
     private ImageSearchResultData findTab() {
-        ImageSearchResultData tab = locateTab();
-        if (tab.isFound()) {
-            return tab;
-        }
-        for (boolean towardEnd : new boolean[] {true, false}) {
-            int still = 0;
-            for (int swipe = 0; swipe < MAX_STRIP_SWIPES && still < STILL_SWIPES_FOR_END; swipe++) {
-                Optional<BufferedImage> before = frame();
-                if (towardEnd) {
-                    swipe(CommonGameAreas.DEALS_TAB_STRIP_SWIPE_FROM, CommonGameAreas.DEALS_TAB_STRIP_SWIPE_TO,
-                            STRIP_SWIPE_MS);
-                } else {
-                    swipe(CommonGameAreas.DEALS_TAB_STRIP_SWIPE_TO, CommonGameAreas.DEALS_TAB_STRIP_SWIPE_FROM,
-                            STRIP_SWIPE_MS);
-                }
-                sleepTask(STRIP_SETTLE_MS);
-                tab = locateTab();
-                if (tab.isFound()) {
-                    return tab;
-                }
-                Optional<BufferedImage> after = frame();
-                if (before.isEmpty() || after.isEmpty()) {
-                    return tab;
-                }
-                still = stripMoved(before.get(), after.get()) ? 0 : still + 1;
-            }
-        }
-        return tab;
+        return DealsTabStrip.find(DealsTabStrip.walker(this, this::locateTab, this::frame,
+                () -> sleepTask(DealsTabStrip.SETTLE_MS)));
     }
 
     private ImageSearchResultData locateTab() {
@@ -475,23 +440,6 @@ public class DeadShotSignInRoutine extends DelayedTask {
             }
         }
         return count >= DOT_MIN_PIXELS;
-    }
-
-    static boolean stripMoved(BufferedImage before, BufferedImage after) {
-        AreaData strip = CommonGameAreas.DEALS_TAB_STRIP;
-        long total = 0;
-        int samples = 0;
-        for (int y = strip.topLeft().getY(); y <= strip.bottomRight().getY(); y += 2) {
-            for (int x = strip.topLeft().getX(); x <= strip.bottomRight().getX(); x += 2) {
-                int a = before.getRGB(x, y);
-                int b = after.getRGB(x, y);
-                total += Math.abs(((a >> 16) & 0xFF) - ((b >> 16) & 0xFF))
-                        + Math.abs(((a >> 8) & 0xFF) - ((b >> 8) & 0xFF))
-                        + Math.abs((a & 0xFF) - (b & 0xFF));
-                samples += 3;
-            }
-        }
-        return samples > 0 && (double) total / samples >= STILL_MEAN_DIFF;
     }
 
     private static SearchConfig search(AreaData area, int attempts) {

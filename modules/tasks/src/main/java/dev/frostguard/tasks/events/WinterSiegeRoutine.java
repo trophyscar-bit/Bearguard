@@ -83,9 +83,6 @@ public class WinterSiegeRoutine extends DelayedTask {
     private static final int CLAIM_HALF_WIDTH = 60;
     private static final int CLAIM_HALF_HEIGHT = 22;
     private static final int CLAIM_MIN_GREEN_PIXELS = 1500;
-    private static final int MAX_STRIP_SWIPES = 20;
-    private static final int STRIP_SWIPE_MS = 600;
-    private static final int STILL_SWIPES_FOR_END = 2;
     private static final int PANEL_SETTLE_MS = 2000;
     private static final int MAP_SETTLE_MS = 3500;
     private static final int STRIP_SETTLE_MS = 1200;
@@ -288,36 +285,10 @@ public class WinterSiegeRoutine extends DelayedTask {
         }
     }
 
-    /** Walks the strip toward its right end and back; a direction ends after two swipes that move nothing. */
+    /** Walks the strip both ways for the Winter Siege tab; see {@link DealsTabStrip}. */
     private ImageSearchResultData findTab() {
-        ImageSearchResultData tab = locateTab();
-        if (tab.isFound()) {
-            return tab;
-        }
-        for (boolean towardEnd : new boolean[] {true, false}) {
-            int still = 0;
-            for (int swipe = 0; swipe < MAX_STRIP_SWIPES && still < STILL_SWIPES_FOR_END; swipe++) {
-                Optional<BufferedImage> before = frame();
-                if (towardEnd) {
-                    swipe(CommonGameAreas.DEALS_TAB_STRIP_SWIPE_FROM, CommonGameAreas.DEALS_TAB_STRIP_SWIPE_TO,
-                            STRIP_SWIPE_MS);
-                } else {
-                    swipe(CommonGameAreas.DEALS_TAB_STRIP_SWIPE_TO, CommonGameAreas.DEALS_TAB_STRIP_SWIPE_FROM,
-                            STRIP_SWIPE_MS);
-                }
-                sleepTask(STRIP_SETTLE_MS);
-                tab = locateTab();
-                if (tab.isFound()) {
-                    return tab;
-                }
-                Optional<BufferedImage> after = frame();
-                if (before.isEmpty() || after.isEmpty()) {
-                    return tab;
-                }
-                still = DeadShotSignInRoutine.stripMoved(before.get(), after.get()) ? 0 : still + 1;
-            }
-        }
-        return tab;
+        return DealsTabStrip.find(DealsTabStrip.walker(this, this::locateTab, this::frame,
+                () -> sleepTask(DealsTabStrip.SETTLE_MS)));
     }
 
     private ImageSearchResultData locateTab() {
