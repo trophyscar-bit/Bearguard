@@ -23,11 +23,11 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxJourneyofLightAssemblePremium, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour, checkBoxMergeventure, checkBoxMergeventureBoard,
         checkBoxMergeventureUseMax, checkBoxMergeventureMissions, checkBoxMergeventureAtlasPath,
         checkBoxMergeventureHarvest, checkBoxMergeventureCaravan, checkBoxMergeventureSaveSojourner, checkBoxSignInEarn, checkBoxWanderTheater, checkBoxWanderTheaterRally,
-        checkBoxWanderTheaterExplore, checkBoxDeadShotSignIn, checkBoxWinterSiege, checkBoxFacilityJoin, checkBoxFacilityRecall;
+        checkBoxWanderTheaterExplore, checkBoxDeadShotSignIn, checkBoxWinterSiege, checkBoxFortuneHut, checkBoxFortuneHutPlay, checkBoxFacilityJoin, checkBoxFacilityRecall;
 
     @FXML
     private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours,
-        textfieldWanderTheaterReserve, textfieldWanderTheaterRunHour;
+        textfieldWanderTheaterReserve, textfieldWanderTheaterRunHour, textfieldFortuneHutSpendHours, textfieldFortuneHutWish;
 
     @FXML
     private ComboBox<Integer> comboBoxMercenaryFlag, comboBoxHeroMissionFlag, comboBoxWanderTheaterRallyFlag;
@@ -90,6 +90,10 @@ public class EventsLayoutController extends AbstractProfileController {
         comboBoxMappings.put(comboBoxWanderTheaterRallyFlag, ConfigurationKeyEnum.WANDER_THEATER_RALLY_FLAG_INT);
         checkBoxMappings.put(checkBoxDeadShotSignIn, ConfigurationKeyEnum.DEAD_SHOT_SIGN_IN_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxWinterSiege, ConfigurationKeyEnum.WINTER_SIEGE_ENABLED_BOOL);
+        checkBoxMappings.put(checkBoxFortuneHut, ConfigurationKeyEnum.FORTUNE_HUT_ENABLED_BOOL);
+        checkBoxMappings.put(checkBoxFortuneHutPlay, ConfigurationKeyEnum.FORTUNE_HUT_PLAY_BOOL);
+        textFieldMappings.put(textfieldFortuneHutSpendHours, ConfigurationKeyEnum.FORTUNE_HUT_SPEND_HOURS_BEFORE_END_INT);
+        textFieldMappings.put(textfieldFortuneHutWish, ConfigurationKeyEnum.FORTUNE_HUT_WISH_INT);
         // Fortress / Stronghold joiner: no schedule of its own, the event calendar says when it runs.
         checkBoxMappings.put(checkBoxFacilityJoin, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxFacilityRecall, ConfigurationKeyEnum.FACILITY_RALLY_JOIN_RECALL_BOOL);
@@ -127,6 +131,11 @@ public class EventsLayoutController extends AbstractProfileController {
         textFieldFacilityWatch.disableProperty().bind(checkBoxFacilityJoin.selectedProperty().not());
         textfieldMergeventureSpendHours.disableProperty().bind(
             checkBoxMergeventure.selectedProperty().not().or(checkBoxMergeventureCaravan.selectedProperty().not()));
+        checkBoxFortuneHutPlay.disableProperty().bind(checkBoxFortuneHut.selectedProperty().not());
+        textfieldFortuneHutSpendHours.disableProperty().bind(
+            checkBoxFortuneHut.selectedProperty().not().or(checkBoxFortuneHutPlay.selectedProperty().not()));
+        textfieldFortuneHutWish.disableProperty().bind(
+            checkBoxFortuneHut.selectedProperty().not().or(checkBoxFortuneHutPlay.selectedProperty().not()));
         checkBoxWanderTheaterRally.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());
         checkBoxWanderTheaterExplore.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());
         textfieldWanderTheaterRunHour.disableProperty().bind(checkBoxWanderTheater.selectedProperty().not());

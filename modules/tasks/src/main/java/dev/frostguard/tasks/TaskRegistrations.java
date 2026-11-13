@@ -78,6 +78,7 @@ public class TaskRegistrations {
             case EVENT_WANDER_THEATER -> new WanderTheaterRoutine(profile, type);
             case EVENT_DEAD_SHOT_SIGN_IN -> new DeadShotSignInRoutine(profile, type);
             case EVENT_WINTER_SIEGE -> new WinterSiegeRoutine(profile, type);
+            case EVENT_FORTUNE_HUT -> new FortuneHutRoutine(profile, type);
             case SHOP_CUSTOM_ARMAMENT_CHEST -> new CustomArmamentChestRoutine(profile, type);
             case SHOP_DAILY_DEALS_FREE_CHEST -> new DailyDealsFreeChestRoutine(profile, type);
             case RESEARCH -> new ResearchRoutine(profile, type);

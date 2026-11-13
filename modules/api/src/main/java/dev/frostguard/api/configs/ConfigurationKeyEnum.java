@@ -623,6 +623,11 @@ public enum ConfigurationKeyEnum {
 
     WINTER_SIEGE_ENABLED_BOOL            ("false",   Boolean.class,  ConfigCategory.EVENTS),
 
+    FORTUNE_HUT_ENABLED_BOOL             ("false",   Boolean.class,  ConfigCategory.EVENTS),
+    FORTUNE_HUT_PLAY_BOOL                ("true",    Boolean.class,  ConfigCategory.EVENTS),
+    FORTUNE_HUT_WISH_INT                 ("1",       Integer.class,  ConfigCategory.EVENTS),
+    FORTUNE_HUT_SPEND_HOURS_BEFORE_END_INT ("6",     Integer.class,  ConfigCategory.EVENTS),
+
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
     // weeks) -- checked once a day, no-ops when nothing's there.
