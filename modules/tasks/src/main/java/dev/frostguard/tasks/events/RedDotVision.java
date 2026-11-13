@@ -56,6 +56,13 @@ final class RedDotVision {
     static final int DOT_MAX_PIXELS = 230;
     static final double DOT_MIN_FILL = 0.55;
 
+    static final int TICK_MIN_WIDTH = 18;
+    static final int TICK_MAX_WIDTH = 28;
+    static final int TICK_MIN_HEIGHT = 13;
+    static final int TICK_MAX_HEIGHT = 20;
+    static final int TICK_MIN_PIXELS = 100;
+    static final int TICK_MAX_PIXELS = 220;
+
     static final int BUTTON_MIN_WIDTH = 90;
     static final int BUTTON_MAX_WIDTH = 320;
     static final int BUTTON_MIN_HEIGHT = 36;
@@ -83,6 +90,14 @@ final class RedDotVision {
         int g = (rgb >> 8) & 0xFF;
         int b = rgb & 0xFF;
         return r >= 220 && g <= 70 && b <= 70;
+    }
+
+    /** The light green tick of a ticked checkbox, (115,236,89) on the Caravan's "Tip" box. */
+    static boolean isTickGreen(int rgb) {
+        int r = (rgb >> 16) & 0xFF;
+        int g = (rgb >> 8) & 0xFF;
+        int b = rgb & 0xFF;
+        return Math.abs(r - 115) <= 12 && Math.abs(g - 236) <= 10 && Math.abs(b - 89) <= 12;
     }
 
     static boolean isButtonGreen(int rgb) {
@@ -118,6 +133,22 @@ final class RedDotVision {
             }
         }
         return buttons;
+    }
+
+    /**
+     * Ticked checkboxes inside {@code area}: a tick glyph about 23x17 px with 150 pixels. The claim pill and its
+     * green item frames are a different green and far larger.
+     */
+    static List<Blob> ticks(BufferedImage img, AreaData area) {
+        List<Blob> ticks = new ArrayList<>();
+        for (Blob blob : components(img, area, RedDotVision::isTickGreen)) {
+            if (blob.width() >= TICK_MIN_WIDTH && blob.width() <= TICK_MAX_WIDTH
+                    && blob.height() >= TICK_MIN_HEIGHT && blob.height() <= TICK_MAX_HEIGHT
+                    && blob.pixels() >= TICK_MIN_PIXELS && blob.pixels() <= TICK_MAX_PIXELS) {
+                ticks.add(blob);
+            }
+        }
+        return ticks;
     }
 
     /** True when the tab whose dot is {@code dot} is the selected (white) one. */

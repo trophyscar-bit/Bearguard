@@ -142,6 +142,30 @@ class RedDotSweepFrameTest {
                 CommonGameAreas.DEALS_HEADER).isFound());
     }
 
+    @Test
+    void aTickedTipBoxIsFoundBesideItsLabelAndAnUntickedOneIsNot() throws Exception {
+        BufferedImage ticked = image("caravan-tip-ticked.png");
+        List<Blob> ticks = RedDotVision.ticks(ticked, CONTENT);
+        assertEquals(1, ticks.size());
+        Blob tick = ticks.get(0);
+        assertEquals(659, tick.centerX(), 6);
+        assertEquals(498, tick.centerY(), 6);
+        AreaData labelBox = AreaData.of(tick.left() - 90, tick.top() - 18, tick.left() - 2, tick.bottom() + 18);
+        assertTrue(find("caravan-tip-ticked.png", TemplatesEnum.TIPS_LABEL, labelBox).isFound());
+        assertTrue(RedDotVision.ticks(image("caravan-tip-unticked.png"), CONTENT).isEmpty());
+        assertTrue(find("caravan-tip-unticked.png", TemplatesEnum.TIPS_LABEL, labelBox).isFound(),
+                "the label stays when the box is empty, so the box is only tapped while the tick shows");
+    }
+
+    @Test
+    void noTipsBoxOrTickShowsOnTheEventsDealsAndGemShopFrames() throws Exception {
+        for (String name : new String[] {"events-officer-project-claimable.png", "deals-top-up-dot-on-dead-shot.png",
+                "gem-shop-daily-deals-dots.png", "gem-shop-custom-chest-no-dot.png"}) {
+            assertTrue(RedDotVision.ticks(image(name), CONTENT).isEmpty(), name);
+            assertFalse(find(name, TemplatesEnum.TIPS_LABEL, AreaData.of(300, 200, 719, 1245)).isFound(), name);
+        }
+    }
+
     private ImageSearchResultData find(String name, TemplatesEnum template, AreaData area) throws IOException {
         return OpenCvPatternLocator.locatePattern(bytes(name), template.getTemplate(),
                 area.topLeft(), area.bottomRight(), 85);

@@ -66,6 +66,8 @@ public class RedDotSweepRoutine extends DelayedTask {
     private static final double STILL_STRIP_DIFF = 3.0;
     private static final double STILL_LIST_DIFF = 2.0;
     private static final int BUTTON_BOX_MARGIN = 8;
+    private static final int TIP_LABEL_REACH = 90;
+    private static final int TIP_SETTLE_MS = 1200;
     private static final int TAB_BOX_HALF_WIDTH = 105;
 
     /** The templates that name a free claim. Anything else green is not tapped. */
@@ -92,6 +94,7 @@ public class RedDotSweepRoutine extends DelayedTask {
     private int claimed;
     private int skippedTabs;
     private int unknownDots;
+    private int tipsCleared;
     private boolean snapshotTaken;
     private final List<int[]> visitedTabs = new ArrayList<>();
 
@@ -109,6 +112,7 @@ public class RedDotSweepRoutine extends DelayedTask {
         claimed = 0;
         skippedTabs = 0;
         unknownDots = 0;
+        tipsCleared = 0;
         snapshotTaken = false;
         logDedicatedPanels();
         Outcome outcome = Outcome.CLEAN;
@@ -122,6 +126,9 @@ public class RedDotSweepRoutine extends DelayedTask {
         if (claimed > 0) {
             StatisticsService.obtain().addToCounter(profile, "Red-dot Sweep Claimed", claimed);
         }
+        if (tipsCleared > 0) {
+            StatisticsService.obtain().addToCounter(profile, "Red-dot Sweep Tips Cleared", tipsCleared);
+        }
         failedAttempts = outcome == Outcome.UNKNOWN ? failedAttempts + 1 : 0;
         if (outcome == Outcome.UNKNOWN) {
             reportFailedAttempt("Red-dot sweep ended on a screen it did not expect");
@@ -130,7 +137,7 @@ public class RedDotSweepRoutine extends DelayedTask {
                 ThreadLocalRandom.current().nextInt(RedDotSweepPolicy.RESET_JITTER_MAX_MINUTES + 1),
                 outcome, failedAttempts);
         logInfo("Red-dot sweep: " + outcome + ", claimed " + claimed + ", skipped " + skippedTabs
-                + " covered or unnamed tab(s), " + unknownDots + " unexplained dot(s). Next pass at "
+                + " covered or unnamed tab(s), unticked " + tipsCleared + " Tips box(es), " + unknownDots + " unexplained dot(s). Next pass at "
                 + next.format(DATETIME_FORMATTER) + ".");
         rescheduleExact(next);
     }
@@ -276,6 +283,9 @@ public class RedDotSweepRoutine extends DelayedTask {
                     + snapshot(panel, "label-" + verdict.name().toLowerCase()));
             return Outcome.CLEAN;
         }
+        if (clearTips(panel, where) == Outcome.UNKNOWN) {
+            return Outcome.UNKNOWN;
+        }
         for (int scroll = 0; scroll <= MAX_SCROLLS_PER_PAGE; scroll++) {
             Outcome claims = claimVisibleButtons(panel, where);
             if (claims == Outcome.UNKNOWN) {
@@ -294,6 +304,39 @@ public class RedDotSweepRoutine extends DelayedTask {
                 reportUnexplainedDots(panel, after, where);
                 break;
             }
+        }
+        return Outcome.CLEAN;
+    }
+
+    /**
+     * A ticked "Tip" checkbox keeps a red dot on its page without any claim waiting. A tick counts only with
+     * the Tip label template right beside it, and only that box is tapped: it is a reminder switch, not a
+     * claim, and unticking it is what clears the dot. Any other ticked box is left alone.
+     */
+    private Outcome clearTips(Panel panel, String where) {
+        Optional<BufferedImage> page = frame();
+        if (page.isEmpty()) {
+            return Outcome.UNKNOWN;
+        }
+        for (Blob tick : RedDotVision.ticks(page.get(), CONTENT_AREA)) {
+            AreaData labelBox = AreaData.of(Math.max(0, tick.left() - TIP_LABEL_REACH), Math.max(0, tick.top() - 18),
+                    Math.max(0, tick.left() - 2), Math.min(1279, tick.bottom() + 18));
+            if (!templateSearchHelper.locatePattern(TemplatesEnum.TIPS_LABEL, search(labelBox, 1)).isFound()) {
+                continue;
+            }
+            logInfo(panel.label() + " " + where + ": a ticked Tip box at (" + tick.centerX() + "," + tick.centerY()
+                    + ") is keeping a red dot on; unticking it. It is a reminder switch, not a claim.");
+            tapNear(new PointData(tick.centerX(), tick.centerY()), 4);
+            sleepTask(TIP_SETTLE_MS);
+            Optional<BufferedImage> after = frame();
+            if (after.isPresent() && RedDotVision.ticks(after.get(), CONTENT_AREA).stream()
+                    .anyMatch(t -> Math.abs(t.centerX() - tick.centerX()) <= 10
+                            && Math.abs(t.centerY() - tick.centerY()) <= 10)) {
+                logWarning(panel.label() + " " + where + ": the Tip box is still ticked after the tap; "
+                        + snapshot(panel, "tip-still-ticked"));
+                return Outcome.UNKNOWN;
+            }
+            tipsCleared++;
         }
         return Outcome.CLEAN;
     }
