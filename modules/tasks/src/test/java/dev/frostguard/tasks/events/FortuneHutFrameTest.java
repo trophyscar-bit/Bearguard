@@ -116,6 +116,35 @@ class FortuneHutFrameTest {
     }
 
     @Test
+    void theBoardResetIsTappableOnlyWhileItReadsFree() throws Exception {
+        assertTrue(find("board-wish-found-reset-free.png", TemplatesEnum.FORTUNE_HUT_RESET_FREE).isFound());
+        // Before the wish is found Reset shows a token cost (15 here, 14, 6, 5 ... on other frames): never tapped.
+        for (String costed : new String[] {"board-new-round-reset-cost-15.png", "board-fresh.png",
+                "board-two-opened.png", "board-four-opened-cost-red.png", "preview-new-round.png"}) {
+            assertFalse(find(costed, TemplatesEnum.FORTUNE_HUT_RESET_FREE).isFound(), costed);
+        }
+    }
+
+    @Test
+    void theFreeResetPickerIsRecognisedAndItsOrangeButtonCountsAsReady() throws Exception {
+        assertTrue(find("picker-reset-free-orange.png", TemplatesEnum.FORTUNE_HUT_PICKER_FREE_HINT).isFound());
+        assertTrue(FortuneHutRoutine.wishConfirmReady(image("picker-reset-free-orange.png")));
+        // The plain picker still needs its green button and a grey one is not ready.
+        assertFalse(FortuneHutRoutine.wishConfirmReady(image("wish-picker.png")));
+        assertFalse(find("wish-picker.png", TemplatesEnum.FORTUNE_HUT_PICKER_FREE_HINT).isFound());
+        assertFalse(find("board-fresh.png", TemplatesEnum.FORTUNE_HUT_PICKER_FREE_HINT).isFound());
+    }
+
+    @Test
+    void theNewBoardPreviewIsRecognisedAndOnlyThePreview() throws Exception {
+        assertTrue(find("preview-new-round.png", TemplatesEnum.FORTUNE_HUT_TAP_ANYWHERE).isFound());
+        for (String other : new String[] {"board-fresh.png", "board-new-round-reset-cost-15.png", "wish-picker.png",
+                "picker-reset-free-orange.png", "wish-found-next-round.png"}) {
+            assertFalse(find(other, TemplatesEnum.FORTUNE_HUT_TAP_ANYWHERE).isFound(), other);
+        }
+    }
+
+    @Test
     void theFreePackButtonIsOnlyGreenWhileTheFreePackIsWaiting() throws Exception {
         assertTrue(find("pack-free-available.png", TemplatesEnum.FORTUNE_HUT_FREE_PACK_LABEL).isFound());
         assertTrue(FortuneHutRoutine.freePackButtonIsGreen(image("pack-free-available.png")));

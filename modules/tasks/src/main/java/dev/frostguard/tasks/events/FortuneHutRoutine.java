@@ -86,6 +86,21 @@ public class FortuneHutRoutine extends DelayedTask {
     private static final PointData WISH_FOUND_BOTTOM_RIGHT = new PointData(660, 895);
     private static final PointData NEXT_ROUND = new PointData(512, 957);
     static final PointData NEXT_ROUND_GREEN_SAMPLE = new PointData(400, 990);
+    /**
+     * After the wish is found the board's Reset button reads "Free" (seen live 2026-11-12; before that it shows
+     * a token cost: 15, 14, 13, 10, 6, 5, 4, 3...). Tapping the free Reset opens the picker with an orange
+     * "Reset / Free" button (the chosen wish already framed), and confirming it shows a preview of the new
+     * board, "Tap anywhere to have your fortune taken", which a tap on empty space seals.
+     */
+    private static final PointData RESET_FREE_TOP_LEFT = new PointData(290, 635);
+    private static final PointData RESET_FREE_BOTTOM_RIGHT = new PointData(440, 705);
+    private static final PointData RESET_BUTTON = new PointData(360, 655);
+    private static final PointData PICKER_FREE_HINT_TOP_LEFT = new PointData(20, 880);
+    private static final PointData PICKER_FREE_HINT_BOTTOM_RIGHT = new PointData(700, 955);
+    private static final PointData TAP_ANYWHERE_TOP_LEFT = new PointData(80, 730);
+    private static final PointData TAP_ANYWHERE_BOTTOM_RIGHT = new PointData(640, 790);
+    /** Empty space between the orb rows, where the preview is sealed. */
+    private static final PointData SEAL_TAP = new PointData(360, 960);
     private static final PointData WISH_HINT_TOP_LEFT = new PointData(30, 885);
     private static final PointData WISH_HINT_BOTTOM_RIGHT = new PointData(690, 950);
 
@@ -237,10 +252,7 @@ public class FortuneHutRoutine extends DelayedTask {
             logWarning("Fortune Hut: tapped Deals but its header did not show; " + snapshot("deals-not-open"));
             return false;
         }
-        if (wishFoundShown() && !startNextRound()) {
-            return false;
-        }
-        if (wishPickerShown() && !pickWish()) {
+        if (!settleRoundScreens()) {
             return false;
         }
         if (onHutPage()) {
@@ -310,8 +322,56 @@ public class FortuneHutRoutine extends DelayedTask {
         return found(TemplatesEnum.FORTUNE_HUT_WISH_FOUND, WISH_FOUND_TOP_LEFT, WISH_FOUND_BOTTOM_RIGHT);
     }
 
+    /** Either picker: the plain one (green button) or the free-Reset one (orange button, wish framed). */
     private boolean wishPickerShown() {
-        return found(TemplatesEnum.FORTUNE_HUT_WISH_HINT, WISH_HINT_TOP_LEFT, WISH_HINT_BOTTOM_RIGHT);
+        return found(TemplatesEnum.FORTUNE_HUT_WISH_HINT, WISH_HINT_TOP_LEFT, WISH_HINT_BOTTOM_RIGHT)
+                || found(TemplatesEnum.FORTUNE_HUT_PICKER_FREE_HINT, PICKER_FREE_HINT_TOP_LEFT, PICKER_FREE_HINT_BOTTOM_RIGHT);
+    }
+
+    private boolean resetFreeShown() {
+        return found(TemplatesEnum.FORTUNE_HUT_RESET_FREE, RESET_FREE_TOP_LEFT, RESET_FREE_BOTTOM_RIGHT);
+    }
+
+    private boolean previewShown() {
+        return found(TemplatesEnum.FORTUNE_HUT_TAP_ANYWHERE, TAP_ANYWHERE_TOP_LEFT, TAP_ANYWHERE_BOTTOM_RIGHT);
+    }
+
+    /**
+     * Clears the screens a round passes through (wish found, picker, new-board preview) when a pass starts
+     * on one of them. Stops, saving a frame, if a step does not clear its screen.
+     */
+    private boolean settleRoundScreens() {
+        for (int i = 0; i < 6; i++) {
+            if (wishFoundShown()) {
+                if (!startNextRound()) {
+                    return false;
+                }
+            } else if (wishPickerShown()) {
+                if (!pickWish()) {
+                    return false;
+                }
+            } else if (previewShown()) {
+                if (!sealPreview()) {
+                    return false;
+                }
+            } else {
+                return true;
+            }
+        }
+        logWarning("Fortune Hut: the round screens did not settle; " + snapshot("round-screens-stuck"));
+        return false;
+    }
+
+    /** Seals the new board's preview with a tap on empty space (seen live: cost back to 1, orbs sealed). */
+    private boolean sealPreview() {
+        tapNear(SEAL_TAP, 6);
+        sleepTask(3000);
+        if (previewShown()) {
+            logWarning("Fortune Hut: the board preview is still showing after the tap; " + snapshot("preview-not-sealed"));
+            return false;
+        }
+        logInfo("Fortune Hut: the new board is sealed.");
+        return true;
     }
 
     /** Leaves Deals through its back arrow, only while its header is on screen. */
@@ -398,6 +458,15 @@ public class FortuneHutRoutine extends DelayedTask {
                 }
                 continue;
             }
+            if (previewShown()) {
+                if (!sealPreview()) {
+                    return -1;
+                }
+                if (!newBoardAffordable()) {
+                    return opened;
+                }
+                continue;
+            }
             if (wishFoundShown()) {
                 if (!startNextRound()) {
                     return -1;
@@ -408,6 +477,14 @@ public class FortuneHutRoutine extends DelayedTask {
             if (!boardShown()) {
                 logWarning("Fortune Hut: neither the board nor the wish picker is showing; " + snapshot("unknown-screen"));
                 return opened > 0 ? opened : -1;
+            }
+            if (resetFreeShown()) {
+                // The wish has been found: Reset reads "Free" only then, and it is never tapped while it shows a token cost.
+                tapNear(RESET_BUTTON, 6);
+                sleepTask(3000);
+                StatisticsService.obtain().addToCounter(profile, "Fortune Hut Wishes", 1);
+                logInfo("Fortune Hut: wish found; tapped the free Reset.");
+                continue;
             }
             Optional<BufferedImage> board = frame();
             if (board.isEmpty()) {
@@ -429,6 +506,18 @@ public class FortuneHutRoutine extends DelayedTask {
             snapshot("orb-" + opened);
         }
         return opened;
+    }
+
+    /** After a new board is sealed: only keep opening orbs when the bank covers a fresh board. */
+    private boolean newBoardAffordable() {
+        Integer tokens = readTokens();
+        int needed = tokensNeeded(10, bankThreshold());
+        if (tokens == null || tokens < needed) {
+            logInfo("Fortune Hut: new board sealed; " + (tokens == null ? "token count unreadable" : tokens + " tokens")
+                    + ", " + needed + " needed to start it; banking.");
+            return false;
+        }
+        return true;
     }
 
     /** Two boxes that must agree, so a misread never starts a board the tokens cannot finish. */
@@ -470,8 +559,8 @@ public class FortuneHutRoutine extends DelayedTask {
         tapNear(new PointData(WISH_OPTION_X[option - 1], WISH_OPTION_Y), 8);
         sleepTask(900);
         Optional<BufferedImage> picker = frame();
-        if (picker.isEmpty() || !wishConfirmIsGreen(picker.get())) {
-            logWarning("Fortune Hut: selecting Wish Reward " + option + " did not turn the button green; "
+        if (picker.isEmpty() || !wishConfirmReady(picker.get())) {
+            logWarning("Fortune Hut: selecting Wish Reward " + option + " left no green or orange confirm button; "
                     + snapshot("wish-not-selected"));
             return false;
         }
@@ -546,6 +635,16 @@ public class FortuneHutRoutine extends DelayedTask {
 
     static boolean nextRoundIsGreen(BufferedImage img) {
         return WanderTheaterRoutine.isClaimGreen(img.getRGB(NEXT_ROUND_GREEN_SAMPLE.getX(), NEXT_ROUND_GREEN_SAMPLE.getY()));
+    }
+
+    /** The picker's confirm button: green "Select a Reward Wish", or the orange "Reset / Free" of a free reset. */
+    static boolean wishConfirmReady(BufferedImage img) {
+        int rgb = img.getRGB(WISH_GREEN_SAMPLE.getX(), WISH_GREEN_SAMPLE.getY());
+        int r = (rgb >> 16) & 0xFF;
+        int g = (rgb >> 8) & 0xFF;
+        int b = rgb & 0xFF;
+        boolean orange = r >= 240 && g >= 165 && g <= 205 && b <= 60;
+        return wishConfirmIsGreen(img) || orange;
     }
 
     static boolean wishConfirmIsGreen(BufferedImage img) {
