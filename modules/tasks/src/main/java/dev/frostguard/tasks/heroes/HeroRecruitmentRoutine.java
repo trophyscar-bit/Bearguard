@@ -464,7 +464,7 @@ public class HeroRecruitmentRoutine extends DelayedTask {
         Duration nextTime = readTimer(timerArea);
 
         if (nextTime != null) {
-            LocalDateTime nextClaimTime = LocalDateTime.now().plus(nextTime);
+            LocalDateTime nextClaimTime = currentTime().plus(nextTime);
             logInfo(type + " recruitment next time: " + nextClaimTime.format(DATETIME_FORMATTER));
             return nextClaimTime;
         } else {
@@ -500,6 +500,16 @@ public class HeroRecruitmentRoutine extends DelayedTask {
         return System.currentTimeMillis();
     }
 
+    /** The time that timers and the fallback retry are counted from. */
+    LocalDateTime currentTime() {
+        return LocalDateTime.now();
+    }
+
+    /** The next game reset (00:00 UTC), which caps the Advanced recruitment time. */
+    LocalDateTime dailyResetTime() {
+        return GameTimeUtils.dailyResetTime();
+    }
+
     // ===============================
     // SCHEDULING LOGIC
     // ===============================
@@ -530,7 +540,7 @@ public class HeroRecruitmentRoutine extends DelayedTask {
      * @return Original time if before reset, otherwise game reset time
      */
     private LocalDateTime capAtGameReset(LocalDateTime time) {
-        LocalDateTime gameReset = GameTimeUtils.dailyResetTime();
+        LocalDateTime gameReset = dailyResetTime();
         return getEarliest(time, gameReset);
     }
 
@@ -568,7 +578,7 @@ public class HeroRecruitmentRoutine extends DelayedTask {
      * @return Current time plus {@value #OCR_FAILURE_RETRY_MINUTES} minutes
      */
     private LocalDateTime getFallbackTime() {
-        return LocalDateTime.now().plusMinutes(OCR_FAILURE_RETRY_MINUTES);
+        return currentTime().plusMinutes(OCR_FAILURE_RETRY_MINUTES);
     }
 
     // ===============================

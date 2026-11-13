@@ -27,6 +27,12 @@ class HeroRecruitmentRoutineTest {
     private static final AreaData ADVANCED_TIMER = CommonGameAreas.HERO_RECRUIT_ADVANCED_TIMER_OCR_AREA;
     private static final AreaData EPIC_TIMER = CommonGameAreas.HERO_RECRUIT_EPIC_TIMER_OCR_AREA;
 
+    /** The routine's fixed clock, so no assertion depends on the time of day the suite runs. */
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 1, 15, 14, 0);
+
+    /** Schedule jitter only ever delays, by at most a couple of minutes. */
+    private static final Duration JITTER_ALLOWANCE = Duration.ofMinutes(3);
+
     @BeforeAll
     static void createTestWorkspace() throws IOException {
         Files.createDirectories(WorkspacePaths.current().root());
@@ -35,7 +41,6 @@ class HeroRecruitmentRoutineTest {
     @Test
     void unconfirmedScreenAfterAdvancedClaimStopsEverythingAndRetriesSoon() {
         ScriptedRoutine routine = new ScriptedRoutine(true, true);
-        LocalDateTime before = LocalDateTime.now();
 
         routine.execute();
 
@@ -47,20 +52,19 @@ class HeroRecruitmentRoutineTest {
         assertTrue(routine.clock >= HeroRecruitmentRoutine.SCREEN_CONFIRM_TIMEOUT_MS);
         assertTrue(routine.clock <= HeroRecruitmentRoutine.SCREEN_CONFIRM_TIMEOUT_MS + 500,
                 "gave up about ten seconds after the claim tap");
-        assertFallbackRetry(before, routine);
+        assertFallbackRetry(routine);
     }
 
     @Test
     void unconfirmedScreenAfterEpicClaimSkipsTheEpicTimerRead() {
         ScriptedRoutine routine = new ScriptedRoutine(false, true);
-        LocalDateTime before = LocalDateTime.now();
 
         routine.execute();
 
         assertEquals(List.of("free:Advanced", "free:Epic", "tap:Epic"), routine.screenActions);
         assertEquals(List.of(ADVANCED_TIMER), routine.timerReads);
         assertEquals(List.of("Epic-screen-unconfirmed"), routine.dumps);
-        assertFallbackRetry(before, routine);
+        assertFallbackRetry(routine);
     }
 
     @Test
@@ -74,8 +78,7 @@ class HeroRecruitmentRoutineTest {
         assertEquals(List.of(ADVANCED_TIMER, EPIC_TIMER), routine.timerReads);
         assertEquals(3, routine.screenChecks);
         assertEquals(List.of(), routine.dumps);
-        assertTrue(routine.scheduledTime().isAfter(LocalDateTime.now().plusMinutes(50)),
-                "scheduled from the real timers, not the fallback");
+        assertScheduledAt(NOW.plusHours(1), routine);
     }
 
     @Test
@@ -95,22 +98,33 @@ class HeroRecruitmentRoutineTest {
         assertEquals(List.of(ADVANCED_TIMER, EPIC_TIMER), routine.timerReads);
         assertEquals(List.of(), routine.dumps);
         assertTrue(routine.clock > 3000L, "waited past the old three-second limit for the chest");
-        assertTrue(routine.scheduledTime().isAfter(LocalDateTime.now().plusMinutes(50)),
-                "scheduled from the real timers, not the fallback");
+        assertScheduledAt(NOW.plusHours(1), routine);
+    }
+
+    @Test
+    void advancedTimerPastTheGameResetIsCappedAtTheResetNotTheFallback() {
+        ScriptedRoutine routine = new ScriptedRoutine(true, false);
+        routine.reset = NOW.plusMinutes(30);
+        routine.screenAnswers.add(true);
+
+        routine.execute();
+
+        assertEquals(List.of(ADVANCED_TIMER, EPIC_TIMER), routine.timerReads);
+        assertEquals(List.of(), routine.dumps);
+        assertScheduledAt(NOW.plusMinutes(30), routine);
     }
 
     @Test
     void screenThatStaysAwayAfterTheBackStopsWithoutASecondBack() {
         ScriptedRoutine routine = new ScriptedRoutine(true, true);
         routine.rewardsAnswers.add(true);
-        LocalDateTime before = LocalDateTime.now();
 
         routine.execute();
 
         assertEquals(List.of("free:Advanced", "tap:Advanced", "back"), routine.screenActions);
         assertEquals(List.of(), routine.timerReads);
         assertEquals(List.of("Advanced-screen-unconfirmed"), routine.dumps);
-        assertFallbackRetry(before, routine);
+        assertFallbackRetry(routine);
     }
 
     @Test
@@ -123,10 +137,14 @@ class HeroRecruitmentRoutineTest {
         assertEquals(List.of(ADVANCED_TIMER, EPIC_TIMER), routine.timerReads);
     }
 
-    private static void assertFallbackRetry(LocalDateTime before, ScriptedRoutine routine) {
-        assertTrue(routine.scheduledTime().isAfter(before.plusMinutes(4)), routine.scheduledTime().toString());
-        assertTrue(routine.scheduledTime().isBefore(LocalDateTime.now().plusMinutes(6)),
-                routine.scheduledTime().toString());
+    private static void assertFallbackRetry(ScriptedRoutine routine) {
+        assertScheduledAt(NOW.plusMinutes(5), routine);
+    }
+
+    private static void assertScheduledAt(LocalDateTime expected, ScriptedRoutine routine) {
+        LocalDateTime scheduled = routine.scheduledTime();
+        assertTrue(!scheduled.isBefore(expected) && scheduled.isBefore(expected.plus(JITTER_ALLOWANCE)),
+                "expected " + expected + " (plus jitter), got " + scheduled);
     }
 
     /** Stands in for the device: scripted Free buttons, screen checks and timers, a fake clock. */
@@ -140,6 +158,7 @@ class HeroRecruitmentRoutineTest {
         private final List<String> dumps = new ArrayList<>();
         private int screenChecks;
         private long clock;
+        private LocalDateTime reset = NOW.plusHours(10);
 
         private ScriptedRoutine(boolean advancedFree, boolean epicFree) {
             super(new AccountDescriptor(1L, "RecruitTest", "1", true, 1L, 30L),
@@ -202,6 +221,16 @@ class HeroRecruitmentRoutineTest {
         @Override
         long nowMillis() {
             return clock;
+        }
+
+        @Override
+        LocalDateTime currentTime() {
+            return NOW;
+        }
+
+        @Override
+        LocalDateTime dailyResetTime() {
+            return reset;
         }
 
         private LocalDateTime scheduledTime() {
