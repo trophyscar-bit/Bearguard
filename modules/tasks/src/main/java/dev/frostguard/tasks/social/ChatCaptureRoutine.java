@@ -282,6 +282,16 @@ public class ChatCaptureRoutine extends DelayedTask {
     /** How recent an unbridged ordinary pass must be for a reconcile to be worth running for it. */
     private static final Duration UNBRIDGED_REACH = Duration.ofHours(12);
 
+    /**
+     * The fewest hours between a reconcile and the next one started only because an ordinary pass
+     * came up short. The nightly slot is not held back by this.
+     *
+     * <p>Without it a busy channel could not catch up: every ordinary pass that ran out of time
+     * called for a reconcile of up to 30 minutes, which ran out of time too (2026-11-13: Alliance
+     * was being scrolled for 30 minutes of every 90).
+     */
+    private static final Duration HOLE_RECONCILE_COOLDOWN = Duration.ofHours(6);
+
     private boolean reconcileEnabled = true;
     private LocalTime reconcileTime = LocalTime.parse(DEFAULT_RECONCILE_TIME);
     private long reconcileBudgetMs = DEFAULT_RECONCILE_MINUTES * 60_000L;
@@ -637,6 +647,13 @@ public class ChatCaptureRoutine extends DelayedTask {
         // Not only at night: an ordinary pass that could not reach what it already had left a hole
         // nothing else will go back for, so the next pass fills it instead of waiting for 01:00.
         boolean hole = passLog.unbridgedSinceLastReconcile(channel, UNBRIDGED_REACH, Instant.now());
+        if (hole && last.isPresent()
+                && Duration.between(last.get(), now).compareTo(HOLE_RECONCILE_COOLDOWN) < 0) {
+            logInfo("ChatCaptureRoutine | " + channel + ": the last ordinary pass did not reach messages"
+                    + " it already had, but a reconcile started at " + last.get() + ", so there is"
+                    + " no second one until the nightly slot.");
+            return false;
+        }
         if (hole) {
             logInfo("ChatCaptureRoutine | " + channel + ": the last ordinary pass did not reach"
                     + " messages it already had, so this pass is a reconcile.");
@@ -707,8 +724,14 @@ public class ChatCaptureRoutine extends DelayedTask {
             // would never be looked at again. A reconcile exists to fill what ordinary passes
             // missed, so it keeps going past the first stored message.
             budgetMs = reconcileBudgetMs;
+            // Never further back than a reconcile can get in its time. A target that moved back
+            // with every reconcile that fell short was never reached: from 11-07 to 11-13, 30 of
+            // 31 reconciles ran their full 30 minutes (700-900 screens) and none covered, each
+            // aiming at a week-old chat the next one aimed at again.
+            Instant farthest = Instant.now().minus(RECONCILE_DEFAULT_REACH);
             Instant since = passLog.lastCoveredReconcile(channel)
-                    .orElse(Instant.now().minus(RECONCILE_DEFAULT_REACH));
+                    .filter(at -> at.isAfter(farthest))
+                    .orElse(farthest);
             // storedAt of a line restamped at a later pass is later than when it was said, so this
             // target can be reached a little early; the pad is what absorbs that.
             coverBack = since.minus(RECONCILE_OVERLAP_PAD);
