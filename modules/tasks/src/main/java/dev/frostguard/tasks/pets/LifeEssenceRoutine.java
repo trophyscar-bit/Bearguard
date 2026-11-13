@@ -187,10 +187,12 @@ public class LifeEssenceRoutine extends DelayedTask {
 			List<PointData> badges = reading.get();
 			int newlyClaimed = 0;
 			int unchanged = 0;
+			List<PointData> stillShowing = new ArrayList<>();
 
 			for (PointData badge : badges) {
 				if (seenBefore(claimed, badge)) {
 					unchanged++;
+					stillShowing.add(badge);
 					continue;
 				}
 				logDebug("Claiming badge at " + badge);
@@ -201,8 +203,10 @@ public class LifeEssenceRoutine extends DelayedTask {
 			}
 
 			if (unchanged > 0) {
-				logWarning(unchanged + " badge(s) still showing after being tapped."
-						+ " The claim may not be registering; they are not counted again.");
+				logWarning(unchanged + " badge(s) still showing after being tapped, at " + stillShowing
+						+ " (tapped earlier: " + claimed + ")."
+						+ " The claim may not be registering; they are not counted again. "
+						+ saveStillShowingFrame());
 			}
 
 			if (newlyClaimed == 0) {
@@ -261,6 +265,30 @@ public class LifeEssenceRoutine extends DelayedTask {
 
 	private static boolean seenBefore(List<PointData> claimed, PointData badge) {
 		return claimed.stream().anyMatch(point -> point.manhattanDistanceTo(badge) <= SAME_BADGE_RADIUS);
+	}
+
+	/**
+	 * Keeps the island as it looks when a tapped badge is still there, so the next person can tell a
+	 * claim that did not register from a badge that merely has not finished fading. Written beside the
+	 * installation under ocr-debug, never into the repository: the island frame carries the HUD.
+	 */
+	private String saveStillShowingFrame() {
+		try {
+			BufferedImage frame = captureFrame();
+			if (frame == null) {
+				return "(diagnostic frame unavailable)";
+			}
+			java.io.File dir = new java.io.File(System.getProperty("user.dir"), "ocr-debug");
+			if (!dir.isDirectory() && !dir.mkdirs()) {
+				return "(diagnostic frame not saved: could not create " + dir + ")";
+			}
+			String stamp = java.time.LocalDateTime.now().toString().replace(':', '-').replace('.', '-');
+			java.io.File out = new java.io.File(dir, "life-essence-badge-still-showing-" + stamp + ".png");
+			javax.imageio.ImageIO.write(frame, "png", out);
+			return "Diagnostic frame saved: " + out.getAbsolutePath();
+		} catch (Exception e) {
+			return "(diagnostic frame not saved: " + e.getMessage() + ")";
+		}
 	}
 
 	private BufferedImage captureFrame() {

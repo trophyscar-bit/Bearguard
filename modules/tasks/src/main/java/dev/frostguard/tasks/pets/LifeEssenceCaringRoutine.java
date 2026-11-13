@@ -183,7 +183,7 @@ public class LifeEssenceCaringRoutine extends DelayedTask {
 		// open. The tab is reached by a fixed tap, so any screen the routine did not expect produces
 		// the same empty read, and treating that as "spent" throws away the rest of the day. Re-enter
 		// the menu and look once more before believing it.
-		logInfo("Daily caring indicator not found. Re-entering the menu to tell an empty allowance"
+		logInfo("Daily caring indicator is not showing. Re-entering the menu to tell an empty allowance"
 				+ " apart from the wrong screen.");
 		if (navigateToLifeEssenceMenu() != SidebarRouteResult.REACHED) {
 			logWarning("Could not re-enter the Life Essence menu, so the allowance is unknown rather"
