@@ -202,7 +202,7 @@ public enum TpDailyTaskEnum {
 
     // Bakery, Milk Tea and Vinyl shop buildings: one chest bubble on the city map pays all three
     // daily rewards at once (UTC 00:00 reset).
-    BUILDING_DAILY_CHEST (917, "City Shops - Daily Chest", ConfigurationKeyEnum.BUILDING_DAILY_CHEST_CLAIM_BOOL, RoutineCategory.RESOURCE);
+    BUILDING_DAILY_CHEST (940, "City Shops - Daily Chest", ConfigurationKeyEnum.BUILDING_DAILY_CHEST_CLAIM_BOOL, RoutineCategory.RESOURCE);
 
     /* ================================================================
      *  Category taxonomy used to group routines in the management UI.
