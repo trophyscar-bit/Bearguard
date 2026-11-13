@@ -34,7 +34,9 @@ public final class GearEnhancePass {
     public enum Stop {
         TARGET_REACHED, DRY_RUN, DEADLINE, WRONG_BUTTON, WRONG_PIECE, WRONG_LEVEL, DIALOG_UNREADABLE,
         QUICK_SELECT_SHORT, PREVIEW_MISMATCH, UNSAFE_FODDER, LIST_SCAN_FAILED, SELECTION_CHANGED, PRESS_UNCONFIRMED,
-        MARKER_UNSAVED
+        MARKER_UNSAVED,
+        /** The parts on hand do not cover another level, so Quick Select reached for spare gear. A clean stop: nothing spent. */
+        PARTS_SHORT
     }
 
     /**
@@ -254,7 +256,24 @@ public final class GearEnhancePass {
         if (!selected.enhanceLit() || !EnhanceDialogReader.SELECT_MORE_LABEL.equals(selected.leftButton())) {
             throw new Halt(Stop.PREVIEW_MISMATCH, "the buttons did not change after Quick Select: " + selected);
         }
+        refuseSpareGearInView(level);
         return selected;
+    }
+
+    /**
+     * With too few parts, Quick Select tops the level up with spare gear, and its minus badges show on the first
+     * rows of the list. That is a shortage of parts, not a fault: stop at once, before any scan, and spend nothing.
+     * Any other badge is a different matter and is left to the full scan to refuse.
+     */
+    private void refuseSpareGearInView(int level) {
+        RawImageData frame = device.capture();
+        List<Badge> badges = reads.badges(frame);
+        boolean spareGear = badges.stream().anyMatch(b -> b.kind() == EnhanceDialogReader.TileKind.GREY
+                || b.kind() == EnhanceDialogReader.TileKind.GREEN);
+        if (!spareGear) return;
+        int[] parts = reads.partsTile(frame);
+        throw new Halt(Stop.PARTS_SHORT, (parts == null ? "the parts on hand" : "only " + parts[1] + " parts on hand")
+                + " do not cover Lv." + level + " to Lv." + (level + 1) + ": Quick Select reached for spare gear");
     }
 
     /**
@@ -264,9 +283,13 @@ public final class GearEnhancePass {
      */
     private Dialog selectMore(Dialog selected, int level, int target) {
         Dialog current = selected;
+        int[] parts = readParts();
+        // Each level costs about what the one before did, a little more. Another tap is made only while the
+        // parts left cover that and one more, so a tap never has to be finished off with spare gear.
+        int perLevel = parts == null ? Integer.MAX_VALUE : Math.max(parts[0], 1);
         while (current.preview() < target) {
             if (device.pastDeadline()) return current;
-            if (!partsLeft()) return current;
+            if (parts == null || parts[1] - parts[0] < perLevel + 1) return current;
             device.tap(EnhanceDialogReader.SELECT_MORE, BUTTON_RADIUS);
             device.pause(1200);
             Dialog next = await(reads::dialog, "the dialog did not read after Select more");
@@ -286,8 +309,20 @@ public final class GearEnhancePass {
                 throw new Halt(Stop.PREVIEW_MISMATCH, "the buttons changed after Select more: " + next);
             }
             current = next;
+            int[] after = readParts();
+            perLevel = after == null || parts == null ? Integer.MAX_VALUE : Math.max(after[0] - parts[0], 1);
+            parts = after;
         }
         return current;
+    }
+
+    private int[] readParts() {
+        for (int attempt = 0; attempt < PARTS_READ_ATTEMPTS; attempt++) {
+            int[] parts = reads.partsTile(device.capture());
+            if (parts != null) return parts;
+            device.pause(READ_PAUSE_MS);
+        }
+        return null;
     }
 
     private void report(Raise raise, int level, int reached) {
@@ -296,20 +331,6 @@ public final class GearEnhancePass {
         int[] parts = reads.partsTile(frame);
         device.previewed(new Preview(raise.hero(), raise.slot(), level, reached, gain == null ? null : gain.stat(),
                 gain == null ? null : gain.from(), gain == null ? null : gain.to(), parts == null ? null : parts[0]));
-    }
-
-    /**
-     * True only when the parts tile reads and shows parts still unselected. Once they are all in, the next
-     * Select more would pick spare gear, so it is not pressed; a tile that will not read stops the choosing
-     * too, since a press that cannot be checked is one that might take gear.
-     */
-    private boolean partsLeft() {
-        for (int attempt = 0; attempt < PARTS_READ_ATTEMPTS; attempt++) {
-            int[] parts = reads.partsTile(device.capture());
-            if (parts != null) return parts[0] < parts[1];
-            device.pause(READ_PAUSE_MS);
-        }
-        return false;
     }
 
     private void scanFodder() {

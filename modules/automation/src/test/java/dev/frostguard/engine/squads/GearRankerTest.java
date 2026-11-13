@@ -40,10 +40,12 @@ class GearRankerTest {
     }
 
     @Test
-    void ranksTheWeakestHeavilyUsedPieceFirstAndLooksTenAhead() {
+    void ranksByStatPerStoneTimesHeroWeightAndLooksTenAhead() {
         List<Upgrade> upgrades = GearRanker.rolling(new GearState(ON_ROLE, WEIGHTS), 10);
 
-        assertEquals(List.of("Boots", "Boots", "Boots", "Boots", "Goggles", "Boots", "Goggles", "Boots", "Goggles", "Boots"),
+        // Pure return: no lift for weak pieces. Boots are cheaper while at Lv 4 (10 stones), so they go first up to 50%;
+        // after that the two pieces return the same per stone and the cheaper level goes first.
+        assertEquals(List.of("Boots", "Boots", "Boots", "Boots", "Goggles", "Goggles", "Goggles", "Goggles", "Goggles", "Boots"),
                 upgrades.stream().map(Upgrade::slot).toList());
         assertTrue(upgrades.stream().allMatch(u -> u.hero().equals("Bahiti")));
         assertEquals(112, upgrades.stream().mapToInt(Upgrade::stones).sum());
@@ -90,10 +92,12 @@ class GearRankerTest {
 
         java.util.Map<String, Double> rally = GearRanker.weightsFor(state, GearRanker.FOCUS_RALLY,
                 java.util.Set.of("Bahiti", "Molly"));
-        assertEquals(java.util.Map.of("Bahiti", 1.14, "Molly", 0.1), rally);
+        assertEquals(java.util.Map.of("Bahiti", 1.14, "Molly", 0.0), rally, "best return takes the saved weights exactly: Molly stays at 0");
+        assertEquals(java.util.Map.of("Bahiti", 1.14, "Molly", 0.1),
+                GearRanker.weightsFor(state, GearOrder.WEAKEST, java.util.Set.of("Bahiti", "Molly")), "the other orders keep the floor");
 
         java.util.Map<String, Double> balanced = GearRanker.weightsFor(state, GearRanker.FOCUS_BALANCED,
                 java.util.Set.of("Bahiti", "Molly"));
-        assertEquals(java.util.Map.of("Bahiti", 1.0, "Molly", 0.5), balanced);
+        assertEquals(java.util.Map.of("Bahiti", 1.14, "Molly", 0.0), balanced, "the old Balanced word now means best return: the saved weights");
     }
 }

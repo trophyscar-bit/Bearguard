@@ -111,7 +111,7 @@ class GearEnhancePassTest {
 
     @Test
     void whenTheXpItemsRunOutItPressesWhatIsSelectedAndStopsShortOfTheTarget() {
-        game.fodderLevels = 2;
+        game.fodderLevels = 3;
 
         Outcome outcome = run(FOUR, true);
 
@@ -122,6 +122,29 @@ class GearEnhancePassTest {
         assertEquals(78, game.level);
         assertEquals(List.of("record Sergey Gauntlets 76", "press", "confirm"), game.events);
         assertEquals(Screen.DETAILS, game.screen);
+    }
+
+    @Test
+    void anotherTapIsMadeOnlyWhileThePartsLeftCoverAnotherLevelAndOne() {
+        game.fodderLevels = 2;
+
+        Outcome outcome = run(TWO, true);
+
+        assertEquals(77, outcome.level(), "1 part used for the first level, 1 left: a second level would need spare gear");
+        assertEquals(List.of(DETAILS, QUICK, ENHANCE), game.taps);
+    }
+
+    @Test
+    void quickSelectThatReachesForSpareGearIsAPartsShortStopWithNothingSpentAndNoScan() {
+        game.pages = List.of(List.of(new Badge(0, 860, TileKind.XP), new Badge(1, 860, TileKind.GREY)), List.of());
+
+        Outcome outcome = run(ONE, true);
+
+        assertStoppedUnspent(outcome, Stop.PARTS_SHORT);
+        assertEquals(0, game.swipes, "stopped on the first look, before any scan of the list");
+        assertEquals(List.of(DETAILS, QUICK), game.taps);
+        assertEquals(Screen.DETAILS, game.screen);
+        assertTrue(outcome.detail().contains("do not cover Lv.76 to Lv.77"), outcome.detail());
     }
 
     @Test

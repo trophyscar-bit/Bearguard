@@ -9,8 +9,8 @@ import java.util.Set;
 /**
  * Ranks the next Mastery Forging upgrades across the instructors' gear.
  *
- * <p>Score is stat gain x hero weight x hole factor / stones. Hero weight says how much that hero
- * fights; the hole factor lifts weak pieces. Only pieces on the wearer's role are ranked: Health for
+ * <p>Score is stat gain x hero weight / stones. Hero weight says how much that hero
+ * fights. Only pieces on the wearer's role are ranked: Health for
  * Infantry, Lethality for Lancer and Marksman. The costs reproduce all 20 forge costs read off the
  * game, but each one is still re-read on screen before it is paid.
  *
@@ -103,11 +103,12 @@ public final class GearRanker {
     /** The weights to rank with: only {@code included} heroes count, and {@code focus} picks the scale. */
     public static Map<String, Double> weightsFor(GearState state, String focus, Set<String> included) {
         Map<String, Double> weights = new LinkedHashMap<>();
+        boolean bestReturn = GearOrder.BEST_RETURN.equals(GearOrder.normalize(focus));
         for (String hero : included) {
-            double weight = FOCUS_BALANCED.equals(focus)
-                    ? (MARCH_LEADS.contains(hero) ? 1.0 : 0.5)
-                    : Math.max(state.heroWeights().getOrDefault(hero, 0.0), INCLUDED_FLOOR);
-            weights.put(hero, weight);
+            double saved = state.heroWeights().getOrDefault(hero, 0.0);
+            // Best return per stone takes the saved squad weights exactly, so a hero at 0 is never spent on. The other
+            // orders keep a small floor, so a ticked hero still takes part.
+            weights.put(hero, bestReturn ? saved : Math.max(saved, INCLUDED_FLOOR));
         }
         return weights;
     }
@@ -194,7 +195,7 @@ public final class GearRanker {
 
     private static double score(GearPiece piece, Map<String, Double> weights) {
         double gain = piece.base() * forgeGain(piece.masteryPercent()) / 100.0;
-        double holeFactor = BEST_ON_ROLE_BONUS / piece.bonus();
-        return gain * weights.get(piece.hero()) * holeFactor / forgeCost(piece.masteryPercent());
+        // The pure return: stat gained per stone, times how much the hero fights. No lift for weak pieces.
+        return gain * weights.get(piece.hero()) / forgeCost(piece.masteryPercent());
     }
 }

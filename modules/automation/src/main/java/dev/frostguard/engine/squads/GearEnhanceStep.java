@@ -103,7 +103,7 @@ public final class GearEnhanceStep {
                 }
                 switch (result.stop()) {
                     case TARGET_REACHED -> navigator.finishPiece();
-                    case DRY_RUN, DEADLINE, QUICK_SELECT_SHORT -> {
+                    case DRY_RUN, DEADLINE, QUICK_SELECT_SHORT, PARTS_SHORT -> {
                         navigator.closeToGrid();
                         return new Outcome(state, raises, null, result.detail(), false);
                     }

@@ -199,6 +199,16 @@ class GearEnhanceStepTest {
     }
 
     @Test
+    void tooFewPartsForALevelIsACleanStopThatLetsTheForgeGoAndSavesNothingNew() {
+        Outcome outcome = run(15, (raise, live) -> new GearEnhancePass.Outcome(raise.from(), 0, Stop.PARTS_SHORT, "only 10 parts on hand"));
+
+        assertNull(outcome.stop(), "not a fault: no warning, no failure snapshot");
+        assertEquals("only 10 parts on hand", outcome.note());
+        assertFalse(outcome.pressUnconfirmed());
+        assertEquals(1, navigator.closes);
+    }
+
+    @Test
     void runningOutOfFodderLetsTheForgeGo() {
         Outcome outcome = run(15, (raise, live) -> new GearEnhancePass.Outcome(raise.from(), 0, Stop.QUICK_SELECT_SHORT, "short"));
 

@@ -67,8 +67,8 @@ class EnhanceDialogReaderFrameTest {
 
         assertEquals(Stop.DRY_RUN, outcome.stop(), outcome.detail());
         assertTrue(outcome.detail().contains("Lv.77"), "the preview never rose past the first level: " + outcome.detail());
-        assertEquals(List.of(EnhanceDialogReader.DETAILS_ENHANCE, EnhanceDialogReader.QUICK_SELECT, EnhanceDialogReader.SELECT_MORE),
-                rig.taps, "Select more was pressed once, then the unchanged preview ended the choosing");
+        assertEquals(List.of(EnhanceDialogReader.DETAILS_ENHANCE, EnhanceDialogReader.QUICK_SELECT),
+                rig.taps, "no Select more: the parts left do not cover another level and one");
         assertEquals(1, rig.swipes, "and the list is scrolled once");
     }
 
@@ -163,6 +163,16 @@ class EnhanceDialogReaderFrameTest {
         assertEquals(new EnhanceDialogReader.Gain("Lancer Lethality", 48.01, 48.62), EnhanceDialogReader.previewGain(frame("enhance-selectmore-72")));
         assertEquals(3.51, EnhanceDialogReader.previewGain(frame("enhance-parts-78of88")).delta(), 0.001);
         assertNull(EnhanceDialogReader.previewGain(frame("enhance-details")));
+    }
+
+    // Saved by the bot on 2026-11-13 02:51 UTC when it refused: all 10 parts selected, and spare gear picked as well.
+    @Test
+    void tenPartsCannotCoverALevelSoSpareGearIsSelectedAndTheFrameSaysSo() throws Exception {
+        assertEquals(List.of(10, 10), java.util.Arrays.stream(EnhanceDialogReader.partsTile(frame("enhance-parts-short-10of10"))).boxed().toList());
+        List<Badge> badges = EnhanceDialogReader.badges(frame("enhance-parts-short-10of10"));
+
+        assertTrue(badges.stream().anyMatch(b -> b.kind() == TileKind.GREY), "spare gear carries a minus badge: " + badges);
+        assertTrue(badges.stream().anyMatch(b -> !b.kind().safeFodder()), "Enhance is refused on this frame");
     }
 
     @Test
