@@ -57,6 +57,33 @@ class DailyDealsFreeChestRoutineTest {
         assertFalse(find("free-chest-claimed-timer.png", TemplatesEnum.SHOP_DAILY_DEALS_FREE_CHEST).isFound());
     }
 
+    @Test
+    void labelFinderIgnoresAStripWithoutDailyDealsAndFindsItsLabelWhenPresent() throws IOException {
+        var image = javax.imageio.ImageIO.read(Objects.requireNonNull(
+                DailyDealsFreeChestRoutineTest.class.getResourceAsStream(DIR + "strip-custom-armament-selected.png")));
+        byte[] rgba = new byte[image.getWidth() * image.getHeight() * 4];
+        int o = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int px = 0; px < image.getWidth(); px++) {
+                int p = image.getRGB(px, y);
+                rgba[o++] = (byte) (p >> 16);
+                rgba[o++] = (byte) (p >> 8);
+                rgba[o++] = (byte) p;
+                rgba[o++] = (byte) 0xFF;
+            }
+        }
+        var frame = dev.frostguard.api.domain.RawImageData.capture(rgba, image.getWidth(), image.getHeight(), 32);
+        var words = DailyDealsTabLabel.read(frame, new PointData(0, 0),
+                new PointData(image.getWidth() - 1, image.getHeight() - 1));
+        assertTrue(words.stream().anyMatch(w -> w.text().equals("Dawn")), () -> "strip was read: " + words);
+        assertFalse(DailyDealsTabLabel.centerX(words).isPresent());
+
+        var label = java.util.List.of(
+                new dev.frostguard.vision.ocr.TextLine("Daily", 262, 50, 50, 24, 90f),
+                new dev.frostguard.vision.ocr.TextLine("Deals", 316, 50, 50, 24, 90f));
+        assertEquals(287, DailyDealsTabLabel.centerX(label).getAsInt());
+    }
+
     private static ZonedDateTime utc(int h, int m) {
         return ZonedDateTime.of(2026, 11, 12, h, m, 0, 0, ZoneOffset.UTC);
     }

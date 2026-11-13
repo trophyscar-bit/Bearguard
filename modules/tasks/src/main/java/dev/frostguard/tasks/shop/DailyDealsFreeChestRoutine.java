@@ -3,6 +3,7 @@ package dev.frostguard.tasks.shop;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.OptionalInt;
 import java.util.concurrent.ThreadLocalRandom;
 
 import dev.frostguard.api.configs.TemplatesEnum;
@@ -10,6 +11,8 @@ import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
 import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
+import dev.frostguard.api.domain.RawImageData;
+import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
@@ -32,7 +35,8 @@ public class DailyDealsFreeChestRoutine extends DelayedTask {
 
     /** Bottom of the screen, clear of every purchase button. */
     private static final PointData REWARD_DISMISS_TAP = new PointData(360, 1270);
-    private static final PointData DAILY_DEALS_TAB_SLOT = new PointData(360, 141);
+    private static final int TAB_STRIP_TAP_Y = 141;
+    private static final int MAX_STRIP_SWIPES = 5;
     private static final int POST_RESET_DELAY_MINUTES = 70;
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int ACTION_SETTLE_MS = 900;
@@ -96,18 +100,17 @@ public class DailyDealsFreeChestRoutine extends DelayedTask {
             return;
         }
 
-        // The tab only matches in its selected look; when the shop opens on another tab the
-        // second tab is tapped at its fixed slot instead.
-        ImageSearchResultData tab = templateSearchHelper.locatePattern(
-                TemplatesEnum.SHOP_TAB_DAILY_DEALS, SearchConfigConstants.SINGLE_WITH_RETRIES);
-        if (tab.isFound()) {
-            tapNear(tab.getPoint());
-        } else {
-            tapNear(DAILY_DEALS_TAB_SLOT);
+        // The strip's tab order changes with the active events, so Daily Deals has no fixed slot:
+        // look for its selected look or its label, walking the strip a bounded number of swipes.
+        PointData tabPoint = findDailyDealsTab();
+        if (tabPoint == null) {
+            giveUp("daily-deals-tab-not-found", "Daily Deals tab not found in the tab strip.", true);
+            return;
         }
+        tapNear(tabPoint);
         sleepTask(PANEL_SETTLE_MS);
 
-        tab = templateSearchHelper.locatePattern(
+        ImageSearchResultData tab = templateSearchHelper.locatePattern(
                 TemplatesEnum.SHOP_TAB_DAILY_DEALS, SearchConfigConstants.SINGLE_WITH_RETRIES);
         if (!tab.isFound()) {
             giveUp("daily-deals-tab-not-selected", "Daily Deals tab is not selected after tapping it.", true);
@@ -139,6 +142,44 @@ public class DailyDealsFreeChestRoutine extends DelayedTask {
         LocalDateTime next = ShopChestSchedule.nextRunAfterSuccess(ZonedDateTime.now(ZoneOffset.UTC), POST_RESET_DELAY_MINUTES);
         logInfo(logLine("Done. Next check " + next + " (70 minutes after the UTC reset)."));
         reschedule(next);
+    }
+
+    private PointData locateDailyDealsTab() {
+        ImageSearchResultData selected = templateSearchHelper.locatePattern(
+                TemplatesEnum.SHOP_TAB_DAILY_DEALS, SearchConfigConstants.SINGLE_WITH_RETRIES);
+        if (selected.isFound()) {
+            return selected.getPoint();
+        }
+        RawImageData frame = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (frame == null || !frame.isValid()) {
+            return null;
+        }
+        OptionalInt x = DailyDealsTabLabel.centerX(DailyDealsTabLabel.read(
+                frame, DailyDealsTabLabel.LABEL_TOP_LEFT, DailyDealsTabLabel.LABEL_BOTTOM_RIGHT));
+        return x.isPresent() ? new PointData(x.getAsInt(), TAB_STRIP_TAP_Y) : null;
+    }
+
+    /** Looks where the strip opened, then walks it toward its end and back toward its start. */
+    private PointData findDailyDealsTab() {
+        PointData found = locateDailyDealsTab();
+        if (found != null) {
+            return found;
+        }
+        for (boolean towardEnd : new boolean[] {true, false}) {
+            for (int swipe = 0; swipe < MAX_STRIP_SWIPES; swipe++) {
+                if (towardEnd) {
+                    swipe(CommonGameAreas.DEALS_TAB_STRIP_SWIPE_FROM, CommonGameAreas.DEALS_TAB_STRIP_SWIPE_TO, 400);
+                } else {
+                    swipe(CommonGameAreas.DEALS_TAB_STRIP_SWIPE_TO, CommonGameAreas.DEALS_TAB_STRIP_SWIPE_FROM, 400);
+                }
+                sleepTask(900);
+                found = locateDailyDealsTab();
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private void giveUp(String reason, String note, boolean closePanel) {
