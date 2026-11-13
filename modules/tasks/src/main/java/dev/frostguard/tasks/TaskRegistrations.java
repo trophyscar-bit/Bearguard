@@ -82,6 +82,7 @@ public class TaskRegistrations {
             case RED_DOT_SWEEP -> new RedDotSweepRoutine(profile, type);
             case SHOP_CUSTOM_ARMAMENT_CHEST -> new CustomArmamentChestRoutine(profile, type);
             case SHOP_DAILY_DEALS_FREE_CHEST -> new DailyDealsFreeChestRoutine(profile, type);
+            case BUILDING_DAILY_CHEST -> new BuildingDailyChestRoutine(profile, type);
             case RESEARCH -> new ResearchRoutine(profile, type);
 
             // Dailies

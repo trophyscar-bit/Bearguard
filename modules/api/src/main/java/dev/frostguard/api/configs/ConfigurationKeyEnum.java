@@ -636,6 +636,7 @@ public enum ConfigurationKeyEnum {
     // weeks) -- checked once a day, no-ops when nothing's there.
     SHOP_CUSTOM_ARMAMENT_CHEST_CLAIM_BOOL ("false",  Boolean.class,  ConfigCategory.SHOPS),
     SHOP_DAILY_DEALS_FREE_CHEST_CLAIM_BOOL ("false", Boolean.class,  ConfigCategory.SHOPS),
+    BUILDING_DAILY_CHEST_CLAIM_BOOL ("false", Boolean.class,  ConfigCategory.SHOPS),
 
     // "the new labyrinth" -- Research Center + Gear Forge stage-raid claims.
     LABYRINTH_RAID_ENABLED_BOOL ("false", Boolean.class, ConfigCategory.DAILIES),

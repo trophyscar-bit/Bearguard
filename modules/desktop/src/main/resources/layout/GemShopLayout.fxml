@@ -44,6 +44,20 @@
                 </VBox>
             </VBox>
 
+            <VBox styleClass="content-card">
+                <HBox alignment="CENTER_LEFT" maxWidth="Infinity" styleClass="header-yellow">
+                    <Label text="City Shops (Bakery, Milk Tea, Vinyl)" />
+                </HBox>
+                <VBox spacing="10" styleClass="task-section-inner">
+                    <Label styleClass="task-card-description"
+                           text="One chest bubble on the city map pays all three shops' daily rewards (resets at UTC 00:00). The city is searched for the bubble."
+                           wrapText="true" />
+                    <Separator style="-fx-opacity: 0.25;" />
+                    <CheckBox fx:id="checkBoxBuildingDailyChest" mnemonicParsing="false"
+                              text="Claim daily shop chest" />
+                </VBox>
+            </VBox>
+
         </VBox>
     </ScrollPane>
 </StackPane>

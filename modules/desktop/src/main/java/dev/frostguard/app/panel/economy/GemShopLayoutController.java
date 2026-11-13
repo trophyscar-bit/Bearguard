@@ -14,7 +14,7 @@ import java.util.List;
 public class GemShopLayoutController extends AbstractProfileController {
 
 	@FXML
-	private CheckBox checkBoxCustomArmamentChest, checkBoxDailyDealsFreeChest;
+	private CheckBox checkBoxCustomArmamentChest, checkBoxDailyDealsFreeChest, checkBoxBuildingDailyChest;
 
 	@FXML
 	private void initialize() {
@@ -25,7 +25,8 @@ public class GemShopLayoutController extends AbstractProfileController {
 	private List<GemShopSwitch> gemShopSwitches() {
 		return List.of(
 			new GemShopSwitch(checkBoxCustomArmamentChest, ConfigurationKeyEnum.SHOP_CUSTOM_ARMAMENT_CHEST_CLAIM_BOOL),
-			new GemShopSwitch(checkBoxDailyDealsFreeChest, ConfigurationKeyEnum.SHOP_DAILY_DEALS_FREE_CHEST_CLAIM_BOOL)
+			new GemShopSwitch(checkBoxDailyDealsFreeChest, ConfigurationKeyEnum.SHOP_DAILY_DEALS_FREE_CHEST_CLAIM_BOOL),
+			new GemShopSwitch(checkBoxBuildingDailyChest, ConfigurationKeyEnum.BUILDING_DAILY_CHEST_CLAIM_BOOL)
 		);
 	}
 
