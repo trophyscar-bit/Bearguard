@@ -254,6 +254,12 @@ public class MonumentRoutine extends DelayedTask {
     /** The gem-spending "Obtain more" sits left of Request on the same card; its label proves the card. */
     private static final PointData PIECE_CARD_OBTAIN_LABEL_TL = new PointData(40, 865);
     private static final PointData PIECE_CARD_OBTAIN_LABEL_BR = new PointData(320, 915);
+    // No badge with the Monument in view is a normal pass (2026-11-13: an empty pass is not a failure).
+    // Reaching neither the badge nor the building is a navigation miss and keeps warning wording.
+    static final String NO_REWARD_BADGE_MSG =
+            "No reward badge -- nothing to claim. Checking the Monument building for the chest, albums and backpack.";
+    static final String MONUMENT_NOT_REACHED_MSG = "Monument not reached: no reward badge and no Monument "
+            + "building on screen, so the Fragment Backpack cannot be checked this pass.";
     // A card with no Request (seen on a 5-star piece, 2026-11-09) has one centred Obtain more.
     private static final PointData PIECE_CARD_ONLY_OBTAIN_LABEL_TL = new PointData(230, 865);
     private static final PointData PIECE_CARD_ONLY_OBTAIN_LABEL_BR = new PointData(490, 915);
@@ -399,7 +405,7 @@ public class MonumentRoutine extends DelayedTask {
             // backpack are exactly the case where no trigger is showing. The thing most likely to
             // hold unclaimed rewards was therefore the one thing never looked at.
             sweepFragmentBackpackWithoutBadge();
-            logInfo(logLine("No rewards-ready badge found right now. Rechecking in "
+            logInfo(logLine("No reward badge to claim right now. Rechecking in "
                     + IDLE_RECHECK_MINUTES + " minutes."));
             reschedule(LocalDateTime.now().plusMinutes(IDLE_RECHECK_MINUTES));
             return;
@@ -555,8 +561,7 @@ public class MonumentRoutine extends DelayedTask {
                 return false;
             }
 
-            logInfo(logLine("Badge not found this pass -- nothing to tap, not guessing a coordinate. "
-                    + dumpDiagnosticFrame("badge-not-found")));
+            logInfo(logLine(NO_REWARD_BADGE_MSG));
             return false;
         }
 
@@ -1105,9 +1110,7 @@ public class MonumentRoutine extends DelayedTask {
         ImageSearchResultData building = templateSearchHelper.locatePattern(
                 TemplatesEnum.MONUMENT_BUILDING_ANCHOR, SearchConfigConstants.SINGLE_WITH_RETRIES);
         if (!building.isFound()) {
-            logInfo(logLine("No badge and no Monument building anchor on screen either -- nothing to "
-                    + "open, so the Fragment Backpack cannot be checked this pass. "
-                    + dumpDiagnosticFrame("no-badge-no-building-anchor")));
+            logWarning(logLine(MONUMENT_NOT_REACHED_MSG + " " + dumpDiagnosticFrame("no-badge-no-building-anchor")));
             return;
         }
 
