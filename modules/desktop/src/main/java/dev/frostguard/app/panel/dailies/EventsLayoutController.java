@@ -23,7 +23,7 @@ public class EventsLayoutController extends AbstractProfileController {
         checkBoxJourneyofLightAssemblePremium, checkBoxMyriadBazaar, checkBoxTundraEventActivationHour, checkBoxMergeventure, checkBoxMergeventureBoard,
         checkBoxMergeventureUseMax, checkBoxMergeventureMissions, checkBoxMergeventureAtlasPath,
         checkBoxMergeventureHarvest, checkBoxMergeventureCaravan, checkBoxMergeventureSaveSojourner, checkBoxSignInEarn, checkBoxWanderTheater, checkBoxWanderTheaterRally,
-        checkBoxWanderTheaterExplore, checkBoxDeadShotSignIn, checkBoxWinterSiege, checkBoxFortuneHut, checkBoxFortuneHutPlay, checkBoxFacilityJoin, checkBoxFacilityRecall;
+        checkBoxWanderTheaterExplore, checkBoxDeadShotSignIn, checkBoxWinterSiege, checkBoxFortuneHut, checkBoxFortuneHutPlay, checkBoxFacilityJoin, checkBoxFacilityRecall, checkBoxRedDotSweep;
 
     @FXML
     private TextField textfieldTundraActivationHour, textfieldMergeventureSpendHours,
@@ -90,6 +90,7 @@ public class EventsLayoutController extends AbstractProfileController {
         comboBoxMappings.put(comboBoxWanderTheaterRallyFlag, ConfigurationKeyEnum.WANDER_THEATER_RALLY_FLAG_INT);
         checkBoxMappings.put(checkBoxDeadShotSignIn, ConfigurationKeyEnum.DEAD_SHOT_SIGN_IN_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxWinterSiege, ConfigurationKeyEnum.WINTER_SIEGE_ENABLED_BOOL);
+        checkBoxMappings.put(checkBoxRedDotSweep, ConfigurationKeyEnum.RED_DOT_SWEEP_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxFortuneHut, ConfigurationKeyEnum.FORTUNE_HUT_ENABLED_BOOL);
         checkBoxMappings.put(checkBoxFortuneHutPlay, ConfigurationKeyEnum.FORTUNE_HUT_PLAY_BOOL);
         textFieldMappings.put(textfieldFortuneHutBankThreshold, ConfigurationKeyEnum.FORTUNE_HUT_BANK_THRESHOLD_INT);

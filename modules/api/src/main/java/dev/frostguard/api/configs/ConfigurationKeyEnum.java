@@ -628,6 +628,8 @@ public enum ConfigurationKeyEnum {
     FORTUNE_HUT_WISH_INT                 ("1",       Integer.class,  ConfigCategory.EVENTS),
     FORTUNE_HUT_BANK_THRESHOLD_INT       ("96",      Integer.class,  ConfigCategory.EVENTS),
 
+    RED_DOT_SWEEP_ENABLED_BOOL           ("false",   Boolean.class,  ConfigCategory.EVENTS),
+
     // Top-right cart-icon Shop panel, built out tab by tab. Custom
     // Armament Chest's free "Claimable" chest badge is periodic (may not appear for
     // weeks) -- checked once a day, no-ops when nothing's there.

@@ -10,21 +10,30 @@ import dev.frostguard.api.configs.TemplatesEnum;
  */
 public enum EventKind {
 
-    HALL_OF_CHIEFS("Hall of Chiefs", TemplatesEnum.EVENTS_TAB_HALL_OF_CHIEFS),
-    DEFEAT_NEARBY_BEASTS("Defeat Nearby Beasts", TemplatesEnum.EVENTS_TAB_DEFEAT_BEASTS),
+    HALL_OF_CHIEFS("Hall of Chiefs", TemplatesEnum.EVENTS_TAB_HALL_OF_CHIEFS, PostResetClaimSlots.HALL_OF_CHIEFS),
+    DEFEAT_NEARBY_BEASTS("Defeat Nearby Beasts", TemplatesEnum.EVENTS_TAB_DEFEAT_BEASTS,
+            PostResetClaimSlots.DEFEAT_NEARBY_BEASTS),
     // Live-verified by hand -- tab icon cropped fresh from the live account,
     // Claim buttons already green/ready with a real 1,004,289-point ranking behind them (4 tiers
     // claimable at once: 1,000 / 33,000 / 83,000 / 167,000). Same shared Claim-button skin as
     // Hall of Chiefs, so this reuses the exact same claim loop below -- only the tab template
     // differs.
-    BROTHERS_IN_ARMS("Brothers in Arms", TemplatesEnum.EVENTS_TAB_BROTHERS_IN_ARMS);
+    BROTHERS_IN_ARMS("Brothers in Arms", TemplatesEnum.EVENTS_TAB_BROTHERS_IN_ARMS,
+            PostResetClaimSlots.BROTHERS_IN_ARMS);
 
     private final String label;
     private final TemplatesEnum tabTemplate;
+    private final int minutesAfterReset;
 
-    EventKind(String label, TemplatesEnum tabTemplate) {
+    EventKind(String label, TemplatesEnum tabTemplate, int minutesAfterReset) {
         this.label = label;
         this.tabTemplate = tabTemplate;
+        this.minutesAfterReset = minutesAfterReset;
+    }
+
+    /** Minutes after the daily reset at which this event's claim pass runs. */
+    int getMinutesAfterReset() {
+        return minutesAfterReset;
     }
 
     public String getLabel() {

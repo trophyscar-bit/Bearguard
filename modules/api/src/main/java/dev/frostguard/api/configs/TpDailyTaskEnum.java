@@ -185,6 +185,7 @@ public enum TpDailyTaskEnum {
     EVENT_DEAD_SHOT_SIGN_IN (922, "Event: Dead Shot Sign-in",     ConfigurationKeyEnum.DEAD_SHOT_SIGN_IN_ENABLED_BOOL,         RoutineCategory.EVENT),
     EVENT_WINTER_SIEGE     (923, "Event: Winter Siege",           ConfigurationKeyEnum.WINTER_SIEGE_ENABLED_BOOL,              RoutineCategory.EVENT),
     EVENT_FORTUNE_HUT      (925, "Event: Mia's Fortune Hut",      ConfigurationKeyEnum.FORTUNE_HUT_ENABLED_BOOL,               RoutineCategory.EVENT),
+    RED_DOT_SWEEP          (926, "Red-dot Sweep",                ConfigurationKeyEnum.RED_DOT_SWEEP_ENABLED_BOOL,             RoutineCategory.EVENT),
 
     // Top-right cart-icon Shop panel, built tab by tab. Custom
     // Armament Chest's free Claimable badge is periodic -- once-a-day recheck.

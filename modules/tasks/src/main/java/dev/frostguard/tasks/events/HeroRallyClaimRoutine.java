@@ -97,8 +97,8 @@ public class HeroRallyClaimRoutine extends DelayedTask {
         ImageSearchResultData dealsBtn = templateSearchHelper.locatePattern(
                 TemplatesEnum.HOME_DEALS_BUTTON, SearchConfigConstants.SINGLE_WITH_RETRIES);
         if (!dealsBtn.isFound()) {
-            LocalDateTime next = nextNoon();
-            logInfo(logLine("Deals icon not found. Rechecking at noon: " + next.format(DATETIME_FORMATTER) + "."));
+            LocalDateTime next = nextSlot();
+            logInfo(logLine("Deals icon not found. Rechecking after the next reset: " + next.format(DATETIME_FORMATTER) + "."));
             reschedule(next);
             return;
         }
@@ -107,9 +107,9 @@ public class HeroRallyClaimRoutine extends DelayedTask {
 
         ImageSearchResultData tab = findHeroRallyTab();
         if (!tab.isFound()) {
-            LocalDateTime next = nextNoon();
+            LocalDateTime next = nextSlot();
             logInfo(logLine("Hero Rally tab not found even after swiping the tab strip. Closing "
-                    + "and rechecking at noon: " + next.format(DATETIME_FORMATTER) + "."));
+                    + "and rechecking after the next reset: " + next.format(DATETIME_FORMATTER) + "."));
             pressBack();
             reschedule(next);
             return;
@@ -137,21 +137,14 @@ public class HeroRallyClaimRoutine extends DelayedTask {
         sleepTask(ACTION_SETTLE_MS);
         pressBack();
 
-        LocalDateTime next = nextNoon();
-        logInfo(logLine("Rechecking at noon: " + next.format(DATETIME_FORMATTER) + "."));
+        LocalDateTime next = nextSlot();
+        logInfo(logLine("Rechecking after the next reset: " + next.format(DATETIME_FORMATTER) + "."));
         reschedule(next);
     }
 
-    // "have Hall of Chiefs and other rewards claimed at noon everyday, every
-    // 24h" -- was rescheduling on a rolling "+12h from whenever it last ran" basis, which drifts.
-    // Anchoring to the next real noon instead so this always lands at the same clock time.
-    private LocalDateTime nextNoon() {
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime noon = now.toLocalDate().atTime(12, 0);
-        if (!noon.isAfter(now)) {
-            noon = noon.plusDays(1);
-        }
-        return noon;
+    // Claimed shortly after the daily reset, in its own slot, so the late claims do not pile up.
+    private LocalDateTime nextSlot() {
+        return PostResetClaimSlots.next(PostResetClaimSlots.HERO_RALLY);
     }
 
     /** The common single-level case -- a plain "Claim" pill (not

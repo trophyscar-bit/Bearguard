@@ -67,8 +67,8 @@ public class EventClaimRoutine extends DelayedTask {
         ImageSearchResultData eventsBtn = templateSearchHelper.locatePattern(
                 TemplatesEnum.HOME_EVENTS_BUTTON, SearchConfigConstants.SINGLE_WITH_RETRIES);
         if (!eventsBtn.isFound()) {
-            LocalDateTime next = nextNoon();
-            logInfo(logLine("Events icon not found. Rechecking at noon: " + next.format(DATETIME_FORMATTER) + "."));
+            LocalDateTime next = nextSlot();
+            logInfo(logLine("Events icon not found. Rechecking after the next reset: " + next.format(DATETIME_FORMATTER) + "."));
             reschedule(next);
             return;
         }
@@ -79,9 +79,9 @@ public class EventClaimRoutine extends DelayedTask {
         ImageSearchResultData tab = templateSearchHelper.locatePattern(
                 eventKind.getTabTemplate(), SearchConfigConstants.SINGLE_WITH_RETRIES);
         if (!tab.isFound()) {
-            LocalDateTime next = nextNoon();
+            LocalDateTime next = nextSlot();
             logInfo(logLine(eventKind.getLabel() + " tab not currently showing (probably not running "
-                    + "right now). Closing and rechecking at noon: " + next.format(DATETIME_FORMATTER) + "."));
+                    + "right now). Closing and rechecking after the next reset: " + next.format(DATETIME_FORMATTER) + "."));
             pressBack();
             reschedule(next);
             return;
@@ -115,23 +115,14 @@ public class EventClaimRoutine extends DelayedTask {
             StatisticsService.obtain().addToCounter(profile, eventKind.getLabel() + " Claimed", claimed);
         }
 
-        LocalDateTime next = nextNoon();
-        logInfo(logLine("Rechecking at noon: " + next.format(DATETIME_FORMATTER) + "."));
+        LocalDateTime next = nextSlot();
+        logInfo(logLine("Rechecking after the next reset: " + next.format(DATETIME_FORMATTER) + "."));
         reschedule(next);
     }
 
-    // "have Hall of Chiefs and other rewards claimed at noon everyday, every
-    // 24h" -- was rescheduling on a rolling "+12h from whenever it last ran" basis, which drifts
-    // (a 3:47pm run lands the next check at 3:47am, then 3:47pm again, never settling on a fixed
-    // time of day). Anchoring to the next real noon instead so this always lands at the same
-    // clock time, once a day.
-    private LocalDateTime nextNoon() {
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime noon = now.toLocalDate().atTime(12, 0);
-        if (!noon.isAfter(now)) {
-            noon = noon.plusDays(1);
-        }
-        return noon;
+    // Claimed shortly after the daily reset, in this event's own slot, so the late claims do not pile up.
+    private LocalDateTime nextSlot() {
+        return PostResetClaimSlots.next(eventKind.getMinutesAfterReset());
     }
 
     private String logLine(String note) {

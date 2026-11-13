@@ -149,6 +149,27 @@
             </ScrollPane>
         </Tab>
 
+        <Tab text="Red-dot Sweep" closable="false">
+            <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
+                <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">
+                    <VBox styleClass="content-card">
+                        <HBox styleClass="header-yellow" maxWidth="Infinity" alignment="CENTER_LEFT">
+                            <CheckBox text="Red-dot Sweep: claim free rewards the other tasks miss" style="-fx-font-weight: bold;"
+                                      mnemonicParsing="false" fx:id="checkBoxRedDotSweep" />
+                        </HBox>
+                        <VBox styleClass="task-section-inner">
+                            <Label wrapText="true" styleClass="task-card-description"
+                                   text="About ten minutes after each daily reset, and again at midday, it walks the Events, Deals and Gem Shop tabs that show a red dot and taps only green Claim, Claim All and Free buttons it recognises. Tabs that a dedicated task already claims are skipped while that task is on. Never taps anything with a price, Buy, Shoot!, Reset, Recruit or Redeem, and never opens Chief Gear. An unknown screen or red dot is saved as a snapshot, logged and left alone." />
+                            <Separator style="-fx-opacity: 0.25;" />
+                            <Label wrapText="true" style="-fx-font-style: italic;"
+                                   styleClass="task-card-description"
+                                   text="No additional configuration required" />
+                        </VBox>
+                    </VBox>
+                </VBox>
+            </ScrollPane>
+        </Tab>
+
         <Tab text="Fortress / Stronghold" closable="false">
             <ScrollPane vbarPolicy="AS_NEEDED" hbarPolicy="NEVER" fitToWidth="true" styleClass="task-page-scroll">
                 <VBox maxWidth="Infinity" maxHeight="Infinity" styleClass="task-page-root">
