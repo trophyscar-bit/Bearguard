@@ -147,16 +147,30 @@ class WanderTheaterFrameTest {
         assertEquals(7, talismans("theater-floor2-guaranteed.png"));
     }
 
-    /** Mirrors the routine: the wide and the tight box must agree. */
+    /** Mirrors the routine: both boxes, read the same way, reduced by the same consensus. */
     private Integer talismans(String name) throws Exception {
-        Integer wide = WanderTheaterRoutine.talismanCount(OcrEngine.recognizeText(raw(name),
-                WanderTheaterRoutine.TALISMANS_TOP_LEFT, WanderTheaterRoutine.TALISMANS_BOTTOM_RIGHT,
+        Integer wide = box(name, WanderTheaterRoutine.TALISMANS_TOP_LEFT, WanderTheaterRoutine.TALISMANS_BOTTOM_RIGHT);
+        Integer tight = box(name, WanderTheaterRoutine.TALISMANS_TIGHT_TOP_LEFT,
+                WanderTheaterRoutine.TALISMANS_TIGHT_BOTTOM_RIGHT);
+        return WanderTheaterRoutine.talismanConsensus(wide, tight);
+    }
+
+    private Integer box(String name, PointData topLeft, PointData bottomRight) throws Exception {
+        return WanderTheaterRoutine.talismanCount(OcrEngine.recognizeText(raw(name), topLeft, bottomRight,
                 WanderTheaterRoutine.TALISMAN_DIGITS));
-        Integer tight = WanderTheaterRoutine.talismanCount(OcrEngine.recognizeText(raw(name),
-                WanderTheaterRoutine.TALISMANS_TIGHT_TOP_LEFT, WanderTheaterRoutine.TALISMANS_TIGHT_BOTTOM_RIGHT,
-                WanderTheaterRoutine.TALISMAN_DIGITS));
-        assertEquals(wide, tight, name);
-        return wide;
+    }
+
+    @Test
+    void theTightBoxMayShowPartOfTheWideRead() {
+        assertEquals(40, WanderTheaterRoutine.talismanConsensus(40, 0));
+        assertEquals(40, WanderTheaterRoutine.talismanConsensus(40, 4));
+        assertEquals(40, WanderTheaterRoutine.talismanConsensus(40, 40));
+        assertEquals(14, WanderTheaterRoutine.talismanConsensus(14, 14));
+        assertEquals(null, WanderTheaterRoutine.talismanConsensus(40, 6));
+        assertEquals(null, WanderTheaterRoutine.talismanConsensus(40, null));
+        assertEquals(null, WanderTheaterRoutine.talismanConsensus(null, 40));
+        assertEquals(null, WanderTheaterRoutine.talismanConsensus(0, 6));
+        assertEquals(null, WanderTheaterRoutine.talismanConsensus(5, 50));
     }
 
     @Test

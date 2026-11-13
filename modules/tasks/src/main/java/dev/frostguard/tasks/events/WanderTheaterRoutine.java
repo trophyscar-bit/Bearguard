@@ -62,7 +62,8 @@ public class WanderTheaterRoutine extends DelayedTask {
     private static final PointData THEATER_TAB = new PointData(164, 140);
 
     // The theater page, from live frames on 2026-11-09.
-    // The Talisman count is read in a wide and a tight box; both must agree (a lone wide read once took "0" for "6").
+    // The Talisman count is read in a wide and a tight box (a lone wide read once took "0" for "6"). The tight box
+    // can cut a leading digit off ("40" read "0" on 2026-11-13), so it may show part of the wide read.
     static final PointData TALISMANS_TOP_LEFT = new PointData(565, 268);
     static final PointData TALISMANS_BOTTOM_RIGHT = new PointData(648, 305);
     static final PointData TALISMANS_TIGHT_TOP_LEFT = new PointData(585, 272);
@@ -340,11 +341,43 @@ public class WanderTheaterRoutine extends DelayedTask {
 
     /** Two boxes that must agree, so a misread never spends Talismans that are not there. */
     private Integer readTalismans() {
-        Integer wide = integerHelper.attemptRecognition(TALISMANS_TOP_LEFT, TALISMANS_BOTTOM_RIGHT, 3, 200L,
-                TALISMAN_DIGITS, text -> talismanCount(text) != null, WanderTheaterRoutine::talismanCount);
-        Integer tight = integerHelper.attemptRecognition(TALISMANS_TIGHT_TOP_LEFT, TALISMANS_TIGHT_BOTTOM_RIGHT, 3, 200L,
-                TALISMAN_DIGITS, text -> talismanCount(text) != null, WanderTheaterRoutine::talismanCount);
-        return wide != null && wide.equals(tight) ? wide : null;
+        Integer wide = readTalismanBox(TALISMANS_TOP_LEFT, TALISMANS_BOTTOM_RIGHT);
+        Integer tight = readTalismanBox(TALISMANS_TIGHT_TOP_LEFT, TALISMANS_TIGHT_BOTTOM_RIGHT);
+        Integer count = talismanConsensus(wide, tight);
+        if (count == null) {
+            logWarning("Wander Theater: the Talisman boxes disagree (wide " + wide + ", tight " + tight + ").");
+            saveWanderFrame("talisman-unreadable");
+        }
+        return count;
+    }
+
+    private Integer readTalismanBox(PointData topLeft, PointData bottomRight) {
+        return integerHelper.attemptRecognition(topLeft, bottomRight, 3, 200L, TALISMAN_DIGITS,
+                text -> talismanCount(text) != null, WanderTheaterRoutine::talismanCount);
+    }
+
+    /**
+     * The wide box's number stands when the tight box read the same or only part of it (a "0" or "4" for
+     * "40"). A tight box that read something else, or nothing, is no reading.
+     */
+    static Integer talismanConsensus(Integer wide, Integer tight) {
+        if (wide == null || tight == null) {
+            return null;
+        }
+        if (wide.equals(tight)) {
+            return wide;
+        }
+        String full = wide.toString();
+        String part = tight.toString();
+        return part.length() < full.length() && (full.startsWith(part) || full.endsWith(part)) ? wide : null;
+    }
+
+    private void saveWanderFrame(String tag) {
+        RawImageData raw = emuManager.captureScreen(EMULATOR_NUMBER);
+        if (raw != null) {
+            DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace().write(raw, "wander", tag, Instant.now())
+                    .ifPresent(path -> logWarning("Wander Theater: frame saved: " + path));
+        }
     }
 
     /** Digits only, at most four of them; anything else is no reading. */
@@ -368,12 +401,7 @@ public class WanderTheaterRoutine extends DelayedTask {
             }
             sleepTask(1500);
         }
-        RawImageData raw = emuManager.captureScreen(EMULATOR_NUMBER);
-        if (raw != null) {
-            DiagnosticSnapshotStore.alwaysOnForCurrentWorkspace()
-                    .write(raw, "wander", "no-select-after-roll", Instant.now())
-                    .ifPresent(path -> logWarning("Wander Theater: frame saved: " + path));
-        }
+        saveWanderFrame("no-select-after-roll");
         return false;
     }
 
