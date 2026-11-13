@@ -213,6 +213,26 @@ class FortuneHutFrameTest {
         assertEquals(1, FortuneHutRoutine.tokensNeeded(3, 1));
     }
 
+    /** 2026-11-13: the pass read 7 for a header that reads 17; the strip is pasted on black, nothing else is kept. */
+    @Test
+    void aTwoDigitCountWithALeadingOneIsReadInFull() throws Exception {
+        assertEquals(17, readTokens("header-seventeen-tokens.png"));
+    }
+
+    @Test
+    void aCountThatContradictsTheCostColourIsNotTrusted() {
+        // The 15:12 misread: 7 tokens read, 7 orbs open (next costs 15), cost shown white because the real count was 17.
+        assertTrue(FortuneHutRoutine.tokensContradictCost(7, 3, false));
+        // Consistent cases: enough tokens with a white cost, too few with a red one.
+        assertFalse(FortuneHutRoutine.tokensContradictCost(17, 3, false));
+        assertFalse(FortuneHutRoutine.tokensContradictCost(7, 3, true));
+        // And the other way round: a red cost with a count that could pay it.
+        assertTrue(FortuneHutRoutine.tokensContradictCost(40, 3, true));
+        // The live frames agree with the rule: fresh board 10 tokens (cost 1, white), four orbs open 0 tokens (cost 6, red).
+        assertFalse(FortuneHutRoutine.tokensContradictCost(10, 10, false));
+        assertFalse(FortuneHutRoutine.tokensContradictCost(0, 6, true));
+    }
+
     @Test
     void onlyPlainDigitsCountAsATokenReading() {
         assertEquals(96, FortuneHutRoutine.tokenCount(" 96\n"));

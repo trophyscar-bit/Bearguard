@@ -131,11 +131,12 @@ public class FortuneHutRoutine extends DelayedTask {
 
     /** Orb costs in opening order, as read live; a whole board is their sum, 96. */
     static final int[] ORB_COSTS = {1, 2, 3, 4, 6, 8, 12, 15, 20, 25};
-    /** The token count beside the "+": a wide and a tight box that must agree. Both read 10, 9, 7 and 0 exactly on the live frames (chosen from a sweep of 640 box pairs). */
-    static final PointData TOKENS_TOP_LEFT = new PointData(540, 260);
-    static final PointData TOKENS_BOTTOM_RIGHT = new PointData(645, 305);
-    static final PointData TOKENS_TIGHT_TOP_LEFT = new PointData(540, 265);
-    static final PointData TOKENS_TIGHT_BOTTOM_RIGHT = new PointData(625, 302);
+    /** The token count beside the "+": a wide and a tight box that must agree. Both read 10, 9, 7, 0 and 17 exactly on the live frames. The count is centred near x 599, and a box whose right
+     * edge reaches 625 or more read 17 as 7 (15:12 on 2026-11-13), so the edge stops at 620. */
+    static final PointData TOKENS_TOP_LEFT = new PointData(540, 268);
+    static final PointData TOKENS_BOTTOM_RIGHT = new PointData(620, 302);
+    static final PointData TOKENS_TIGHT_TOP_LEFT = new PointData(560, 272);
+    static final PointData TOKENS_TIGHT_BOTTOM_RIGHT = new PointData(620, 298);
     static final OcrSettingsData TOKEN_DIGITS = OcrSettingsData.configurator()
             .textLayout(OcrSettingsData.TextLayout.SINGLE_WORD)
             .isolateForeground(true)
@@ -504,11 +505,18 @@ public class FortuneHutRoutine extends DelayedTask {
                 return -1;
             }
             sealed = unopenedOrbs(board.get()).size();
+            if (tokensContradictCost(tokens, sealed, costIsRed(board.get()))) {
+                logWarning("Fortune Hut: the token count read " + tokens + " but the board's cost colour says otherwise "
+                        + "(red means the count cannot pay it); treating the count as unreadable; "
+                        + snapshot("tokens-contradict-cost"));
+                return -1;
+            }
         }
         int needed = tokensNeeded(sealed, bankThreshold());
         if (tokens < needed) {
             logInfo("Fortune Hut: " + tokens + " tokens banked, " + needed + " needed to "
-                    + (sealed == 10 ? "start a board" : "finish the board in progress") + "; banking.");
+                    + (sealed == 10 ? "start a board" : "finish the board in progress") + "; banking; "
+                    + snapshot("banking-" + tokens + "-tokens"));
             return 0;
         }
         logInfo("Fortune Hut: " + tokens + " tokens banked, " + needed + " needed; playing.");
@@ -641,6 +649,20 @@ public class FortuneHutRoutine extends DelayedTask {
         }
         String digits = text.trim();
         return digits.matches("\\d{1,4}") ? Integer.valueOf(digits) : null;
+    }
+
+    /**
+     * The game draws "Current cost" red exactly when the tokens cannot pay the next orb. A count that
+     * disagrees with that colour is a misread (it was one at 15:12 on 2026-11-13: 17 read as 7), so the
+     * pass stops instead of acting on it.
+     */
+    static boolean tokensContradictCost(int tokens, int sealedOrbs, boolean costRed) {
+        int opened = Math.max(0, Math.min(10, 10 - sealedOrbs));
+        if (opened >= ORB_COSTS.length) {
+            return false;
+        }
+        boolean affordable = tokens >= ORB_COSTS[opened];
+        return affordable == costRed;
     }
 
     /**
