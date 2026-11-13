@@ -1,6 +1,9 @@
 package dev.frostguard.tasks.shop;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.concurrent.ThreadLocalRandom;
 
 import dev.frostguard.api.configs.TemplatesEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
@@ -11,6 +14,7 @@ import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 
 /**
  * Top-right cart-icon Shop panel, "Daily Deals" tab (second tab,
@@ -26,8 +30,10 @@ import dev.frostguard.engine.service.StatisticsService;
  */
 public class DailyDealsFreeChestRoutine extends DelayedTask {
 
-    private static final PointData REWARD_REVEAL_TAP_ANYWHERE = new PointData(360, 640);
-    private static final int IDLE_RECHECK_HOURS = 24;
+    /** Bottom of the screen, clear of every purchase button. */
+    private static final PointData REWARD_DISMISS_TAP = new PointData(360, 1270);
+    private static final PointData DAILY_DEALS_TAB_SLOT = new PointData(360, 141);
+    private static final int POST_RESET_DELAY_MINUTES = 70;
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int ACTION_SETTLE_MS = 900;
 
@@ -77,24 +83,36 @@ public class DailyDealsFreeChestRoutine extends DelayedTask {
     protected void execute() {
         ImageSearchResultData cartBtn = locateCartButtonRobust();
         if (!cartBtn.isFound()) {
-            logInfo(logLine("Shop cart icon not found even after clearing/retrying. Rechecking in "
-                    + IDLE_RECHECK_HOURS + " hours."));
-            reschedule(LocalDateTime.now().plusHours(IDLE_RECHECK_HOURS));
+            giveUp("cart-icon-missing", "Shop cart icon not found even after clearing/retrying.", false);
             return;
         }
         tapNear(cartBtn.getPoint());
         sleepTask(PANEL_SETTLE_MS);
 
-        ImageSearchResultData tab = templateSearchHelper.locatePattern(
-                TemplatesEnum.SHOP_TAB_DAILY_DEALS, SearchConfigConstants.SINGLE_WITH_RETRIES);
-        if (!tab.isFound()) {
-            logInfo(logLine("Daily Deals tab not found. Closing and rechecking in " + IDLE_RECHECK_HOURS + " hours."));
-            pressBack();
-            reschedule(LocalDateTime.now().plusHours(IDLE_RECHECK_HOURS));
+        ImageSearchResultData header = templateSearchHelper.locatePattern(
+                TemplatesEnum.GEM_SHOP_HEADER, SearchConfigConstants.SINGLE_WITH_RETRIES);
+        if (!header.isFound()) {
+            giveUp("gem-shop-not-open", "Tapped the cart icon but the Gem Shop did not open.", true);
             return;
         }
-        tapNear(tab.getPoint());
+
+        // The tab only matches in its selected look; when the shop opens on another tab the
+        // second tab is tapped at its fixed slot instead.
+        ImageSearchResultData tab = templateSearchHelper.locatePattern(
+                TemplatesEnum.SHOP_TAB_DAILY_DEALS, SearchConfigConstants.SINGLE_WITH_RETRIES);
+        if (tab.isFound()) {
+            tapNear(tab.getPoint());
+        } else {
+            tapNear(DAILY_DEALS_TAB_SLOT);
+        }
         sleepTask(PANEL_SETTLE_MS);
+
+        tab = templateSearchHelper.locatePattern(
+                TemplatesEnum.SHOP_TAB_DAILY_DEALS, SearchConfigConstants.SINGLE_WITH_RETRIES);
+        if (!tab.isFound()) {
+            giveUp("daily-deals-tab-not-selected", "Daily Deals tab is not selected after tapping it.", true);
+            return;
+        }
 
         ImageSearchResultData freeChest = templateSearchHelper.locatePattern(
                 TemplatesEnum.SHOP_DAILY_DEALS_FREE_CHEST, SearchConfigConstants.SINGLE_WITH_RETRIES);
@@ -102,8 +120,15 @@ public class DailyDealsFreeChestRoutine extends DelayedTask {
             logInfo(logLine("Free chest badge found. Claiming."));
             tapNear(freeChest.getPoint());
             sleepTask(ACTION_SETTLE_MS);
-            tapNear(REWARD_REVEAL_TAP_ANYWHERE);
+            tapNear(REWARD_DISMISS_TAP);
             sleepTask(ACTION_SETTLE_MS);
+
+            ImageSearchResultData stillThere = templateSearchHelper.locatePattern(
+                    TemplatesEnum.SHOP_DAILY_DEALS_FREE_CHEST, SearchConfigConstants.SINGLE_WITH_RETRIES);
+            if (stillThere.isFound()) {
+                giveUp("claim-not-registered", "Free chest still showing after the claim tap.", true);
+                return;
+            }
             StatisticsService.obtain().addToCounter(profile, "Daily Deals Free Chest Claimed", 1);
         } else {
             logInfo(logLine("Free chest already claimed today."));
@@ -111,8 +136,20 @@ public class DailyDealsFreeChestRoutine extends DelayedTask {
 
         pressBack();
 
-        logInfo(logLine("Rechecking in " + IDLE_RECHECK_HOURS + " hours."));
-        reschedule(LocalDateTime.now().plusHours(IDLE_RECHECK_HOURS));
+        LocalDateTime next = ShopChestSchedule.nextRunAfterSuccess(ZonedDateTime.now(ZoneOffset.UTC), POST_RESET_DELAY_MINUTES);
+        logInfo(logLine("Done. Next check " + next + " (70 minutes after the UTC reset)."));
+        reschedule(next);
+    }
+
+    private void giveUp(String reason, String note, boolean closePanel) {
+        String snapshot = TaskDiagnosticSnapshots.captureAlways(emuManager, EMULATOR_NUMBER, "dailydealschest", reason);
+        if (closePanel) {
+            pressBack();
+        }
+        int minutes = ThreadLocalRandom.current().nextInt(ShopChestSchedule.RETRY_MIN_MINUTES, ShopChestSchedule.RETRY_MAX_MINUTES + 1);
+        LocalDateTime next = ShopChestSchedule.nextRetryAfterFailure(ZonedDateTime.now(ZoneOffset.UTC), minutes, POST_RESET_DELAY_MINUTES);
+        logInfo(logLine(note + " Retrying at " + next + ". " + snapshot));
+        reschedule(next);
     }
 
     private String logLine(String note) {

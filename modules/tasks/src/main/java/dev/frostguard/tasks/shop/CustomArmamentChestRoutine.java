@@ -1,6 +1,9 @@
 package dev.frostguard.tasks.shop;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.concurrent.ThreadLocalRandom;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -18,6 +21,7 @@ import dev.frostguard.engine.nav.SearchConfigConstants;
 import dev.frostguard.engine.schedule.DelayedTask;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.StatisticsService;
+import dev.frostguard.tasks.diagnostics.TaskDiagnosticSnapshots;
 import dev.frostguard.vision.ocr.OcrEngine;
 
 /**
@@ -40,7 +44,7 @@ import dev.frostguard.vision.ocr.OcrEngine;
  */
 public class CustomArmamentChestRoutine extends DelayedTask {
 
-    private static final int IDLE_RECHECK_HOURS = 24;
+    private static final int POST_RESET_DELAY_MINUTES = 77;
     private static final int PANEL_SETTLE_MS = 1200;
     private static final int ACTION_SETTLE_MS = 900;
 
@@ -94,9 +98,15 @@ public class CustomArmamentChestRoutine extends DelayedTask {
     protected void execute() {
         ImageSearchResultData cartBtn = locateCartButtonRobust();
         if (!cartBtn.isFound()) {
-            logInfo(logLine("Shop cart icon not found even after clearing/retrying. Rechecking in "
-                    + IDLE_RECHECK_HOURS + " hours."));
-            reschedule(LocalDateTime.now().plusHours(IDLE_RECHECK_HOURS));
+            String snapshot = TaskDiagnosticSnapshots.captureAlways(
+                    emuManager, EMULATOR_NUMBER, "customarmamentchest", "cart-icon-missing");
+            int minutes = ThreadLocalRandom.current().nextInt(
+                    ShopChestSchedule.RETRY_MIN_MINUTES, ShopChestSchedule.RETRY_MAX_MINUTES + 1);
+            LocalDateTime retryAt = ShopChestSchedule.nextRetryAfterFailure(
+                    ZonedDateTime.now(ZoneOffset.UTC), minutes, POST_RESET_DELAY_MINUTES);
+            logInfo(logLine("Shop cart icon not found even after clearing/retrying. Retrying at "
+                    + retryAt + ". " + snapshot));
+            reschedule(retryAt);
             return;
         }
         tapNear(cartBtn.getPoint());
@@ -133,8 +143,10 @@ public class CustomArmamentChestRoutine extends DelayedTask {
 
         pressBack();
 
-        logInfo(logLine("Rechecking in " + IDLE_RECHECK_HOURS + " hours."));
-        reschedule(LocalDateTime.now().plusHours(IDLE_RECHECK_HOURS));
+        LocalDateTime next = ShopChestSchedule.nextRunAfterSuccess(
+                ZonedDateTime.now(ZoneOffset.UTC), POST_RESET_DELAY_MINUTES);
+        logInfo(logLine("Done. Next check " + next + " (77 minutes after the UTC reset)."));
+        reschedule(next);
     }
 
     // "Claimable" text region, live-calibrated -- sits directly under the bouncing
