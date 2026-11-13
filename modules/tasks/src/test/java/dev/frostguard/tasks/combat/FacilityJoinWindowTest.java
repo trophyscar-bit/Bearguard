@@ -22,10 +22,25 @@ class FacilityJoinWindowTest {
     }
 
     @Test
-    void beforeTheStartItWaitsUntilTwoMinutesBefore() {
+    void beforeTheStartItWaitsForThePreflightThenForTheLead() {
+        // Hours ahead: wake at the pre-battle check, 30 minutes before the start.
         FacilityJoinWindow.Decision d = FacilityJoinWindow.decide(START.minusHours(5), Optional.of(START), LENGTH);
         assertEquals(FacilityJoinWindow.Kind.WAIT, d.kind());
+        assertEquals(START.minus(FacilityJoinWindow.PREFLIGHT_LEAD), d.at());
+        // After the check, wake again at the lead.
+        LocalDateTime afterCheck = START.minus(FacilityJoinWindow.PREFLIGHT_LEAD);
+        d = FacilityJoinWindow.decide(afterCheck, Optional.of(START), LENGTH);
+        assertEquals(FacilityJoinWindow.Kind.WAIT, d.kind());
         assertEquals(START.minus(FacilityJoinWindow.LEAD), d.at());
+    }
+
+    @Test
+    void thePreflightIsDueOnlyBetweenItsTimeAndTheLead() {
+        assertEquals(false, FacilityJoinWindow.preflightDue(START.minusMinutes(31), START));
+        assertEquals(true, FacilityJoinWindow.preflightDue(START.minusMinutes(30), START));
+        assertEquals(true, FacilityJoinWindow.preflightDue(START.minusMinutes(6), START));
+        assertEquals(false, FacilityJoinWindow.preflightDue(START.minus(FacilityJoinWindow.LEAD), START));
+        assertEquals(false, FacilityJoinWindow.preflightDue(START, START));
     }
 
     @Test

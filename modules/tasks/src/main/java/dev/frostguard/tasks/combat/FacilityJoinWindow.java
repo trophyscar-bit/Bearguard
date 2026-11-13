@@ -18,6 +18,8 @@ final class FacilityJoinWindow {
 
     /** How long before the start the bot opens the War screen: time enough to recall gatherers so every march is free to join. */
     static final Duration LEAD = Duration.ofMinutes(5);
+    /** How long before the start the pre-battle check runs. */
+    static final Duration PREFLIGHT_LEAD = Duration.ofMinutes(30);
     /** How often to ask again when the calendar has no time. */
     static final Duration ASK_AGAIN = Duration.ofMinutes(30);
 
@@ -38,11 +40,17 @@ final class FacilityJoinWindow {
         return probe.isBefore(end) ? probe : end;
     }
 
+    /** True from the pre-battle check's time until the joiner opens the War screen. */
+    static boolean preflightDue(LocalDateTime nowUtc, LocalDateTime startUtc) {
+        return !nowUtc.isBefore(startUtc.minus(PREFLIGHT_LEAD)) && nowUtc.isBefore(startUtc.minus(LEAD));
+    }
+
     static Decision decide(LocalDateTime nowUtc, Optional<LocalDateTime> startUtc, Duration length) {
         if (startUtc.isEmpty()) return new Decision(Kind.UNKNOWN, nowUtc.plus(ASK_AGAIN));
         LocalDateTime start = startUtc.get();
         LocalDateTime end = start.plus(length);
         if (!nowUtc.isBefore(end)) return new Decision(Kind.UNKNOWN, nowUtc.plus(ASK_AGAIN));
+        if (nowUtc.isBefore(start.minus(PREFLIGHT_LEAD))) return new Decision(Kind.WAIT, start.minus(PREFLIGHT_LEAD));
         if (nowUtc.isBefore(start.minus(LEAD))) return new Decision(Kind.WAIT, start.minus(LEAD));
         return new Decision(Kind.RUN, end);
     }

@@ -95,6 +95,12 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
     /** Set by the whitelist the first time a signed-up facility rally is seen: the battle is live. */
     private volatile boolean battleLive;
     private volatile LocalDateTime liveSinceUtc;
+    /** The start the pre-battle check last ran for, so it runs once per battle. */
+    private LocalDateTime preflightForUtc;
+    private boolean warnedNoJoin;
+    /** True only while a rehearsal is running: the session reads rallies and saves frames but never deploys. */
+    private volatile boolean dryRunning;
+    private volatile boolean dryCaptured;
 
     /**
      * The framework navigates here before execute() runs, so an idle pass (no candidate time known, or
@@ -103,8 +109,23 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
     @Override
     protected LaunchPoint getRequiredStartLocation() {
         LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
-        return FacilityJoinWindow.decide(nowUtc, pickStart(nowUtc).map(Stage::startUtc), WINDOW_LENGTH).kind() == FacilityJoinWindow.Kind.RUN
-                ? LaunchPoint.WORLD : LaunchPoint.ANY;
+        Optional<LocalDateTime> start = pickStart(nowUtc).map(Stage::startUtc);
+        boolean battle = FacilityJoinWindow.decide(nowUtc, start, WINDOW_LENGTH).kind() == FacilityJoinWindow.Kind.RUN;
+        boolean preflight = start.isPresent() && FacilityJoinWindow.preflightDue(nowUtc, start.get())
+                && !start.get().equals(preflightForUtc);
+        boolean rehearsal = dryRunDecision(nowUtc).kind() == FacilityDryRun.Kind.TRY;
+        return battle || preflight || rehearsal ? LaunchPoint.WORLD : LaunchPoint.ANY;
+    }
+
+    private static LocalDateTime toLocal(LocalDateTime utc) {
+        return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+    }
+
+    private FacilityDryRun.Decision dryRunDecision(LocalDateTime nowUtc) {
+        Duration offset = Duration.ofSeconds(ZoneId.systemDefault().getRules().getOffset(java.time.Instant.now()).getTotalSeconds());
+        return FacilityDryRun.decide(
+                FacilityDryRun.parse(profile.getConfig(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_DRY_RUN_WINDOW_STRING, String.class)),
+                nowUtc, java.time.LocalTime.now(), offset);
     }
 
     /** The stage to work on: the current one until its window closes, else the next candidate that has not lost the vote. */
@@ -161,7 +182,16 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
         FacilityJoinWindow.Decision decision = FacilityJoinWindow.decide(nowUtc, start, WINDOW_LENGTH);
 
         if (decision.kind() != FacilityJoinWindow.Kind.RUN) {
-            LocalDateTime again = decision.at().atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+            if (picked.isPresent() && FacilityJoinWindow.preflightDue(nowUtc, picked.get().startUtc())
+                    && !picked.get().startUtc().equals(preflightForUtc)) {
+                preflightForUtc = picked.get().startUtc();
+                runPreflight(picked.get());
+            }
+            Optional<LocalDateTime> rehearsalWake = dryRunStep(nowUtc);
+            LocalDateTime again = toLocal(decision.at());
+            if (rehearsalWake.isPresent() && rehearsalWake.get().isBefore(again)) {
+                again = rehearsalWake.get();
+            }
             logInfo(routineLogBearTrapLine(decision.kind() == FacilityJoinWindow.Kind.UNKNOWN
                     ? "Facility rally joiner: no facility battle time known; asking again at " + again
                     : "Facility rally joiner: waiting for the facility battle; starting at " + again));
@@ -202,6 +232,8 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
         battleLive = false;
         liveSinceUtc = null;
         LocalDateTime sessionStart = LocalDateTime.now(ZoneOffset.UTC);
+        joinedRallies = 0;
+        warnedNoJoin = false;
         if (!signedUp.isEmpty()
                 && Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_RECALL_BOOL, Boolean.class))) {
             // Every gatherer comes home when the battle starts, whether or not the target text is calibrated,
@@ -216,6 +248,11 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
             LocalDateTime end = sessionEnd(battleLive, liveSinceUtc, confirmed, stage, sessionStart, battleEnd, probeEnd);
             if (!now.isBefore(end)) break;
             checkPreemption();
+            if (!warnedNoJoin && joinedRallies == 0 && !now.isBefore(stage.plusMinutes(2))) {
+                warnedNoJoin = true;
+                logWarning(routineLogBearTrapLine("FACILITY NO JOIN: no facility rally has been joined 2 minutes after the "
+                        + stage + " UTC start; a by-hand join may be needed."));
+            }
             handleJoinRallies2(end);
             sleepTask(5_000);
         }
@@ -232,6 +269,81 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
             currentStartUtc = null;
         }
         reschedule(LocalDateTime.now().plus(watch.dividedBy(3)));
+    }
+
+    /** Checks the things that would make the battle fail, 30 minutes ahead, and says so loudly. Taps nothing. */
+    private void runPreflight(Stage stage) {
+        List<String> fails = new ArrayList<>();
+        if (flags(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_FLAG_STRING).isEmpty()) {
+            fails.add("no squads are selected");
+        }
+        if (!stage.confirmed()) {
+            fails.add("the battle time is only a vote candidate, not confirmed");
+        }
+        for (String template : new String[] {"/templates/home/warBattle.png", "/templates/home/war.png"}) {
+            if (getClass().getResource(template) == null) {
+                fails.add("the template " + template + " is missing");
+            }
+        }
+        for (String fail : fails) {
+            logWarning(routineLogBearTrapLine("PREFLIGHT FAIL: " + fail + " (battle at " + stage.startUtc() + " UTC)"));
+        }
+        if (fails.isEmpty()) {
+            logInfo(routineLogBearTrapLine("PREFLIGHT PASS: confirmed battle at " + stage.startUtc()
+                    + " UTC, squads " + flags(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_FLAG_STRING)
+                    + ", recall " + Boolean.TRUE.equals(profile.getConfig(
+                            ConfigurationKeyEnum.FACILITY_RALLY_JOIN_RECALL_BOOL, Boolean.class))));
+        }
+        saveJoinDiagnostic("facility-preflight");
+    }
+
+    /**
+     * An armed rehearsal: opens the War list on a real rally that is not ours, reads its target, opens the
+     * march screen and backs out. Returns when to try again, or empty when nothing more is to be done.
+     */
+    private Optional<LocalDateTime> dryRunStep(LocalDateTime nowUtc) {
+        FacilityDryRun.Decision decision = dryRunDecision(nowUtc);
+        switch (decision.kind()) {
+            case NOT_ARMED:
+                return Optional.empty();
+            case EXPIRED:
+                logWarning(routineLogBearTrapLine("Dry run: the armed window ended without capturing a rally; disarming."));
+                writeProfileSetting(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_DRY_RUN_WINDOW_STRING, "");
+                return Optional.empty();
+            case WAIT:
+                return Optional.of(toLocal(decision.at()));
+            default:
+                break;
+        }
+        dryRunning = true;
+        dryCaptured = false;
+        joinRally = true;
+        rallyTargets = new BearRallyTargets();
+        marchTally = new BearMarchTally();
+        sharedEmulator = isSharedEmulatorProfile();
+        try {
+            handleJoinRallies2(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(3));
+        } finally {
+            dryRunning = false;
+        }
+        if (dryCaptured) {
+            logInfo(routineLogBearTrapLine("Dry run: captured a rally's war-list and march screens; disarming."));
+            writeProfileSetting(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_DRY_RUN_WINDOW_STRING, "");
+            return Optional.empty();
+        }
+        logInfo(routineLogBearTrapLine("Dry run: no rally on the War list to capture; trying again in "
+                + FacilityDryRun.RETRY.toMinutes() + " minutes."));
+        return Optional.of(LocalDateTime.now().plus(FacilityDryRun.RETRY));
+    }
+
+    @Override
+    boolean takeRally(PointData plusIcon, java.util.OptionalInt freeMarches) {
+        if (dryRunning) {
+            rehearseRally(plusIcon);
+            dryCaptured = true;
+            return false;
+        }
+        return super.takeRally(plusIcon, freeMarches);
     }
 
     /** When this session stops: after the hold once a rally is live, else at the end of the wait for one. */
@@ -253,6 +365,13 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
 
     @Override
     boolean rallyAccepted(PointData plusIcon) {
+        if (dryRunning) {
+            // A rehearsal takes any rally and only reads it, so the target text is logged for calibration.
+            logInfo(routineLogBearTrapLine("Dry run: a rally's target reads "
+                    + readScreenText(targetTextAreaFor(plusIcon)).stream()
+                            .map(dev.frostguard.vision.ocr.TextLine::text).toList()));
+            return true;
+        }
         Optional<dev.frostguard.api.domain.AreaData> area = targetTextArea(plusIcon);
         if (area.isEmpty()) {
             if (!warnedUncalibrated) {

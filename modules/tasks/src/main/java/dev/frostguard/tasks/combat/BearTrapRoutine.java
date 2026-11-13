@@ -872,7 +872,9 @@ private void runJoinSession(LocalDateTime trapEndTime) {
                     rallyTargets.markRejected(target.get(), Instant.now());
                     continue;
                 }
-                attemptRallyJoin(target.get(), freeMarches);
+                if (!takeRally(target.get(), freeMarches)) {
+                    return;
+                }
                 continue;
             }
 
@@ -901,6 +903,29 @@ private void scrollJoinList(BearJoinListScroller.Move move) {
             }
         }
         sleepTask(500);
+    }
+
+/** Joins the rally at this row; false ends the session. The Facility joiner's rehearsal overrides this. */
+boolean takeRally(PointData plusIcon, OptionalInt freeMarches) {
+        attemptRallyJoin(plusIcon, freeMarches);
+        return true;
+    }
+
+/** Rallies actually joined (the march left) since the owner last reset this. */
+int joinedRallies;
+
+/**
+ * A rehearsal: opens the march screen from a real rally and saves it, then backs out. It has no path to
+ * the Deploy button, so nothing is sent.
+ */
+void rehearseRally(PointData plusIcon) {
+        saveJoinDiagnostic("dry-run-war-list");
+        tapInside(plusIcon, plusIcon, 1, 100);
+        ImageSearchResultData deploy = findJoinDeployButton(JOIN_DEPLOY_APPEAR_ATTEMPTS_VALUE);
+        saveJoinDiagnostic(deploy.isFound() ? "dry-run-deploy-screen" : "dry-run-after-plus");
+        logInfo(routineLogBearTrapLine("Dry run: march screen " + (deploy.isFound() ? "reached" : "not reached")
+                + "; backing out without deploying"));
+        pressBack();
     }
 
 /** The War entry on the world map. The Bear Trap shows a skull; the Facility joiner overrides this. */
@@ -976,6 +1001,7 @@ private void attemptRallyJoin(PointData plusIcon, OptionalInt freeBefore) {
         }
 
         rallyTargets.markJoined(plusIcon, Instant.now());
+        joinedRallies++;
         Optional<Integer> sentSquad = heroSquad.isPresent() ? heroSquad : troopSquad;
         sentSquad.ifPresent(squad -> marchTally.markSent(squad, Instant.now()));
         String marchLabel = heroSquad.isPresent() ? "squad #" + heroSquad.get()

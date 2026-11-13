@@ -214,6 +214,7 @@ public enum ConfigurationKeyEnum {
     FACILITY_RALLY_JOIN_ENABLED_BOOL            ("false",   Boolean.class,       ConfigCategory.EVENTS),
     FACILITY_RALLY_JOIN_FLAG_STRING             ("1,2,3,8", String.class,        ConfigCategory.EVENTS),
     FACILITY_RALLY_JOIN_CONFIRMED_START_STRING  ("",        String.class,        ConfigCategory.EVENTS),
+    FACILITY_RALLY_JOIN_DRY_RUN_WINDOW_STRING   ("",        String.class,        ConfigCategory.EVENTS),
     FACILITY_RALLY_JOIN_RECALL_BOOL             ("true",    Boolean.class,       ConfigCategory.EVENTS),
     BEAR_TRAP_JOIN_RALLY_BOOL                   ("false",   Boolean.class,       ConfigCategory.EVENTS),
     BEAR_TRAP_LEADER_JOIN_FLAG_INT              ("",        String.class,        ConfigCategory.EVENTS),
