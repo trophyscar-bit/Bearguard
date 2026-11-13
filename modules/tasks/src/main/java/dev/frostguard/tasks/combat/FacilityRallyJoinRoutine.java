@@ -3,6 +3,7 @@ package dev.frostguard.tasks.combat;
 import dev.frostguard.api.configs.ConfigurationKeyEnum;
 import dev.frostguard.api.configs.TpDailyTaskEnum;
 import dev.frostguard.api.domain.AccountDescriptor;
+import dev.frostguard.api.domain.ImageSearchResultData;
 import dev.frostguard.api.domain.PointData;
 import dev.frostguard.engine.schedule.LaunchPoint;
 import dev.frostguard.engine.service.FacilityBattleCandidates;
@@ -166,6 +167,7 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
         LocalDateTime probeEnd = FacilityJoinWindow.probeEnd(LocalDateTime.now(ZoneOffset.UTC), stage, WINDOW_LENGTH, watch);
         battleLive = false;
         liveSinceUtc = null;
+        LocalDateTime sessionStart = LocalDateTime.now(ZoneOffset.UTC);
         if (!signedUp.isEmpty()
                 && Boolean.TRUE.equals(profile.getConfig(ConfigurationKeyEnum.FACILITY_RALLY_JOIN_RECALL_BOOL, Boolean.class))) {
             // Every gatherer comes home when the battle starts, whether or not the target text is calibrated,
@@ -177,7 +179,7 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
         while (true) {
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             // A confirmed time is a real battle: keep watching it to the end rather than give it up as a lost vote.
-            LocalDateTime end = sessionEnd(battleLive, liveSinceUtc, confirmed, stage, battleEnd, probeEnd);
+            LocalDateTime end = sessionEnd(battleLive, liveSinceUtc, confirmed, stage, sessionStart, battleEnd, probeEnd);
             if (!now.isBefore(end)) break;
             checkPreemption();
             handleJoinRallies2(end);
@@ -200,12 +202,15 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
 
     /** When this session stops: after the hold once a rally is live, else at the end of the wait for one. */
     static LocalDateTime sessionEnd(boolean live, LocalDateTime liveSinceUtc, boolean confirmed,
-                                    LocalDateTime stageUtc, LocalDateTime battleEnd, LocalDateTime probeEnd) {
+                                    LocalDateTime stageUtc, LocalDateTime sessionStartUtc,
+                                    LocalDateTime battleEnd, LocalDateTime probeEnd) {
         LocalDateTime end;
         if (live && liveSinceUtc != null) {
             end = liveSinceUtc.plus(HOLD_AFTER_LIVE);
         } else if (confirmed) {
-            end = stageUtc.plus(WAIT_FOR_FIRST_RALLY);
+            // Counted from when the session began if that is later than the start, so a late wake or a
+            // relaunch mid-battle still gets its full wait instead of giving up at once.
+            end = (sessionStartUtc.isAfter(stageUtc) ? sessionStartUtc : stageUtc).plus(WAIT_FOR_FIRST_RALLY);
         } else {
             end = probeEnd;
         }
@@ -239,17 +244,41 @@ public class FacilityRallyJoinRoutine extends BearTrapRoutine {
         return join;
     }
 
-    /** Whether {@link #targetTextArea(PointData)} knows where to read; false until measured on a real frame. */
+    /** Whether {@link #targetTextArea(PointData)} knows where to read. */
     boolean targetCalibrated() {
-        return false;
+        return true;
     }
 
     /**
-     * Where the target text is for the rally whose join icon is here. Empty until measured on a real
-     * War-list frame: the whitelist then joins nothing.
+     * During a facility battle the World map shows a red crossed-swords War icon with a countdown, not
+     * the Bear Trap's skull. It pulses, so it matches at about 75 against a noise floor near 40 on
+     * saved frames; the threshold sits between them. The skull stays as a fallback.
+     */
+    @Override
+    ImageSearchResultData locateWarButton() {
+        ImageSearchResultData battle = templateSearchHelper.locatePattern(
+                dev.frostguard.api.configs.TemplatesEnum.GAME_HOME_WAR_BATTLE,
+                dev.frostguard.engine.helper.TemplateSearchHelper.SearchConfig.builder()
+                        .withThreshold(65)
+                        .withMaxAttempts(3)
+                        .build());
+        return battle != null && battle.isFound() ? battle : super.locateWarButton();
+    }
+
+    /**
+     * Where the facility name is for the rally whose join icon is here: the shield row under the leader's
+     * troops, in dark text on the card's pink panel. Measured on a live War list (720x1280): for a
+     * join icon at (641, 390) the row's text spans x 290-476, y 443-470, and a second card read the same
+     * offsets. The row is clear of the leader's name and the avatars.
      */
     Optional<dev.frostguard.api.domain.AreaData> targetTextArea(PointData plusIcon) {
-        return Optional.empty();
+        return Optional.of(targetTextAreaFor(plusIcon));
+    }
+
+    static dev.frostguard.api.domain.AreaData targetTextAreaFor(PointData plusIcon) {
+        return new dev.frostguard.api.domain.AreaData(
+                new PointData(plusIcon.getX() - 365, plusIcon.getY() + 48),
+                new PointData(plusIcon.getX() - 140, plusIcon.getY() + 88));
     }
 
     private List<Integer> flags(ConfigurationKeyEnum key) {

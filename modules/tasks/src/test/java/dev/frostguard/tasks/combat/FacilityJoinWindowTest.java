@@ -64,14 +64,18 @@ class FacilityJoinWindowTest {
         LocalDateTime probeEnd = START.plus(FacilityJoinWindow.PROBE);
         LocalDateTime liveAt = START.plusMinutes(5);
         assertEquals(liveAt.plus(FacilityRallyJoinRoutine.HOLD_AFTER_LIVE),
-                FacilityRallyJoinRoutine.sessionEnd(true, liveAt, true, START, battleEnd, probeEnd));
+                FacilityRallyJoinRoutine.sessionEnd(true, liveAt, true, START, START, battleEnd, probeEnd));
         // A rally first seen near the end is capped by the battle's end.
         LocalDateTime late = battleEnd.minusMinutes(10);
-        assertEquals(battleEnd, FacilityRallyJoinRoutine.sessionEnd(true, late, true, START, battleEnd, probeEnd));
+        assertEquals(battleEnd, FacilityRallyJoinRoutine.sessionEnd(true, late, true, START, START, battleEnd, probeEnd));
         // Confirmed and no rally yet: wait a bounded time, so gathering resumes.
         assertEquals(START.plus(FacilityRallyJoinRoutine.WAIT_FOR_FIRST_RALLY),
-                FacilityRallyJoinRoutine.sessionEnd(false, null, true, START, battleEnd, probeEnd));
+                FacilityRallyJoinRoutine.sessionEnd(false, null, true, START, START, battleEnd, probeEnd));
+        // A relaunch 25 minutes into the battle still waits its full time, not the 5 minutes left of the start window.
+        LocalDateTime relaunch = START.plusMinutes(25);
+        assertEquals(relaunch.plus(FacilityRallyJoinRoutine.WAIT_FOR_FIRST_RALLY),
+                FacilityRallyJoinRoutine.sessionEnd(false, null, true, START, relaunch, START.plusMinutes(120), probeEnd));
         // A candidate-only time keeps the watch probe.
-        assertEquals(probeEnd, FacilityRallyJoinRoutine.sessionEnd(false, null, false, START, battleEnd, probeEnd));
+        assertEquals(probeEnd, FacilityRallyJoinRoutine.sessionEnd(false, null, false, START, START, battleEnd, probeEnd));
     }
 }

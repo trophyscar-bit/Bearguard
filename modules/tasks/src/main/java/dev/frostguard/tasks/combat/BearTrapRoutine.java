@@ -801,12 +801,7 @@ void handleJoinRallies2(LocalDateTime trapEndTime) {
         }
 
         try {
-            ImageSearchResultData warButton = templateSearchHelper.locatePattern(
-                    GAME_HOME_WAR,
-                    SearchConfig.builder()
-                            .withThreshold(90)
-                            .withMaxAttempts(TEMPLATE_SEARCH_RETRIES_VALUE)
-                            .build());
+            ImageSearchResultData warButton = locateWarButton();
 
             if (warButton.isFound()) {
                 logDebug(routineLogBearTrapLine("Entering war section to check for rallies"));
@@ -906,6 +901,16 @@ private void scrollJoinList(BearJoinListScroller.Move move) {
             }
         }
         sleepTask(500);
+    }
+
+/** The War entry on the world map. The Bear Trap shows a skull; the Facility joiner overrides this. */
+ImageSearchResultData locateWarButton() {
+        return templateSearchHelper.locatePattern(
+                GAME_HOME_WAR,
+                SearchConfig.builder()
+                        .withThreshold(90)
+                        .withMaxAttempts(TEMPLATE_SEARCH_RETRIES_VALUE)
+                        .build());
     }
 
 /** Whether to join the rally at this row. The Bear Trap joins every one; the Facility joiner overrides this. */
