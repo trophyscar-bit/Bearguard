@@ -22,6 +22,7 @@ import dev.frostguard.engine.input.TapInteractionService;
 import dev.frostguard.engine.nav.CommonGameAreas;
 import dev.frostguard.engine.nav.RecallConfirmationGuard;
 import dev.frostguard.engine.nav.SidebarSection;
+import dev.frostguard.engine.nav.WorldTilePopupGuard;
 
 /**
  * A sidebar tab tap must never be sent on a stale reading.
@@ -88,6 +89,112 @@ class SidebarTabTapSafetyTest {
         assertTrue(guard.backPresses > 0, "The dialog must be backed out of, never confirmed");
     }
 
+    @Test
+    void backsOutOfATilePopupBeforeTheTriggerTap() throws Exception {
+        // 2026-11-13: an own-gather tile card (Details / Recall) over World while the World anchor
+        // still matched, so both trigger taps went into the card.
+        Rig rig = new Rig();
+        rig.worldRootWhileClosed();
+        TilePopup popup = new TilePopup(rig, true);
+        rig.put("tilePopupGuard", popup);
+        rig.onTap = point -> {
+            if (rig.sectionNow.isEmpty()) {
+                rig.sectionNow = Optional.of(SidebarSection.DAILY);
+            } else {
+                rig.sectionNow = Optional.of(SidebarSection.WILDERNESS);
+            }
+        };
+
+        assertTrue(rig.nav.openSection(SidebarSection.WILDERNESS));
+        assertEquals(1, popup.backPresses, "One back closes the card");
+        assertEquals(0, popup.tapsWhileUp, "Nothing may be tapped while the card is over the map");
+        assertEquals(1, rig.tapsInside(CommonGameAreas.LEFT_MENU_TRIGGER).size());
+    }
+
+    @Test
+    void tapsNothingWhenTheTilePopupWillNotClose() throws Exception {
+        Rig rig = new Rig();
+        rig.worldRootWhileClosed();
+        TilePopup popup = new TilePopup(rig, true);
+        popup.closesOnBack = false;
+        rig.put("tilePopupGuard", popup);
+
+        assertFalse(rig.nav.openSection(SidebarSection.WILDERNESS));
+        assertEquals(0, rig.taps.size(), "Attack and Recall sit inside the card; tap nothing");
+        assertEquals(2, popup.backPresses,
+                "One back per attempt, and only the one retry: back is never pressed blind");
+    }
+
+    @Test
+    void retriesOnceWhenTheAttemptLeavesATilePopupBehind() throws Exception {
+        // 2026-11-13 17:38 and 18:24: the panel opened on DAILY, the WILDERNESS tab tap landed on
+        // the map as the panel went, and a player-city / beast card was left over World.
+        Rig rig = new Rig();
+        rig.worldRootWhileClosed();
+        TilePopup popup = new TilePopup(rig, false);
+        rig.put("tilePopupGuard", popup);
+        int[] tabTaps = {0};
+        rig.onTap = point -> {
+            if (rig.sectionNow.isEmpty()) {
+                rig.sectionNow = Optional.of(SidebarSection.DAILY);
+            } else if (tabTaps[0]++ == 0) {
+                rig.sectionNow = Optional.empty();
+                popup.up = true;
+            } else {
+                rig.sectionNow = Optional.of(SidebarSection.WILDERNESS);
+            }
+        };
+
+        assertTrue(rig.nav.openSection(SidebarSection.WILDERNESS));
+        assertEquals(1, popup.backPresses);
+        assertEquals(0, popup.tapsWhileUp, "The retry must start by closing the card");
+        assertEquals(2, rig.tapsInside(CommonGameAreas.LEFT_MENU_TRIGGER).size());
+    }
+
+    @Test
+    void doesNotRetryAFailureThatLeftNoTilePopup() throws Exception {
+        Rig rig = new Rig();
+        rig.worldRootWhileClosed();
+        TilePopup popup = new TilePopup(rig, false);
+        rig.put("tilePopupGuard", popup);
+
+        assertFalse(rig.nav.openSection(SidebarSection.WILDERNESS));
+        assertEquals(0, popup.backPresses, "Back on a bare World map asks to quit the game");
+        assertEquals(SidebarNavigator.MAX_TRIGGER_TAPS,
+                rig.tapsInside(CommonGameAreas.LEFT_MENU_TRIGGER).size(),
+                "Without a popup the attempt is not repeated");
+    }
+
+    /** A tile popup over World that back closes, recording any tap sent while it is up. */
+    private static final class TilePopup implements WorldTilePopupGuard {
+        private boolean up;
+        private boolean closesOnBack = true;
+        private int backPresses;
+        private int tapsWhileUp;
+
+        private TilePopup(Rig rig, boolean up) {
+            this.up = up;
+            rig.tapWatch = point -> {
+                if (this.up) {
+                    tapsWhileUp++;
+                }
+            };
+        }
+
+        @Override
+        public boolean popupOnScreen() {
+            return up;
+        }
+
+        @Override
+        public void pressBack() {
+            backPresses++;
+            if (closesOnBack) {
+                up = false;
+            }
+        }
+    }
+
     /** A confirmation that will not go away, so the navigator has to give up rather than tap. */
     private static final class StuckRecallGuard implements RecallConfirmationGuard {
         private int backPresses;
@@ -110,6 +217,8 @@ class SidebarTabTapSafetyTest {
         private final List<PointData> taps = new ArrayList<>();
         private Optional<SidebarSection> sectionNow = Optional.empty();
         private Optional<SidebarSection> sectionAfterTap;
+        private java.util.function.Consumer<PointData> onTap = point -> {};
+        private java.util.function.Consumer<PointData> tapWatch = point -> {};
 
         private Rig() throws Exception {
             Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
@@ -124,10 +233,12 @@ class SidebarTabTapSafetyTest {
                     new AccountDescriptor(997L, "Synthetic Tabs", "tabs", true, 0L, 0L);
             nav = new SidebarNavigator(emu, "tabs", account);
             put("taps", new TapInteractionService(point -> {
+                tapWatch.accept(point);
                 taps.add(point);
                 if (sectionAfterTap != null) {
                     sectionNow = sectionAfterTap;
                 }
+                onTap.accept(point);
             }, null, millis -> {}));
             put("transitionWaiter", (SidebarNavigator.Waiter) millis -> true);
             // No Recall confirmation unless a test says so; the guard has its own tests.
@@ -140,6 +251,17 @@ class SidebarTabTapSafetyTest {
                 @Override
                 public void pressBack() {
                     throw new AssertionError("No dialog, so no back press");
+                }
+            });
+            put("tilePopupGuard", new WorldTilePopupGuard() {
+                @Override
+                public boolean popupOnScreen() {
+                    return false;
+                }
+
+                @Override
+                public void pressBack() {
+                    throw new AssertionError("No tile popup, so no back press");
                 }
             });
             // Keep the Home fallback out of the way: these tests are about what openSection does
@@ -167,6 +289,12 @@ class SidebarTabTapSafetyTest {
             // Read the section from the rig rather than from a frame, so each test states exactly
             // what the screen shows at the moment the navigator looks.
             put("sections", (SidebarNavigator.SectionReader) () -> sectionNow);
+        }
+
+        /** World with the sidebar closed reads as a root screen; an open panel is not. */
+        private void worldRootWhileClosed() throws Exception {
+            put("screenStates", (SidebarNavigator.ScreenStateReader) () ->
+                    new SidebarNavigator.ScreenState(sectionNow, sectionNow.isEmpty()));
         }
 
         private void put(String name, Object value) throws Exception {

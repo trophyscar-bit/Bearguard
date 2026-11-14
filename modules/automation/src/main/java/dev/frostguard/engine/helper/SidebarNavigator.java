@@ -28,6 +28,7 @@ import dev.frostguard.engine.nav.SidebarRowLookup;
 import dev.frostguard.engine.nav.SidebarSection;
 import dev.frostguard.engine.nav.SidebarViewportChangeDetector;
 import dev.frostguard.engine.nav.SearchConfigConstants;
+import dev.frostguard.engine.nav.WorldTilePopupGuard;
 import dev.frostguard.vision.convert.ImageConverter;
 import dev.frostguard.vision.logging.ProfileContextLogger;
 
@@ -47,6 +48,8 @@ public final class SidebarNavigator {
     private static final int SCREEN_SWITCH_SETTLE_MS = 2_000;
     private static final String SNAPSHOT_ACTIVITY = "sidebar";
     private static final int RECALL_DIALOG_THRESHOLD = 90;
+    private static final int TILE_POPUP_THRESHOLD = 90;
+    private static final int TILE_POPUP_BACK_SETTLE_MS = 1_000;
     private static final int ROW_ICON_THRESHOLD = 88;
     private static final int ROW_ACTION_THRESHOLD = 88;
     private static final int GO_LEFT_OFFSET = 315;
@@ -66,6 +69,7 @@ public final class SidebarNavigator {
     private final ScreenStateReader screenStates;
     private final SectionReader sections;
     private final RecallConfirmationGuard recallGuard;
+    private final WorldTilePopupGuard tilePopupGuard;
     private final Waiter transitionWaiter;
     private final ProfileContextLogger log;
     private final SidebarHomeFallback homeFallback;
@@ -79,13 +83,35 @@ public final class SidebarNavigator {
         this.screenStates = this::captureScreenState;
         this.sections = this::captureSelectedSection;
         this.recallGuard = new EmulatorRecallGuard();
+        this.tilePopupGuard = new EmulatorTilePopupGuard();
         this.transitionWaiter = this::interruptibleWait;
         this.log = new ProfileContextLogger(SidebarNavigator.class, profile);
         this.homeFallback = new SidebarHomeFallback(new EmulatorScreens());
     }
 
     public boolean openSection(SidebarSection target) {
-        return homeFallback.open(() -> openSectionInternal(target));
+        return homeFallback.open(() -> openSectionPastTilePopup(target));
+    }
+
+    /**
+     * One open attempt, retried once when it ends with a World tile popup over the map.
+     *
+     * <p>The popup is either already up when the attempt starts, in which case the attempt backs
+     * out of it before the trigger tap, or it is opened during the attempt: a tab tap sent as the
+     * panel closes lands on the map and selects whatever tile is under the tab strip (the beast and
+     * player-city frames of 2026-11-13 both follow "Sidebar section selection failed"). Either way
+     * the retry starts by backing out of it, so it is spent on a clean map.
+     */
+    private boolean openSectionPastTilePopup(SidebarSection target) {
+        if (openSectionInternal(target)) {
+            return true;
+        }
+        if (!tilePopupGuard.popupOnScreen()) {
+            return false;
+        }
+        log.info("Sidebar open for " + target
+                + " ended with a World tile popup over the map; retrying once after closing it");
+        return openSectionInternal(target);
     }
 
     public SidebarRouteResult navigateTo(SidebarDestination destination) {
@@ -270,6 +296,14 @@ public final class SidebarNavigator {
                 log.warn("Refusing to tap the sidebar trigger without a Home or World anchor");
                 return false;
             }
+            // A tile popup leaves the World anchor visible, so the screen above reads as a clean
+            // root while the trigger tap would go into the popup. Close it with back first; never
+            // tap inside it, where Attack and Recall sit.
+            if (!tilePopupGuard.clear()) {
+                log.warn("World tile popup is still over the map after back; tapping nothing for "
+                        + target);
+                return false;
+            }
             int triggerTaps = 0;
             while (current.isEmpty() && triggerTaps < MAX_TRIGGER_TAPS) {
                 triggerTaps++;
@@ -448,6 +482,26 @@ public final class SidebarNavigator {
             log.warn("Recall confirmation on screen; backing out of it rather than tapping");
             emu.pressBack(device);
             interruptibleWait(SECTION_SETTLE_MS);
+        }
+    }
+
+    /** The real screen behind {@link WorldTilePopupGuard}. */
+    private final class EmulatorTilePopupGuard implements WorldTilePopupGuard {
+
+        @Override
+        public boolean popupOnScreen() {
+            RawImageData frame = emu.captureScreen(device);
+            return frame != null
+                    && emu.locatePattern(device, frame, TemplatesEnum.WORLD_TILE_POPUP_HEADER,
+                            TILE_POPUP_THRESHOLD).isFound();
+        }
+
+        @Override
+        public void pressBack() {
+            log.info("World tile popup over the map; pressing back to close it before the sidebar"
+                    + " trigger tap");
+            emu.pressBack(device);
+            interruptibleWait(TILE_POPUP_BACK_SETTLE_MS);
         }
     }
 
