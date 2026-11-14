@@ -36,6 +36,7 @@ class WinterSiegeFrameTest {
     private static final String GARRISONED = "page-garrisoned.png";
     private static final String MAP = "map.png";
     private static final String SCOUT_PAGE = "page-scout.png";
+    private static final String BATTLE_PAGE = "page-battle.png";
     private static final String SCOUT_MAP = "map-scout.png";
     private static final String CLAIMABLE = "missions-claimable.png";
     private static final String NONE_CLAIMABLE = "missions-none-claimable.png";
@@ -126,6 +127,16 @@ class WinterSiegeFrameTest {
         assertFalse(find(GARRISONED, TemplatesEnum.WINTER_SIEGE_GO_SCOUT, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
         assertFalse(find(NOT_GARRISONED, TemplatesEnum.WINTER_SIEGE_GO_SCOUT, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
         assertFalse(find(OTHER_TAB, TemplatesEnum.WINTER_SIEGE_GO_SCOUT, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+    }
+
+    @Test
+    void goBattleIsToldApartFromGoPrepareAndGoScout() throws Exception {
+        assertTrue(find(BATTLE_PAGE, TemplatesEnum.WINTER_SIEGE_GO_BATTLE, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+        assertFalse(find(BATTLE_PAGE, TemplatesEnum.WINTER_SIEGE_GO_PREPARE, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+        assertFalse(find(BATTLE_PAGE, TemplatesEnum.WINTER_SIEGE_GO_SCOUT, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+        assertFalse(find(SCOUT_PAGE, TemplatesEnum.WINTER_SIEGE_GO_BATTLE, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+        assertFalse(find(GARRISONED, TemplatesEnum.WINTER_SIEGE_GO_BATTLE, WinterSiegeRoutine.GO_PREPARE_AREA).isFound());
+        assertTrue(find(BATTLE_PAGE, TemplatesEnum.WINTER_SIEGE_TITLE, WinterSiegeRoutine.TITLE_AREA).isFound());
     }
 
     @Test
