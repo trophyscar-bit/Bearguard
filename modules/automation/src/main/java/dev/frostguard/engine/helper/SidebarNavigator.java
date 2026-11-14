@@ -50,6 +50,11 @@ public final class SidebarNavigator {
     private static final int RECALL_DIALOG_THRESHOLD = 90;
     private static final int TILE_POPUP_THRESHOLD = 90;
     private static final int TILE_POPUP_BACK_SETTLE_MS = 1_000;
+    static final int MARCH_ROW_CONTROL_THRESHOLD = 90;
+    static final TemplatesEnum[] MARCH_ROW_CONTROLS = {
+            TemplatesEnum.MARCHES_AREA_RECALL_BUTTON,
+            TemplatesEnum.MARCHES_AREA_SPEEDUP_BUTTON,
+            TemplatesEnum.MARCHES_AREA_VIEW_BUTTON};
     private static final int ROW_ICON_THRESHOLD = 88;
     private static final int ROW_ACTION_THRESHOLD = 88;
     private static final int GO_LEFT_OFFSET = 315;
@@ -74,6 +79,8 @@ public final class SidebarNavigator {
     private final ProfileContextLogger log;
     private final SidebarHomeFallback homeFallback;
     private final String dailyListingKey;
+    /** Set when the last World attempt stopped because a march row lies over the trigger. */
+    private boolean triggerCoveredByMarch;
 
     public SidebarNavigator(EmulatorController emu, String device, AccountDescriptor profile) {
         this.emu = emu;
@@ -103,10 +110,13 @@ public final class SidebarNavigator {
      * the retry starts by backing out of it, so it is spent on a clean map.
      */
     private boolean openSectionPastTilePopup(SidebarSection target) {
+        triggerCoveredByMarch = false;
         if (openSectionInternal(target)) {
             return true;
         }
-        if (!tilePopupGuard.popupOnScreen()) {
+        // A covered trigger is not retried here: tapping it again would only select the march
+        // again. The Home route takes over, where there is no Marching list.
+        if (triggerCoveredByMarch || !tilePopupGuard.popupOnScreen()) {
             return false;
         }
         log.info("Sidebar open for " + target
@@ -299,10 +309,24 @@ public final class SidebarNavigator {
             // A tile popup leaves the World anchor visible, so the screen above reads as a clean
             // root while the trigger tap would go into the popup. Close it with back first; never
             // tap inside it, where Attack and Recall sit.
-            if (!tilePopupGuard.clear()) {
-                log.warn("World tile popup is still over the map after back; tapping nothing for "
-                        + target);
-                return false;
+            ScreenState triggerState = initialState;
+            if (tilePopupGuard.popupOnScreen()) {
+                if (!tilePopupGuard.clear()) {
+                    log.warn("World tile popup is still over the map after back; tapping nothing for "
+                            + target);
+                    return false;
+                }
+                // The card can hide the Marching list's lower rows (2026-11-13 22:38 showed two of
+                // five), so judge the trigger on the screen the card uncovered.
+                triggerState = screenStates.read();
+                if (triggerState.section().isPresent() || !triggerState.rootScreen()) {
+                    log.warn("Screen changed while closing the World tile popup; tapping nothing for "
+                            + target);
+                    return false;
+                }
+            }
+            if (triggerState.triggerCovered()) {
+                return refuseCoveredTrigger(target);
             }
             int triggerTaps = 0;
             while (current.isEmpty() && triggerTaps < MAX_TRIGGER_TAPS) {
@@ -328,6 +352,9 @@ public final class SidebarNavigator {
                     log.debug("Sidebar open confirmed on retry verification without another trigger: observed="
                             + current.orElseThrow());
                     break;
+                }
+                if (retryState.triggerCovered()) {
+                    return refuseCoveredTrigger(target);
                 }
                 boolean rootScreen = retryState.rootScreen();
                 if (!shouldRetryTrigger(triggerTaps, observation, current, rootScreen)) {
@@ -392,6 +419,21 @@ public final class SidebarNavigator {
 
         log.debug("Sidebar section ready without assuming a scroll origin: " + target);
         return true;
+    }
+
+    /**
+     * Declines the trigger tap while the World Marching list's fifth row lies over it.
+     *
+     * <p>2026-11-14 01:45 (3.24.4): with five gather marches listed, both trigger taps selected the
+     * fifth march and the game opened that march's tile card, Details and Recall; back closed the
+     * card and the retry's trigger tap selected the march again. The card's Gathering Time matched
+     * the fifth row's timer in that frame and in the 2026-11-13 own-gather frames.
+     */
+    private boolean refuseCoveredTrigger(SidebarSection target) {
+        triggerCoveredByMarch = true;
+        log.info("A World Marching row lies over the sidebar trigger; not tapping it for " + target
+                + " (it would select that march and open its tile card)");
+        return false;
     }
 
     static AreaData rowActionAreaFor(ImageSearchResultData rowIcon) {
@@ -510,6 +552,11 @@ public final class SidebarNavigator {
 
         @Override
         public void recordFailedOpen() {
+            if (triggerCoveredByMarch) {
+                // Expected with five or more marches out; the frame would show nothing new.
+                log.info("Sidebar trigger is under a World Marching row; opening it from Home");
+                return;
+            }
             RawImageData frame = emu.captureScreen(device);
             if (frame == null) {
                 log.warn("Sidebar did not open and no frame could be captured for it");
@@ -563,7 +610,24 @@ public final class SidebarNavigator {
     private ScreenState captureScreenState() {
         RawImageData frame = emu.captureScreen(device);
         Optional<SidebarSection> section = selectedSection(frame);
-        return new ScreenState(section, section.isEmpty() && isRootScreen(frame));
+        boolean closed = section.isEmpty();
+        return new ScreenState(section, closed && isRootScreen(frame),
+                closed && marchRowOverTrigger(frame));
+    }
+
+    /** Whether the World Marching list shows a fifth row, whose body lies over the trigger. */
+    private boolean marchRowOverTrigger(RawImageData frame) {
+        if (frame == null) {
+            return false;
+        }
+        AreaData control = CommonGameAreas.WORLD_MARCHING_TRIGGER_ROW_CONTROL;
+        for (TemplatesEnum template : MARCH_ROW_CONTROLS) {
+            if (emu.locatePattern(device, frame, template, control.topLeft(), control.bottomRight(),
+                    MARCH_ROW_CONTROL_THRESHOLD).isFound()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isRootScreen(RawImageData frame) {
@@ -625,7 +689,12 @@ public final class SidebarNavigator {
 
     record TransitionObservation(Optional<SidebarSection> section, int checks, boolean interrupted) {}
 
-    record ScreenState(Optional<SidebarSection> section, boolean rootScreen) {}
+    record ScreenState(Optional<SidebarSection> section, boolean rootScreen, boolean triggerCovered) {
+
+        ScreenState(Optional<SidebarSection> section, boolean rootScreen) {
+            this(section, rootScreen, false);
+        }
+    }
 
     @FunctionalInterface
     interface SectionReader {

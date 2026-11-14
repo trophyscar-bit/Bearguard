@@ -165,6 +165,98 @@ class SidebarTabTapSafetyTest {
                 "Without a popup the attempt is not repeated");
     }
 
+    @Test
+    void neverTapsTheTriggerWhileAMarchRowLiesOverIt() throws Exception {
+        // 2026-11-14 01:45: five gather marches listed; every trigger tap selected the fifth march
+        // and opened its tile card with Recall, before and after back.
+        Rig rig = new Rig();
+        rig.worldRootWhileClosed();
+        rig.marchRowOverTrigger = true;
+        HomeRoute home = new HomeRoute(rig);
+        rig.put("homeFallback", new SidebarHomeFallback(home));
+        rig.onTap = point -> {
+            if (rig.sectionNow.isEmpty()) {
+                rig.sectionNow = Optional.of(SidebarSection.DAILY);
+            }
+        };
+
+        assertTrue(rig.nav.openSection(SidebarSection.DAILY));
+        assertEquals(0, home.triggerTapsOnWorld, "A trigger tap here selects the march");
+        assertTrue(home.onHome, "The panel is opened from Home, where there is no Marching list");
+        assertEquals(1, rig.tapsInside(CommonGameAreas.LEFT_MENU_TRIGGER).size(),
+                "Exactly one trigger tap, sent on Home");
+    }
+
+    @Test
+    void looksAgainForTheMarchRowOnceATileCardIsClosed() throws Exception {
+        // 2026-11-13 22:38: a tile card hid rows three to five, so the first reading saw no fifth
+        // row. Closing the card uncovers it.
+        Rig rig = new Rig();
+        TilePopup popup = new TilePopup(rig, true);
+        rig.put("tilePopupGuard", popup);
+        rig.put("screenStates", (SidebarNavigator.ScreenStateReader) () ->
+                new SidebarNavigator.ScreenState(rig.sectionNow, rig.sectionNow.isEmpty(),
+                        rig.sectionNow.isEmpty() && !popup.up));
+
+        assertFalse(rig.nav.openSection(SidebarSection.WILDERNESS));
+        assertEquals(1, popup.backPresses);
+        assertEquals(0, rig.taps.size(), "The uncovered fifth row lies over the trigger");
+    }
+
+    @Test
+    void stopsBeforeTheSecondTriggerTapWhenAMarchRowHasAppeared() throws Exception {
+        Rig rig = new Rig();
+        rig.worldRootWhileClosed();
+        // A march sets out while the first trigger tap goes unanswered.
+        rig.onTap = point -> rig.marchRowOverTrigger = true;
+
+        assertFalse(rig.nav.openSection(SidebarSection.DAILY));
+        assertEquals(1, rig.tapsInside(CommonGameAreas.LEFT_MENU_TRIGGER).size());
+    }
+
+    /** Home route of the fallback: no Marching list there, and no trigger tap counted on World. */
+    private static final class HomeRoute implements SidebarHomeFallback.Screens {
+        private final Rig rig;
+        private boolean onHome;
+        private int triggerTapsOnWorld;
+
+        private HomeRoute(Rig rig) {
+            this.rig = rig;
+            rig.tapWatch = point -> {
+                AreaData trigger = CommonGameAreas.LEFT_MENU_TRIGGER;
+                boolean triggerTap = point.getX() >= trigger.topLeft().getX()
+                        && point.getX() <= trigger.bottomRight().getX()
+                        && point.getY() >= trigger.topLeft().getY()
+                        && point.getY() <= trigger.bottomRight().getY();
+                if (triggerTap && !onHome) {
+                    triggerTapsOnWorld++;
+                }
+            };
+        }
+
+        @Override
+        public void recordFailedOpen() {
+        }
+
+        @Override
+        public boolean sidebarClosedOnWorld() {
+            return !onHome && rig.sectionNow.isEmpty();
+        }
+
+        @Override
+        public boolean switchToHome() {
+            onHome = true;
+            rig.marchRowOverTrigger = false;
+            return true;
+        }
+
+        @Override
+        public boolean switchToWorld() {
+            onHome = false;
+            return true;
+        }
+    }
+
     /** A tile popup over World that back closes, recording any tap sent while it is up. */
     private static final class TilePopup implements WorldTilePopupGuard {
         private boolean up;
@@ -216,6 +308,8 @@ class SidebarTabTapSafetyTest {
         private final SidebarNavigator nav;
         private final List<PointData> taps = new ArrayList<>();
         private Optional<SidebarSection> sectionNow = Optional.empty();
+        /** A fifth World Marching row is listed, lying over the trigger. */
+        private boolean marchRowOverTrigger;
         private Optional<SidebarSection> sectionAfterTap;
         private java.util.function.Consumer<PointData> onTap = point -> {};
         private java.util.function.Consumer<PointData> tapWatch = point -> {};
@@ -294,7 +388,8 @@ class SidebarTabTapSafetyTest {
         /** World with the sidebar closed reads as a root screen; an open panel is not. */
         private void worldRootWhileClosed() throws Exception {
             put("screenStates", (SidebarNavigator.ScreenStateReader) () ->
-                    new SidebarNavigator.ScreenState(sectionNow, sectionNow.isEmpty()));
+                    new SidebarNavigator.ScreenState(sectionNow, sectionNow.isEmpty(),
+                            sectionNow.isEmpty() && marchRowOverTrigger));
         }
 
         private void put(String name, Object value) throws Exception {

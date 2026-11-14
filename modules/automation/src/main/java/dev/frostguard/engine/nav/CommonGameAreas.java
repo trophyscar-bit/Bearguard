@@ -117,6 +117,12 @@ public final class CommonGameAreas {
     // The same list's label column. A row's label sits about ten pixels above its control.
     public static final AreaData WORLD_MARCHING_ROW_LABELS = region(40, 250, 210, 640);
 
+    // The control of the list's fifth row (centred at y=538). That row's body starts at x=9 and
+    // reaches from about y=508 to y=568, so it lies over LEFT_MENU_TRIGGER: with five or more
+    // marches listed, a trigger tap selects the fifth march instead of opening the sidebar, and
+    // the game answers with that march's tile card, which carries Recall.
+    public static final AreaData WORLD_MARCHING_TRIGGER_ROW_CONTROL = region(190, 508, 255, 568);
+
     public static final AreaData SIDEBAR_CONTENT = region(10, 300, 440, 880);
     public static final AreaData SIDEBAR_ROW_ICON_COLUMN = region(15, 300, 80, 880);
     public static final AreaData DAILY_HIDE_COMPLETED_BOX = region(388, 886, 424, 922);
