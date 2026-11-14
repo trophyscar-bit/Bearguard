@@ -33,8 +33,8 @@ import dev.frostguard.vision.convert.ImageConverter;
  * <p>Go Prepare is left alone while the page reads Garrisoned 0/2: the first Go Prepare on an account starts
  * a tutorial that locks the screen on Go Garrison, and it can only be finished by garrisoning a squad. Every
  * later phase starts a tutorial of its own on the first open of its main button, so that button is tapped only
- * when its label is one the routine knows (Go Prepare, Go Scout). Any other label is saved as a snapshot and
- * left alone.
+ * when its label is one the routine knows (Go Prepare, Go Scout, Go Battle). Any other label is saved as a
+ * snapshot and left alone.
  */
 public class WinterSiegeRoutine extends DelayedTask {
 
@@ -162,6 +162,9 @@ public class WinterSiegeRoutine extends DelayedTask {
         ImageSearchResultData mainButton = locate(TemplatesEnum.WINTER_SIEGE_GO_PREPARE, GO_PREPARE_AREA, 2);
         if (!mainButton.isFound()) {
             mainButton = locate(TemplatesEnum.WINTER_SIEGE_GO_SCOUT, GO_PREPARE_AREA, 2);
+        }
+        if (!mainButton.isFound()) {
+            mainButton = locate(TemplatesEnum.WINTER_SIEGE_GO_BATTLE, GO_PREPARE_AREA, 2);
         }
         if (!mainButton.isFound()) {
             logInfo("Winter Siege page shows a main button this routine does not know, so it is left alone; "
